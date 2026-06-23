@@ -9,6 +9,8 @@ import streamFileReducer from "./slices/streamSlice"
 import registryReducer from "./slices/registrySlice"
 import stationsReducer from "./slices/stationsSlice"
 import calendarReducer from "./slices/calendarSlice"
+import dsaReducer from "./slices/dsaSlice"
+import tasksReducer from "./slices/tasksSlice"
 
 export const store = configureStore({
   reducer: {
@@ -20,6 +22,8 @@ export const store = configureStore({
     registry: registryReducer,
     stations: stationsReducer,
     calendar: calendarReducer,
+    dsa: dsaReducer,
+    tasks: tasksReducer
   },
 });
 

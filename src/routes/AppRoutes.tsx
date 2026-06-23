@@ -15,6 +15,8 @@ import AdminUsers          from '../pages/admin/SuperAdminUsers';
 import DeptDeskGateway from './DeptDeskGateway';
 import SuperAdminRegistry from '../pages/admin/SuperAdminRegistry';
 import SuperAdminCalendar from '../pages/admin/SuperAdminCalendar';
+import SuperAdminDsa from '../pages/admin/SuperAdminDsa';
+import SuperAdminTaskM from '../pages/admin/SuperAdminTaskM';
 
 // ── Dept Head / Staff / Viewer ─────────────────────────────────────────────────
 // AdmDeskLayout/AdminDashboard/AdminDocs and FinanceLayout/FinanceDashboard are
@@ -79,6 +81,8 @@ const AppRoutes: React.FC = () => {
           <Route path="/super-admin/dashboard"   element={<SuperAdminDashboard />} />
           <Route path="/super-admin/departments" element={<SuperAdminDepts />} />
           <Route path="/super-admin/documents"   element={<SuperAdminDocuments />} />
+          <Route path="/super-admin/dsa-tracker"   element={<SuperAdminDsa />} />
+          <Route path="/super-admin/tasks"   element={<SuperAdminTaskM />} />
           <Route path="/super-admin/calendar"   element={<SuperAdminCalendar />} />
           <Route path="/super-admin/registry"   element={<SuperAdminRegistry />} />
           <Route path="/super-admin/users"       element={<AdminUsers />} />
