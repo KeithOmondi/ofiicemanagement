@@ -2,6 +2,7 @@
 import React from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import { logoutUser } from '../../store/slices/authSlice';
+import NotificationBell from '../notifications/NotificationBell';
 
 interface AdmDeskHeaderProps {
   onMenuToggle: () => void;
@@ -45,8 +46,12 @@ export const AdmDeskHeader: React.FC<AdmDeskHeaderProps> = ({ onMenuToggle }) =>
         </span>
       </div>
 
-      {/* Right — user info + logout */}
+      {/* Right — notifications + user info + logout */}
       <div className="flex items-center gap-3 lg:gap-6">
+        {/* Notification Bell */}
+        <NotificationBell />
+
+        {/* User Info */}
         <div className="flex items-center gap-2 lg:gap-3 border-r border-stone-200 pr-3 lg:pr-6 text-right">
           <div className="min-w-0">
             <p className="text-xs lg:text-sm font-semibold text-stone-900 truncate max-w-[140px] sm:max-w-xs">
@@ -61,6 +66,7 @@ export const AdmDeskHeader: React.FC<AdmDeskHeaderProps> = ({ onMenuToggle }) =>
           </div>
         </div>
 
+        {/* Logout Button */}
         <button
           type="button"
           onClick={() => dispatch(logoutUser())}

@@ -1,16 +1,17 @@
 // src/components/staff/StaffHeader.tsx
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Menu, Bell, ChevronDown, X } from 'lucide-react';
+import { Menu, ChevronDown, X } from 'lucide-react';
 import { useAppDispatch } from '../../store/hook';
 import { logoutUser } from '../../store/slices/authSlice';
+import NotificationBell from '../notifications/NotificationBell';
 
 interface StaffHeaderProps {
   onMenuToggle: () => void;
   isMenuOpen: boolean;
   userName: string;
   userRole: string;
-  notificationCount: number;
+  // notificationCount removed - NotificationBell handles this internally
 }
 
 const StaffHeader: React.FC<StaffHeaderProps> = ({
@@ -18,7 +19,6 @@ const StaffHeader: React.FC<StaffHeaderProps> = ({
   isMenuOpen,
   userName,
   userRole,
-  notificationCount,
 }) => {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
@@ -87,18 +87,8 @@ const StaffHeader: React.FC<StaffHeaderProps> = ({
 
         {/* Right section - Notifications and Profile */}
         <div className="flex items-center gap-3">
-          {/* Notifications */}
-          <button
-            className="relative p-2 rounded-lg hover:bg-stone-100 transition-colors"
-            aria-label="Notifications"
-          >
-            <Bell size={20} className="text-stone-600" />
-            {notificationCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
-                {notificationCount}
-              </span>
-            )}
-          </button>
+          {/* Notification Bell - Replaces the old Bell button */}
+          <NotificationBell />
 
           {/* Profile dropdown */}
           <div className="relative" ref={profileRef}>

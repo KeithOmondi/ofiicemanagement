@@ -17,6 +17,8 @@ import signatureReducer from "./slices/signatureSlice"
 import messagesReducer from "./slices/messagesSlice"
 import helpdeskReducer from "./slices/helpdeskSlice"
 import noticesReducer from "./slices/noticesSlice"
+import notificationsReducer from "./slices/notificationsSlice"
+import linksReducer from "./slices/linksSlice"
 
 export const store = configureStore({
   reducer: {
@@ -35,7 +37,9 @@ export const store = configureStore({
     signature: signatureReducer,
     messages: messagesReducer,
     helpdesk: helpdeskReducer,
-    notices: noticesReducer
+    notices: noticesReducer,
+    notifications: notificationsReducer,
+    links: linksReducer
   },
 });
 

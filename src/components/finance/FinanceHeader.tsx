@@ -1,6 +1,7 @@
 // src/components/finance/FinanceHeader.tsx
 import React from 'react';
 import { useAppSelector } from '../../store/hook';
+import NotificationBell from '../notifications/NotificationBell';
 
 interface FinanceHeaderProps {
   onMenuToggle: () => void;
@@ -15,7 +16,6 @@ const FinanceHeader: React.FC<FinanceHeaderProps> = ({ onMenuToggle }) => {
 
   return (
     <header className="bg-white border-b border-stone-200 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 shrink-0">
-
       {/* Left — hamburger (mobile only) + title */}
       <div className="flex items-center gap-3 min-w-0">
         {/* Hamburger — only visible on mobile where sidebar is hidden */}
@@ -41,13 +41,10 @@ const FinanceHeader: React.FC<FinanceHeaderProps> = ({ onMenuToggle }) => {
 
       {/* Right — actions */}
       <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-        <button
-          className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 transition-colors"
-          aria-label="Notifications"
-        >
-          🔔
-        </button>
+        {/* Notification Bell - Replaces the emoji bell */}
+        <NotificationBell />
 
+        {/* User Avatar */}
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full bg-[#1E4620] text-white flex items-center justify-center text-xs font-bold shrink-0">
             {initials}
