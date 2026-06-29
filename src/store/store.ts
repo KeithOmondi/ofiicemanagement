@@ -11,6 +11,12 @@ import stationsReducer from "./slices/stationsSlice"
 import calendarReducer from "./slices/calendarSlice"
 import dsaReducer from "./slices/dsaSlice"
 import tasksReducer from "./slices/tasksSlice"
+import inventoryReducer from "./slices/inventorySlice"
+import financialReducer from "./slices/financialSlice"
+import signatureReducer from "./slices/signatureSlice"
+import messagesReducer from "./slices/messagesSlice"
+import helpdeskReducer from "./slices/helpdeskSlice"
+import noticesReducer from "./slices/noticesSlice"
 
 export const store = configureStore({
   reducer: {
@@ -23,7 +29,13 @@ export const store = configureStore({
     stations: stationsReducer,
     calendar: calendarReducer,
     dsa: dsaReducer,
-    tasks: tasksReducer
+    tasks: tasksReducer,
+    inventory: inventoryReducer,
+    financial: financialReducer,
+    signature: signatureReducer,
+    messages: messagesReducer,
+    helpdesk: helpdeskReducer,
+    notices: noticesReducer
   },
 });
 

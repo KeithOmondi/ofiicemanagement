@@ -155,7 +155,7 @@ const navigationConfig: NavSection[] = [
     title: 'Help Desk',
     items: [
       { to: '/super-admin/helpdesk',      label: 'Help Desk Portal', icon: Icon.helpdesk },
-      { to: '/super-admin/team-members',  label: 'Team Members',     icon: Icon.team     },
+      { to: '/team-members',  label: 'Team Members',     icon: Icon.team     },
     ],
   },
   {
@@ -178,6 +178,18 @@ const navigationConfig: NavSection[] = [
         label:    'Settings',
         minRole:  'dept_head',
         icon:     Icon.settings,
+      },
+    ],
+  },
+
+  {
+    title: 'Signature Management',
+    items: [
+      {
+        to:                 '/super-admin/signature',
+        label:              'Signature Management',
+        requireSuperAdmin:  true,
+        icon:               Icon.users,
       },
     ],
   },

@@ -1,7 +1,11 @@
 // src/features/documents/documentSlice.ts
-import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
-import axiosClient from '../../api/api';
-import type { AxiosError } from 'axios';
+import {
+  createSlice,
+  createAsyncThunk,
+  type PayloadAction,
+} from "@reduxjs/toolkit";
+import axiosClient from "../../api/api";
+import type { AxiosError } from "axios";
 import type {
   Document,
   DocumentWithAnnotations,
@@ -14,7 +18,7 @@ import type {
   UpdateDocumentInput,
   MarkDocumentInput,
   CreateAnnotationInput,
-} from '../../types/documents.types';
+} from "../../types/documents.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -56,17 +60,20 @@ const initialState: DocumentState = {
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
 const getErrorMessage = (error: unknown): string => {
-  if (error && typeof error === 'object' && 'isAxiosError' in error) {
-    const axiosError = error as AxiosError<{ message?: string; error?: string }>;
+  if (error && typeof error === "object" && "isAxiosError" in error) {
+    const axiosError = error as AxiosError<{
+      message?: string;
+      error?: string;
+    }>;
     return (
       axiosError.response?.data?.message ||
       axiosError.response?.data?.error ||
       axiosError.message ||
-      'Request failed'
+      "Request failed"
     );
   }
   if (error instanceof Error) return error.message;
-  return 'An unknown error occurred';
+  return "An unknown error occurred";
 };
 
 // ─── Thunks ───────────────────────────────────────────────────────────────────
@@ -74,24 +81,24 @@ const getErrorMessage = (error: unknown): string => {
 // ── Fetch documents with filters (paginated) ──────────────────────────────
 
 export const fetchDocuments = createAsyncThunk(
-  'documents/fetchDocuments',
+  "documents/fetchDocuments",
   async (filters: DocumentFilters, { rejectWithValue }) => {
     try {
       const response = await axiosClient.get<{
         success: boolean;
         data: DocumentPaginationResponse;
-      }>('/documents', { params: filters });
+      }>("/documents", { params: filters });
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch single document with annotations & mark history ─────────────────
 
 export const fetchDocumentById = createAsyncThunk(
-  'documents/fetchDocumentById',
+  "documents/fetchDocumentById",
   async (id: string, { rejectWithValue }) => {
     try {
       const response = await axiosClient.get<{
@@ -102,30 +109,30 @@ export const fetchDocumentById = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch documents marked to me ────────────────────────────────────────────
 
 export const fetchMyMarked = createAsyncThunk(
-  'documents/fetchMyMarked',
+  "documents/fetchMyMarked",
   async (_, { rejectWithValue }) => {
     try {
       const response = await axiosClient.get<{
         success: boolean;
         data: Document[];
-      }>('/documents/my-marked');
+      }>("/documents/my-marked");
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch mark history for a document ─────────────────────────────────────
 
 export const fetchMarkHistory = createAsyncThunk(
-  'documents/fetchMarkHistory',
+  "documents/fetchMarkHistory",
   async (documentId: string, { rejectWithValue }) => {
     try {
       const response = await axiosClient.get<{
@@ -136,33 +143,36 @@ export const fetchMarkHistory = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Create composed (memo/letter) ───────────────────────────────────────────
 
 export const createComposedDocument = createAsyncThunk(
-  'documents/createComposed',
+  "documents/createComposed",
   async (input: CreateComposedDocumentInput, { rejectWithValue }) => {
     try {
       const response = await axiosClient.post<{
         success: boolean;
         data: Document;
-      }>('/documents/compose', input);
+      }>("/documents/compose", input);
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Create upload (with file) ──────────────────────────────────────────────
 
 export const createUploadDocument = createAsyncThunk(
-  'documents/createUpload',
-  async ({ input, file }: { input: CreateUploadDocumentInput; file: File }, { rejectWithValue }) => {
+  "documents/createUpload",
+  async (
+    { input, file }: { input: CreateUploadDocumentInput; file: File },
+    { rejectWithValue },
+  ) => {
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append("file", file);
     Object.entries(input).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
         formData.append(key, String(value));
@@ -173,21 +183,24 @@ export const createUploadDocument = createAsyncThunk(
       const response = await axiosClient.post<{
         success: boolean;
         data: Document;
-      }>('/documents/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+      }>("/documents/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
       });
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Update document ─────────────────────────────────────────────────────────
 
 export const updateDocument = createAsyncThunk(
-  'documents/updateDocument',
-  async ({ id, input }: { id: string; input: UpdateDocumentInput }, { rejectWithValue }) => {
+  "documents/updateDocument",
+  async (
+    { id, input }: { id: string; input: UpdateDocumentInput },
+    { rejectWithValue },
+  ) => {
     try {
       const response = await axiosClient.put<{
         success: boolean;
@@ -197,13 +210,13 @@ export const updateDocument = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Soft delete ─────────────────────────────────────────────────────────────
 
 export const deleteDocument = createAsyncThunk(
-  'documents/deleteDocument',
+  "documents/deleteDocument",
   async (id: string, { rejectWithValue }) => {
     try {
       await axiosClient.delete(`/documents/${id}`);
@@ -211,20 +224,31 @@ export const deleteDocument = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
-// ── Sign document ───────────────────────────────────────────────────────────
-
+// ── Sign with OTP — update existing signDocument thunk ───────────────────────
 export const signDocument = createAsyncThunk(
   'documents/signDocument',
-  async (id: string, { rejectWithValue }) => {
+  async ({ id, otp }: { id: string; otp: string }, { rejectWithValue }) => {
     try {
       const response = await axiosClient.post<{
         success: boolean;
         data: Document;
-      }>(`/documents/${id}/sign`);
+      }>(`/documents/${id}/sign`, { otp });
       return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Request OTP ───────────────────────────────────────────────────────────────
+export const requestSignOtp = createAsyncThunk(
+  'documents/requestSignOtp',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      await axiosClient.post(`/documents/${id}/request-sign-otp`);
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
@@ -234,7 +258,7 @@ export const signDocument = createAsyncThunk(
 // ── Send document ───────────────────────────────────────────────────────────
 
 export const sendDocument = createAsyncThunk(
-  'documents/sendDocument',
+  "documents/sendDocument",
   async (id: string, { rejectWithValue }) => {
     try {
       const response = await axiosClient.post<{
@@ -245,14 +269,17 @@ export const sendDocument = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Mark to Department ──────────────────────────────────────────────────────
 
 export const markDocument = createAsyncThunk(
-  'documents/markDocument',
-  async ({ id, input }: { id: string; input: MarkDocumentInput }, { rejectWithValue }) => {
+  "documents/markDocument",
+  async (
+    { id, input }: { id: string; input: MarkDocumentInput },
+    { rejectWithValue },
+  ) => {
     try {
       const response = await axiosClient.post<{
         success: boolean;
@@ -262,13 +289,13 @@ export const markDocument = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Acknowledge mark ──────────────────────────────────────────────────────
 
 export const acknowledgeMark = createAsyncThunk(
-  'documents/acknowledgeMark',
+  "documents/acknowledgeMark",
   async (id: string, { rejectWithValue }) => {
     try {
       const response = await axiosClient.post<{
@@ -279,13 +306,13 @@ export const acknowledgeMark = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Complete mark ─────────────────────────────────────────────────────────
 
 export const completeMark = createAsyncThunk(
-  'documents/completeMark',
+  "documents/completeMark",
   async (id: string, { rejectWithValue }) => {
     try {
       const response = await axiosClient.post<{
@@ -296,14 +323,17 @@ export const completeMark = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Add annotation ──────────────────────────────────────────────────────────
 
 export const addAnnotation = createAsyncThunk(
-  'documents/addAnnotation',
-  async ({ id, input }: { id: string; input: CreateAnnotationInput }, { rejectWithValue }) => {
+  "documents/addAnnotation",
+  async (
+    { id, input }: { id: string; input: CreateAnnotationInput },
+    { rejectWithValue },
+  ) => {
     try {
       const response = await axiosClient.post<{
         success: boolean;
@@ -313,27 +343,32 @@ export const addAnnotation = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Delete annotation ────────────────────────────────────────────────────────
 
 export const deleteAnnotation = createAsyncThunk(
-  'documents/deleteAnnotation',
-  async ({ documentId, annotationId }: { documentId: string; annotationId: string }, { rejectWithValue }) => {
+  "documents/deleteAnnotation",
+  async (
+    { documentId, annotationId }: { documentId: string; annotationId: string },
+    { rejectWithValue },
+  ) => {
     try {
-      await axiosClient.delete(`/documents/${documentId}/annotations/${annotationId}`);
+      await axiosClient.delete(
+        `/documents/${documentId}/annotations/${annotationId}`,
+      );
       return { documentId, annotationId };
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ─── Slice ────────────────────────────────────────────────────────────────────
 
 const documentSlice = createSlice({
-  name: 'documents',
+  name: "documents",
   initialState,
   reducers: {
     clearCurrentDocument: (state) => {
@@ -354,16 +389,19 @@ const documentSlice = createSlice({
         state.loading = true;
         state.error = null;
       })
-      .addCase(fetchDocuments.fulfilled, (state, action: PayloadAction<DocumentPaginationResponse>) => {
-        state.loading = false;
-        state.documents = action.payload.data;
-        state.pagination = {
-          total: action.payload.total,
-          page: action.payload.page,
-          limit: action.payload.limit,
-          totalPages: action.payload.totalPages,
-        };
-      })
+      .addCase(
+        fetchDocuments.fulfilled,
+        (state, action: PayloadAction<DocumentPaginationResponse>) => {
+          state.loading = false;
+          state.documents = action.payload.data;
+          state.pagination = {
+            total: action.payload.total,
+            page: action.payload.page,
+            limit: action.payload.limit,
+            totalPages: action.payload.totalPages,
+          };
+        },
+      )
       .addCase(fetchDocuments.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
@@ -374,10 +412,13 @@ const documentSlice = createSlice({
         state.loading = true;
         state.error = null;
       })
-      .addCase(fetchDocumentById.fulfilled, (state, action: PayloadAction<DocumentWithAnnotations>) => {
-        state.loading = false;
-        state.currentDocument = action.payload;
-      })
+      .addCase(
+        fetchDocumentById.fulfilled,
+        (state, action: PayloadAction<DocumentWithAnnotations>) => {
+          state.loading = false;
+          state.currentDocument = action.payload;
+        },
+      )
       .addCase(fetchDocumentById.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
@@ -388,10 +429,13 @@ const documentSlice = createSlice({
         state.loading = true;
         state.error = null;
       })
-      .addCase(fetchMyMarked.fulfilled, (state, action: PayloadAction<Document[]>) => {
-        state.loading = false;
-        state.myMarked = action.payload;
-      })
+      .addCase(
+        fetchMyMarked.fulfilled,
+        (state, action: PayloadAction<Document[]>) => {
+          state.loading = false;
+          state.myMarked = action.payload;
+        },
+      )
       .addCase(fetchMyMarked.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
@@ -402,10 +446,13 @@ const documentSlice = createSlice({
         state.loading = true;
         state.error = null;
       })
-      .addCase(fetchMarkHistory.fulfilled, (state, action: PayloadAction<DocumentMark[]>) => {
-        state.loading = false;
-        state.markHistory = action.payload;
-      })
+      .addCase(
+        fetchMarkHistory.fulfilled,
+        (state, action: PayloadAction<DocumentMark[]>) => {
+          state.loading = false;
+          state.markHistory = action.payload;
+        },
+      )
       .addCase(fetchMarkHistory.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
@@ -416,10 +463,13 @@ const documentSlice = createSlice({
         state.loading = true;
         state.error = null;
       })
-      .addCase(createComposedDocument.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.loading = false;
-        state.documents = [action.payload, ...state.documents];
-      })
+      .addCase(
+        createComposedDocument.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.loading = false;
+          state.documents = [action.payload, ...state.documents];
+        },
+      )
       .addCase(createComposedDocument.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
@@ -430,10 +480,13 @@ const documentSlice = createSlice({
         state.loading = true;
         state.error = null;
       })
-      .addCase(createUploadDocument.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.loading = false;
-        state.documents = [action.payload, ...state.documents];
-      })
+      .addCase(
+        createUploadDocument.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.loading = false;
+          state.documents = [action.payload, ...state.documents];
+        },
+      )
       .addCase(createUploadDocument.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
@@ -444,14 +497,22 @@ const documentSlice = createSlice({
         state.loading = true;
         state.error = null;
       })
-      .addCase(updateDocument.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.loading = false;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = { ...state.currentDocument, ...action.payload };
-        }
-      })
+      .addCase(
+        updateDocument.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.loading = false;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+        },
+      )
       .addCase(updateDocument.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
@@ -461,29 +522,43 @@ const documentSlice = createSlice({
       .addCase(deleteDocument.pending, (state, action) => {
         state.actionInProgress.deleting = action.meta.arg;
       })
-      .addCase(deleteDocument.fulfilled, (state, action: PayloadAction<string>) => {
-        state.documents = state.documents.filter(d => d.id !== action.payload);
-        state.actionInProgress.deleting = undefined;
-        if (state.currentDocument?.id === action.payload) {
-          state.currentDocument = null;
-        }
-      })
+      .addCase(
+        deleteDocument.fulfilled,
+        (state, action: PayloadAction<string>) => {
+          state.documents = state.documents.filter(
+            (d) => d.id !== action.payload,
+          );
+          state.actionInProgress.deleting = undefined;
+          if (state.currentDocument?.id === action.payload) {
+            state.currentDocument = null;
+          }
+        },
+      )
       .addCase(deleteDocument.rejected, (state) => {
         state.actionInProgress.deleting = undefined;
       })
 
       // ── signDocument ────────────────────────────────────────────────────────
       .addCase(signDocument.pending, (state, action) => {
-        state.actionInProgress.signing = action.meta.arg;
-      })
-      .addCase(signDocument.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.actionInProgress.signing = undefined;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = { ...state.currentDocument, ...action.payload };
-        }
-      })
+  state.actionInProgress.signing = action.meta.arg.id; // was action.meta.arg
+})
+      .addCase(
+        signDocument.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.signing = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              annotations: state.currentDocument.annotations,
+              mark_history: state.currentDocument.mark_history,
+              ...action.payload,
+            };
+          }
+        },
+      )
       .addCase(signDocument.rejected, (state) => {
         state.actionInProgress.signing = undefined;
       })
@@ -492,14 +567,22 @@ const documentSlice = createSlice({
       .addCase(sendDocument.pending, (state, action) => {
         state.actionInProgress.sending = action.meta.arg;
       })
-      .addCase(sendDocument.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.actionInProgress.sending = undefined;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = { ...state.currentDocument, ...action.payload };
-        }
-      })
+      .addCase(
+        sendDocument.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.sending = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+        },
+      )
       .addCase(sendDocument.rejected, (state) => {
         state.actionInProgress.sending = undefined;
       })
@@ -508,14 +591,22 @@ const documentSlice = createSlice({
       .addCase(markDocument.pending, (state, action) => {
         state.actionInProgress.marking = action.meta.arg.id;
       })
-      .addCase(markDocument.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.actionInProgress.marking = undefined;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = { ...state.currentDocument, ...action.payload };
-        }
-      })
+      .addCase(
+        markDocument.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.marking = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+        },
+      )
       .addCase(markDocument.rejected, (state) => {
         state.actionInProgress.marking = undefined;
       })
@@ -524,16 +615,26 @@ const documentSlice = createSlice({
       .addCase(acknowledgeMark.pending, (state, action) => {
         state.actionInProgress.acknowledging = action.meta.arg;
       })
-      .addCase(acknowledgeMark.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.actionInProgress.acknowledging = undefined;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = { ...state.currentDocument, ...action.payload };
-        }
-        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
-        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
-      })
+      .addCase(
+        acknowledgeMark.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.acknowledging = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+          const myIndex = state.myMarked.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+        },
+      )
       .addCase(acknowledgeMark.rejected, (state) => {
         state.actionInProgress.acknowledging = undefined;
       })
@@ -542,16 +643,26 @@ const documentSlice = createSlice({
       .addCase(completeMark.pending, (state, action) => {
         state.actionInProgress.completing = action.meta.arg;
       })
-      .addCase(completeMark.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.actionInProgress.completing = undefined;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = { ...state.currentDocument, ...action.payload };
-        }
-        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
-        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
-      })
+      .addCase(
+        completeMark.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.completing = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+          const myIndex = state.myMarked.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+        },
+      )
       .addCase(completeMark.rejected, (state) => {
         state.actionInProgress.completing = undefined;
       })
@@ -568,19 +679,46 @@ const documentSlice = createSlice({
       .addCase(deleteAnnotation.fulfilled, (state, action) => {
         const { documentId, annotationId } = action.payload;
         if (state.currentDocument?.id === documentId) {
-          state.currentDocument.annotations = state.currentDocument.annotations.filter(
-            a => a.id !== annotationId
-          );
+          state.currentDocument.annotations =
+            state.currentDocument.annotations.filter(
+              (a) => a.id !== annotationId,
+            );
         }
       });
   },
 });
 
-export const {
-  clearCurrentDocument,
-  clearError,
-  clearMyMarked,
-  resetState,
-} = documentSlice.actions;
+export const { clearCurrentDocument, clearError, clearMyMarked, resetState } =
+  documentSlice.actions;
+  // ── Selectors ─────────────────────────────────────────────────────────────────
+// Typed against the local slice shape so this file has no dependency on the
+// store's RootState (avoids circular imports). Adjust the key ("documents")
+// if you mount this reducer under a different slice name in the root reducer.
+
+export const selectDocuments = (state: { documents: DocumentState }) =>
+  state.documents.documents;
+
+export const selectCurrentDocument = (state: { documents: DocumentState }) =>
+  state.documents.currentDocument;
+
+export const selectMyMarked = (state: { documents: DocumentState }) =>
+  state.documents.myMarked;
+
+export const selectMarkHistory = (state: { documents: DocumentState }) =>
+  state.documents.markHistory;
+
+export const selectLoading = (state: { documents: DocumentState }) =>
+  state.documents.loading;
+
+export const selectError = (state: { documents: DocumentState }) =>
+  state.documents.error;
+
+export const selectPagination = (state: { documents: DocumentState }) =>
+  state.documents.pagination;
+
+export const selectActionInProgress = (state: { documents: DocumentState }) =>
+  state.documents.actionInProgress;
+
+export type { DocumentState };
 
 export default documentSlice.reducer;

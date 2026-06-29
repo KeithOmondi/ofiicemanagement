@@ -17,17 +17,12 @@ import SuperAdminRegistry from '../pages/admin/SuperAdminRegistry';
 import SuperAdminCalendar from '../pages/admin/SuperAdminCalendar';
 import SuperAdminDsa from '../pages/admin/SuperAdminDsa';
 import SuperAdminTaskM from '../pages/admin/SuperAdminTaskM';
-
-// ── Dept Head / Staff / Viewer ─────────────────────────────────────────────────
-// AdmDeskLayout/AdminDashboard/AdminDocs and FinanceLayout/FinanceDashboard are
-// no longer imported here directly — they're imported inside DeptDeskGateway,
-// which picks between them based on the signed-in user's department_code.
-// This is what fixes the bug where Finance dept_heads landed on AdminDashboard:
-// previously both desks were mounted on the identical path
-// "/dept/:departmentId/dashboard" in two separate <Route> blocks, and React
-// Router always resolved to whichever was declared first (Admin). Now there's
-// exactly one <Route> for that path prefix, and the desk choice happens inside
-// DeptDeskGateway instead of via route declaration order.
+import SuperAdminInventory from '../pages/admin/SuperAdminInventory';
+import SuperAdminMessages from '../pages/admin/SuperAdminMessages';
+import SuperAdminNotices from '../pages/admin/SuperAdminNotices';
+import SuperAdminFinancial from '../pages/admin/SuperAdminFinancial';
+import SuperAdminSignature from '../pages/admin/SuperAdminSignature';
+import SuperAdminHelpDesk from '../pages/admin/SuperAdminHelpDesk';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -53,8 +48,7 @@ const AppRoutes: React.FC = () => {
       case 'dept_head':
       case 'staff':
       case 'viewer':
-        // department_id drives the URL; department_code (read inside
-        // DeptDeskGateway) decides which desk renders underneath it.
+        // All non-super-admin users go to their department desk
         return user.department_id
           ? `/dept/${user.department_id}/dashboard`
           : '/unauthorized';
@@ -70,36 +64,37 @@ const AppRoutes: React.FC = () => {
       <Route path="/login"        element={<LoginPage />} />
       <Route path="/unauthorized" element={<UnauthorizedView />} />
 
-      {/* ── Root redirect ────────────────────────────────────────────────
-           Every role lands on a real route, so the catch-all never loops. */}
+      {/* ── Root redirect ──────────────────────────────────────────────── */}
       <Route path="/" element={<Navigate to={getHomeRoute()} replace />} />
 
-      {/* ── Super Admin ──────────────────────────────────────────────────
-           No department scope — super_admin sees everything.             */}
+      {/* ── Super Admin ────────────────────────────────────────────────── */}
       <Route element={<ProtectedRoutes requireSuperAdmin />}>
         <Route element={<SuperAdminLayout />}>
-          <Route path="/super-admin/dashboard"   element={<SuperAdminDashboard />} />
-          <Route path="/super-admin/departments" element={<SuperAdminDepts />} />
-          <Route path="/super-admin/documents"   element={<SuperAdminDocuments />} />
+          <Route path="/super-admin/dashboard"     element={<SuperAdminDashboard />} />
+          <Route path="/super-admin/departments"   element={<SuperAdminDepts />} />
+          <Route path="/super-admin/documents"     element={<SuperAdminDocuments />} />
+          <Route path="/super-admin/helpdesk"     element={<SuperAdminHelpDesk />} />
           <Route path="/super-admin/dsa-tracker"   element={<SuperAdminDsa />} />
-          <Route path="/super-admin/tasks"   element={<SuperAdminTaskM />} />
-          <Route path="/super-admin/calendar"   element={<SuperAdminCalendar />} />
-          <Route path="/super-admin/registry"   element={<SuperAdminRegistry />} />
-          <Route path="/super-admin/users"       element={<AdminUsers />} />
+          <Route path="/super-admin/tasks"         element={<SuperAdminTaskM />} />
+          <Route path="/super-admin/messages"      element={<SuperAdminMessages />} />
+          <Route path="/super-admin/inventory"     element={<SuperAdminInventory />} />
+          <Route path="/super-admin/calendar"      element={<SuperAdminCalendar />} />
+          <Route path="/super-admin/registry"      element={<SuperAdminRegistry />} />
+          <Route path="/super-admin/users"         element={<AdminUsers />} />
+          <Route path="/super-admin/finance"         element={<SuperAdminFinancial />} />
+          <Route path="/super-admin/notices"         element={<SuperAdminNotices />} />
+          <Route path="/super-admin/signature"         element={<SuperAdminSignature />} />
         </Route>
       </Route>
 
       {/* ── Dept Head / Staff / Viewer ───────────────────────────────────
-           Single mount point at /dept/:departmentId/* — DeptDeskGateway
-           resolves user.department_code and renders whichever desk
-           (Admin, Finance, ...) that department maps to, with its own
-           nested layout + routes underneath. */}
+           All non-super-admin users go through DeptDeskGateway which
+           determines which desk to show based on role and department. */}
       <Route element={<ProtectedRoutes minRole="staff" />}>
         <Route path="/dept/:departmentId/*" element={<DeptDeskGateway />} />
       </Route>
 
-      {/* ── Catch-all ────────────────────────────────────────────────────
-           Unknown paths → root → getHomeRoute() → a real destination.  */}
+      {/* ── Catch-all ──────────────────────────────────────────────────── */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

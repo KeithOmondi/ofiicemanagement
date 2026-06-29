@@ -12,6 +12,7 @@ import {
   createComposedDocument,
   createUploadDocument,
   clearError,
+  requestSignOtp,
 } from "../../store/slices/documentSlice";
 import { hasRole } from "../../store/slices/authSlice";
 import { fetchUsers, selectAllUsers, selectUsersListLoading } from "../../store/slices/userSlice";
@@ -84,12 +85,19 @@ const formatFileSize = (bytes: number | null): string => {
   return kb < 1024 ? `${Math.round(kb)}KB` : `${(kb / 1024).toFixed(1)}MB`;
 };
 
+// ─── Toast ────────────────────────────────────────────────────────────────────
+
+interface ToastState {
+  type: "success" | "error";
+  message: string;
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const SuperAdminDocuments: React.FC = () => {
-  const dispatch   = useAppDispatch();
-  const { user }   = useAppSelector((state) => state.auth);
-  const { documents, loading, error, pagination } = useAppSelector((state) => state.documents);
+  const dispatch = useAppDispatch();
+  const { user } = useAppSelector((state) => state.auth);
+  const { documents, loading, error, pagination, actionInProgress } = useAppSelector((state) => state.documents);
 
   const [activeTab,        setActiveTab]        = useState<"all" | "my_action" | "judgments" | "rulings">("all");
   const [activeChip,       setActiveChip]       = useState<string | null>(null);
@@ -98,11 +106,21 @@ const SuperAdminDocuments: React.FC = () => {
   const [showDraftsMenu,   setShowDraftsMenu]   = useState(false);
   const [showMarkModal,    setShowMarkModal]    = useState(false);
   const [showUploadModal,  setShowUploadModal]  = useState(false);
+  const [signToast,        setSignToast]        = useState<ToastState | null>(null);
+
+  // ── OTP modal state ────────────────────────────────────────────────────────
+  const [showOtpModal,  setShowOtpModal]  = useState(false);
+  const [otpValue,      setOtpValue]      = useState("");
+  const [otpLoading,    setOtpLoading]    = useState(false);
+  const [otpError,      setOtpError]      = useState<string | null>(null);
+  const [signingDocId,  setSigningDocId]  = useState<string | null>(null);
+
   const draftsRef = useRef<HTMLDivElement>(null);
 
-  const canUpload = hasRole(user, "staff");
-  const canAdmin  = hasRole(user, "dept_head");
-  const canView   = !!user;
+  const canUpload    = hasRole(user, "staff");
+  const canAdmin     = hasRole(user, "dept_head");
+  const isSuperAdmin = hasRole(user, "super_admin");
+  const canView      = !!user;
 
   // Close drafts menu on outside click
   useEffect(() => {
@@ -154,10 +172,58 @@ const SuperAdminDocuments: React.FC = () => {
   // ── Actions ────────────────────────────────────────────────────────────────
 
   const handleDelete      = (id: string) => { if (window.confirm("Delete this document?")) dispatch(deleteDocument(id)); };
-  const handleSign        = (id: string) => dispatch(signDocument(id));
   const handleSend        = (id: string) => dispatch(sendDocument(id));
   const handleAcknowledge = (id: string) => dispatch(acknowledgeMark(id));
   const handleComplete    = (id: string) => dispatch(completeMark(id));
+
+  // ── Step 1: E-Sign clicked → request OTP ──────────────────────────────────
+
+  const handleSign = async (id: string) => {
+    setOtpError(null);
+    setOtpValue("");
+    setSigningDocId(id);
+    setOtpLoading(true);
+
+    const otpResult = await dispatch(requestSignOtp(id));
+    setOtpLoading(false);
+
+    if (requestSignOtp.fulfilled.match(otpResult)) {
+      setShowOtpModal(true);
+    } else {
+      setSignToast({
+        type: "error",
+        message: (otpResult.payload as string) ?? "Failed to send OTP. Please try again.",
+      });
+      setTimeout(() => setSignToast(null), 4000);
+    }
+  };
+
+  // ── Step 2: OTP submitted → sign document ─────────────────────────────────
+
+  const handleOtpSubmit = async () => {
+    if (!signingDocId || !otpValue.trim()) return;
+    setOtpError(null);
+
+    const result = await dispatch(signDocument({ id: signingDocId, otp: otpValue.trim() }));
+
+    if (signDocument.fulfilled.match(result)) {
+      setShowOtpModal(false);
+      setOtpValue("");
+      setSigningDocId(null);
+      setSignToast({ type: "success", message: "Document signed successfully." });
+      setSelectedDocument(result.payload as Document);
+      setTimeout(() => setSignToast(null), 4000);
+    } else {
+      setOtpError((result.payload as string) ?? "Invalid OTP. Please try again.");
+    }
+  };
+
+  const handleOtpCancel = () => {
+    setShowOtpModal(false);
+    setOtpValue("");
+    setOtpError(null);
+    setSigningDocId(null);
+  };
 
   const handleMark = (id: string, data: { departmentId: string; userId: string; instructions: string; priority: string }) => {
     dispatch(markDocument({
@@ -196,8 +262,22 @@ const SuperAdminDocuments: React.FC = () => {
 
   const chips = ["Correspondence", "Orders", "Drafts"];
 
+  // isSigning is true while the OTP modal signing action is in flight
+  const isSigningInProgress = !!actionInProgress.signing;
+
   return (
     <div className="flex flex-col h-full">
+
+      {/* ── Toast ───────────────────────────────────────────────────────── */}
+      {signToast && (
+        <div className={`fixed bottom-4 right-4 z-50 flex items-center gap-2.5 rounded-lg px-4 py-3 text-sm font-medium shadow-lg transition-all ${
+          signToast.type === "success" ? "bg-emerald-600 text-white" : "bg-red-600 text-white"
+        }`}>
+          <span>{signToast.type === "success" ? "✅" : "❌"}</span>
+          <span>{signToast.message}</span>
+          <button onClick={() => setSignToast(null)} className="ml-2 text-white/70 hover:text-white text-xs">✕</button>
+        </div>
+      )}
 
       {/* ── Page Header ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b border-stone-200 bg-white flex-wrap">
@@ -282,7 +362,6 @@ const SuperAdminDocuments: React.FC = () => {
             selectedDocument ? "hidden lg:flex" : "flex"
           }`}
         >
-
           {/* Search */}
           <div className="px-4 pt-4 pb-2">
             <div className="relative">
@@ -392,7 +471,8 @@ const SuperAdminDocuments: React.FC = () => {
               document={selectedDocument}
               onBack={() => setSelectedDocument(null)}
               onDelete={canAdmin ? () => handleDelete(selectedDocument.id) : undefined}
-              onSign={canAdmin && !selectedDocument.is_signed ? () => handleSign(selectedDocument.id) : undefined}
+              onSign={isSuperAdmin && !selectedDocument.is_signed ? () => handleSign(selectedDocument.id) : undefined}
+              isSigning={otpLoading || actionInProgress.signing === selectedDocument.id}
               onSend={canAdmin && !selectedDocument.is_sent && selectedDocument.is_signed ? () => handleSend(selectedDocument.id) : undefined}
               onMark={canAdmin && selectedDocument.status !== "filed" ? () => setShowMarkModal(true) : undefined}
               onAcknowledge={selectedDocument.status === "marked" && selectedDocument.assigned_to === user?.id ? () => handleAcknowledge(selectedDocument.id) : undefined}
@@ -410,6 +490,98 @@ const SuperAdminDocuments: React.FC = () => {
       )}
       {showUploadModal && (
         <UploadModal onClose={() => setShowUploadModal(false)} onUpload={handleCreateUpload} />
+      )}
+
+      {/* ── OTP Modal ────────────────────────────────────────────────── */}
+      {showOtpModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-5">
+              <div className="h-9 w-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <svg className="h-4 w-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-stone-900">Confirm E-Signature</h3>
+                <p className="text-xs text-stone-400 mt-0.5">Enter the OTP sent to your email</p>
+              </div>
+            </div>
+
+            {/* OTP input */}
+            <div className="mb-4">
+              <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-2">
+                One-Time PIN
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={otpValue}
+                onChange={(e) => {
+                  setOtpError(null);
+                  setOtpValue(e.target.value.replace(/\D/g, "").slice(0, 6));
+                }}
+                onKeyDown={(e) => e.key === "Enter" && otpValue.length === 6 && !isSigningInProgress && handleOtpSubmit()}
+                placeholder="● ● ● ● ● ●"
+                className="w-full rounded-lg border border-stone-200 px-4 py-3 text-center text-xl font-bold tracking-[0.5em] text-stone-900 focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
+                autoFocus
+              />
+              <p className="text-[10px] text-stone-400 mt-1.5 text-center">OTP expires in 5 minutes</p>
+            </div>
+
+            {/* Error */}
+            {otpError && (
+              <div className="mb-4 flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+                <svg className="h-3.5 w-3.5 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-xs text-red-700">{otpError}</p>
+              </div>
+            )}
+
+            {/* Resend */}
+            <p className="text-[10px] text-stone-400 text-center mb-5">
+              Didn't receive it?{" "}
+              <button
+                onClick={() => signingDocId && handleSign(signingDocId)}
+                disabled={otpLoading || isSigningInProgress}
+                className="text-[#1E4620] font-semibold hover:underline disabled:opacity-50"
+              >
+                {otpLoading ? "Sending…" : "Resend OTP"}
+              </button>
+            </p>
+
+            {/* Actions */}
+            <div className="flex gap-2">
+              <button
+                onClick={handleOtpCancel}
+                disabled={isSigningInProgress}
+                className="flex-1 rounded-lg border border-stone-300 px-4 py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleOtpSubmit}
+                disabled={otpValue.length !== 6 || isSigningInProgress}
+                className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+              >
+                {isSigningInProgress ? (
+                  <>
+                    <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Signing…
+                  </>
+                ) : "Confirm & Sign"}
+              </button>
+            </div>
+
+          </div>
+        </div>
       )}
     </div>
   );
@@ -506,6 +678,7 @@ interface DocumentEditorProps {
   onBack: () => void;
   onDelete?: () => void;
   onSign?: () => void;
+  isSigning?: boolean;
   onSend?: () => void;
   onMark?: () => void;
   onAcknowledge?: () => void;
@@ -513,7 +686,7 @@ interface DocumentEditorProps {
 }
 
 const DocumentEditor: React.FC<DocumentEditorProps> = ({
-  document, onBack, onDelete, onSign, onSend, onMark, onAcknowledge, onComplete,
+  document, onBack, onDelete, onSign, isSigning = false, onSend, onMark, onAcknowledge, onComplete,
 }) => {
   const isComposed = document.type === "memo" || document.type === "letter";
   const formattedDate = document.created_at ? format(new Date(document.created_at), "dd MMM yyyy") : "—";
@@ -560,14 +733,28 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
               Complete
             </button>
           )}
+
+          {/* E-Sign — super_admin only, triggers OTP flow */}
           {onSign && (
-            <button onClick={onSign} className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors whitespace-nowrap">
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
-              E-Sign
+            <button
+              onClick={onSign}
+              disabled={isSigning}
+              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSigning ? (
+                <svg className="h-3 w-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+              )}
+              {isSigning ? "Sending OTP…" : "E-Sign"}
             </button>
           )}
+
           {onSend && (
             <button onClick={onSend} className="hidden sm:inline-flex items-center gap-1 rounded-md bg-[#1E4620] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap">
               <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -669,10 +856,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         <div className="mx-auto max-w-[794px] w-full min-h-[600px] sm:min-h-[900px] bg-white shadow-sm rounded-sm">
           {isComposed ? (
             document.body ? (
-              <div
-                className="w-full h-full"
-                dangerouslySetInnerHTML={{ __html: document.body }}
-              />
+              <div className="w-full h-full" dangerouslySetInnerHTML={{ __html: document.body }} />
             ) : (
               <DocumentFallback document={document} />
             )
@@ -685,13 +869,25 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       {/* ── Sign status bar ────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-2 bg-white border-t border-stone-100 px-3 sm:px-4 py-1.5 flex-shrink-0 flex-wrap">
         <span className="text-[10px] text-stone-400 whitespace-nowrap">
-          {document.is_signed ? "✅ Signed" : "Not signed"}
+          {document.is_signed
+            ? `✅ Signed${document.signed_by_name ? ` · ${document.signed_by_name}` : ""}`
+            : "Not signed"}
         </span>
         <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto">
           <button className="text-[10px] text-stone-400 hover:text-stone-600 transition-colors whitespace-nowrap">🖨 Print</button>
           {onSign && (
-            <button onClick={onSign} className="rounded bg-[#C29B38] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#a8832e] transition-colors whitespace-nowrap">
-              E-Sign
+            <button
+              onClick={onSign}
+              disabled={isSigning}
+              className="inline-flex items-center gap-1 rounded bg-[#C29B38] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#a8832e] transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSigning ? (
+                <svg className="h-2.5 w-2.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : null}
+              {isSigning ? "Sending OTP…" : "E-Sign"}
             </button>
           )}
           {onSend && (
@@ -865,6 +1061,7 @@ const MarkModal: React.FC<MarkModalProps> = ({ document: doc, onClose, onMark })
 
   const departments        = useAppSelector(selectAllDepartments);
   const departmentsLoading = useAppSelector(selectDepartmentsListLoading);
+  const teamMembers        = useAppSelector(selectAllUsers);
   const usersLoading       = useAppSelector(selectUsersListLoading);
 
   const [userId,       setUserId]       = useState("");
@@ -872,21 +1069,32 @@ const MarkModal: React.FC<MarkModalProps> = ({ document: doc, onClose, onMark })
   const [instructions, setInstructions] = useState("");
   const [priority,     setPriority]     = useState("normal");
 
-  // Load departments + users once when the modal opens
+  // Departments are fetched once on mount — full list, populated into the dropdown.
   useEffect(() => {
     dispatch(fetchDepartments({ is_active: true }));
-    dispatch(fetchUsers({ is_active: true, limit: 1000, sort_by: "full_name", sort_order: "ASC" }));
   }, [dispatch]);
 
-  const activeDepartments = departments.filter((d) => d.is_active);
-  
-  // Get users for the selected department
-  const teamMembers = useAppSelector((state) => {
-    if (!deptId) return [];
-    return selectAllUsers(state).filter((u) => u.is_active && u.department_id === deptId);
-  });
+  // Users are fetched scoped to the selected department directly via the
+  // `department_id` query param — every time `deptId` changes. Doing a single
+  // bulk `fetchUsers({ limit: 1000 })` on mount and then filtering client-side
+  // by `u.department_id === deptId` was the bug: the backend's default page
+  // size silently truncated the "all users" response regardless of the limit
+  // requested, and/or department_id on individual user records didn't line
+  // up cleanly with the department's primary key in every case. Asking the
+  // backend to filter by department directly sidesteps both problems.
+  useEffect(() => {
+    if (!deptId) return;
+    dispatch(fetchUsers({
+      is_active: true,
+      department_id: deptId,
+      limit: 1000,
+      sort_by: "full_name",
+      sort_order: "ASC",
+    }));
+  }, [dispatch, deptId]);
 
-  // Department changed → clear the selected member
+  const activeDepartments = departments.filter((d) => d.is_active);
+
   const handleDeptChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     setDeptId(e.target.value);
     setUserId("");
