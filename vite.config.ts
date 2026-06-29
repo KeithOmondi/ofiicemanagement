@@ -9,7 +9,8 @@ export default defineConfig({
     tailwindcss(),
   ],
   // Allow importing HTML files as raw strings
-  assetsInclude: ['**/*.html'],
+  // Only treat HTML files in a specific folder as assets
+assetsInclude: ['**/templates/**/*.html'],
   // Optional: Configure server to serve static files
   server: {
     // This allows the dev server to serve files from the templates folder
