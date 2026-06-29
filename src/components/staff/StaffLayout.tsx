@@ -51,12 +51,11 @@ const StaffLayout: React.FC<StaffLayoutProps> = ({ children }) => {
     <div className="min-h-screen bg-stone-50">
       {/* Header */}
       <StaffHeader
-        onMenuToggle={toggleSidebar}
-        isMenuOpen={isSidebarOpen}
-        userName={user?.full_name || "Staff Member"}
-        userRole={user?.role || "Staff"}
-        notificationCount={3}
-      />
+  onMenuToggle={toggleSidebar}
+  isMenuOpen={isSidebarOpen}
+  userName={user?.full_name || "Staff Member"}
+  userRole={user?.role || "Staff"}
+/>
 
       {/* Main Content Area */}
       <div className="flex">
