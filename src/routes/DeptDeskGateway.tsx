@@ -19,7 +19,6 @@ import FinanceInventory from '../pages/finance/FinanceInventory';
 import FinanceMessages from '../pages/finance/FinanceMessages';
 
 import PDashboard from '../pages/procurement/PDashboard';
-import PInventory from '../pages/procurement/PInventory';
 import PLayout from '../components/Procurement/PLayout';
 
 // ─── Staff views ──────────────────────────────────────────────────────────────
@@ -40,6 +39,17 @@ import HelpdeskTasks from '../pages/helpdesk/HelpdeskTasks';
 import HelpdeskInventory from '../pages/helpdesk/HelpdeskInventory';
 import StaffNotices from '../pages/staff/StaffNotices';
 import StaffDocuments from '../pages/staff/StaffDocuments';
+import StaffClendar from '../pages/staff/StaffClendar';
+import StaffTasks from '../pages/staff/StaffTasks';
+import StaffSettings from '../pages/staff/StaffSettings';
+import FinanceSettings from '../pages/finance/FinanceSettings';
+import ProcurementMessages from '../pages/procurement/ProcurementMessages';
+import ProcurementNotices from '../pages/procurement/ProcurementNotices';
+import PInventory from '../pages/procurement/PInventory';
+import ProcurementSettings from '../pages/procurement/ProcurementSettings';
+import ProcurementReports from '../pages/procurement/ProcurementReports';
+import ProcurementCalendar from '../pages/procurement/ProcurementCalendar';
+import ProcurementTasks from '../pages/procurement/ProcurementTasks';
 
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
@@ -121,6 +131,9 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="messages" element={<StaffMeesages />} />
           <Route path="notices" element={<StaffNotices />} />
           <Route path="documents" element={<StaffDocuments />} />
+          <Route path="calendar" element={<StaffClendar />} />
+          <Route path="tasks" element={<StaffTasks />} />
+          <Route path="settings" element={<StaffSettings />} />
         </Route>
         <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
       </Routes>
@@ -139,6 +152,7 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="transactions" element={<FinanceTransactions />} />
           <Route path="payments" element={<FinancePayments />} />
           <Route path="expenses" element={<FinanceExpenses />} />
+          <Route path="settings" element={<FinanceSettings />} />
         </Route>
         <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
       </Routes>
@@ -173,13 +187,12 @@ if (deskKey === 'helpdesk') {
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<PDashboard />} />
           <Route path="inventory" element={<PInventory />} />
-          <Route path="purchases" element={<div>Purchases Page</div>} />
-          <Route path="orders" element={<div>Purchase Orders Page</div>} />
-          <Route path="suppliers" element={<div>Suppliers Page</div>} />
-          <Route path="tenders" element={<div>Tenders Page</div>} />
-          <Route path="reports" element={<div>Reports Page</div>} />
-          <Route path="messages" element={<div>Messages Page</div>} />
-          <Route path="notices" element={<div>Notices Page</div>} />
+          <Route path="messages" element={<ProcurementMessages />} />
+          <Route path="notices" element={<ProcurementNotices />} />
+          <Route path="settings" element={<ProcurementSettings />} />
+          <Route path="reports" element={<ProcurementReports />} />
+          <Route path="calendar" element={<ProcurementCalendar />} />
+          <Route path="tasks" element={<ProcurementTasks />} />
         </Route>
         <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
       </Routes>

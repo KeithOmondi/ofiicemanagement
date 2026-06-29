@@ -82,26 +82,34 @@ const navigationConfig: NavSection[] = [
     ],
   },
   {
+    title: 'Procurement',
+    items: [
+      { to: 'inventory', label: 'Inventory Management', icon: Icon.inventory },
+      { to: 'reports', label: 'Report', icon: Icon.suppliers },
+    ],
+  },
+  {
     title: 'Communication',
     items: [
       { to: 'messages', label: 'Messages', icon: Icon.messages },
       { to: 'notices', label: 'Notices & Broadcasts', icon: Icon.notices },
     ],
   },
+
   {
-    title: 'Procurement',
+    title: 'Planning',
     items: [
-      { to: 'inventory', label: 'Inventory Management', icon: Icon.inventory },
-      { to: 'purchases', label: 'Purchases', icon: Icon.purchases },
-      { to: 'orders', label: 'Purchase Orders', icon: Icon.orders },
-      { to: 'suppliers', label: 'Suppliers', icon: Icon.suppliers },
+      { to: 'calendar', label: 'Calendar', icon: Icon.messages },
+      { to: 'tasks', label: 'Task Management', icon: Icon.notices },
     ],
   },
+
+  
+  
   {
-    title: 'Tenders & Bids',
+    title: 'Settings',
     items: [
-      { to: 'tenders', label: 'Tenders', icon: Icon.tenders },
-      { to: 'reports', label: 'Reports', icon: Icon.reports },
+      { to: 'settings', label: 'Settings', icon: Icon.tenders },
     ],
   },
 ];

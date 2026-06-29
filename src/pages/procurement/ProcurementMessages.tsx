@@ -525,7 +525,7 @@ const UserList: React.FC<UserListProps> = ({
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 
-const FinanceMessages: React.FC = () => {
+const ProcurementMessages: React.FC = () => {
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
   const { isConnected, sendMessage: sendSocketMessage } = useSocket();
@@ -888,4 +888,4 @@ const MessageIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-export default FinanceMessages;
+export default ProcurementMessages;

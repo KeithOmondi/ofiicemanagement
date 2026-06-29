@@ -1087,7 +1087,7 @@ const MarkModal: React.FC<MarkModalProps> = ({ document: doc, onClose, onMark })
     dispatch(fetchUsers({
       is_active: true,
       department_id: deptId,
-      limit: 1000,
+      limit: 100,
       sort_by: "full_name",
       sort_order: "ASC",
     }));

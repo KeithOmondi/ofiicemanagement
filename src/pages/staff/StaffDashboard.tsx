@@ -1,573 +1,482 @@
-// src/pages/staff/StaffDashboard.tsx
-import { useState } from 'react';
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
-  FileText,
+  Calendar,
   Clock,
-  CheckCircle2,
-  AlertCircle,
-  ArrowUpRight,
-  Package,
-  Users,
-  Folder,
+  FileText,
+  Inbox,
   Bell,
-  Mail,
-  Phone,
-  MoreVertical,
+  Package,
+  ListTodo,
+  ArrowRight,
+  TrendingUp,
+  AlertTriangle,
 } from 'lucide-react';
 
-/* ─── DUMMY DATA ──────────────────────────────────────────────────────────── */
+// ── Slice imports ─────────────────────────────────────────────────────────────
+import {
+  fetchMyMarked,
+  selectMyMarked,
+  selectLoading as selectDocLoading,
+} from '../../store/slices/documentSlice';
+import {
+  fetchTaskStats,
+  fetchStandaloneTasks,
+  selectTaskStats,
+  selectStandaloneTasks,
+  selectTasksLoading,
+} from '../../store/slices/tasksSlice';
+import {
+  fetchUnreadCount as fetchMessagesUnread,
+  selectUnreadCount as selectMessagesUnread,
+  selectMessagesLoading,
+} from '../../store/slices/messagesSlice';
+import {
+  fetchUnreadCount as fetchNoticesUnread,
+  selectUnreadCount as selectNoticesUnread,
+  selectNoticesLoading,
+} from '../../store/slices/noticesSlice';
+import {
+  fetchUpcomingEvents,
+  selectUpcomingEvents,
+  selectCalendarUpcomingLoading,
+} from '../../store/slices/calendarSlice';
+import {
+  fetchInventoryStats,
+  selectInventoryStats,
+  selectInventoryStatsLoading,
+} from '../../store/slices/inventorySlice';
 
-// Dummy user data
-const dummyUser = {
-  name: 'John Doe',
-  email: 'john.doe@court.go.ke',
-  pjNumber: 'PJ1001',
-  role: 'Staff',
-  department: 'Judges Help Desk',
-  departmentId: 'dept_001',
-  phone: '+254 712 345 678',
-  joinedDate: '2024-01-15',
+// ── Auth selector for user name ───────────────────────────────────────────────
+import { selectCurrentUser } from '../../store/slices/userSlice';
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+import type { Task } from '../../store/slices/tasksSlice';
+import type { Document } from '../../types/documents.types';
+import type { CalendarEvent } from '../../types/calendar.types';
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const timeGreeting = (): string => {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
 };
 
-// Dummy folder/assignment data
-const dummyFolders = [
-  {
-    id: 'folder_001',
-    objectiveTitle: 'Case File Management System',
-    perspective: 'Core Business / Mandate',
-    totalIndicators: 12,
-    completed: 7,
-    pending: 3,
-    overdue: 2,
-    assignedAt: '2024-06-01',
-  },
-  {
-    id: 'folder_002',
-    objectiveTitle: 'Court Registry Efficiency',
-    perspective: 'Internal Process',
-    totalIndicators: 8,
-    completed: 5,
-    pending: 2,
-    overdue: 1,
-    assignedAt: '2024-06-05',
-  },
-  {
-    id: 'folder_003',
-    objectiveTitle: 'Customer Service Excellence',
-    perspective: 'Customer Perspective',
-    totalIndicators: 6,
-    completed: 3,
-    pending: 3,
-    overdue: 0,
-    assignedAt: '2024-06-10',
-  },
-  {
-    id: 'folder_004',
-    objectiveTitle: 'Staff Training & Development',
-    perspective: 'Innovation & Learning',
-    totalIndicators: 5,
-    completed: 2,
-    pending: 2,
-    overdue: 1,
-    assignedAt: '2024-06-15',
-  },
-];
+const priorityClasses: Record<string, string> = {
+  urgent: 'bg-red-50 text-red-700 border border-red-200',
+  high:   'bg-orange-50 text-orange-700 border border-orange-200',
+  medium: 'bg-amber-50 text-amber-700 border border-amber-200',
+  low:    'bg-blue-50 text-blue-700 border border-blue-200',
+};
 
-// Dummy recent activities
-const dummyActivities = [
-  {
-    id: 'act_001',
-    title: 'Submitted evidence for Case File Management',
-    status: 'Pending Review',
-    date: '2024-06-22T14:30:00',
-    type: 'submission',
-  },
-  {
-    id: 'act_002',
-    title: 'Updated progress on Court Registry Efficiency',
-    status: 'Completed',
-    date: '2024-06-21T10:15:00',
-    type: 'update',
-  },
-  {
-    id: 'act_003',
-    title: 'New feedback received on Customer Service',
-    status: 'Action Required',
-    date: '2024-06-20T16:45:00',
-    type: 'feedback',
-  },
-  {
-    id: 'act_004',
-    title: 'Training module completed',
-    status: 'Completed',
-    date: '2024-06-19T09:00:00',
-    type: 'training',
-  },
-  {
-    id: 'act_005',
-    title: 'Overdue: Staff Training documentation',
-    status: 'Overdue',
-    date: '2024-06-18T11:30:00',
-    type: 'overdue',
-  },
-];
+const statusClasses: Record<string, string> = {
+  pending_review: 'bg-yellow-100 text-yellow-800',
+  in_progress:    'bg-blue-100 text-blue-800',
+  completed:      'bg-emerald-100 text-emerald-800',
+  draft:          'bg-stone-100 text-stone-600',
+};
 
-// Dummy notifications
-const dummyNotifications = [
-  {
-    id: 'notif_001',
-    title: 'New task assigned',
-    message: 'You have been assigned to review Case File Management System',
-    time: '2 hours ago',
-    read: false,
-    priority: 'high',
-  },
-  {
-    id: 'notif_002',
-    title: 'Submission approved',
-    message: 'Your evidence submission for Court Registry Efficiency has been approved',
-    time: '5 hours ago',
-    read: false,
-    priority: 'medium',
-  },
-  {
-    id: 'notif_003',
-    title: 'Overdue reminder',
-    message: 'Staff Training documentation is overdue by 2 days',
-    time: '1 day ago',
-    read: true,
-    priority: 'high',
-  },
-  {
-    id: 'notif_004',
-    title: 'New feedback received',
-    message: 'Feedback on Customer Service Excellence is available for review',
-    time: '2 days ago',
-    read: true,
-    priority: 'low',
-  },
-];
+const fmt = (dateStr: string) =>
+  new Date(dateStr).toLocaleDateString('en-KE', {
+    day: '2-digit',
+    month: 'short',
+  });
 
-/* ─── STAT CARD ──────────────────────────────────────────────────────────── */
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 interface StatCardProps {
+  icon: React.ComponentType<{ size?: number; className?: string }>;
   label: string;
   value: number;
-  icon: React.ElementType;
-  color: string;
-  bgColor: string;
-  trend?: number;
+  subtext: string;
+  accent: string;   // Tailwind bg class for icon pill
+  textAccent: string; // Tailwind text class for value
+  to: string;
 }
 
-const StatCard = ({ label, value, icon: Icon, color, bgColor, trend }: StatCardProps) => (
-  <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm hover:shadow-md transition-all">
-    <div className="flex justify-between items-start">
+const StatCard = ({ icon: Icon, label, value, subtext, accent, textAccent, to }: StatCardProps) => (
+  <Link
+    to={to}
+    className="group relative overflow-hidden rounded-xl border border-stone-200 bg-white p-5 transition hover:shadow-md hover:border-stone-300"
+  >
+    <div className="flex items-start justify-between">
       <div>
-        <p className="text-3xl font-serif font-bold" style={{ color }}>
-          {value}
-        </p>
-        <p className="text-[9px] font-black uppercase text-stone-400 tracking-wider mt-2">
-          {label}
-        </p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">{label}</p>
+        <p className={`mt-1.5 text-3xl font-bold ${textAccent}`}>{value}</p>
+        <p className="mt-1 text-xs text-stone-400">{subtext}</p>
       </div>
-      <div className={`p-3 rounded-xl ${bgColor}`}>
-        <Icon size={20} className={color} />
+      <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${accent} transition group-hover:scale-105`}>
+        <Icon size={18} />
       </div>
     </div>
-    {trend !== undefined && (
-      <div className="mt-3 flex items-center gap-1">
-        <span className={`text-[10px] font-bold ${trend >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-          {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}%
-        </span>
-        <span className="text-[10px] text-stone-400">from last month</span>
-      </div>
-    )}
-  </div>
+    {/* Gold bottom accent line */}
+    <div className="absolute bottom-0 left-0 h-0.5 w-0 bg-[#c9a84c] transition-all duration-300 group-hover:w-full" />
+  </Link>
 );
 
-/* ─── RECENT ACTIVITY ITEM ──────────────────────────────────────────────────── */
-
-interface ActivityItemProps {
-  activity: typeof dummyActivities[0];
+interface PanelProps {
+  title: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  viewAllLink?: string;
+  children: React.ReactNode;
 }
 
-const ActivityItem = ({ activity }: ActivityItemProps) => {
-  const getStatusColor = (status: string) => {
-    const map: Record<string, string> = {
-      'Pending Review': 'bg-amber-100 text-amber-700 border-amber-200',
-      'Completed': 'bg-emerald-100 text-emerald-700 border-emerald-200',
-      'Action Required': 'bg-blue-100 text-blue-700 border-blue-200',
-      'Overdue': 'bg-red-100 text-red-700 border-red-200',
-    };
-    return map[status] || 'bg-stone-100 text-stone-700 border-stone-200';
-  };
-
-  const getStatusIcon = (status: string) => {
-    const map: Record<string, React.ReactNode> = {
-      'Pending Review': <Clock size={12} />,
-      'Completed': <CheckCircle2 size={12} />,
-      'Action Required': <AlertCircle size={12} />,
-      'Overdue': <AlertCircle size={12} />,
-    };
-    return map[status] || <FileText size={12} />;
-  };
-
-  return (
-    <div className="flex items-start gap-3 p-3 rounded-xl hover:bg-stone-50 transition-colors">
-      <div className={`p-1.5 rounded-lg border ${getStatusColor(activity.status)}`}>
-        {getStatusIcon(activity.status)}
+const Panel = ({ title, icon: Icon, viewAllLink, children }: PanelProps) => (
+  <div className="overflow-hidden rounded-xl border border-stone-200 bg-white">
+    <div className="flex items-center justify-between border-b border-stone-100 px-5 py-3.5">
+      <div className="flex items-center gap-2">
+        <Icon size={15} className="text-[#1a3d1c]" />
+        <h2 className="text-sm font-semibold text-stone-900">{title}</h2>
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-medium text-stone-800">{activity.title}</p>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${getStatusColor(activity.status)}`}>
-            {activity.status}
-          </span>
-          <span className="text-[10px] text-stone-400">
-            {new Date(activity.date).toLocaleDateString('en-KE', {
-              day: 'numeric',
-              month: 'short',
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </span>
-        </div>
-      </div>
-      <button className="text-stone-400 hover:text-stone-600 transition-colors">
-        <MoreVertical size={16} />
-      </button>
-    </div>
-  );
-};
-
-/* ─── NOTIFICATION ITEM ──────────────────────────────────────────────────── */
-
-interface NotificationItemProps {
-  notification: typeof dummyNotifications[0];
-}
-
-const NotificationItem = ({ notification }: NotificationItemProps) => (
-  <div className={`p-3 rounded-xl transition-colors ${notification.read ? 'hover:bg-stone-50' : 'bg-amber-50/50 hover:bg-amber-50'}`}>
-    <div className="flex items-start gap-3">
-      <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${notification.priority === 'high' ? 'bg-red-500' : notification.priority === 'medium' ? 'bg-amber-500' : 'bg-blue-500'}`} />
-      <div className="flex-1 min-w-0">
-        <p className="text-[12px] font-bold text-stone-800">{notification.title}</p>
-        <p className="text-[11px] text-stone-600 mt-0.5">{notification.message}</p>
-        <p className="text-[9px] text-stone-400 mt-1">{notification.time}</p>
-      </div>
-      {!notification.read && (
-        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0 mt-1.5" />
+      {viewAllLink && (
+        <Link
+          to={viewAllLink}
+          className="flex items-center gap-1 text-xs font-medium text-[#c9a84c] hover:text-[#b8973f]"
+        >
+          View all <ArrowRight size={12} />
+        </Link>
       )}
     </div>
+    <div className="px-5 py-4">{children}</div>
   </div>
 );
 
-/* ─── MAIN COMPONENT ──────────────────────────────────────────────────────── */
+const Empty = ({ message }: { message: string }) => (
+  <p className="py-6 text-center text-sm text-stone-400">{message}</p>
+);
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 const StaffDashboard = () => {
-  const [user] = useState(dummyUser);
-  const [folders] = useState(dummyFolders);
-  const [activities] = useState(dummyActivities);
-  const [notifications] = useState(dummyNotifications);
-  const [showAllNotifications, setShowAllNotifications] = useState(false);
+  const dispatch = useAppDispatch();
 
-  // Calculate stats
-  const totalFolders = folders.length;
-  const totalIndicators = folders.reduce((acc, f) => acc + f.totalIndicators, 0);
-  const totalCompleted = folders.reduce((acc, f) => acc + f.completed, 0);
-  const totalPending = folders.reduce((acc, f) => acc + f.pending, 0);
-  const totalOverdue = folders.reduce((acc, f) => acc + f.overdue, 0);
+  // ── Selectors ─────────────────────────────────────────────────────────────
+  const currentUser    = useAppSelector(selectCurrentUser);
+  const myMarked       = useAppSelector(selectMyMarked) as Document[];
+  const taskStats      = useAppSelector(selectTaskStats);
+  const standaloneTasks = useAppSelector(selectStandaloneTasks) as Task[];
+  const unreadMessages = useAppSelector(selectMessagesUnread);
+  const unreadNotices  = useAppSelector(selectNoticesUnread);
+  const upcomingEvents = useAppSelector(selectUpcomingEvents) as CalendarEvent[];
+  const inventoryStats = useAppSelector(selectInventoryStats);
 
-  const completionRate = totalIndicators > 0 
-    ? Math.round((totalCompleted / totalIndicators) * 100) 
-    : 0;
+  const docLoading      = useAppSelector(selectDocLoading);
+  const tasksLoading    = useAppSelector(selectTasksLoading);
+  const messagesLoading = useAppSelector(selectMessagesLoading);
+  const noticesLoading  = useAppSelector(selectNoticesLoading);
+  const calendarLoading = useAppSelector(selectCalendarUpcomingLoading);
+  const statsLoading    = useAppSelector(selectInventoryStatsLoading);
 
-  // Get unread notifications
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const isLoading =
+    docLoading || tasksLoading || messagesLoading ||
+    noticesLoading || calendarLoading || statsLoading;
 
-  // Display notifications (limited or all)
-  const displayedNotifications = showAllNotifications 
-    ? notifications 
-    : notifications.slice(0, 3);
+  // ── Data fetch ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    dispatch(fetchMyMarked());
+    dispatch(fetchTaskStats());
+    dispatch(fetchStandaloneTasks());
+    dispatch(fetchMessagesUnread());
+    dispatch(fetchNoticesUnread());
+    dispatch(fetchUpcomingEvents(5));
+    dispatch(fetchInventoryStats());
+  }, [dispatch]);
 
+  // ── Derived values ────────────────────────────────────────────────────────
+  const firstName       = currentUser?.full_name?.split(' ')[0] ?? 'there';
+  const totalUnread     = (unreadNotices?.broadcasts ?? 0) + (unreadNotices?.notices ?? 0);
+  const pendingDocs     = myMarked?.filter(d => d.status === 'pending_review') ?? [];
+  const activeTasks     = standaloneTasks?.filter(t => t.status !== 'done') ?? [];
+  const overdueTasks    = standaloneTasks?.filter(
+    t => t.status !== 'done' && t.due_date && new Date(t.due_date) < new Date()
+  ) ?? [];
+
+  // ── Loading skeleton ──────────────────────────────────────────────────────
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-stone-50">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-stone-200 border-t-[#c9a84c]" />
+          <p className="text-sm text-stone-400">Loading dashboard…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="p-4 md:p-6">
-      {/* Welcome section */}
-      <div className="mb-8">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div className="min-h-screen bg-stone-50 p-6">
+      <div className="mx-auto max-w-7xl space-y-6">
+
+        {/* ── Header ─────────────────────────────────────────────────────── */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-serif font-bold text-[#1d3331]">
-              Welcome back, {user.name.split(' ')[0]} 👋
+            <p className="text-xs font-serif font-semibold uppercase tracking-widest text-[#c9a84c]">
+              {timeGreeting()}
+            </p>
+            <h1 className="mt-0.5 font-serif text-2xl font-bold text-stone-900">
+              {firstName}
             </h1>
-            <p className="text-sm text-stone-500 mt-1">
-              You have {totalFolders} folder{totalFolders !== 1 ? 's' : ''} assigned • {totalPending} pending review
+            <p className="mt-1 text-sm font-serif text-stone-500">
+              Here's what needs your attention today.
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-xl border border-stone-200 shadow-sm">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] font-medium text-stone-600">Active</span>
+
+          {/* Overdue alert pill */}
+          {overdueTasks.length > 0 && (
+            <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
+              <AlertTriangle size={15} className="shrink-0" />
+              <span>
+                <span className="font-semibold">{overdueTasks.length}</span>{' '}
+                overdue {overdueTasks.length === 1 ? 'task' : 'tasks'}
+              </span>
             </div>
-            <button className="p-2.5 bg-white rounded-xl border border-stone-200 hover:border-[#1d3331] transition-colors relative">
-              <Bell size={18} className="text-stone-600" />
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white text-[8px] font-bold rounded-full flex items-center justify-center">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-          </div>
+          )}
         </div>
-      </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-        <StatCard
-          label="Total Tasks"
-          value={totalIndicators}
-          icon={FileText}
-          color="#1d3331"
-          bgColor="bg-stone-50"
-          trend={8}
-        />
-        <StatCard
-          label="Completed"
-          value={totalCompleted}
-          icon={CheckCircle2}
-          color="#3B6D11"
-          bgColor="bg-emerald-50"
-          trend={12}
-        />
-        <StatCard
-          label="Pending Review"
-          value={totalPending}
-          icon={Clock}
-          color="#BA7517"
-          bgColor="bg-amber-50"
-          trend={-5}
-        />
-        <StatCard
-          label="Overdue"
-          value={totalOverdue}
-          icon={AlertCircle}
-          color="#E24B4A"
-          bgColor="bg-red-50"
-          trend={3}
-        />
-      </div>
-
-      {/* Progress Overview */}
-      <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm mb-8">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h3 className="text-[11px] font-black uppercase tracking-widest text-stone-400">
-              Overall Progress
-            </h3>
-            <p className="text-3xl font-serif font-bold text-[#1d3331] mt-1">
-              {completionRate}%
-            </p>
-            <p className="text-[11px] text-stone-500">
-              {totalCompleted} of {totalIndicators} tasks completed
-            </p>
-          </div>
-          <div className="flex-1 max-w-md">
-            <div className="w-full bg-stone-100 h-3 rounded-full overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-700 bg-[#1d3331]"
-                style={{ width: `${completionRate}%` }}
-              />
-            </div>
-            <div className="flex justify-between text-[9px] text-stone-400 mt-1.5">
-              <span>0%</span>
-              <span>50%</span>
-              <span>100%</span>
-            </div>
-          </div>
+        {/* ── Stat cards ─────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <StatCard
+            icon={FileText}
+            label="Documents"
+            value={myMarked?.length ?? 0}
+            subtext={`${pendingDocs.length} pending review`}
+            accent="bg-blue-50 text-blue-600"
+            textAccent="text-stone-900"
+            to="/documents"
+          />
+          <StatCard
+            icon={ListTodo}
+            label="Tasks"
+            value={(taskStats?.todo ?? 0) + (taskStats?.in_progress ?? 0)}
+            subtext={`${taskStats?.done ?? 0} completed`}
+            accent="bg-[#1a3d1c]/10 text-[#1a3d1c]"
+            textAccent="text-stone-900"
+            to="/tasks"
+          />
+          <StatCard
+            icon={Inbox}
+            label="Messages"
+            value={unreadMessages?.total ?? 0}
+            subtext={`${unreadMessages?.by_group?.length ?? 0} active groups`}
+            accent="bg-emerald-50 text-emerald-600"
+            textAccent="text-stone-900"
+            to="/messages"
+          />
+          <StatCard
+            icon={Bell}
+            label="Notices"
+            value={totalUnread}
+            subtext={`${unreadNotices?.broadcasts ?? 0} broadcasts`}
+            accent="bg-amber-50 text-amber-600"
+            textAccent="text-stone-900"
+            to="/notices"
+          />
+          <StatCard
+            icon={Calendar}
+            label="Events"
+            value={upcomingEvents?.length ?? 0}
+            subtext="Upcoming events"
+            accent="bg-purple-50 text-purple-600"
+            textAccent="text-stone-900"
+            to="/calendar"
+          />
         </div>
-      </div>
 
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Folders & Activities */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Quick Actions */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <Link
-              to="/staff/inventory"
-              className="bg-white p-4 rounded-2xl border border-stone-200 hover:shadow-md transition-all group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-[#1d3331]/10 text-[#1d3331]">
-                  <Package size={18} />
-                </div>
-                <div>
-                  <p className="font-bold text-sm text-[#1d3331] group-hover:text-emerald-700 transition-colors">
-                    Inventory
-                  </p>
-                  <p className="text-[9px] text-stone-400">View items</p>
-                </div>
-              </div>
-            </Link>
-            <Link
-              to="/staff/requests"
-              className="bg-white p-4 rounded-2xl border border-stone-200 hover:shadow-md transition-all group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-amber-50 text-amber-600">
-                  <FileText size={18} />
-                </div>
-                <div>
-                  <p className="font-bold text-sm text-[#1d3331] group-hover:text-emerald-700 transition-colors">
-                    Requests
-                  </p>
-                  <p className="text-[9px] text-stone-400">{totalPending} pending</p>
-                </div>
-              </div>
-            </Link>
-            <Link
-              to="/staff/users"
-              className="bg-white p-4 rounded-2xl border border-stone-200 hover:shadow-md transition-all group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-xl bg-blue-50 text-blue-600">
-                  <Users size={18} />
-                </div>
-                <div>
-                  <p className="font-bold text-sm text-[#1d3331] group-hover:text-emerald-700 transition-colors">
-                    Team
-                  </p>
-                  <p className="text-[9px] text-stone-400">View members</p>
-                </div>
-              </div>
-            </Link>
-          </div>
+        {/* ── Main grid ──────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
 
-          {/* My Folders */}
-          <div>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-base font-serif font-bold text-[#1d3331]">
-                My Folders ({totalFolders})
-              </h3>
-              <Link
-                to="/staff/folders"
-                className="text-[9px] font-bold text-stone-400 hover:text-[#1d3331] transition-colors flex items-center gap-1"
-              >
-                View all <ArrowUpRight size={12} />
-              </Link>
-            </div>
-            <div className="space-y-3">
-              {folders.map((folder) => (
-                <Link
-                  key={folder.id}
-                  to={`/staff/folders/${folder.id}`}
-                  className="block bg-white p-4 rounded-2xl border border-stone-200 hover:shadow-md hover:border-emerald-200 transition-all"
-                >
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Folder size={14} className="text-[#1d3331]" />
-                        <h4 className="text-[13px] font-bold text-[#1d3331] truncate">
-                          {folder.objectiveTitle}
-                        </h4>
-                      </div>
-                      <div className="flex items-center gap-3 text-[10px] text-stone-500">
-                        <span>{folder.perspective}</span>
-                        <span>•</span>
-                        <span>{folder.totalIndicators} tasks</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="flex items-center gap-3 text-xs">
-                        <span className="text-emerald-600 font-bold">{folder.completed} done</span>
-                        <span className="text-amber-600 font-bold">{folder.pending} pending</span>
-                        {folder.overdue > 0 && (
-                          <span className="text-red-600 font-bold">{folder.overdue} overdue</span>
-                        )}
-                      </div>
-                      <div className="w-20">
-                        <div className="w-full bg-stone-100 h-1.5 rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-[#1d3331]"
-                            style={{ width: `${(folder.completed / folder.totalIndicators) * 100}%` }}
-                          />
+          {/* Left: Documents + Tasks */}
+          <div className="space-y-6 lg:col-span-2">
+
+            {/* Documents */}
+            <Panel title="Documents Awaiting Action" icon={FileText} viewAllLink="/documents">
+              {pendingDocs.length === 0 ? (
+                <Empty message="No documents pending your review." />
+              ) : (
+                <div className="divide-y divide-stone-100">
+                  {pendingDocs.slice(0, 4).map(doc => (
+                    <Link
+                      key={doc.id}
+                      to={`/documents/${doc.id}`}
+                      className="group flex items-center justify-between py-3 hover:bg-stone-50 -mx-5 px-5 transition-colors"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-stone-900">{doc.title}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-stone-500">
+                          <span className={`rounded-full px-2 py-0.5 ${statusClasses[doc.status] ?? statusClasses.draft}`}>
+                            {doc.status.replace('_', ' ')}
+                          </span>
+                          <span>{doc.type}</span>
+                          {doc.reference_no && (
+                            <span className="font-mono text-stone-400">{doc.reference_no}</span>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column - Notifications & Activity */}
-        <div className="space-y-6">
-          {/* User Profile Card */}
-          <div className="bg-white rounded-2xl border border-stone-200 p-5 shadow-sm">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-[#1d3331] text-white flex items-center justify-center font-serif font-bold text-xl">
-                {user.name.split(' ').map(n => n[0]).join('')}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h4 className="text-[15px] font-serif font-bold text-[#1d3331]">{user.name}</h4>
-                <p className="text-[10px] font-medium text-stone-500 capitalize">{user.role}</p>
-                <p className="text-[9px] text-stone-400">{user.department}</p>
-              </div>
-            </div>
-            <div className="mt-4 pt-4 border-t border-stone-100 grid grid-cols-2 gap-2">
-              <div className="flex items-center gap-2 text-[10px] text-stone-500">
-                <Mail size={12} className="text-stone-400" />
-                <span className="truncate">{user.email}</span>
-              </div>
-              <div className="flex items-center gap-2 text-[10px] text-stone-500">
-                <Phone size={12} className="text-stone-400" />
-                <span>{user.phone}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Notifications */}
-          <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-stone-100 flex justify-between items-center">
-              <h3 className="text-[11px] font-black uppercase tracking-widest text-stone-400">
-                Notifications
-                {unreadCount > 0 && (
-                  <span className="ml-2 px-2 py-0.5 bg-red-500 text-white text-[8px] rounded-full">
-                    {unreadCount}
-                  </span>
-                )}
-              </h3>
-              <button
-                onClick={() => setShowAllNotifications(!showAllNotifications)}
-                className="text-[9px] font-bold text-stone-400 hover:text-[#1d3331] transition-colors"
-              >
-                {showAllNotifications ? 'Show less' : 'View all'}
-              </button>
-            </div>
-            <div className="p-3 space-y-1 max-h-80 overflow-y-auto">
-              {displayedNotifications.length === 0 ? (
-                <p className="text-center text-stone-400 text-sm py-4">No notifications</p>
-              ) : (
-                displayedNotifications.map((notif) => (
-                  <NotificationItem key={notif.id} notification={notif} />
-                ))
+                      <ArrowRight size={14} className="ml-3 shrink-0 text-stone-300 group-hover:text-[#c9a84c] transition-colors" />
+                    </Link>
+                  ))}
+                </div>
               )}
-            </div>
+            </Panel>
+
+            {/* Tasks */}
+            <Panel title="Your Tasks" icon={ListTodo} viewAllLink="/tasks">
+              {activeTasks.length === 0 ? (
+                <Empty message="No pending tasks. Great job! 🎉" />
+              ) : (
+                <div className="divide-y divide-stone-100">
+                  {activeTasks.slice(0, 4).map(task => {
+                    const isOverdue =
+                      task.due_date && new Date(task.due_date) < new Date();
+                    return (
+                      <Link
+                        key={task.id}
+                        to={`/tasks/${task.id}`}
+                        className="group flex items-center justify-between py-3 hover:bg-stone-50 -mx-5 px-5 transition-colors"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-stone-900">{task.title}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-stone-500">
+                            <span className={`rounded-full px-2 py-0.5 ${priorityClasses[task.priority] ?? priorityClasses.low}`}>
+                              {task.priority}
+                            </span>
+                            <span className="capitalize">{task.status.replace('_', ' ')}</span>
+                            {task.due_date && (
+                              <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-500 font-medium' : ''}`}>
+                                <Clock size={11} />
+                                {fmt(task.due_date)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <ArrowRight size={14} className="ml-3 shrink-0 text-stone-300 group-hover:text-[#c9a84c] transition-colors" />
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </Panel>
           </div>
 
-          {/* Recent Activity */}
-          <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-stone-100">
-              <h3 className="text-[11px] font-black uppercase tracking-widest text-stone-400">
-                Recent Activity
-              </h3>
-            </div>
-            <div className="p-3 space-y-1 max-h-72 overflow-y-auto">
-              {activities.slice(0, 4).map((activity) => (
-                <ActivityItem key={activity.id} activity={activity} />
-              ))}
-            </div>
+          {/* Right: Inventory + Events */}
+          <div className="space-y-6">
+
+            {/* Inventory */}
+            <Panel title="Inventory Summary" icon={Package} viewAllLink="/inventory">
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: 'Total Items',   value: inventoryStats?.total_items ?? 0,   dot: 'bg-blue-500'    },
+                  { label: 'In Stock',      value: inventoryStats?.in_stock    ?? 0,   dot: 'bg-emerald-500' },
+                  { label: 'Low Stock',     value: inventoryStats?.low_stock   ?? 0,   dot: 'bg-amber-500'   },
+                  { label: 'Out of Stock',  value: inventoryStats?.out_of_stock ?? 0,  dot: 'bg-red-500'     },
+                ].map(({ label, value, dot }) => (
+                  <div key={label} className="rounded-lg border border-stone-100 bg-stone-50 p-3 text-center">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span className={`h-2 w-2 rounded-full ${dot}`} />
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-stone-500">{label}</span>
+                    </div>
+                    <p className="mt-1.5 text-xl font-bold text-stone-900">{value}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-3 space-y-1.5 border-t border-stone-100 pt-3">
+                <div className="flex items-center justify-between text-xs text-stone-500">
+                  <span>Pending store requests</span>
+                  <span className="font-semibold text-stone-800">
+                    {inventoryStats?.pending_store_requests ?? 0}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-stone-500">
+                  <span>Pending procurement</span>
+                  <span className="font-semibold text-stone-800">
+                    {inventoryStats?.pending_procurement_requests ?? 0}
+                  </span>
+                </div>
+              </div>
+            </Panel>
+
+            {/* Upcoming events */}
+            <Panel title="Upcoming Events" icon={Calendar} viewAllLink="/calendar">
+              {upcomingEvents?.length === 0 ? (
+                <Empty message="No upcoming events." />
+              ) : (
+                <div className="space-y-2">
+                  {upcomingEvents.slice(0, 4).map(event => (
+                    <Link
+                      key={event.id}
+                      to={`/calendar`}
+                      className="group flex items-start gap-3 rounded-lg border border-stone-100 p-3 transition hover:border-[#c9a84c]/40 hover:bg-[#c9a84c]/5"
+                    >
+                      {/* Date pill */}
+                      <div className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-lg bg-[#1a3d1c] text-white">
+                        <span className="text-[10px] font-medium uppercase leading-none text-[#c9a84c]">
+                          {new Date(event.event_date).toLocaleDateString('en', { month: 'short' })}
+                        </span>
+                        <span className="text-sm font-bold leading-none">
+                          {new Date(event.event_date).getDate()}
+                        </span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-stone-900">{event.title}</p>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-stone-500">
+                          <span className="capitalize">{event.event_type}</span>
+                          {event.start_time && (
+                            <>
+                              <span>·</span>
+                              <span className="flex items-center gap-0.5">
+                                <Clock size={10} />
+                                {event.start_time.slice(0, 5)}
+                              </span>
+                            </>
+                          )}
+                          {event.location && (
+                            <>
+                              <span>·</span>
+                              <span className="truncate">{event.location}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </Panel>
+
+            {/* Task progress mini-card */}
+            {taskStats && (
+              <Panel title="Task Progress" icon={TrendingUp}>
+                {(() => {
+                  const total = (taskStats.todo ?? 0) + (taskStats.in_progress ?? 0) + (taskStats.done ?? 0);
+                  const pct   = total > 0 ? Math.round((taskStats.done / total) * 100) : 0;
+                  return (
+                    <div className="space-y-3">
+                      <div className="flex items-end justify-between">
+                        <span className="text-2xl font-bold text-stone-900">{pct}%</span>
+                        <span className="text-xs text-stone-400">{taskStats.done}/{total} done</span>
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-stone-100">
+                        <div
+                          className="h-full rounded-full bg-[#1a3d1c] transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      {taskStats.overdue > 0 && (
+                        <p className="flex items-center gap-1.5 text-xs text-red-600">
+                          <AlertTriangle size={11} />
+                          {taskStats.overdue} overdue
+                        </p>
+                      )}
+                    </div>
+                  );
+                })()}
+              </Panel>
+            )}
           </div>
         </div>
       </div>

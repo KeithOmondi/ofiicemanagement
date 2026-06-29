@@ -155,7 +155,7 @@ const navigationConfig: NavSection[] = [
     title: 'Help Desk',
     items: [
       { to: '/super-admin/helpdesk',      label: 'Help Desk Portal', icon: Icon.helpdesk },
-      { to: '/team-members',  label: 'Team Members',     icon: Icon.team     },
+      { to: '/super-admin/team-members',  label: 'Team Members',     icon: Icon.team     },
     ],
   },
   {
@@ -191,6 +191,13 @@ const navigationConfig: NavSection[] = [
         requireSuperAdmin:  true,
         icon:               Icon.users,
       },
+    ],
+  },
+
+  {
+    title: 'Others',
+    items: [
+      { to: '/super-admin/links',      label: 'Other Links', icon: Icon.helpdesk },
     ],
   },
 ];

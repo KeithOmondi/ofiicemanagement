@@ -4,7 +4,6 @@ import { Link, useMatch, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   Package,
-  FileText,
   MessageSquare,
   Settings,
   LogOut,
@@ -12,6 +11,8 @@ import {
   Home,
   Bell,
   Folder,
+  Calendar,
+  Workflow,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import { logoutUser } from '../../store/slices/authSlice';
@@ -63,7 +64,6 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
       title: 'Workspace',
       items: [
         { to: `${base}/inventory`, label: 'Staff Inventory', icon: <Package className="h-4 w-4" />, tab: 'inventory' },
-        { to: `${base}/requests`, label: 'Requests', icon: <FileText className="h-4 w-4" />, tab: 'requests' },
       ],
     },
     {
@@ -73,6 +73,15 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
         { to: `${base}/notices`, label: 'Notices', icon: <Bell className="h-4 w-4" />, tab: 'notices' },
       ],
     },
+
+    {
+      title: 'Planning',
+      items: [
+        { to: `${base}/calendar`, label: 'Calendar', icon: <Calendar className="h-4 w-4" />, tab: 'calendar' },
+        { to: `${base}/tasks`, label: 'Tasks', icon: <Workflow className="h-4 w-4" />, tab: 'tasks' },
+      ],
+    },
+
     {
       title: 'System',
       items: [

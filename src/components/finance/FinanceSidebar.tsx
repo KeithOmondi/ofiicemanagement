@@ -100,6 +100,13 @@ const navigationConfig: NavSection[] = [
       { segment: 'messages',    label: 'Messages',        icon: Icon.inventory },
     ],
   },
+
+  {
+    title: 'System',
+    items: [
+      { segment: 'settings',    label: 'Settings',        icon: Icon.inventory },
+    ],
+  },
 ];
 
 // ── Sidebar link ──────────────────────────────────────────────────────────────

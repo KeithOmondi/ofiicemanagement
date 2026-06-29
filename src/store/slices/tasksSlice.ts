@@ -18,6 +18,8 @@ export interface ProjectMember {
   updated_at: string;
 }
 
+// Change these two interfaces — everything else in the slice stays identical
+
 export interface Project {
   id: string;
   name: string;
@@ -26,7 +28,7 @@ export interface Project {
   priority: 'low' | 'medium' | 'high' | 'urgent';
   deadline: string;
   progress: number;
-  created_by: string | null;
+  created_by: string;        // was: string | null
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -49,7 +51,7 @@ export interface Task {
   start_date: string | null;
   completed_at: string | null;
   is_active: boolean;
-  created_by: string | null;
+  created_by: string;        // was: string | null
   created_at: string;
   updated_at: string;
 }

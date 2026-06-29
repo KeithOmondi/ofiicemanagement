@@ -16,26 +16,26 @@ import type {
 ============================================================ */
 
 interface CalendarState {
-  events: CalendarEvent[];
+  events:        CalendarEvent[];
   selectedEvent: CalendarEvent | null;
   upcomingEvents: CalendarEvent[];
   pagination: {
-    total: number;
-    page: number;
-    limit: number;
+    total:      number;
+    page:       number;
+    limit:      number;
     totalPages: number;
   };
-  filters: CalendarFilters;
+  filters:      CalendarFilters;
   googleStatus: GoogleCalendarStatus | null;
   loading: {
-    list: boolean;
-    detail: boolean;
-    upcoming: boolean;
-    mutating: boolean;
-    syncing: boolean;
+    list:         boolean;
+    detail:       boolean;
+    upcoming:     boolean;
+    mutating:     boolean;
+    syncing:      boolean;
     googleStatus: boolean;
   };
-  error: string | null;
+  error:   string | null;
   success: boolean;
 }
 
@@ -43,32 +43,34 @@ interface CalendarState {
    INITIAL STATE
 ============================================================ */
 
+const DEFAULT_LIMIT = 50; // matches backend cap
+
 const initialState: CalendarState = {
-  events: [],
+  events:        [],
   selectedEvent: null,
   upcomingEvents: [],
   pagination: {
-    total: 0,
-    page: 1,
-    limit: 100,
+    total:      0,
+    page:       1,
+    limit:      DEFAULT_LIMIT,
     totalPages: 0,
   },
   filters: {
-    page: 1,
-    limit: 100,
-    sort_by: 'event_date',
+    page:       1,
+    limit:      DEFAULT_LIMIT,
+    sort_by:    'event_date',
     sort_order: 'ASC',
   },
   googleStatus: null,
   loading: {
-    list: false,
-    detail: false,
-    upcoming: false,
-    mutating: false,
-    syncing: false,
+    list:         false,
+    detail:       false,
+    upcoming:     false,
+    mutating:     false,
+    syncing:      false,
     googleStatus: false,
   },
-  error: null,
+  error:   null,
   success: false,
 };
 
@@ -81,11 +83,12 @@ const extractErrorMessage = (error: unknown): string => {
   return axiosError.response?.data?.message ?? axiosError.message ?? 'An unexpected error occurred';
 };
 
+const clampLimit = (limit?: number) => Math.min(limit ?? DEFAULT_LIMIT, 50);
+
 /* ============================================================
-   ASYNC THUNKS - Google Calendar Integration
+   THUNKS — Google Calendar
 ============================================================ */
 
-// ── Get Google Calendar OAuth URL ──
 export const getGoogleAuthUrl = createAsyncThunk(
   'calendar/getGoogleAuthUrl',
   async (_, { rejectWithValue }) => {
@@ -98,14 +101,12 @@ export const getGoogleAuthUrl = createAsyncThunk(
   }
 );
 
-// ── Connect Google Calendar (redirect to Google) ──
 export const connectGoogleCalendar = createAsyncThunk(
   'calendar/connectGoogle',
   async (_, { rejectWithValue }) => {
     try {
       const response = await axiosClient.get('/calendar/google/auth');
-      const { authUrl } = response.data.data;
-      // Redirect to Google OAuth
+      const { authUrl } = response.data.data as { authUrl: string };
       window.location.href = authUrl;
       return { success: true };
     } catch (err) {
@@ -114,20 +115,17 @@ export const connectGoogleCalendar = createAsyncThunk(
   }
 );
 
-// ── Disconnect Google Calendar ──
 export const disconnectGoogleCalendar = createAsyncThunk(
   'calendar/disconnectGoogle',
   async (_, { rejectWithValue }) => {
     try {
       await axiosClient.post('/calendar/google/disconnect');
-      return { success: true };
     } catch (err) {
       return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
-// ── Get Google Calendar Status ──
 export const getGoogleCalendarStatus = createAsyncThunk(
   'calendar/getGoogleStatus',
   async (_, { rejectWithValue }) => {
@@ -140,7 +138,6 @@ export const getGoogleCalendarStatus = createAsyncThunk(
   }
 );
 
-// ── Sync with Google Calendar ──
 export const syncWithGoogle = createAsyncThunk(
   'calendar/syncWithGoogle',
   async (_, { rejectWithValue }) => {
@@ -154,10 +151,11 @@ export const syncWithGoogle = createAsyncThunk(
 );
 
 /* ============================================================
-   ASYNC THUNKS - Calendar Events CRUD
+   THUNKS — Events CRUD
+   NOTE: The backend scopes ALL queries to req.user.id.
+         The frontend never passes a userId — the JWT handles it.
 ============================================================ */
 
-// ── Create Event ──
 export const createCalendarEvent = createAsyncThunk(
   'calendar/createEvent',
   async (input: CalendarEventInput, { rejectWithValue }) => {
@@ -170,17 +168,11 @@ export const createCalendarEvent = createAsyncThunk(
   }
 );
 
-// ── Fetch All Events ──
 export const fetchCalendarEvents = createAsyncThunk(
   'calendar/fetchAll',
   async (filters: CalendarFilters, { rejectWithValue }) => {
     try {
-      // Ensure limit never exceeds 100
-      const safeFilters = {
-        ...filters,
-        limit: Math.min(filters.limit || 100, 100),
-      };
-
+      const safeFilters = { ...filters, limit: clampLimit(filters.limit) };
       const params = new URLSearchParams();
       Object.entries(safeFilters).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== '') {
@@ -195,12 +187,12 @@ export const fetchCalendarEvents = createAsyncThunk(
   }
 );
 
-// ── Fetch Upcoming Events ──
 export const fetchUpcomingEvents = createAsyncThunk(
   'calendar/fetchUpcoming',
   async (limit: number = 10, { rejectWithValue }) => {
     try {
-      const response = await axiosClient.get(`/calendar/upcoming?limit=${limit}`);
+      const safeLimit = Math.min(limit, 50);
+      const response = await axiosClient.get(`/calendar/upcoming?limit=${safeLimit}`);
       return response.data.data as CalendarEvent[];
     } catch (err) {
       return rejectWithValue(extractErrorMessage(err));
@@ -208,7 +200,6 @@ export const fetchUpcomingEvents = createAsyncThunk(
   }
 );
 
-// ── Fetch Event By ID ──
 export const fetchCalendarEventById = createAsyncThunk(
   'calendar/fetchById',
   async (id: string, { rejectWithValue }) => {
@@ -221,7 +212,6 @@ export const fetchCalendarEventById = createAsyncThunk(
   }
 );
 
-// ── Update Event ──
 export const updateCalendarEvent = createAsyncThunk(
   'calendar/updateEvent',
   async ({ id, data }: { id: string; data: CalendarEventUpdate }, { rejectWithValue }) => {
@@ -234,13 +224,12 @@ export const updateCalendarEvent = createAsyncThunk(
   }
 );
 
-// ── Delete Event ──
 export const deleteCalendarEvent = createAsyncThunk(
   'calendar/deleteEvent',
   async (id: string, { rejectWithValue }) => {
     try {
       await axiosClient.delete(`/calendar/${id}`);
-      return { id };
+      return id;
     } catch (err) {
       return rejectWithValue(extractErrorMessage(err));
     }
@@ -256,191 +245,150 @@ const calendarSlice = createSlice({
   initialState,
   reducers: {
     setCalendarFilters(state, action: PayloadAction<Partial<CalendarFilters>>) {
-      // Ensure limit never exceeds 100 when setting filters
-      const newFilters = { ...action.payload };
-      if (newFilters.limit && newFilters.limit > 100) {
-        newFilters.limit = 100;
-      }
-      state.filters = { ...state.filters, ...newFilters };
+      const f = { ...action.payload };
+      if (f.limit) f.limit = clampLimit(f.limit);
+      state.filters = { ...state.filters, ...f };
     },
     resetCalendarFilters(state) {
       state.filters = {
-        page: 1,
-        limit: 100,
-        sort_by: 'event_date',
+        page:       1,
+        limit:      DEFAULT_LIMIT,
+        sort_by:    'event_date',
         sort_order: 'ASC',
       };
     },
-    clearSelectedEvent(state) {
-      state.selectedEvent = null;
-    },
-    clearCalendarError(state) {
-      state.error = null;
-    },
-    clearCalendarSuccess(state) {
-      state.success = false;
-    },
-    resetCalendarState: () => initialState,
+    clearSelectedEvent(state)   { state.selectedEvent = null; },
+    clearCalendarError(state)   { state.error = null; },
+    clearCalendarSuccess(state) { state.success = false; },
+    resetCalendarState: ()      => initialState,
   },
   extraReducers: (builder) => {
-    /* ---------- GOOGLE CALENDAR STATUS ---------- */
+
+    // ── Google status ────────────────────────────────────────────────────────
     builder
-      .addCase(getGoogleCalendarStatus.pending, (state) => {
-        state.loading.googleStatus = true;
-        state.error = null;
-      })
+      .addCase(getGoogleCalendarStatus.pending,   (state) => { state.loading.googleStatus = true;  state.error = null; })
       .addCase(getGoogleCalendarStatus.fulfilled, (state, action: PayloadAction<GoogleCalendarStatus>) => {
         state.loading.googleStatus = false;
         state.googleStatus = action.payload;
       })
-      .addCase(getGoogleCalendarStatus.rejected, (state, action) => {
+      .addCase(getGoogleCalendarStatus.rejected,  (state, action) => {
         state.loading.googleStatus = false;
         state.error = action.payload as string;
       });
 
-    /* ---------- DISCONNECT GOOGLE CALENDAR ---------- */
+    // ── Disconnect ───────────────────────────────────────────────────────────
     builder
+      .addCase(disconnectGoogleCalendar.pending,   (state) => { state.loading.mutating = true; state.error = null; })
       .addCase(disconnectGoogleCalendar.fulfilled, (state) => {
-        state.googleStatus = null;
-        state.success = true;
+        state.loading.mutating = false;
+        state.googleStatus     = null;
+        state.success          = true;
+      })
+      .addCase(disconnectGoogleCalendar.rejected,  (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
       });
 
-    /* ---------- SYNC WITH GOOGLE CALENDAR ---------- */
+    // ── Sync with Google ─────────────────────────────────────────────────────
     builder
-      .addCase(syncWithGoogle.pending, (state) => {
-        state.loading.syncing = true;
-        state.error = null;
-      })
-      .addCase(syncWithGoogle.fulfilled, (state) => {
-        state.loading.syncing = false;
-        state.success = true;
-        // Optionally refresh events after sync
-      })
-      .addCase(syncWithGoogle.rejected, (state, action) => {
+      .addCase(syncWithGoogle.pending,   (state) => { state.loading.syncing = true;  state.error = null; })
+      .addCase(syncWithGoogle.fulfilled, (state) => { state.loading.syncing = false; state.success = true; })
+      .addCase(syncWithGoogle.rejected,  (state, action) => {
         state.loading.syncing = false;
         state.error = action.payload as string;
       });
 
-    /* ---------- CREATE EVENT ---------- */
+    // ── Create ───────────────────────────────────────────────────────────────
     builder
-      .addCase(createCalendarEvent.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
+      .addCase(createCalendarEvent.pending,   (state) => { state.loading.mutating = true;  state.error = null; state.success = false; })
       .addCase(createCalendarEvent.fulfilled, (state, action: PayloadAction<CalendarEvent>) => {
         state.loading.mutating = false;
-        state.success = true;
-        state.events = [action.payload, ...state.events];
+        state.success          = true;
+        state.events           = [action.payload, ...state.events];
         state.pagination.total += 1;
         state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
       })
-      .addCase(createCalendarEvent.rejected, (state, action) => {
+      .addCase(createCalendarEvent.rejected,  (state, action) => {
         state.loading.mutating = false;
-        state.error = action.payload as string;
+        state.error   = action.payload as string;
         state.success = false;
       });
 
-    /* ---------- FETCH ALL EVENTS ---------- */
+    // ── Fetch all ────────────────────────────────────────────────────────────
     builder
-      .addCase(fetchCalendarEvents.pending, (state) => {
-        state.loading.list = true;
-        state.error = null;
-      })
+      .addCase(fetchCalendarEvents.pending,   (state) => { state.loading.list = true;  state.error = null; })
       .addCase(fetchCalendarEvents.fulfilled, (state, action: PayloadAction<CalendarPaginationResponse>) => {
         state.loading.list = false;
-        state.events = action.payload.data;
-        state.pagination = {
-          total: action.payload.total,
-          page: action.payload.page,
-          limit: action.payload.limit,
+        state.events       = action.payload.data;
+        state.pagination   = {
+          total:      action.payload.total,
+          page:       action.payload.page,
+          limit:      action.payload.limit,
           totalPages: action.payload.totalPages,
         };
       })
-      .addCase(fetchCalendarEvents.rejected, (state, action) => {
+      .addCase(fetchCalendarEvents.rejected,  (state, action) => {
         state.loading.list = false;
         state.error = action.payload as string;
       });
 
-    /* ---------- FETCH UPCOMING EVENTS ---------- */
+    // ── Fetch upcoming ───────────────────────────────────────────────────────
     builder
-      .addCase(fetchUpcomingEvents.pending, (state) => {
-        state.loading.upcoming = true;
-        state.error = null;
-      })
+      .addCase(fetchUpcomingEvents.pending,   (state) => { state.loading.upcoming = true;  state.error = null; })
       .addCase(fetchUpcomingEvents.fulfilled, (state, action: PayloadAction<CalendarEvent[]>) => {
-        state.loading.upcoming = false;
-        state.upcomingEvents = action.payload;
+        state.loading.upcoming  = false;
+        state.upcomingEvents    = action.payload;
       })
-      .addCase(fetchUpcomingEvents.rejected, (state, action) => {
+      .addCase(fetchUpcomingEvents.rejected,  (state, action) => {
         state.loading.upcoming = false;
         state.error = action.payload as string;
       });
 
-    /* ---------- FETCH BY ID ---------- */
+    // ── Fetch by ID ──────────────────────────────────────────────────────────
     builder
-      .addCase(fetchCalendarEventById.pending, (state) => {
-        state.loading.detail = true;
-        state.error = null;
-      })
+      .addCase(fetchCalendarEventById.pending,   (state) => { state.loading.detail = true;  state.error = null; })
       .addCase(fetchCalendarEventById.fulfilled, (state, action: PayloadAction<CalendarEvent>) => {
-        state.loading.detail = false;
-        state.selectedEvent = action.payload;
+        state.loading.detail  = false;
+        state.selectedEvent   = action.payload;
       })
-      .addCase(fetchCalendarEventById.rejected, (state, action) => {
+      .addCase(fetchCalendarEventById.rejected,  (state, action) => {
         state.loading.detail = false;
         state.error = action.payload as string;
       });
 
-    /* ---------- UPDATE EVENT ---------- */
+    // ── Update ───────────────────────────────────────────────────────────────
     builder
-      .addCase(updateCalendarEvent.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
+      .addCase(updateCalendarEvent.pending,   (state) => { state.loading.mutating = true;  state.error = null; state.success = false; })
       .addCase(updateCalendarEvent.fulfilled, (state, action: PayloadAction<CalendarEvent>) => {
         state.loading.mutating = false;
-        state.success = true;
-        const index = state.events.findIndex((e) => e.id === action.payload.id);
-        if (index !== -1) {
-          state.events[index] = action.payload;
-        }
-        if (state.selectedEvent?.id === action.payload.id) {
-          state.selectedEvent = action.payload;
-        }
-        const upcomingIndex = state.upcomingEvents.findIndex((e) => e.id === action.payload.id);
-        if (upcomingIndex !== -1) {
-          state.upcomingEvents[upcomingIndex] = action.payload;
-        }
+        state.success          = true;
+        const idx = state.events.findIndex((e) => e.id === action.payload.id);
+        if (idx !== -1) state.events[idx] = action.payload;
+        if (state.selectedEvent?.id === action.payload.id) state.selectedEvent = action.payload;
+        const upIdx = state.upcomingEvents.findIndex((e) => e.id === action.payload.id);
+        if (upIdx !== -1) state.upcomingEvents[upIdx] = action.payload;
       })
-      .addCase(updateCalendarEvent.rejected, (state, action) => {
+      .addCase(updateCalendarEvent.rejected,  (state, action) => {
         state.loading.mutating = false;
-        state.error = action.payload as string;
+        state.error   = action.payload as string;
         state.success = false;
       });
 
-    /* ---------- DELETE EVENT ---------- */
+    // ── Delete ───────────────────────────────────────────────────────────────
     builder
-      .addCase(deleteCalendarEvent.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(deleteCalendarEvent.fulfilled, (state, action: PayloadAction<{ id: string }>) => {
-        state.loading.mutating = false;
-        state.success = true;
-        state.events = state.events.filter((e) => e.id !== action.payload.id);
-        state.upcomingEvents = state.upcomingEvents.filter((e) => e.id !== action.payload.id);
-        if (state.selectedEvent?.id === action.payload.id) {
-          state.selectedEvent = null;
-        }
+      .addCase(deleteCalendarEvent.pending,   (state) => { state.loading.mutating = true;  state.error = null; state.success = false; })
+      .addCase(deleteCalendarEvent.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating  = false;
+        state.success           = true;
+        state.events            = state.events.filter((e) => e.id !== action.payload);
+        state.upcomingEvents    = state.upcomingEvents.filter((e) => e.id !== action.payload);
+        if (state.selectedEvent?.id === action.payload) state.selectedEvent = null;
         state.pagination.total -= 1;
         state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
       })
-      .addCase(deleteCalendarEvent.rejected, (state, action) => {
+      .addCase(deleteCalendarEvent.rejected,  (state, action) => {
         state.loading.mutating = false;
-        state.error = action.payload as string;
+        state.error   = action.payload as string;
         state.success = false;
       });
   },
@@ -463,19 +411,19 @@ export const {
    SELECTORS
 ============================================================ */
 
-export const selectAllCalendarEvents = (state: { calendar: CalendarState }) => state.calendar.events;
-export const selectSelectedCalendarEvent = (state: { calendar: CalendarState }) => state.calendar.selectedEvent;
-export const selectUpcomingEvents = (state: { calendar: CalendarState }) => state.calendar.upcomingEvents;
-export const selectCalendarPagination = (state: { calendar: CalendarState }) => state.calendar.pagination;
-export const selectCalendarFilters = (state: { calendar: CalendarState }) => state.calendar.filters;
-export const selectGoogleCalendarStatus = (state: { calendar: CalendarState }) => state.calendar.googleStatus;
-export const selectCalendarListLoading = (state: { calendar: CalendarState }) => state.calendar.loading.list;
-export const selectCalendarDetailLoading = (state: { calendar: CalendarState }) => state.calendar.loading.detail;
-export const selectCalendarUpcomingLoading = (state: { calendar: CalendarState }) => state.calendar.loading.upcoming;
-export const selectCalendarMutating = (state: { calendar: CalendarState }) => state.calendar.loading.mutating;
-export const selectCalendarSyncing = (state: { calendar: CalendarState }) => state.calendar.loading.syncing;
-export const selectGoogleStatusLoading = (state: { calendar: CalendarState }) => state.calendar.loading.googleStatus;
-export const selectCalendarError = (state: { calendar: CalendarState }) => state.calendar.error;
-export const selectCalendarSuccess = (state: { calendar: CalendarState }) => state.calendar.success;
+export const selectAllCalendarEvents      = (s: { calendar: CalendarState }) => s.calendar.events;
+export const selectSelectedCalendarEvent  = (s: { calendar: CalendarState }) => s.calendar.selectedEvent;
+export const selectUpcomingEvents         = (s: { calendar: CalendarState }) => s.calendar.upcomingEvents;
+export const selectCalendarPagination     = (s: { calendar: CalendarState }) => s.calendar.pagination;
+export const selectCalendarFilters        = (s: { calendar: CalendarState }) => s.calendar.filters;
+export const selectGoogleCalendarStatus   = (s: { calendar: CalendarState }) => s.calendar.googleStatus;
+export const selectCalendarListLoading    = (s: { calendar: CalendarState }) => s.calendar.loading.list;
+export const selectCalendarDetailLoading  = (s: { calendar: CalendarState }) => s.calendar.loading.detail;
+export const selectCalendarUpcomingLoading= (s: { calendar: CalendarState }) => s.calendar.loading.upcoming;
+export const selectCalendarMutating       = (s: { calendar: CalendarState }) => s.calendar.loading.mutating;
+export const selectCalendarSyncing        = (s: { calendar: CalendarState }) => s.calendar.loading.syncing;
+export const selectGoogleStatusLoading    = (s: { calendar: CalendarState }) => s.calendar.loading.googleStatus;
+export const selectCalendarError          = (s: { calendar: CalendarState }) => s.calendar.error;
+export const selectCalendarSuccess        = (s: { calendar: CalendarState }) => s.calendar.success;
 
 export default calendarSlice.reducer;

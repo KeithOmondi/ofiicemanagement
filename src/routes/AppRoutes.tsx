@@ -23,6 +23,10 @@ import SuperAdminNotices from '../pages/admin/SuperAdminNotices';
 import SuperAdminFinancial from '../pages/admin/SuperAdminFinancial';
 import SuperAdminSignature from '../pages/admin/SuperAdminSignature';
 import SuperAdminHelpDesk from '../pages/admin/SuperAdminHelpDesk';
+import SuperAdminTeams from '../pages/admin/SuperAdminTeams';
+import SuperAdminSettings from '../pages/admin/SuperAdminSettings';
+import SuperAdminReports from '../pages/admin/SuperAdminReports';
+import SuperAdminLinks from '../pages/admin/SuperAdminLinks';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -84,6 +88,10 @@ const AppRoutes: React.FC = () => {
           <Route path="/super-admin/finance"         element={<SuperAdminFinancial />} />
           <Route path="/super-admin/notices"         element={<SuperAdminNotices />} />
           <Route path="/super-admin/signature"         element={<SuperAdminSignature />} />
+          <Route path="/super-admin/team-members"         element={<SuperAdminTeams />} />
+          <Route path="/super-admin/settings"         element={<SuperAdminSettings />} />
+          <Route path="/super-admin/reports"         element={<SuperAdminReports />} />
+          <Route path="/super-admin/links"         element={<SuperAdminLinks />} />
         </Route>
       </Route>
 
