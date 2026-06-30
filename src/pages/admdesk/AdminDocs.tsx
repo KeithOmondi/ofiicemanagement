@@ -499,7 +499,7 @@ const UploadModal = ({ onClose, onSubmit, loading }: UploadModalProps) => {
 
             {/* Reference */}
             <div>
-              <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Case / Reference No.</label>
+              <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">action required</label>
               <input
                 type="text"
                 value={referenceNo}
