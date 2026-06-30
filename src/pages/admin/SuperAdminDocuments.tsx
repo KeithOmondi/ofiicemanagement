@@ -24,6 +24,7 @@ import type {
   DocumentFilters,
   CreateComposedDocumentInput,
   CreateUploadDocumentInput,
+  RefType,
 } from "../../types/documents.types";
 import { format } from "date-fns";
 import { getDocumentTemplate } from "../../components/Layout/documentTemplates";
@@ -1053,7 +1054,17 @@ const MarkModal: React.FC<MarkModalProps> = ({ document: doc, onClose, onMark })
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
 
+// ─── Upload Modal ─────────────────────────────────────────────────────────────
+
 type UploadableDocumentType = Exclude<DocumentType, "memo" | "letter">;
+
+const REF_TYPES: { value: RefType; label: string }[] = [
+  { value: "for_signature",   label: "For Signature" },
+  { value: "for_attention",   label: "For Attention" },
+  { value: "for_information", label: "For Information" },
+  { value: "direction",       label: "Direction" },
+  { value: "other",           label: "Other" },
+];
 
 interface UploadModalProps {
   onClose:  () => void;
@@ -1064,12 +1075,29 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload }) => {
   const [title,       setTitle]       = useState("");
   const [type,        setType]        = useState<UploadableDocumentType>("judgment");
   const [referenceNo, setReferenceNo] = useState("");
+  const [refType,     setRefType]     = useState<RefType>("for_attention");
+  const [refOtherDescription, setRefOtherDescription] = useState("");
   const [file,        setFile]        = useState<File | null>(null);
+  const [error,       setError]       = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!file || !title) return;
-    onUpload({ title, type, reference_no: referenceNo || undefined }, file);
+    if (refType === "other" && !refOtherDescription.trim()) {
+      setError("Please describe the action required");
+      return;
+    }
+    setError(null);
+    onUpload(
+      {
+        title,
+        type,
+        reference_no: referenceNo || undefined,
+        ref_type: refType,
+        ref_other_description: refType === "other" ? refOtherDescription.trim() : undefined,
+      },
+      file,
+    );
   };
 
   return (
@@ -1094,6 +1122,32 @@ const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload }) => {
               <option value="correspondence">Correspondence</option>
               <option value="upload">Other Document</option>
             </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-stone-600 mb-1">Action Required</label>
+            <select
+              value={refType}
+              onChange={(e) => setRefType(e.target.value as RefType)}
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
+            >
+              {REF_TYPES.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            {refType === "other" && (
+              <div className="mt-2">
+                <input
+                  value={refOtherDescription}
+                  onChange={(e) => setRefOtherDescription(e.target.value)}
+                  placeholder="Describe the action required…"
+                  className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none ${
+                    error ? "border-red-300" : "border-stone-200 focus:border-[#1E4620]"
+                  }`}
+                />
+                {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+              </div>
+            )}
           </div>
 
           <div>

@@ -6,9 +6,15 @@ import {
   fetchDocuments,
   createUploadDocument,
   deleteDocument,
+  finalizeDraft,
   clearError,
 } from '../../store/slices/documentSlice';
-import { selectCurrentUser } from '../../store/slices/userSlice';
+import { selectCurrentUser, fetchCurrentUser } from '../../store/slices/userSlice';
+import {
+  fetchUsers,
+  selectAllUsers,
+  selectUsersListLoading,
+} from '../../store/slices/userSlice';
 import {
   fetchRegistryEntries,
   selectAllRegistryEntries,
@@ -20,6 +26,8 @@ import type {
   CreateUploadDocumentInput,
   DocumentType,
   Document as DocType,
+  RefType,
+  FinalizeDraftInput,
 } from '../../types/documents.types';
 import type { RegistryEntry, RegistryStatus } from '../../types/registry.types';
 import type { RootState } from '../../store/store';
@@ -31,15 +39,20 @@ const selectPagination = (state: RootState) => state.documents.pagination;
 const selectDocLoading = (state: RootState): boolean => state.documents.loading;
 const selectDocError = (state: RootState): string | null => state.documents.error;
 const selectDeletingId = (state: RootState): string | undefined => state.documents.actionInProgress.deleting;
+const selectFinalizingId = (state: RootState): string | undefined => state.documents.actionInProgress.finalizingDraft;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const UPLOAD_TYPES: { value: Exclude<DocumentType, 'memo' | 'letter'>; label: string }[] = [
-  { value: 'judgment', label: 'Judgment' },
-  { value: 'ruling', label: 'Ruling' },
-  { value: 'order', label: 'Order' },
   { value: 'correspondence', label: 'Correspondence' },
-  { value: 'upload', label: 'Other Upload' },
+];
+
+const REF_TYPES: { value: RefType; label: string }[] = [
+  { value: 'for_signature', label: 'For Signature' },
+  { value: 'for_attention', label: 'For Attention' },
+  { value: 'for_information', label: 'For Information' },
+  { value: 'direction', label: 'Direction' },
+  { value: 'other', label: 'Other' },
 ];
 
 const TYPE_BADGE: Record<DocumentType, string> = {
@@ -362,6 +375,8 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
 };
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
+// Dept heads always save as draft first — it stays invisible to the super
+// admin until finalized (assigned to a user, or sent to the super admin).
 
 interface UploadModalProps {
   onClose: () => void;
@@ -371,8 +386,10 @@ interface UploadModalProps {
 
 const UploadModal = ({ onClose, onSubmit, loading }: UploadModalProps) => {
   const [file, setFile] = useState<File | null>(null);
-  const [type, setType] = useState<Exclude<DocumentType, 'memo' | 'letter'>>('judgment');
+  const [type] = useState<Exclude<DocumentType, 'memo' | 'letter'>>('correspondence');
   const [referenceNo, setReferenceNo] = useState('');
+  const [refType, setRefType] = useState<RefType>('for_attention');
+  const [refOtherDescription, setRefOtherDescription] = useState('');
   const [title, setTitle] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -383,6 +400,9 @@ const UploadModal = ({ onClose, onSubmit, loading }: UploadModalProps) => {
     if (!title.trim()) next.title = 'Title is required';
     if (title.trim().length > 200) next.title = 'Title cannot exceed 200 characters';
     if (referenceNo && referenceNo.length > 50) next.referenceNo = 'Reference number too long';
+    if (refType === 'other' && !refOtherDescription.trim()) {
+      next.refOtherDescription = 'Please describe the action required';
+    }
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -396,6 +416,9 @@ const UploadModal = ({ onClose, onSubmit, loading }: UploadModalProps) => {
         title: title.trim(),
         type,
         reference_no: referenceNo.trim() || undefined,
+        ref_type: refType,
+        ref_other_description: refType === 'other' ? refOtherDescription.trim() : undefined,
+        is_draft: true,
       },
     });
   };
@@ -419,7 +442,9 @@ const UploadModal = ({ onClose, onSubmit, loading }: UploadModalProps) => {
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div>
             <h2 className="text-base font-semibold text-slate-900">Upload Document</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Attach a file with its metadata</p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Saved as a draft first — you'll choose who to mark it to next.
+            </p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -483,13 +508,13 @@ const UploadModal = ({ onClose, onSubmit, loading }: UploadModalProps) => {
               {errors.file && <p className="text-xs text-red-500 mt-1">{errors.file}</p>}
             </div>
 
-            {/* Type */}
+            {/* Type — locked to correspondence for dept heads */}
             <div>
               <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Document Type *</label>
               <select
                 value={type}
-                onChange={(e) => setType(e.target.value as Exclude<DocumentType, 'memo' | 'letter'>)}
-                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled
+                className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 cursor-not-allowed"
               >
                 {UPLOAD_TYPES.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -497,9 +522,40 @@ const UploadModal = ({ onClose, onSubmit, loading }: UploadModalProps) => {
               </select>
             </div>
 
-            {/* Reference */}
+            {/* Action required (ref_type) */}
             <div>
-              <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">action required</label>
+              <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Action Required *</label>
+              <select
+                value={refType}
+                onChange={(e) => setRefType(e.target.value as RefType)}
+                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {REF_TYPES.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+
+              {refType === 'other' && (
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    value={refOtherDescription}
+                    onChange={(e) => setRefOtherDescription(e.target.value)}
+                    placeholder="Describe the action required…"
+                    className={`w-full rounded-md border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      errors.refOtherDescription ? 'border-red-300' : 'border-slate-200'
+                    }`}
+                  />
+                  {errors.refOtherDescription && (
+                    <p className="text-xs text-red-500 mt-1">{errors.refOtherDescription}</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Reference number */}
+            <div>
+              <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Reference No.</label>
               <input
                 type="text"
                 value={referenceNo}
@@ -538,7 +594,153 @@ const UploadModal = ({ onClose, onSubmit, loading }: UploadModalProps) => {
               className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 transition"
             >
               {loading && <Spinner />}
-              Upload Document
+              Save as Draft
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ─── Mark / Finalize Draft Modal ──────────────────────────────────────────────
+// Appears right after a draft is saved (or reopened later from the table)
+// and lets the dept head either mark the document to a specific user in
+// their department, or send it straight to the super admin.
+
+type FinalizeMode = 'user' | 'admin';
+
+interface FinalizeDraftModalProps {
+  document: DocType;
+  onClose: () => void;
+  onSubmit: (input: FinalizeDraftInput) => void;
+  loading: boolean;
+}
+
+const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({ document, onClose, onSubmit, loading }) => {
+  const dispatch = useAppDispatch();
+  const currentUser = useAppSelector(selectCurrentUser);
+  const teamMembers = useAppSelector(selectAllUsers);
+  const usersLoading = useAppSelector(selectUsersListLoading);
+
+  const [mode, setMode] = useState<FinalizeMode>('user');
+  const [userId, setUserId] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!currentUser?.department_id) return;
+    dispatch(fetchUsers({
+      is_active: true,
+      department_id: currentUser.department_id,
+      limit: 100,
+      sort_by: 'full_name',
+      sort_order: 'ASC',
+    }));
+  }, [dispatch, currentUser?.department_id]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (mode === 'user') {
+      if (!userId) {
+        setError('Please select a user to mark this document to');
+        return;
+      }
+      onSubmit({ assigned_to: userId });
+    } else {
+      onSubmit({ send_to_super_admin: true });
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-xl bg-white shadow-2xl border border-slate-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Mark Document</h2>
+            <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[260px]">{document.title}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="px-6 py-5 space-y-4">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => { setMode('user'); setError(null); }}
+                className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
+                  mode === 'user'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Mark to a User
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode('admin'); setError(null); }}
+                className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
+                  mode === 'admin'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                Send to Super Admin
+              </button>
+            </div>
+
+            {mode === 'user' && (
+              <div>
+                <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+                  Assign to *
+                </label>
+                <select
+                  value={userId}
+                  onChange={(e) => { setUserId(e.target.value); setError(null); }}
+                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
+                  disabled={usersLoading}
+                >
+                  <option value="">
+                    {usersLoading
+                      ? 'Loading team members…'
+                      : teamMembers.length === 0
+                      ? 'No active users in your department'
+                      : '— Select a user —'}
+                  </option>
+                  {teamMembers.map((u) => (
+                    <option key={u.id} value={u.id}>{u.full_name} — {u.pj_number}</option>
+                  ))}
+                </select>
+                {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+              </div>
+            )}
+
+            {mode === 'admin' && (
+              <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
+                This document will be sent directly to the Super Admin for review and e-signature.
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-xl">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition"
+            >
+              Later
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 transition"
+            >
+              {loading && <Spinner />}
+              {mode === 'user' ? 'Mark to User' : 'Send to Super Admin'}
             </button>
           </div>
         </form>
@@ -557,6 +759,7 @@ const AdminDocs = () => {
   const loading = useAppSelector(selectDocLoading);
   const error = useAppSelector(selectDocError);
   const deletingId = useAppSelector(selectDeletingId);
+  const finalizingId = useAppSelector(selectFinalizingId);
 
   // ── Registry (station-routing) state — separate lifecycle from "Marked To" ──
   const registryEntries = useAppSelector(selectAllRegistryEntries);
@@ -570,12 +773,26 @@ const AdminDocs = () => {
   // ── Preview state ─────────────────────────────────────────────────────────
   const [selectedDocument, setSelectedDocument] = useState<DocType | null>(null);
 
+  // ── Finalize / Mark draft state ──────────────────────────────────────────
+  const [finalizeTarget, setFinalizeTarget] = useState<DocType | null>(null);
+
   // ── Filter state held in refs ─────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('');
   const searchRef = useRef('');
   const typeFilterRef = useRef<DocumentType | ''>('');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Ensure currentUser is loaded ─────────────────────────────────────────
+  // departmentId-scoped fetches below (documents, finalize-draft team list)
+  // depend on currentUser being populated. If this page is reached via a
+  // fresh load/refresh before the app-level boot fetch resolves, currentUser
+  // can still be null here — fetch it ourselves so nothing silently no-ops.
+  useEffect(() => {
+    if (!currentUser) {
+      dispatch(fetchCurrentUser());
+    }
+  }, [dispatch, currentUser]);
 
   // ── departmentId as a stable primitive ───────────────────────────────────
   const departmentId = currentUser?.department_id ?? null;
@@ -649,18 +866,39 @@ const AdminDocs = () => {
     triggerFetch(1);
   };
 
-  // ── Upload handler ────────────────────────────────────────────────────────
+  // ── Upload handler — always saves as a draft, then opens the mark/finalize modal ──
   const handleUpload = async (payload: { file: File; metadata: CreateUploadDocumentInput }) => {
     setUploading(true);
     try {
-      await dispatch(createUploadDocument({ input: payload.metadata, file: payload.file })).unwrap();
-      toast.success('Document uploaded successfully');
+      const created = await dispatch(
+        createUploadDocument({ input: payload.metadata, file: payload.file })
+      ).unwrap();
+      toast.success('Document saved as draft');
       setShowUploadModal(false);
       triggerFetch(page);
+      // Immediately prompt the dept head to mark it to a user or send to admin
+      setFinalizeTarget(created);
     } catch {
       // error surfaced via toast effect
     } finally {
       setUploading(false);
+    }
+  };
+
+  // ── Finalize draft handler ───────────────────────────────────────────────
+  const handleFinalizeDraft = async (input: FinalizeDraftInput) => {
+    if (!finalizeTarget) return;
+    try {
+      await dispatch(finalizeDraft({ id: finalizeTarget.id, input })).unwrap();
+      toast.success(
+        input.send_to_super_admin
+          ? 'Document sent to Super Admin'
+          : 'Document marked to user'
+      );
+      setFinalizeTarget(null);
+      triggerFetch(page);
+    } catch {
+      // error surfaced via toast effect
     }
   };
 
@@ -710,6 +948,16 @@ const AdminDocs = () => {
           onClose={() => setShowUploadModal(false)}
           onSubmit={handleUpload}
           loading={uploading}
+        />
+      )}
+
+      {/* Mark / Finalize draft modal */}
+      {finalizeTarget && (
+        <FinalizeDraftModal
+          document={finalizeTarget}
+          onClose={() => setFinalizeTarget(null)}
+          onSubmit={handleFinalizeDraft}
+          loading={finalizingId === finalizeTarget.id}
         />
       )}
 
@@ -769,7 +1017,7 @@ const AdminDocs = () => {
         {/* Table */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[1150px]">
+            <table className="w-full text-sm min-w-[1200px]">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
                   {['Title', 'Type', 'Ref No.', 'Status', 'Marked To', 'Routed To', 'Uploaded', 'Actions'].map((h) => (
@@ -820,7 +1068,7 @@ const AdminDocs = () => {
                         </td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[doc.status] ?? 'bg-gray-100 text-gray-700'}`}>
-                            {doc.status.replace(/_/g, ' ')}
+                            {doc.is_draft ? 'draft' : doc.status.replace(/_/g, ' ')}
                           </span>
                         </td>
 
@@ -842,6 +1090,15 @@ const AdminDocs = () => {
                                 </span>
                               )}
                             </div>
+                          ) : doc.is_draft ? (
+                            <button
+                              onClick={() => setFinalizeTarget(doc)}
+                              className="text-xs text-amber-600 font-medium underline decoration-dotted hover:text-amber-700 transition"
+                            >
+                              Not marked yet — click to mark
+                            </button>
+                          ) : doc.assigned_to_name ? (
+                            <span className="text-xs font-medium text-slate-700">{doc.assigned_to_name}</span>
                           ) : (
                             <span className="text-xs text-slate-400">—</span>
                           )}
@@ -880,6 +1137,20 @@ const AdminDocs = () => {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-center gap-1">
+
+                            {/* Mark — only for drafts not yet finalized */}
+                            {doc.is_draft && (
+                              <button
+                                onClick={() => setFinalizeTarget(doc)}
+                                title="Mark document"
+                                className="p-1.5 text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-md transition"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                    d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                                </svg>
+                              </button>
+                            )}
 
                             {/* View — opens inline preview panel */}
                             <button

@@ -110,6 +110,7 @@ const navigationConfig: NavSection[] = [
     title: 'Settings',
     items: [
       { to: 'settings', label: 'Settings', icon: Icon.tenders },
+      { to: 'gate-pass', label: 'Gate Pass', icon: Icon.tenders },
     ],
   },
 ];

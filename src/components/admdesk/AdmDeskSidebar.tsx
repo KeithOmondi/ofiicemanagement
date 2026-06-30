@@ -100,6 +100,7 @@ const navigationConfig: NavSection[] = [
     items: [
       { to: (id) => `/dept/${id}/calendar`,  label: 'Calendar',        icon: Icon.calendar },
       { to: (id) => `/dept/${id}/tasks`,     label: 'Task Management', icon: Icon.tasks    },
+      { to: (id) => `/dept/${id}/bring-up`,     label: 'Bring Up', icon: Icon.tasks    },
       { to: (id) => `/dept/${id}/reports`,   label: 'Reports',         icon: Icon.reports  },
     ],
   },

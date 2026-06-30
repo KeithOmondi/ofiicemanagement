@@ -16,6 +16,9 @@ export type DocumentCategory =
 
 export type RoutePriority = 'low' | 'normal' | 'urgent';
 
+export type RefType =
+  | 'for_signature' | 'for_attention' | 'for_information' | 'direction' | 'other';
+
 // ── Input types ───────────────────────────────────────────────────────────────
 
 export interface CreateComposedDocumentInput {
@@ -33,8 +36,11 @@ export interface CreateUploadDocumentInput {
   type: Exclude<DocumentType, 'memo' | 'letter'>;
   category?: DocumentCategory;
   reference_no?: string;
+  ref_type: RefType;
+  ref_other_description?: string;
   assigned_to?: string;
   department_id?: string;
+  is_draft?: boolean;
 }
 
 export interface UpdateDocumentInput {
@@ -77,6 +83,18 @@ export interface DocumentFilters {
   sort_order?: 'ASC' | 'DESC';
 }
 
+// ── Draft / Flow input types ────────────────────────────────────────────────
+
+export interface FinalizeDraftInput {
+  assigned_to?: string;
+  send_to_super_admin?: boolean;
+}
+
+export interface ReturnDocumentInput {
+  note: string;
+  requires_more_docs?: boolean;
+}
+
 // ── Entity types ──────────────────────────────────────────────────────────────
 
 // ── Document Mark (to Department) ──────────────────────────────────────────
@@ -109,6 +127,20 @@ export interface DocumentAnnotation {
   created_at: Date;
 }
 
+// ── Document Flow (audit trail) ─────────────────────────────────────────────
+
+export interface DocumentFlowEntry {
+  id: string;
+  document_id: string;
+  action: string;
+  from_user: string | null;
+  from_user_name: string | null;
+  to_user: string | null;
+  to_user_name: string | null;
+  note: string | null;
+  created_at: Date;
+}
+
 export interface Document {
   id: string;
   title: string;
@@ -116,6 +148,8 @@ export interface Document {
   category: DocumentCategory | null;
   status: DocumentStatus;
   reference_no: string | null;
+  ref_type: RefType | null;
+  ref_other_description: string | null;
   body: string | null;
   file_url: string | null;
   file_public_id: string | null;
@@ -134,6 +168,7 @@ export interface Document {
   signed_at: Date | null;
   is_sent: boolean;
   sent_at: Date | null;
+  is_draft: boolean;
   is_active: boolean;
   created_at: Date;
   updated_at: Date;

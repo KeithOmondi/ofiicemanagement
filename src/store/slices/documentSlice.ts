@@ -12,12 +12,15 @@ import type {
   DocumentPaginationResponse,
   DocumentMark,
   DocumentAnnotation,
+  DocumentFlowEntry,
   DocumentFilters,
   CreateComposedDocumentInput,
   CreateUploadDocumentInput,
   UpdateDocumentInput,
   MarkDocumentInput,
   CreateAnnotationInput,
+  FinalizeDraftInput,
+  ReturnDocumentInput,
 } from "../../types/documents.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -27,6 +30,7 @@ interface DocumentState {
   currentDocument: DocumentWithAnnotations | null;
   myMarked: Document[];
   markHistory: DocumentMark[];
+  flowHistory: DocumentFlowEntry[];
   loading: boolean;
   error: string | null;
   pagination: {
@@ -43,6 +47,8 @@ interface DocumentState {
     acknowledging?: string;
     completing?: string;
     deleting?: string;
+    finalizingDraft?: string;
+    returning?: string;
   };
 }
 
@@ -51,6 +57,7 @@ const initialState: DocumentState = {
   currentDocument: null,
   myMarked: [],
   markHistory: [],
+  flowHistory: [],
   loading: false,
   error: null,
   pagination: null,
@@ -139,6 +146,23 @@ export const fetchMarkHistory = createAsyncThunk(
         success: boolean;
         data: DocumentMark[];
       }>(`/documents/${documentId}/mark-history`);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  },
+);
+
+// ── Fetch flow history for a document ──────────────────────────────────────
+
+export const fetchFlowHistory = createAsyncThunk(
+  "documents/fetchFlowHistory",
+  async (documentId: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: DocumentFlowEntry[];
+      }>(`/documents/${documentId}/flow`);
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
@@ -272,6 +296,46 @@ export const sendDocument = createAsyncThunk(
   },
 );
 
+// ── Finalize draft (assign to user or send to super admin) ──────────────────
+
+export const finalizeDraft = createAsyncThunk(
+  "documents/finalizeDraft",
+  async (
+    { id, input }: { id: string; input: FinalizeDraftInput },
+    { rejectWithValue },
+  ) => {
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/finalize-draft`, input);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  },
+);
+
+// ── Return document for action ──────────────────────────────────────────────
+
+export const returnDocument = createAsyncThunk(
+  "documents/returnDocument",
+  async (
+    { id, input }: { id: string; input: ReturnDocumentInput },
+    { rejectWithValue },
+  ) => {
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/return`, input);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  },
+);
+
 // ── Mark to Department ──────────────────────────────────────────────────────
 
 export const markDocument = createAsyncThunk(
@@ -380,6 +444,9 @@ const documentSlice = createSlice({
     clearMyMarked: (state) => {
       state.myMarked = [];
     },
+    clearFlowHistory: (state) => {
+      state.flowHistory = [];
+    },
     resetState: () => initialState,
   },
   extraReducers: (builder) => {
@@ -454,6 +521,23 @@ const documentSlice = createSlice({
         },
       )
       .addCase(fetchMarkHistory.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ── fetchFlowHistory ────────────────────────────────────────────────────
+      .addCase(fetchFlowHistory.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchFlowHistory.fulfilled,
+        (state, action: PayloadAction<DocumentFlowEntry[]>) => {
+          state.loading = false;
+          state.flowHistory = action.payload;
+        },
+      )
+      .addCase(fetchFlowHistory.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
@@ -540,8 +624,8 @@ const documentSlice = createSlice({
 
       // ── signDocument ────────────────────────────────────────────────────────
       .addCase(signDocument.pending, (state, action) => {
-  state.actionInProgress.signing = action.meta.arg.id; // was action.meta.arg
-})
+        state.actionInProgress.signing = action.meta.arg.id;
+      })
       .addCase(
         signDocument.fulfilled,
         (state, action: PayloadAction<Document>) => {
@@ -585,6 +669,54 @@ const documentSlice = createSlice({
       )
       .addCase(sendDocument.rejected, (state) => {
         state.actionInProgress.sending = undefined;
+      })
+
+      // ── finalizeDraft ──────────────────────────────────────────────────────
+      .addCase(finalizeDraft.pending, (state, action) => {
+        state.actionInProgress.finalizingDraft = action.meta.arg.id;
+      })
+      .addCase(
+        finalizeDraft.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.finalizingDraft = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+        },
+      )
+      .addCase(finalizeDraft.rejected, (state) => {
+        state.actionInProgress.finalizingDraft = undefined;
+      })
+
+      // ── returnDocument ──────────────────────────────────────────────────────
+      .addCase(returnDocument.pending, (state, action) => {
+        state.actionInProgress.returning = action.meta.arg.id;
+      })
+      .addCase(
+        returnDocument.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.returning = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+        },
+      )
+      .addCase(returnDocument.rejected, (state) => {
+        state.actionInProgress.returning = undefined;
       })
 
       // ── markDocument ──────────────────────────────────────────────────────
@@ -688,9 +820,15 @@ const documentSlice = createSlice({
   },
 });
 
-export const { clearCurrentDocument, clearError, clearMyMarked, resetState } =
-  documentSlice.actions;
-  // ── Selectors ─────────────────────────────────────────────────────────────────
+export const {
+  clearCurrentDocument,
+  clearError,
+  clearMyMarked,
+  clearFlowHistory,
+  resetState,
+} = documentSlice.actions;
+
+// ── Selectors ─────────────────────────────────────────────────────────────────
 // Typed against the local slice shape so this file has no dependency on the
 // store's RootState (avoids circular imports). Adjust the key ("documents")
 // if you mount this reducer under a different slice name in the root reducer.
@@ -706,6 +844,9 @@ export const selectMyMarked = (state: { documents: DocumentState }) =>
 
 export const selectMarkHistory = (state: { documents: DocumentState }) =>
   state.documents.markHistory;
+
+export const selectFlowHistory = (state: { documents: DocumentState }) =>
+  state.documents.flowHistory;
 
 export const selectLoading = (state: { documents: DocumentState }) =>
   state.documents.loading;
