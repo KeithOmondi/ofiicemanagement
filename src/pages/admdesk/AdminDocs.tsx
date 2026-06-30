@@ -28,6 +28,7 @@ import type {
   Document as DocType,
   RefType,
   FinalizeDraftInput,
+  DocumentFilters,
 } from '../../types/documents.types';
 import type { RegistryEntry, RegistryStatus } from '../../types/registry.types';
 import type { RootState } from '../../store/store';
@@ -375,16 +376,15 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
 };
 
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
-// Dept heads always save as draft first — it stays invisible to the super
-// admin until finalized (assigned to a user, or sent to the super admin).
 
 interface UploadModalProps {
   onClose: () => void;
   onSubmit: (payload: { file: File; metadata: CreateUploadDocumentInput }) => void;
   loading: boolean;
+  departmentId?: string | null; // ✅ Added departmentId prop
 }
 
-const UploadModal = ({ onClose, onSubmit, loading }: UploadModalProps) => {
+const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalProps) => {
   const [file, setFile] = useState<File | null>(null);
   const [type] = useState<Exclude<DocumentType, 'memo' | 'letter'>>('correspondence');
   const [referenceNo, setReferenceNo] = useState('');
@@ -410,6 +410,8 @@ const UploadModal = ({ onClose, onSubmit, loading }: UploadModalProps) => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate() || !file) return;
+    
+    // ✅ Include department_id in metadata
     onSubmit({
       file,
       metadata: {
@@ -419,6 +421,7 @@ const UploadModal = ({ onClose, onSubmit, loading }: UploadModalProps) => {
         ref_type: refType,
         ref_other_description: refType === 'other' ? refOtherDescription.trim() : undefined,
         is_draft: true,
+        department_id: departmentId || undefined, // ✅ Critical fix
       },
     });
   };
@@ -604,9 +607,6 @@ const UploadModal = ({ onClose, onSubmit, loading }: UploadModalProps) => {
 };
 
 // ─── Mark / Finalize Draft Modal ──────────────────────────────────────────────
-// Appears right after a draft is saved (or reopened later from the table)
-// and lets the dept head either mark the document to a specific user in
-// their department, or send it straight to the super admin.
 
 type FinalizeMode = 'user' | 'admin';
 
@@ -761,7 +761,7 @@ const AdminDocs = () => {
   const deletingId = useAppSelector(selectDeletingId);
   const finalizingId = useAppSelector(selectFinalizingId);
 
-  // ── Registry (station-routing) state — separate lifecycle from "Marked To" ──
+  // ── Registry (station-routing) state ──
   const registryEntries = useAppSelector(selectAllRegistryEntries);
   const registryLoading = useAppSelector(selectRegistryListLoading);
   const registryError = useAppSelector(selectRegistryError);
@@ -776,7 +776,7 @@ const AdminDocs = () => {
   // ── Finalize / Mark draft state ──────────────────────────────────────────
   const [finalizeTarget, setFinalizeTarget] = useState<DocType | null>(null);
 
-  // ── Filter state held in refs ─────────────────────────────────────────────
+  // ── Filter state ──────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('');
   const searchRef = useRef('');
@@ -784,10 +784,6 @@ const AdminDocs = () => {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Ensure currentUser is loaded ─────────────────────────────────────────
-  // departmentId-scoped fetches below (documents, finalize-draft team list)
-  // depend on currentUser being populated. If this page is reached via a
-  // fresh load/refresh before the app-level boot fetch resolves, currentUser
-  // can still be null here — fetch it ourselves so nothing silently no-ops.
   useEffect(() => {
     if (!currentUser) {
       dispatch(fetchCurrentUser());
@@ -799,26 +795,31 @@ const AdminDocs = () => {
   const departmentIdRef = useRef(departmentId);
   useEffect(() => { departmentIdRef.current = departmentId; }, [departmentId]);
 
-  // ── Core fetch ────────────────────────────────────────────────────────────
-  const triggerFetch = useCallback((p: number) => {
-    dispatch(
-      fetchDocuments({
-        page: p,
-        limit: PAGE_SIZE,
-        ...(searchRef.current && { search: searchRef.current }),
-        ...(typeFilterRef.current && { type: typeFilterRef.current }),
-        ...(departmentIdRef.current && { department_id: departmentIdRef.current }),
-      })
-    );
-  }, [dispatch]);
 
+
+const triggerFetch = useCallback((p: number) => {
+  const params: DocumentFilters = {
+    page: p,
+    limit: PAGE_SIZE,
+  };
+
+  if (searchRef.current) params.search = searchRef.current;
+  if (typeFilterRef.current) params.type = typeFilterRef.current;
+
+  if (departmentIdRef.current) {
+    params.department_id = departmentIdRef.current;
+  }
+
+  console.log('🔍 Fetching documents with params:', params);
+  dispatch(fetchDocuments(params));
+}, [dispatch]);
+
+  // ✅ Fetch documents when page changes
   useEffect(() => {
     triggerFetch(page);
   }, [page, triggerFetch]);
 
-  // Registry entries aren't paginated alongside documents — fetch a generous
-  // batch once and look entries up by document_id client-side (see
-  // `activeRegistryByDoc` below). Bump the limit if you outgrow this.
+  // Registry entries fetch
   useEffect(() => {
     dispatch(fetchRegistryEntries({ limit: 200, sort_by: 'routed_at', sort_order: 'DESC' }));
   }, [dispatch]);
@@ -838,7 +839,7 @@ const AdminDocs = () => {
     }
   }, [registryError, dispatch]);
 
-  // ── Active registry entry per document (current station, if any) ──────────
+  // ── Active registry entry per document ──────────────────────────────────
   const activeRegistryByDoc = useMemo(() => {
     const map = new Map<string, RegistryEntry>();
     registryEntries.forEach((entry) => {
@@ -866,19 +867,38 @@ const AdminDocs = () => {
     triggerFetch(1);
   };
 
-  // ── Upload handler — always saves as a draft, then opens the mark/finalize modal ──
+  // ── Upload handler ────────────────────────────────────────────────────────
   const handleUpload = async (payload: { file: File; metadata: CreateUploadDocumentInput }) => {
     setUploading(true);
+    console.log('📤 Uploading document:', {
+      title: payload.metadata.title,
+      department_id: payload.metadata.department_id,
+      file: payload.file.name,
+    });
+    
     try {
       const created = await dispatch(
         createUploadDocument({ input: payload.metadata, file: payload.file })
       ).unwrap();
+      
+      console.log('✅ Document created successfully:', {
+        id: created.id,
+        title: created.title,
+        department_id: created.department_id,
+        file_url: created.file_url,
+        is_draft: created.is_draft,
+      });
+      
       toast.success('Document saved as draft');
       setShowUploadModal(false);
-      triggerFetch(page);
-      // Immediately prompt the dept head to mark it to a user or send to admin
+      
+      // ✅ Force a fresh fetch to ensure the document appears in the list
+      await triggerFetch(page);
+      
+      // ✅ Immediately prompt the dept head to mark it
       setFinalizeTarget(created);
-    } catch {
+    } catch (error) {
+      console.error('❌ Upload error:', error);
       // error surfaced via toast effect
     } finally {
       setUploading(false);
@@ -888,6 +908,8 @@ const AdminDocs = () => {
   // ── Finalize draft handler ───────────────────────────────────────────────
   const handleFinalizeDraft = async (input: FinalizeDraftInput) => {
     if (!finalizeTarget) return;
+    console.log('📌 Finalizing draft:', finalizeTarget.id, input);
+    
     try {
       await dispatch(finalizeDraft({ id: finalizeTarget.id, input })).unwrap();
       toast.success(
@@ -896,8 +918,9 @@ const AdminDocs = () => {
           : 'Document marked to user'
       );
       setFinalizeTarget(null);
-      triggerFetch(page);
-    } catch {
+      await triggerFetch(page);
+    } catch (error) {
+      console.error('❌ Finalize error:', error);
       // error surfaced via toast effect
     }
   };
@@ -905,6 +928,8 @@ const AdminDocs = () => {
   // ── Delete handler ────────────────────────────────────────────────────────
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this document? This action cannot be undone.')) return;
+    console.log('🗑️ Deleting document:', id);
+    
     try {
       await dispatch(deleteDocument(id)).unwrap();
       toast.success('Document deleted');
@@ -913,8 +938,9 @@ const AdminDocs = () => {
       }
       const targetPage = documents.length === 1 && page > 1 ? page - 1 : page;
       setPage(targetPage);
-      if (targetPage === page) triggerFetch(page);
-    } catch {
+      if (targetPage === page) await triggerFetch(page);
+    } catch (error) {
+      console.error('❌ Delete error:', error);
       // error surfaced via toast effect
     }
   };
@@ -942,12 +968,13 @@ const AdminDocs = () => {
         />
       )}
 
-      {/* Upload modal */}
+      {/* Upload modal - ✅ Pass departmentId */}
       {showUploadModal && (
         <UploadModal
           onClose={() => setShowUploadModal(false)}
           onSubmit={handleUpload}
           loading={uploading}
+          departmentId={departmentId}
         />
       )}
 
@@ -1011,6 +1038,11 @@ const AdminDocs = () => {
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
+
+            {/* ✅ Debug: Show department info */}
+            <div className="text-xs text-slate-400 bg-slate-100 px-3 py-1.5 rounded-full">
+              Dept: {departmentId || 'None'}
+            </div>
           </div>
         </div>
 
@@ -1057,6 +1089,10 @@ const AdminDocs = () => {
                       <tr key={doc.id} className="border-b border-slate-50 hover:bg-slate-50/60 transition">
                         <td className="px-4 py-3 font-medium text-slate-900 truncate max-w-[200px]" title={doc.title}>
                           {doc.title}
+                          {/* ✅ Debug: Show department_id in tooltip */}
+                          <span className="block text-[10px] text-slate-400 font-normal">
+                            Dept: {doc.department_id || 'None'}
+                          </span>
                         </td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${TYPE_BADGE[doc.type] ?? 'bg-slate-100 text-slate-700'}`}>
@@ -1072,7 +1108,7 @@ const AdminDocs = () => {
                           </span>
                         </td>
 
-                        {/* Marked To (department) — already effective, unchanged */}
+                        {/* Marked To */}
                         <td className="px-4 py-3">
                           {isMarked && activeMark ? (
                             <div className="flex flex-col gap-0.5">
@@ -1104,7 +1140,7 @@ const AdminDocs = () => {
                           )}
                         </td>
 
-                        {/* Routed To (station) — new */}
+                        {/* Routed To */}
                         <td className="px-4 py-3">
                           {registryLoading && !activeRegistry ? (
                             <span className="text-xs text-slate-300">…</span>
@@ -1156,7 +1192,7 @@ const AdminDocs = () => {
                             <button
                               disabled={!doc.file_url}
                               onClick={() => handlePreview(doc)}
-                              title="Preview file"
+                              title={doc.file_url ? "Preview file" : "No file attached"}
                               className="p-1.5 text-slate-400 hover:text-blue-600 rounded-md transition disabled:opacity-30 disabled:cursor-not-allowed"
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
