@@ -101,6 +101,7 @@ const navigationConfig: NavSection[] = [
     items: [
       { to: 'dashboard', label: 'Dashboard', icon: Icon.dashboard },
       { to: 'manage',    label: 'Help Desk', icon: Icon.helpdesk },
+      { to: 'documents',    label: 'Documents', icon: Icon.helpdesk },
     ],
   },
   {
