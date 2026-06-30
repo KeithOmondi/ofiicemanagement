@@ -410,7 +410,7 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate() || !file) return;
-    
+
     // ✅ Include department_id in metadata
     onSubmit({
       file,
@@ -790,34 +790,46 @@ const AdminDocs = () => {
     }
   }, [dispatch, currentUser]);
 
-  // ── departmentId as a stable primitive ───────────────────────────────────
+  // ── departmentId derived directly from currentUser (no stale ref) ───────
   const departmentId = currentUser?.department_id ?? null;
-  const departmentIdRef = useRef(departmentId);
-  useEffect(() => { departmentIdRef.current = departmentId; }, [departmentId]);
 
+  // ── triggerFetch now closes over departmentId directly, so it can never
+  //    fire with a stale/undefined department from a ref that hasn't caught
+  //    up yet. Including departmentId in the deps means this function
+  //    identity changes whenever the department resolves or changes,
+  //    which the effect below reacts to. ────────────────────────────────
+  const triggerFetch = useCallback((p: number) => {
+    const params: DocumentFilters = {
+      page: p,
+      limit: PAGE_SIZE,
+    };
 
+    if (searchRef.current) params.search = searchRef.current;
+    if (typeFilterRef.current) params.type = typeFilterRef.current;
 
-const triggerFetch = useCallback((p: number) => {
-  const params: DocumentFilters = {
-    page: p,
-    limit: PAGE_SIZE,
-  };
+    // Only add department_id filter if we have one. This ensures
+    // documents without department_id (like drafts) are still shown.
+    if (departmentId) {
+      params.department_id = departmentId;
+    }
 
-  if (searchRef.current) params.search = searchRef.current;
-  if (typeFilterRef.current) params.type = typeFilterRef.current;
+    dispatch(fetchDocuments(params));
+  }, [dispatch, departmentId]);
 
-  if (departmentIdRef.current) {
-    params.department_id = departmentIdRef.current;
-  }
-
-  console.log('🔍 Fetching documents with params:', params);
-  dispatch(fetchDocuments(params));
-}, [dispatch]);
-
-  // ✅ Fetch documents when page changes
+  // ✅ Fetch documents when page changes — but only once currentUser has
+  //    resolved. On a hard refresh, currentUser starts out null while
+  //    fetchCurrentUser() is in flight; firing the documents fetch before
+  //    that resolves means departmentId is wrongly treated as "none" (or,
+  //    if currentUser happened to already be in the store, treated as set)
+  //    depending on timing — that race is exactly what was causing the
+  //    inconsistent document count after refresh. Waiting for currentUser
+  //    removes the race, and re-running when departmentId changes (via
+  //    triggerFetch's identity) ensures we re-fetch with the correct
+  //    filter as soon as it's known.
   useEffect(() => {
+    if (!currentUser) return;
     triggerFetch(page);
-  }, [page, triggerFetch]);
+  }, [page, currentUser, triggerFetch]);
 
   // Registry entries fetch
   useEffect(() => {
@@ -870,31 +882,18 @@ const triggerFetch = useCallback((p: number) => {
   // ── Upload handler ────────────────────────────────────────────────────────
   const handleUpload = async (payload: { file: File; metadata: CreateUploadDocumentInput }) => {
     setUploading(true);
-    console.log('📤 Uploading document:', {
-      title: payload.metadata.title,
-      department_id: payload.metadata.department_id,
-      file: payload.file.name,
-    });
-    
+
     try {
       const created = await dispatch(
         createUploadDocument({ input: payload.metadata, file: payload.file })
       ).unwrap();
-      
-      console.log('✅ Document created successfully:', {
-        id: created.id,
-        title: created.title,
-        department_id: created.department_id,
-        file_url: created.file_url,
-        is_draft: created.is_draft,
-      });
-      
+
       toast.success('Document saved as draft');
       setShowUploadModal(false);
-      
+
       // ✅ Force a fresh fetch to ensure the document appears in the list
       await triggerFetch(page);
-      
+
       // ✅ Immediately prompt the dept head to mark it
       setFinalizeTarget(created);
     } catch (error) {
@@ -908,8 +907,7 @@ const triggerFetch = useCallback((p: number) => {
   // ── Finalize draft handler ───────────────────────────────────────────────
   const handleFinalizeDraft = async (input: FinalizeDraftInput) => {
     if (!finalizeTarget) return;
-    console.log('📌 Finalizing draft:', finalizeTarget.id, input);
-    
+
     try {
       await dispatch(finalizeDraft({ id: finalizeTarget.id, input })).unwrap();
       toast.success(
@@ -928,8 +926,7 @@ const triggerFetch = useCallback((p: number) => {
   // ── Delete handler ────────────────────────────────────────────────────────
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this document? This action cannot be undone.')) return;
-    console.log('🗑️ Deleting document:', id);
-    
+
     try {
       await dispatch(deleteDocument(id)).unwrap();
       toast.success('Document deleted');
@@ -1038,11 +1035,6 @@ const triggerFetch = useCallback((p: number) => {
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
-
-            {/* ✅ Debug: Show department info */}
-            <div className="text-xs text-slate-400 bg-slate-100 px-3 py-1.5 rounded-full">
-              Dept: {departmentId || 'None'}
-            </div>
           </div>
         </div>
 
@@ -1089,10 +1081,6 @@ const triggerFetch = useCallback((p: number) => {
                       <tr key={doc.id} className="border-b border-slate-50 hover:bg-slate-50/60 transition">
                         <td className="px-4 py-3 font-medium text-slate-900 truncate max-w-[200px]" title={doc.title}>
                           {doc.title}
-                          {/* ✅ Debug: Show department_id in tooltip */}
-                          <span className="block text-[10px] text-slate-400 font-normal">
-                            Dept: {doc.department_id || 'None'}
-                          </span>
                         </td>
                         <td className="px-4 py-3">
                           <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${TYPE_BADGE[doc.type] ?? 'bg-slate-100 text-slate-700'}`}>
