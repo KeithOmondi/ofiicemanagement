@@ -26,6 +26,7 @@ import {
   X,
   ExternalLink,
   Download,
+  Users,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'react-hot-toast';
@@ -79,9 +80,6 @@ const PriorityBadge: React.FC<{ priority: string }> = ({ priority }) => {
 };
 
 // ─── Inline File Preview Modal ────────────────────────────────────────────────
-// Renders Cloudinary files directly — no stream proxy, same approach as
-// SuperAdminDocuments > FilePreview. PDFs use a plain iframe, images use <img>,
-// Office files use Google Docs viewer.
 
 interface InlineFilePreviewModalProps {
   url: string;
@@ -389,16 +387,48 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             {mark && <PriorityBadge priority={mark.priority} />}
           </div>
 
-          {/* Meta Info */}
+          {/* Meta Info - Updated with Marked By */}
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Created By</p>
-              <p className="text-stone-700 font-medium">{document.created_by_name}</p>
+              <p className="text-stone-700 font-medium flex items-center gap-1.5">
+                <User size={14} className="text-stone-400" />
+                {document.created_by_name}
+              </p>
             </div>
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Created At</p>
-              <p className="text-stone-700 font-medium">{formatDate(document.created_at)}</p>
+              <p className="text-stone-700 font-medium flex items-center gap-1.5">
+                <Calendar size={14} className="text-stone-400" />
+                {formatDate(document.created_at)}
+              </p>
             </div>
+            
+            {/* Marked By - New Field */}
+            {mark && (
+              <>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Marked By</p>
+                  <p className="text-stone-700 font-medium flex items-center gap-1.5">
+                    <Users size={14} className="text-stone-400" />
+                    {mark.marked_by_name || 'Unknown'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Marked To</p>
+                  <p className="text-stone-700 font-medium flex items-center gap-1.5">
+                    <Users size={14} className="text-stone-400" />
+                    {mark.marked_to_dept_name}
+                    {mark.assigned_to_name && (
+                      <span className="text-xs text-stone-400 font-normal">
+                        (Assigned: {mark.assigned_to_name})
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </>
+            )}
+
             {document.department_name && (
               <div className="col-span-2">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Department</p>
@@ -434,13 +464,18 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             </div>
           )}
 
-          {/* Mark Details */}
+          {/* Mark Details - Enhanced with Marked By info */}
           {mark && (
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">Mark Details</p>
-              <div className="rounded-lg bg-violet-50 border border-violet-100 p-3 space-y-1 text-sm">
+              <div className="rounded-lg bg-violet-50 border border-violet-100 p-3 space-y-1.5 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-stone-700">Department:</span>
+                  <span className="font-medium text-stone-700">Marked By:</span>
+                  <span className="text-stone-600">{mark.marked_by_name}</span>
+                  <span className="text-xs text-stone-400">({formatDate(mark.marked_at)})</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-stone-700">To Department:</span>
                   <span className="text-stone-600">{mark.marked_to_dept_name}</span>
                 </div>
                 {mark.assigned_to_name && (
@@ -455,13 +490,22 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
                     <p className="text-stone-600 mt-0.5">{mark.instructions}</p>
                   </div>
                 )}
-                <div className="flex flex-wrap items-center gap-3 text-xs text-stone-400 pt-1 border-t border-violet-100">
-                  <span>Marked: {formatDate(mark.marked_at)}</span>
+                <div className="flex flex-wrap items-center gap-3 text-xs text-stone-400 pt-1.5 border-t border-violet-100">
+                  <span className="flex items-center gap-1">
+                    <Clock size={12} />
+                    Marked: {formatDate(mark.marked_at)}
+                  </span>
                   {mark.acknowledged_at && (
-                    <span className="text-emerald-600">Acknowledged: {formatDate(mark.acknowledged_at)}</span>
+                    <span className="text-emerald-600 flex items-center gap-1">
+                      <CheckCircle size={12} />
+                      Acknowledged: {formatDate(mark.acknowledged_at)}
+                    </span>
                   )}
                   {mark.completed_at && (
-                    <span className="text-emerald-600">Completed: {formatDate(mark.completed_at)}</span>
+                    <span className="text-emerald-600 flex items-center gap-1">
+                      <CheckCircle size={12} />
+                      Completed: {formatDate(mark.completed_at)}
+                    </span>
                   )}
                 </div>
               </div>
@@ -505,7 +549,6 @@ const HelpDeskDocuments: React.FC = () => {
   const [previewTarget,    setPreviewTarget]    = useState<PreviewTarget | null>(null);
 
   // ── Effects ───────────────────────────────────────────────────────────────
-  // Fetches documents currently marked to the logged-in staff member.
   useEffect(() => {
     let cancelled = false;
 
@@ -532,10 +575,6 @@ const HelpDeskDocuments: React.FC = () => {
     }
   };
 
-  // Opens the inline PDF/image preview for a document's attached file.
-  // Composed memo/letter documents have no file_url, so the Preview action
-  // never shows for those — only for uploaded judgments/rulings/orders/etc.
-  // Files are served directly from Cloudinary (no stream proxy).
   const handlePreviewFile = (document: Document | DocumentWithAnnotations) => {
     if (!document.file_url) return;
     setPreviewTarget({
@@ -729,7 +768,7 @@ const HelpDeskDocuments: React.FC = () => {
         }
       />
 
-      {/* Inline File Preview Modal — serves Cloudinary files directly (no stream proxy) */}
+      {/* Inline File Preview Modal */}
       {previewTarget && (
         <InlineFilePreviewModal
           url={previewTarget.url}
