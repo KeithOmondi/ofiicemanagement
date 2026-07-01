@@ -9,22 +9,26 @@ import {
   fetchCircuits,
   fetchBenches,
   fetchPartHeards,
+  fetchServiceWeeks,
   fetchRequests,
   fetchVisaRequests,
   fetchProtocolEvents,
-  createUtility,
   createClubMembership,
   updateUtilityStatus,
   updateClubMembershipStatus,
   updateCircuitStatus,
   updateBenchStatus,
   updatePartHeardStatus,
+  updateServiceWeekStatus,
   updateRequest,
   updateVisaStatus,
   updateProtocolStatus,
   deleteUtility,
   deleteClubMembership,
   deleteCircuit,
+  deleteBench,
+  deletePartHeard,
+  deleteServiceWeek,
   // Selectors
   selectHelpDeskStats,
   selectHelpDeskAudit,
@@ -33,6 +37,7 @@ import {
   selectAllCircuits,
   selectAllBenches,
   selectAllPartHeards,
+  selectAllServiceWeeks,
   selectAllRequests,
   selectAllVisaRequests,
   selectAllProtocolEvents,
@@ -43,7 +48,6 @@ import {
   clearError,
   clearSuccess,
   setActiveTab,
-  type UtilityType,
   type Status,
   type HelpDeskTab,
   type PartHeard,
@@ -52,6 +56,7 @@ import {
   type ProtocolEvent,
   type SpecialBench,
   type Circuit,
+  type ServiceWeek,
   type ClubMembership,
   type JudgeUtility,
 } from '../../store/slices/helpdeskSlice';
@@ -82,6 +87,7 @@ import {
   X,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
+import UtilitiesModal from '../../components/modals/UtilitiesModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -103,8 +109,6 @@ const formatDate = (dateString: string | null | undefined): string => {
 const formatCurrency = (amount: number): string => {
   return `KES ${amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
-
-//const todayIso = (): string => new Date().toISOString().split('T')[0];
 
 const getStatusColor = (status: string): string => {
   const map: Record<string, string> = {
@@ -609,60 +613,15 @@ function UtilitiesTab() {
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState<JudgeUtility | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    judge_name: '',
-    utility_type: 'Electricity' as UtilityType,
-    amount: 0,
-    period: '',
-    description: '',
-  });
-
-  const resetForm = () => {
-    setForm({
-      judge_name: '',
-      utility_type: 'Electricity',
-      amount: 0,
-      period: '',
-      description: '',
-    });
-    setEditingItem(null);
-  };
 
   const handleAdd = () => {
-    resetForm();
+    setEditingItem(null);
     setShowModal(true);
   };
 
   const handleEdit = (item: JudgeUtility) => {
-    setForm({
-      judge_name: item.judge_name,
-      utility_type: item.utility_type,
-      amount: item.amount,
-      period: item.period,
-      description: item.description || '',
-    });
     setEditingItem(item);
     setShowModal(true);
-  };
-
-  const handleSubmit = async () => {
-    if (!form.judge_name || !form.period || form.amount <= 0) return;
-    try {
-      if (editingItem) {
-        await dispatch(updateUtilityStatus({
-          id: editingItem.id,
-          status: 'Signed' as Status,
-        })).unwrap();
-      } else {
-        await dispatch(createUtility(form)).unwrap();
-      }
-      await dispatch(fetchUtilities({}));
-      await dispatch(fetchHelpDeskStats());
-      setShowModal(false);
-      resetForm();
-    } catch (err) {
-      console.error('Failed to save:', err);
-    }
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -724,78 +683,15 @@ function UtilitiesTab() {
         />
       </Panel>
 
-      {/* Add/Edit Modal */}
-      {showModal && (
-        <ModalShell
-          title={editingItem ? 'Edit Utility' : 'Add Utility Entry'}
-          onClose={() => { setShowModal(false); resetForm(); }}
-          footer={
-            <>
-              <GhostButton onClick={() => { setShowModal(false); resetForm(); }}>Cancel</GhostButton>
-              <GoldButton onClick={handleSubmit} disabled={mutating}>
-                {mutating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {editingItem ? 'Update' : 'Add Entry'}
-              </GoldButton>
-            </>
-          }
-        >
-          <div>
-            <FieldLabel>Judge Name *</FieldLabel>
-            <input
-              className={inputClasses}
-              value={form.judge_name}
-              onChange={(e) => setForm({ ...form, judge_name: e.target.value })}
-              placeholder="e.g. Hon. Justice Korir"
-            />
-          </div>
-          <div>
-            <FieldLabel>Utility Type *</FieldLabel>
-            <select
-              className={inputClasses}
-              value={form.utility_type}
-              onChange={(e) => setForm({ ...form, utility_type: e.target.value as UtilityType })}
-            >
-              <option value="Electricity">Electricity</option>
-              <option value="Water">Water</option>
-              <option value="Internet">Internet</option>
-              <option value="Fuel">Fuel</option>
-              <option value="Other">Other</option>
-            </select>
-          </div>
-          <div>
-            <FieldLabel>Amount (KES) *</FieldLabel>
-            <input
-              type="number"
-              min={0}
-              className={inputClasses}
-              value={form.amount}
-              onChange={(e) => setForm({ ...form, amount: parseFloat(e.target.value) || 0 })}
-              placeholder="0.00"
-            />
-          </div>
-          <div>
-            <FieldLabel>Period / Reference *</FieldLabel>
-            <input
-              className={inputClasses}
-              value={form.period}
-              onChange={(e) => setForm({ ...form, period: e.target.value })}
-              placeholder="e.g. May 2026"
-            />
-          </div>
-          <div>
-            <FieldLabel>Description</FieldLabel>
-            <textarea
-              className={`${inputClasses} resize-none`}
-              rows={2}
-              value={form.description}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              placeholder="Additional notes..."
-            />
-          </div>
-        </ModalShell>
-      )}
+      <UtilitiesModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        editingUtility={editingItem}
+      />
 
-      {/* Delete Confirmation */}
       {deleteTarget && (
         <ConfirmDialog
           title="Delete Utility Entry?"
@@ -988,7 +884,58 @@ function ClubTab() {
   );
 }
 
-// ─── Circuits Tab ────────────────────────────────────────────────────────────
+// ─── Generic DSA Tab (Circuits, Benches, Part-Heards, Service Weeks) ──────
+
+interface DSATabProps<T> {
+  title: string;
+  icon: React.ReactNode;
+  data: T[];
+  loading: boolean;
+  mutating: boolean;
+  columns: { key: string; label: string; align?: 'left' | 'right' | 'center' }[];
+  renderRow: (item: T) => React.ReactNode;
+  onAdd: () => void;
+  onEdit: (item: T) => void;
+  onDelete: (id: string) => void;
+}
+
+function DSATab<T extends { id: string }>({
+  title,
+  icon,
+  data,
+  loading,
+  mutating,
+  columns,
+  renderRow,
+  onAdd,
+  onEdit,
+  onDelete,
+}: DSATabProps<T>) {
+  return (
+    <Panel
+      title={title}
+      icon={icon}
+      action={
+        <div className="flex gap-2">
+          <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
+          <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={onAdd}>
+            Add {title.slice(0, -1)}
+          </GoldOutlineButton>
+        </div>
+      }
+    >
+      <TableWithActions
+        data={data}
+        loading={loading}
+        columns={columns}
+        renderRow={renderRow}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        mutating={mutating}
+      />
+    </Panel>
+  );
+}
 
 // ─── Circuits Tab ────────────────────────────────────────────────────────────
 
@@ -998,24 +945,24 @@ function CircuitsTab() {
   const loading = useAppSelector((state) => state.helpdesk.loading.circuits);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
-  const [showCircuitModal, setShowCircuitModal] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [editingCircuit, setEditingCircuit] = useState<Circuit | null>(null);
-  const [selectedCircuit, setSelectedCircuit] = useState<Circuit | null>(null);
+  const [editingItem, setEditingItem] = useState<Circuit | null>(null);
+  const [selectedItem, setSelectedItem] = useState<Circuit | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  const handleAddCircuit = () => {
-    setEditingCircuit(null);
-    setShowCircuitModal(true);
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
   };
 
-  const handleEditCircuit = (circuit: Circuit) => {
-    setEditingCircuit(circuit);
-    setShowCircuitModal(true);
+  const handleEdit = (item: Circuit) => {
+    setEditingItem(item);
+    setShowModal(true);
   };
 
-  const handleViewCircuit = (circuit: Circuit) => {
-    setSelectedCircuit(circuit);
+  const handleView = (item: Circuit) => {
+    setSelectedItem(item);
     setShowDetailModal(true);
   };
 
@@ -1033,278 +980,75 @@ function CircuitsTab() {
     setDeleteTarget(null);
   };
 
-  // Format currency helper
-  const formatCurrency = (amount: number): string => {
-    return `KES ${amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  };
-
   return (
     <>
-      <Panel
+      <DSATab
         title="Circuits"
         icon={<MapPin className="h-4 w-4" />}
-        action={
-          <div className="flex gap-2">
-            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
-            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAddCircuit}>
-              Add Circuit
-            </GoldOutlineButton>
-          </div>
-        }
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-stone-200 text-xs uppercase text-stone-400">
-                <th className="px-3 py-2 font-medium">Circuit</th>
-                <th className="px-3 py-2 font-medium">Start</th>
-                <th className="px-3 py-2 font-medium">End</th>
-                <th className="px-3 py-2 font-medium text-right">Total DSA</th>
-                <th className="px-3 py-2 font-medium text-center">Status</th>
-                <th className="px-3 py-2 font-medium text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-stone-100">
-              {loading ? (
-                <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center">
-                    <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c] mx-auto" />
-                  </td>
-                </tr>
-              ) : data.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-stone-400">
-                    No circuits found. Click 'Add Circuit' to create one.
-                  </td>
-                </tr>
-              ) : (
-                data.map((item) => (
-                  <tr key={item.id} className="hover:bg-stone-50 transition-colors">
-                    <td className="px-3 py-2">
-                      <button
-                        onClick={() => handleViewCircuit(item)}
-                        className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-                      >
-                        {item.name}
-                      </button>
-                      {item.location && (
-                        <span className="ml-2 text-xs text-stone-400">({item.location})</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-                    <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-                    <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-                    <td className="px-3 py-2 text-center">
-                      <StatusDropdown
-                        status={item.status}
-                        onStatusChange={(s) => handleStatusChange(item.id, s)}
-                        disabled={mutating}
-                      />
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => handleViewCircuit(item)}
-                          className="rounded p-1 text-stone-500 hover:bg-stone-100 hover:text-stone-700 transition-colors"
-                          title="View Details"
-                        >
-                          <FileText className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleEditCircuit(item)}
-                          disabled={mutating}
-                          className="rounded p-1 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50"
-                          title="Edit"
-                        >
-                          <Edit className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(item.id)}
-                          disabled={mutating}
-                          className="rounded p-1 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                          title="Delete"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+        data={data}
+        loading={loading}
+        mutating={mutating}
+        columns={[
+          { key: 'name', label: 'Circuit' },
+          { key: 'start_date', label: 'Start' },
+          { key: 'end_date', label: 'End' },
+          { key: 'total_dsa', label: 'Total DSA', align: 'right' },
+          { key: 'status', label: 'Status', align: 'center' },
+        ]}
+        renderRow={(item: Circuit) => (
+          <>
+            <td className="px-3 py-2">
+              <button
+                onClick={() => handleView(item)}
+                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+              >
+                {item.name}
+              </button>
+              {item.location && (
+                <span className="ml-2 text-xs text-stone-400">({item.location})</span>
               )}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
-
-      {/* Circuit Modal - for adding/editing */}
-      <CircuitModal
-        isOpen={showCircuitModal}
-        onClose={() => {
-          setShowCircuitModal(false);
-          setEditingCircuit(null);
-        }}
-        editingCircuit={editingCircuit}
+            </td>
+            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+            <td className="px-3 py-2 text-center">
+              <StatusDropdown
+                status={item.status}
+                onStatusChange={(s) => handleStatusChange(item.id, s)}
+                disabled={mutating}
+              />
+            </td>
+          </>
+        )}
+        onAdd={handleAdd}
+        onEdit={handleEdit}
+        onDelete={(id) => setDeleteTarget(id)}
       />
 
-      {/* Circuit Detail Modal */}
-      {showDetailModal && selectedCircuit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
-              <div>
-                <h3 className="text-lg font-semibold text-[#1a3d1c]">{selectedCircuit.name}</h3>
-                {selectedCircuit.location && (
-                  <p className="text-sm text-stone-500 flex items-center gap-1">
-                    <MapPin size={14} />
-                    {selectedCircuit.location}
-                  </p>
-                )}
-              </div>
-              <button
-                onClick={() => setShowDetailModal(false)}
-                className="text-stone-400 hover:text-stone-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+      <CircuitModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        mode="circuit"
+        editingItem={editingItem}
+      />
 
-            {/* Body */}
-            <div className="max-h-[65vh] overflow-y-auto p-6">
-              {/* Status and Quick Info */}
-              <div className="mb-6 grid grid-cols-2 gap-4 rounded-lg bg-stone-50 p-4">
-                <div>
-                  <p className="text-xs text-stone-400">Status</p>
-                  <div className="mt-1">
-                    <StatusDropdown
-                      status={selectedCircuit.status}
-                      onStatusChange={(s) => {
-                        handleStatusChange(selectedCircuit.id, s);
-                        setSelectedCircuit({ ...selectedCircuit, status: s });
-                      }}
-                      disabled={mutating}
-                    />
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs text-stone-400">Total DSA</p>
-                  <p className="text-lg font-bold text-emerald-700">
-                    {formatCurrency(selectedCircuit.total_dsa)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-stone-400">Period</p>
-                  <p className="text-sm font-medium text-stone-800">
-                    {formatDate(selectedCircuit.start_date)} — {formatDate(selectedCircuit.end_date)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-stone-400">Members</p>
-                  <p className="text-sm font-medium text-stone-800">
-                    {selectedCircuit.dsa_details?.length || 0} judges
-                  </p>
-                </div>
-              </div>
-
-              {/* DSA Details Table */}
-              <div>
-                <h4 className="mb-3 text-sm font-semibold text-stone-800 flex items-center gap-2">
-                  <Users size={16} className="text-[#c9a84c]" />
-                  DSA Details
-                  <span className="text-xs font-normal text-stone-400">
-                    ({selectedCircuit.dsa_details?.length || 0} members)
-                  </span>
-                </h4>
-
-                {!selectedCircuit.dsa_details || selectedCircuit.dsa_details.length === 0 ? (
-                  <div className="rounded-lg border border-stone-200 bg-stone-50 p-8 text-center">
-                    <p className="text-sm text-stone-400">No DSA details available for this circuit.</p>
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto rounded-lg border border-stone-200">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-stone-200 bg-stone-50">
-                          <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">#</th>
-                          <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Judge Name</th>
-                          <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">PJ Number</th>
-                          <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Rate (KES)</th>
-                          <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Days</th>
-                          <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Total (KES)</th>
-                          <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Notes</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-stone-100">
-                        {selectedCircuit.dsa_details.map((detail, index) => (
-                          <tr key={detail.id} className="hover:bg-stone-50 transition-colors">
-                            <td className="px-4 py-2 text-center text-stone-400">{index + 1}</td>
-                            <td className="px-4 py-2 font-medium text-stone-800">{detail.judge_name}</td>
-                            <td className="px-4 py-2 text-stone-600">{detail.pj_number}</td>
-                            <td className="px-4 py-2 text-right text-stone-600">
-                              {detail.dsa_per_day.toLocaleString()}
-                            </td>
-                            <td className="px-4 py-2 text-right text-stone-600">{detail.days}</td>
-                            <td className="px-4 py-2 text-right font-medium text-emerald-700">
-                              {detail.total.toLocaleString()}
-                            </td>
-                            <td className="px-4 py-2 text-xs text-stone-500">{detail.notes || '-'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot>
-                        <tr className="border-t-2 border-stone-200 bg-stone-50">
-                          <td colSpan={5} className="px-4 py-3 text-right font-bold text-stone-800">
-                            Grand Total
-                          </td>
-                          <td className="px-4 py-3 text-right font-bold text-emerald-700">
-                            {formatCurrency(selectedCircuit.total_dsa)}
-                          </td>
-                          <td></td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                )}
-              </div>
-
-              {/* Metadata */}
-              <div className="mt-6 border-t border-stone-100 pt-4">
-                <div className="grid grid-cols-2 gap-2 text-xs text-stone-400">
-                  <div>
-                    <span className="font-medium">Created:</span>{' '}
-                    {new Date(selectedCircuit.created_at).toLocaleString()}
-                  </div>
-                  <div>
-                    <span className="font-medium">Updated:</span>{' '}
-                    {new Date(selectedCircuit.updated_at).toLocaleString()}
-                  </div>
-                  <div className="col-span-2">
-                    <span className="font-medium">ID:</span> {selectedCircuit.id}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">
-              <GhostButton onClick={() => setShowDetailModal(false)}>
-                Close
-              </GhostButton>
-              <GoldOutlineButton
-                icon={<Edit size={14} />}
-                onClick={() => {
-                  setShowDetailModal(false);
-                  handleEditCircuit(selectedCircuit);
-                }}
-              >
-                Edit Circuit
-              </GoldOutlineButton>
-            </div>
-          </div>
-        </div>
+      {/* Detail Modal - reuse from existing */}
+      {showDetailModal && selectedItem && (
+        <CircuitDetailModal
+          item={selectedItem}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+        />
       )}
 
-      {/* Delete Confirmation */}
       {deleteTarget && (
         <ConfirmDialog
           title="Delete Circuit?"
@@ -1318,7 +1062,7 @@ function CircuitsTab() {
   );
 }
 
-// ─── Simplified tabs for remaining modules ──────────────────────────────────
+// ─── Benches Tab ────────────────────────────────────────────────────────────
 
 function BenchesTab() {
   const dispatch = useAppDispatch();
@@ -1326,21 +1070,42 @@ function BenchesTab() {
   const loading = useAppSelector((state) => state.helpdesk.loading.benches);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<SpecialBench | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: SpecialBench) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
   const handleStatusChange = async (id: string, status: Status) => {
     await dispatch(updateBenchStatus({ id, status }));
     await dispatch(fetchBenches({}));
     await dispatch(fetchHelpDeskStats());
   };
 
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deleteBench(deleteTarget));
+    await dispatch(fetchBenches({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
   return (
-    <Panel
-      title="Special Benches"
-      icon={<Gavel className="h-4 w-4" />}
-      action={<GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>}
-    >
-      <TableWithActions
+    <>
+      <DSATab
+        title="Special Benches"
+        icon={<Gavel className="h-4 w-4" />}
         data={data}
         loading={loading}
+        mutating={mutating}
         columns={[
           { key: 'name', label: 'Bench / Case' },
           { key: 'start_date', label: 'Start' },
@@ -1363,13 +1128,35 @@ function BenchesTab() {
             </td>
           </>
         )}
-        onEdit={() => {}}
-        onDelete={() => {}}
-        mutating={mutating}
+        onAdd={handleAdd}
+        onEdit={handleEdit}
+        onDelete={(id) => setDeleteTarget(id)}
       />
-    </Panel>
+
+      <CircuitModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        mode="bench"
+        editingItem={editingItem}
+      />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Bench?"
+          message="This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+    </>
   );
 }
+
+// ─── Part-Heards Tab ─────────────────────────────────────────────────────────
 
 function PartHeardTab() {
   const dispatch = useAppDispatch();
@@ -1377,21 +1164,42 @@ function PartHeardTab() {
   const loading = useAppSelector((state) => state.helpdesk.loading.partHeards);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<PartHeard | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: PartHeard) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
   const handleStatusChange = async (id: string, status: Status) => {
     await dispatch(updatePartHeardStatus({ id, status }));
     await dispatch(fetchPartHeards({}));
     await dispatch(fetchHelpDeskStats());
   };
 
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deletePartHeard(deleteTarget));
+    await dispatch(fetchPartHeards({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
   return (
-    <Panel
-      title="Part-Heards"
-      icon={<FileCheck className="h-4 w-4" />}
-      action={<GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>}
-    >
-      <TableWithActions
+    <>
+      <DSATab
+        title="Part-Heards"
+        icon={<FileCheck className="h-4 w-4" />}
         data={data}
         loading={loading}
+        mutating={mutating}
         columns={[
           { key: 'case_reference', label: 'Reference' },
           { key: 'approved_by', label: 'Approved By' },
@@ -1416,13 +1224,287 @@ function PartHeardTab() {
             </td>
           </>
         )}
-        onEdit={() => {}}
-        onDelete={() => {}}
-        mutating={mutating}
+        onAdd={handleAdd}
+        onEdit={handleEdit}
+        onDelete={(id) => setDeleteTarget(id)}
       />
-    </Panel>
+
+      <CircuitModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        mode="partHeard"
+        editingItem={editingItem}
+      />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Part-Heard?"
+          message="This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+    </>
   );
 }
+
+// ─── Service Week Tab ────────────────────────────────────────────────────────
+
+function ServiceWeekTab() {
+  const dispatch = useAppDispatch();
+  const data = useAppSelector(selectAllServiceWeeks);
+  const loading = useAppSelector((state) => state.helpdesk.loading.serviceWeeks);
+  const mutating = useAppSelector(selectHelpDeskMutating);
+
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<ServiceWeek | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: ServiceWeek) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
+  const handleStatusChange = async (id: string, status: Status) => {
+    await dispatch(updateServiceWeekStatus({ id, status }));
+    await dispatch(fetchServiceWeeks({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deleteServiceWeek(deleteTarget));
+    await dispatch(fetchServiceWeeks({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
+  return (
+    <>
+      <DSATab
+        title="Service Week / RRI"
+        icon={<Calendar className="h-4 w-4" />}
+        data={data}
+        loading={loading}
+        mutating={mutating}
+        columns={[
+          { key: 'name', label: 'Week Name' },
+          { key: 'week_number', label: 'Week #' },
+          { key: 'year', label: 'Year' },
+          { key: 'total_dsa', label: 'Total DSA', align: 'right' },
+          { key: 'status', label: 'Status', align: 'center' },
+        ]}
+        renderRow={(item: ServiceWeek) => (
+          <>
+            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
+            <td className="px-3 py-2 text-stone-600">{item.week_number}</td>
+            <td className="px-3 py-2 text-stone-600">{item.year}</td>
+            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+            <td className="px-3 py-2 text-center">
+              <StatusDropdown
+                status={item.status}
+                onStatusChange={(s) => handleStatusChange(item.id, s)}
+                disabled={mutating}
+              />
+            </td>
+          </>
+        )}
+        onAdd={handleAdd}
+        onEdit={handleEdit}
+        onDelete={(id) => setDeleteTarget(id)}
+      />
+
+      <CircuitModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        mode="serviceWeek"
+        editingItem={editingItem}
+      />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Service Week?"
+          message="This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Circuit Detail Modal ────────────────────────────────────────────────────
+
+interface CircuitDetailModalProps {
+  item: Circuit;
+  onClose: () => void;
+  onEdit: () => void;
+  onStatusChange: (id: string, status: Status) => void;
+  mutating: boolean;
+}
+
+function CircuitDetailModal({ item, onClose, onEdit, onStatusChange, mutating }: CircuitDetailModalProps) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
+          <div>
+            <h3 className="text-lg font-semibold text-[#1a3d1c]">{item.name}</h3>
+            {item.location && (
+              <p className="text-sm text-stone-500 flex items-center gap-1">
+                <MapPin size={14} />
+                {item.location}
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="max-h-[65vh] overflow-y-auto p-6">
+          {/* Status and Quick Info */}
+          <div className="mb-6 grid grid-cols-2 gap-4 rounded-lg bg-stone-50 p-4">
+            <div>
+              <p className="text-xs text-stone-400">Status</p>
+              <div className="mt-1">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => {
+                    onStatusChange(item.id, s);
+                  }}
+                  disabled={mutating}
+                />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-stone-400">Total DSA</p>
+              <p className="text-lg font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-stone-400">Period</p>
+              <p className="text-sm font-medium text-stone-800">
+                {formatDate(item.start_date)} — {formatDate(item.end_date)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-stone-400">Members</p>
+              <p className="text-sm font-medium text-stone-800">
+                {item.dsa_details?.length || 0} judges
+              </p>
+            </div>
+          </div>
+
+          {/* DSA Details Table */}
+          <div>
+            <h4 className="mb-3 text-sm font-semibold text-stone-800 flex items-center gap-2">
+              <Users size={16} className="text-[#c9a84c]" />
+              DSA Details
+              <span className="text-xs font-normal text-stone-400">
+                ({item.dsa_details?.length || 0} members)
+              </span>
+            </h4>
+
+            {!item.dsa_details || item.dsa_details.length === 0 ? (
+              <div className="rounded-lg border border-stone-200 bg-stone-50 p-8 text-center">
+                <p className="text-sm text-stone-400">No DSA details available.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-stone-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-stone-200 bg-stone-50">
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">#</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Judge Name</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">PJ Number</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Rate (KES)</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Days</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Total (KES)</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {item.dsa_details.map((detail, index) => (
+                      <tr key={detail.id} className="hover:bg-stone-50 transition-colors">
+                        <td className="px-4 py-2 text-center text-stone-400">{index + 1}</td>
+                        <td className="px-4 py-2 font-medium text-stone-800">{detail.judge_name}</td>
+                        <td className="px-4 py-2 text-stone-600">{detail.pj_number}</td>
+                        <td className="px-4 py-2 text-right text-stone-600">
+                          {detail.dsa_per_day.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2 text-right text-stone-600">{detail.days}</td>
+                        <td className="px-4 py-2 text-right font-medium text-emerald-700">
+                          {detail.total.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2 text-xs text-stone-500">{detail.notes || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-stone-200 bg-stone-50">
+                      <td colSpan={5} className="px-4 py-3 text-right font-bold text-stone-800">
+                        Grand Total
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-emerald-700">
+                        {formatCurrency(item.total_dsa)}
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Metadata */}
+          <div className="mt-6 border-t border-stone-100 pt-4">
+            <div className="grid grid-cols-2 gap-2 text-xs text-stone-400">
+              <div>
+                <span className="font-medium">Created:</span>{' '}
+                {new Date(item.created_at).toLocaleString()}
+              </div>
+              <div>
+                <span className="font-medium">Updated:</span>{' '}
+                {new Date(item.updated_at).toLocaleString()}
+              </div>
+              <div className="col-span-2">
+                <span className="font-medium">ID:</span> {item.id}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">
+          <GhostButton onClick={onClose}>Close</GhostButton>
+          <GoldOutlineButton
+            icon={<Edit size={14} />}
+            onClick={onEdit}
+          >
+            Edit Circuit
+          </GoldOutlineButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Simplified tabs for remaining modules ──────────────────────────────────
 
 function RequestsTab() {
   const dispatch = useAppDispatch();
@@ -1593,6 +1675,7 @@ const Helpdesk: React.FC = () => {
     dispatch(fetchCircuits({}));
     dispatch(fetchBenches({}));
     dispatch(fetchPartHeards({}));
+    dispatch(fetchServiceWeeks({}));
     dispatch(fetchRequests({}));
     dispatch(fetchVisaRequests({}));
     dispatch(fetchProtocolEvents({}));
@@ -1604,6 +1687,7 @@ const Helpdesk: React.FC = () => {
     { key: 'circuits', label: 'Circuits', icon: <MapPin className="h-3.5 w-3.5" /> },
     { key: 'benches', label: 'Benches', icon: <Gavel className="h-3.5 w-3.5" /> },
     { key: 'partHeard', label: 'Part-Heards', icon: <FileCheck className="h-3.5 w-3.5" /> },
+    { key: 'serviceWeek', label: 'Service Week', icon: <Calendar className="h-3.5 w-3.5" /> },
     { key: 'requests', label: 'Requests', icon: <Mail className="h-3.5 w-3.5" /> },
     { key: 'visa', label: 'Visa', icon: <Plane className="h-3.5 w-3.5" /> },
     { key: 'protocol', label: 'Protocol', icon: <Calendar className="h-3.5 w-3.5" /> },
@@ -1665,6 +1749,7 @@ const Helpdesk: React.FC = () => {
           {activeTabUI === 'circuits' && <CircuitsTab />}
           {activeTabUI === 'benches' && <BenchesTab />}
           {activeTabUI === 'partHeard' && <PartHeardTab />}
+          {activeTabUI === 'serviceWeek' && <ServiceWeekTab />}
           {activeTabUI === 'requests' && <RequestsTab />}
           {activeTabUI === 'visa' && <VisaTab />}
           {activeTabUI === 'protocol' && <ProtocolTab />}

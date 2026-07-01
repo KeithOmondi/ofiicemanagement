@@ -35,7 +35,7 @@ export interface DSADetail {
   dsa_per_day: number;
   days: number;
   total: number;
-  notes: string | null;  // Added notes field
+  notes: string | null;
 }
 
 export interface DSADetailInput {
@@ -43,7 +43,7 @@ export interface DSADetailInput {
   pj_number: string;
   dsa_per_day: number;
   days: number;
-  notes?: string;  // Optional for input
+  notes?: string;
 }
 
 export interface JudgeUtility {
@@ -105,6 +105,21 @@ export interface PartHeard {
   id: string;
   case_reference: string;
   approved_by: string | null;
+  start_date: string;
+  end_date: string;
+  total_dsa: number;
+  status: Status;
+  dsa_details?: DSADetail[];
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ServiceWeek {
+  id: string;
+  name: string;
+  week_number: string;
+  year: string;
   start_date: string;
   end_date: string;
   total_dsa: number;
@@ -184,6 +199,8 @@ export interface HelpDeskStats {
   protocol_pending: number;
 }
 
+// ─── Input Types ──────────────────────────────────────────────────────────────
+
 export interface CreateUtilityInput {
   judge_name: string;
   utility_type: UtilityType;
@@ -218,6 +235,15 @@ export interface CreateSpecialBenchInput {
 export interface CreatePartHeardInput {
   case_reference: string;
   approved_by?: string;
+  start_date: string;
+  end_date: string;
+  dsa_details?: DSADetailInput[];
+}
+
+export interface CreateServiceWeekInput {
+  name: string;
+  week_number: string;
+  year: string;
   start_date: string;
   end_date: string;
   dsa_details?: DSADetailInput[];
@@ -275,6 +301,7 @@ export type HelpDeskTab =
   | "circuits"
   | "benches"
   | "partHeard"
+  | "serviceWeek"
   | "requests"
   | "visa"
   | "protocol";
@@ -290,6 +317,7 @@ interface HelpDeskState {
   circuits: Circuit[];
   benches: SpecialBench[];
   partHeards: PartHeard[];
+  serviceWeeks: ServiceWeek[];
   requests: JudgeRequest[];
   visaRequests: VisaRequest[];
   protocolEvents: ProtocolEvent[];
@@ -302,6 +330,7 @@ interface HelpDeskState {
   selectedCircuit: Circuit | null;
   selectedBench: SpecialBench | null;
   selectedPartHeard: PartHeard | null;
+  selectedServiceWeek: ServiceWeek | null;
   selectedRequest: JudgeRequest | null;
   selectedVisaRequest: VisaRequest | null;
   selectedProtocolEvent: ProtocolEvent | null;
@@ -318,6 +347,7 @@ interface HelpDeskState {
     circuits: { total: number; page: number; limit: number };
     benches: { total: number; page: number; limit: number };
     partHeards: { total: number; page: number; limit: number };
+    serviceWeeks: { total: number; page: number; limit: number };
     requests: { total: number; page: number; limit: number };
     visa: { total: number; page: number; limit: number };
     protocol: { total: number; page: number; limit: number };
@@ -330,6 +360,7 @@ interface HelpDeskState {
     circuits: boolean;
     benches: boolean;
     partHeards: boolean;
+    serviceWeeks: boolean;
     requests: boolean;
     visa: boolean;
     protocol: boolean;
@@ -352,6 +383,7 @@ const initialState: HelpDeskState = {
   circuits: [],
   benches: [],
   partHeards: [],
+  serviceWeeks: [],
   requests: [],
   visaRequests: [],
   protocolEvents: [],
@@ -363,6 +395,7 @@ const initialState: HelpDeskState = {
   selectedCircuit: null,
   selectedBench: null,
   selectedPartHeard: null,
+  selectedServiceWeek: null,
   selectedRequest: null,
   selectedVisaRequest: null,
   selectedProtocolEvent: null,
@@ -377,6 +410,7 @@ const initialState: HelpDeskState = {
     circuits: { total: 0, page: 1, limit: 20 },
     benches: { total: 0, page: 1, limit: 20 },
     partHeards: { total: 0, page: 1, limit: 20 },
+    serviceWeeks: { total: 0, page: 1, limit: 20 },
     requests: { total: 0, page: 1, limit: 20 },
     visa: { total: 0, page: 1, limit: 20 },
     protocol: { total: 0, page: 1, limit: 20 },
@@ -388,6 +422,7 @@ const initialState: HelpDeskState = {
     circuits: false,
     benches: false,
     partHeards: false,
+    serviceWeeks: false,
     requests: false,
     visa: false,
     protocol: false,
@@ -823,6 +858,77 @@ export const deletePartHeard = createAsyncThunk(
 );
 
 /* ============================================================
+   THUNKS - SERVICE WEEK
+============================================================ */
+
+export const fetchServiceWeeks = createAsyncThunk(
+  "helpdesk/fetchServiceWeeks",
+  async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
+    try {
+      const query = buildQueryString(filters);
+      const { data } = await axiosClient.get(`/helpdesk/service-weeks${query}`);
+      return data.data as ServiceWeek[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchServiceWeekById = createAsyncThunk(
+  "helpdesk/fetchServiceWeekById",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`/helpdesk/service-weeks/${id}`);
+      return data.data as ServiceWeek;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const createServiceWeek = createAsyncThunk(
+  "helpdesk/createServiceWeek",
+  async (input: CreateServiceWeekInput, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.post("/helpdesk/service-weeks", input);
+      return data.data as ServiceWeek;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const updateServiceWeekStatus = createAsyncThunk(
+  "helpdesk/updateServiceWeekStatus",
+  async (
+    { id, status }: { id: string; status: Status },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.put(
+        `/helpdesk/service-weeks/${id}/status`,
+        { status },
+      );
+      return data.data as ServiceWeek;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const deleteServiceWeek = createAsyncThunk(
+  "helpdesk/deleteServiceWeek",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      await axiosClient.delete(`/helpdesk/service-weeks/${id}`);
+      return id;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+/* ============================================================
    THUNKS - JUDGES' REQUESTS
 ============================================================ */
 
@@ -1100,6 +1206,9 @@ const helpdeskSlice = createSlice({
     setSelectedPartHeard(state, action: PayloadAction<PartHeard | null>) {
       state.selectedPartHeard = action.payload;
     },
+    setSelectedServiceWeek(state, action: PayloadAction<ServiceWeek | null>) {
+      state.selectedServiceWeek = action.payload;
+    },
     setSelectedRequest(state, action: PayloadAction<JudgeRequest | null>) {
       state.selectedRequest = action.payload;
     },
@@ -1162,6 +1271,16 @@ const helpdeskSlice = createSlice({
       if (partHeard) partHeard.status = status;
       if (state.selectedPartHeard?.id === id)
         state.selectedPartHeard.status = status;
+    },
+    updateServiceWeekOptimistically(
+      state,
+      action: PayloadAction<{ id: string; status: Status }>,
+    ) {
+      const { id, status } = action.payload;
+      const week = state.serviceWeeks.find((w) => w.id === id);
+      if (week) week.status = status;
+      if (state.selectedServiceWeek?.id === id)
+        state.selectedServiceWeek.status = status;
     },
     updateRequestOptimistically(
       state,
@@ -1687,6 +1806,87 @@ const helpdeskSlice = createSlice({
         state.error = action.payload as string;
       });
 
+    /* ──────── SERVICE WEEKS ───────────────────────────────────────────── */
+    builder
+      .addCase(fetchServiceWeeks.pending, (state) => {
+        state.loading.serviceWeeks = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchServiceWeeks.fulfilled,
+        (state, action: PayloadAction<ServiceWeek[]>) => {
+          state.loading.serviceWeeks = false;
+          state.serviceWeeks = action.payload;
+          state.pagination.serviceWeeks.total = action.payload.length;
+        },
+      )
+      .addCase(fetchServiceWeeks.rejected, (state, action) => {
+        state.loading.serviceWeeks = false;
+        state.error = action.payload as string;
+      })
+      .addCase(createServiceWeek.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        createServiceWeek.fulfilled,
+        (state, action: PayloadAction<ServiceWeek>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          state.serviceWeeks = [action.payload, ...state.serviceWeeks];
+          if (state.stats) state.stats.total_records += 1;
+        },
+      )
+      .addCase(createServiceWeek.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updateServiceWeekStatus.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateServiceWeekStatus.fulfilled,
+        (state, action: PayloadAction<ServiceWeek>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.serviceWeeks.findIndex(
+            (w) => w.id === action.payload.id,
+          );
+          if (index !== -1) state.serviceWeeks[index] = action.payload;
+          if (state.selectedServiceWeek?.id === action.payload.id)
+            state.selectedServiceWeek = action.payload;
+        },
+      )
+      .addCase(updateServiceWeekStatus.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(deleteServiceWeek.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+      })
+      .addCase(
+        deleteServiceWeek.fulfilled,
+        (state, action: PayloadAction<string>) => {
+          state.loading.mutating = false;
+          state.serviceWeeks = state.serviceWeeks.filter(
+            (w) => w.id !== action.payload,
+          );
+          if (state.selectedServiceWeek?.id === action.payload)
+            state.selectedServiceWeek = null;
+          if (state.stats) state.stats.total_records -= 1;
+        },
+      )
+      .addCase(deleteServiceWeek.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+      });
+
     /* ──────── REQUESTS ─────────────────────────────────────────────────── */
     builder
       .addCase(fetchRequests.pending, (state) => {
@@ -1961,6 +2161,7 @@ export const {
   setSelectedCircuit,
   setSelectedBench,
   setSelectedPartHeard,
+  setSelectedServiceWeek,
   setSelectedRequest,
   setSelectedVisaRequest,
   setSelectedProtocolEvent,
@@ -1969,6 +2170,7 @@ export const {
   updateCircuitOptimistically,
   updateBenchOptimistically,
   updatePartHeardOptimistically,
+  updateServiceWeekOptimistically,
   updateRequestOptimistically,
   updateVisaOptimistically,
   updateProtocolOptimistically,
@@ -1992,6 +2194,8 @@ export const selectAllBenches = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.benches;
 export const selectAllPartHeards = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.partHeards;
+export const selectAllServiceWeeks = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.serviceWeeks;
 export const selectAllRequests = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.requests;
 export const selectAllVisaRequests = (state: { helpdesk: HelpDeskState }) =>
@@ -2015,6 +2219,8 @@ export const selectSelectedBench = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.selectedBench;
 export const selectSelectedPartHeard = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.selectedPartHeard;
+export const selectSelectedServiceWeek = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.selectedServiceWeek;
 export const selectSelectedRequest = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.selectedRequest;
 export const selectSelectedVisaRequest = (state: { helpdesk: HelpDeskState }) =>
@@ -2042,6 +2248,8 @@ export const selectBenchesLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.benches;
 export const selectPartHeardsLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.partHeards;
+export const selectServiceWeeksLoading = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.loading.serviceWeeks;
 export const selectRequestsLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.requests;
 export const selectVisaLoading = (state: { helpdesk: HelpDeskState }) =>
@@ -2073,6 +2281,9 @@ export const selectBenchesPagination = (state: { helpdesk: HelpDeskState }) =>
 export const selectPartHeardsPagination = (state: {
   helpdesk: HelpDeskState;
 }) => state.helpdesk.pagination.partHeards;
+export const selectServiceWeeksPagination = (state: {
+  helpdesk: HelpDeskState;
+}) => state.helpdesk.pagination.serviceWeeks;
 export const selectRequestsPagination = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.pagination.requests;
 export const selectVisaPagination = (state: { helpdesk: HelpDeskState }) =>
@@ -2128,5 +2339,8 @@ export const selectTotalBenchDSA = (state: { helpdesk: HelpDeskState }) =>
 
 export const selectTotalPartHeardDSA = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.partHeards.reduce((sum, p) => sum + p.total_dsa, 0);
+
+export const selectTotalServiceWeekDSA = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.serviceWeeks.reduce((sum, w) => sum + w.total_dsa, 0);
 
 export default helpdeskSlice.reducer;

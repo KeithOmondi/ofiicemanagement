@@ -1,15 +1,30 @@
-// src/components/Helpdesk/CircuitModal.tsx
+// src/components/modals/CircuitModal.tsx
 import React, { useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   createCircuit,
+  createBench,
+  createPartHeard,
+  createServiceWeek,
   updateCircuitStatus,
+  updateBenchStatus,
+  updatePartHeardStatus,
+  updateServiceWeekStatus,
   fetchCircuits,
+  fetchBenches,
+  fetchPartHeards,
+  fetchServiceWeeks,
   fetchHelpDeskStats,
   type Circuit,
+  type SpecialBench,
+  type PartHeard,
+  type ServiceWeek,
   type DSADetailInput,
   type Status,
   type CreateCircuitInput,
+  type CreateSpecialBenchInput,
+  type CreatePartHeardInput,
+  type CreateServiceWeekInput,
 } from '../../store/slices/helpdeskSlice';
 import {
   X,
@@ -22,9 +37,38 @@ import {
   ArrowRight,
   ArrowLeft,
   Edit,
+  MapPin,
+  Gavel,
+  FileCheck,
+  Calendar,
 } from 'lucide-react';
 
+// ─── Types ──────────────────────────────────────────────────────────────────
+
+export type CircuitModalMode = 'circuit' | 'bench' | 'partHeard' | 'serviceWeek';
+
+type EditingItem = Circuit | SpecialBench | PartHeard | ServiceWeek;
+
+// Some editing items may carry a `dsa_details` array that isn't part of the
+// base type definitions imported above. This narrows that access without `any`.
+type WithDsaDetails = {
+  dsa_details?: DSADetailInput[];
+};
+
+interface CircuitModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  mode?: CircuitModalMode;
+  editingItem?: EditingItem | null;
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────────
+
+// Swap these for wherever the assets live in your app (e.g. imported from
+// src/assets or served from /public). Extracted directly from the approved
+// memo template so the preview matches pixel-for-pixel.
+const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1781759596/JOB_LOGO_ubls4m.jpg';
+const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
 
 const getDefaultDate = (daysOffset: number = 0): string => {
   const date = new Date();
@@ -32,12 +76,36 @@ const getDefaultDate = (daysOffset: number = 0): string => {
   return date.toISOString().split('T')[0];
 };
 
-const getDefaultBasicInfo = () => ({
-  name: '',
-  location: '',
-  start_date: getDefaultDate(7),
-  end_date: getDefaultDate(14),
-});
+type BasicInfoType = {
+  name?: string;
+  location?: string;
+  case_reference?: string;
+  approved_by?: string;
+  week_number?: string;
+  year?: string;
+  start_date: string;
+  end_date: string;
+};
+
+const getDefaultBasicInfo = (mode: CircuitModalMode): BasicInfoType => {
+  const base = {
+    start_date: getDefaultDate(7),
+    end_date: getDefaultDate(14),
+  };
+
+  switch (mode) {
+    case 'circuit':
+      return { name: '', location: '', ...base };
+    case 'bench':
+      return { name: '', case_reference: '', ...base };
+    case 'partHeard':
+      return { case_reference: '', approved_by: '', ...base };
+    case 'serviceWeek':
+      return { name: '', week_number: '', year: new Date().getFullYear().toString(), ...base };
+    default:
+      return { name: '', ...base };
+  }
+};
 
 const getDefaultDsaDetails = (): Omit<DSADetailInput, 'id'>[] => [
   { judge_name: '', pj_number: '', dsa_per_day: 0, days: 0, notes: '' },
@@ -120,60 +188,171 @@ function GhostButton({
   );
 }
 
-// ─── Step 1: Circuit Basic Form ──────────────────────────────────────────────
+// ─── Step 1: Basic Info Form ──────────────────────────────────────────────
 
-interface CircuitBasicFormProps {
-  basicInfo: {
-    name: string;
-    location: string;
-    start_date: string;
-    end_date: string;
-  };
-  setBasicInfo: React.Dispatch<React.SetStateAction<{
-    name: string;
-    location: string;
-    start_date: string;
-    end_date: string;
-  }>>;
+interface BasicInfoFormProps {
+  mode: CircuitModalMode;
+  basicInfo: BasicInfoType;
+  setBasicInfo: (info: BasicInfoType) => void;
 }
 
-const CircuitBasicForm: React.FC<CircuitBasicFormProps> = ({ basicInfo, setBasicInfo }) => {
+const BasicInfoForm: React.FC<BasicInfoFormProps> = ({ mode, basicInfo, setBasicInfo }) => {
+  const getTitleAndIcon = () => {
+    switch (mode) {
+      case 'circuit':
+        return { title: 'Circuit Information', icon: <MapPin size={16} className="text-[#c9a84c]" /> };
+      case 'bench':
+        return { title: 'Bench Information', icon: <Gavel size={16} className="text-[#c9a84c]" /> };
+      case 'partHeard':
+        return { title: 'Part-Heard Information', icon: <FileCheck size={16} className="text-[#c9a84c]" /> };
+      case 'serviceWeek':
+        return { title: 'Service Week Information', icon: <Calendar size={16} className="text-[#c9a84c]" /> };
+      default:
+        return { title: 'Information', icon: <ClipboardList size={16} className="text-[#c9a84c]" /> };
+    }
+  };
+
+  const { title, icon } = getTitleAndIcon();
+
+  const renderFields = () => {
+    switch (mode) {
+      case 'circuit':
+        return (
+          <>
+            <div>
+              <FieldLabel required>Circuit Name</FieldLabel>
+              <input
+                type="text"
+                value={basicInfo.name || ''}
+                onChange={(e) => setBasicInfo({ ...basicInfo, name: e.target.value })}
+                placeholder="e.g. Mombasa Circuit"
+                className={inputClasses}
+              />
+            </div>
+            <div>
+              <FieldLabel>Location (Optional)</FieldLabel>
+              <input
+                type="text"
+                value={basicInfo.location || ''}
+                onChange={(e) => setBasicInfo({ ...basicInfo, location: e.target.value })}
+                placeholder="e.g. Mombasa"
+                className={inputClasses}
+              />
+            </div>
+          </>
+        );
+
+      case 'bench':
+        return (
+          <>
+            <div>
+              <FieldLabel required>Bench Name / Case</FieldLabel>
+              <input
+                type="text"
+                value={basicInfo.name || ''}
+                onChange={(e) => setBasicInfo({ ...basicInfo, name: e.target.value })}
+                placeholder="e.g. Special Bench - Criminal Division"
+                className={inputClasses}
+              />
+            </div>
+            <div>
+              <FieldLabel>Case Reference (Optional)</FieldLabel>
+              <input
+                type="text"
+                value={basicInfo.case_reference || ''}
+                onChange={(e) => setBasicInfo({ ...basicInfo, case_reference: e.target.value })}
+                placeholder="e.g. CR-2024-001"
+                className={inputClasses}
+              />
+            </div>
+          </>
+        );
+
+      case 'partHeard':
+        return (
+          <>
+            <div>
+              <FieldLabel required>Case Reference</FieldLabel>
+              <input
+                type="text"
+                value={basicInfo.case_reference || ''}
+                onChange={(e) => setBasicInfo({ ...basicInfo, case_reference: e.target.value })}
+                placeholder="e.g. CR-2024-001"
+                className={inputClasses}
+              />
+            </div>
+            <div>
+              <FieldLabel>Approved By (Optional)</FieldLabel>
+              <input
+                type="text"
+                value={basicInfo.approved_by || ''}
+                onChange={(e) => setBasicInfo({ ...basicInfo, approved_by: e.target.value })}
+                placeholder="e.g. Hon. Chief Justice"
+                className={inputClasses}
+              />
+            </div>
+          </>
+        );
+
+      case 'serviceWeek':
+        return (
+          <>
+            <div>
+              <FieldLabel required>Week Name / Title</FieldLabel>
+              <input
+                type="text"
+                value={basicInfo.name || ''}
+                onChange={(e) => setBasicInfo({ ...basicInfo, name: e.target.value })}
+                placeholder="e.g. Service Week - July 2026"
+                className={inputClasses}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <FieldLabel required>Week Number</FieldLabel>
+                <input
+                  type="text"
+                  value={basicInfo.week_number || ''}
+                  onChange={(e) => setBasicInfo({ ...basicInfo, week_number: e.target.value })}
+                  placeholder="e.g. WK-28"
+                  className={inputClasses}
+                />
+              </div>
+              <div>
+                <FieldLabel required>Year</FieldLabel>
+                <input
+                  type="text"
+                  value={basicInfo.year || new Date().getFullYear().toString()}
+                  onChange={(e) => setBasicInfo({ ...basicInfo, year: e.target.value })}
+                  placeholder="e.g. 2026"
+                  className={inputClasses}
+                />
+              </div>
+            </div>
+          </>
+        );
+
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
         <div className="flex items-center gap-2 mb-3">
-          <ClipboardList size={16} className="text-[#c9a84c]" />
-          <h4 className="text-sm font-semibold text-stone-800">Circuit Information</h4>
+          {icon}
+          <h4 className="text-sm font-semibold text-stone-800">{title}</h4>
         </div>
         <div className="grid grid-cols-1 gap-4">
-          <div>
-            <FieldLabel required>Circuit Name</FieldLabel>
-            <input
-              type="text"
-              value={basicInfo.name}
-              onChange={(e) => setBasicInfo({ ...basicInfo, name: e.target.value })}
-              placeholder="e.g. Mombasa Circuit"
-              className={inputClasses}
-            />
-          </div>
-
-          <div>
-            <FieldLabel>Location (Optional)</FieldLabel>
-            <input
-              type="text"
-              value={basicInfo.location}
-              onChange={(e) => setBasicInfo({ ...basicInfo, location: e.target.value })}
-              placeholder="e.g. Mombasa"
-              className={inputClasses}
-            />
-          </div>
+          {renderFields()}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <FieldLabel required>Start Date</FieldLabel>
               <input
                 type="date"
-                value={basicInfo.start_date}
+                value={basicInfo.start_date || ''}
                 onChange={(e) => setBasicInfo({ ...basicInfo, start_date: e.target.value })}
                 className={inputClasses}
               />
@@ -182,7 +361,7 @@ const CircuitBasicForm: React.FC<CircuitBasicFormProps> = ({ basicInfo, setBasic
               <FieldLabel required>End Date</FieldLabel>
               <input
                 type="date"
-                value={basicInfo.end_date}
+                value={basicInfo.end_date || ''}
                 onChange={(e) => setBasicInfo({ ...basicInfo, end_date: e.target.value })}
                 className={inputClasses}
               />
@@ -203,7 +382,7 @@ const CircuitBasicForm: React.FC<CircuitBasicFormProps> = ({ basicInfo, setBasic
 
 // ─── Step 2: DSA Details Form ──────────────────────────────────────────────
 
-interface CircuitDSADetailsFormProps {
+interface DSADetailsFormProps {
   dsaDetails: Omit<DSADetailInput, 'id'>[];
   onAddRow: () => void;
   onRemoveRow: (index: number) => void;
@@ -211,7 +390,7 @@ interface CircuitDSADetailsFormProps {
   calculateTotal: (rate: number, days: number) => number;
 }
 
-const CircuitDSADetailsForm: React.FC<CircuitDSADetailsFormProps> = ({
+const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
   dsaDetails,
   onAddRow,
   onRemoveRow,
@@ -326,15 +505,22 @@ const CircuitDSADetailsForm: React.FC<CircuitDSADetailsFormProps> = ({
   );
 };
 
-// ─── Step 3: Circuit Memo Preview ──────────────────────────────────────────
+// ─── Step 3: Memo Preview ──────────────────────────────────────────────────
+//
+// This mirrors the approved ORHC memo template 1:1:
+//   - centered crest
+//   - centered "OFFICE OF THE REGISTRAR HIGH COURT" / "INTERNAL MEMO"
+//   - plain bold left-aligned TO / FROM / REF / DATE / SUBJECT lines
+//   - a blank/plain body area (no cards, no color) with the DSA schedule
+//   - a bold underlined sign-off line at the bottom
+//   - the standard court footer strip
+//
+// No rounded cards, accent colors, or boxed sections — the source document
+// is intentionally austere, so the preview stays black-on-white throughout.
 
-interface CircuitMemoProps {
-  basicInfo: {
-    name: string;
-    location: string;
-    start_date: string;
-    end_date: string;
-  };
+interface MemoPreviewProps {
+  mode: CircuitModalMode;
+  basicInfo: BasicInfoType;
   dsaDetails: Omit<DSADetailInput, 'id'>[];
   calculateTotal: (rate: number, days: number) => number;
   calculateGrandTotal: () => number;
@@ -343,7 +529,8 @@ interface CircuitMemoProps {
   onEditDsa: () => void;
 }
 
-const CircuitMemo: React.FC<CircuitMemoProps> = ({
+const MemoPreview: React.FC<MemoPreviewProps> = ({
+  mode,
   basicInfo,
   dsaDetails,
   calculateTotal,
@@ -352,14 +539,105 @@ const CircuitMemo: React.FC<CircuitMemoProps> = ({
   onEdit,
   onEditDsa,
 }) => {
+  const getSubject = () => {
+    switch (mode) {
+      case 'circuit': return basicInfo.name || 'Circuit Details';
+      case 'bench': return basicInfo.name || 'Bench Details';
+      case 'partHeard': return basicInfo.case_reference || 'Part-Heard Details';
+      case 'serviceWeek': return basicInfo.name || 'Service Week Details';
+      default: return 'Details';
+    }
+  };
+
+  const getFrom = () => {
+    switch (mode) {
+      case 'circuit': return 'HIGH COURT SUPPORT OFFICE -ORHC';
+      case 'bench': return 'BENCH MANAGEMENT OFFICE -ORHC';
+      case 'partHeard': return 'PART-HEARD MANAGEMENT OFFICE -ORHC';
+      case 'serviceWeek': return 'SERVICE WEEK MANAGEMENT OFFICE -ORHC';
+      default: return 'HIGH COURT SUPPORT OFFICE -ORHC';
+    }
+  };
+
+  const getTo = () => 'REGISTRAR ,HIGH COURT/ ORHC AIE HOLDER';
+
+  // Currently logged-in user, used to sign the memo. Adjust the `state.auth`
+  // path below if your root reducer registers the auth slice under a
+  // different key.
+  const currentUser = useAppSelector((state) => state.auth.user);
+
   const validDetails = dsaDetails.filter(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0);
+  const grandTotal = calculateGrandTotal();
+
+  // Format currency with words
+  const formatCurrencyWords = (amount: number): string => {
+    const words = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+    const numberToWords = (num: number): string => {
+      if (num < 20) return words[num];
+      if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 !== 0 ? ' ' + words[num % 10] : '');
+      if (num < 1000) return words[Math.floor(num / 100)] + ' Hundred' + (num % 100 !== 0 ? ' and ' + numberToWords(num % 100) : '');
+      if (num < 1000000) return numberToWords(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 !== 0 ? ' ' + numberToWords(num % 1000) : '');
+      return 'Amount too large';
+    };
+
+    const dollars = Math.floor(amount);
+    const cents = Math.round((amount - dollars) * 100);
+    let result = numberToWords(dollars) + ' Kenya Shillings';
+    if (cents > 0) {
+      result += ' and ' + numberToWords(cents) + ' Cents';
+    }
+    return result;
+  };
+
+  // ─── Editable memo fields ─────────────────────────────────────────────────
+  // TO / FROM / REF / DATE / SUBJECT are seeded from sensible defaults (mode,
+  // basicInfo, a generated ref number) but are then plain controlled inputs —
+  // the office officer reviewing the memo can correct or override any of
+  // them before it's finalized. Lazy useState initializers run exactly once
+  // at mount, which is fine here since MemoPreview only mounts when
+  // currentStep === 3, so the seed always reflects the current mode/basicInfo.
+
+  const [toField, setToField] = useState(() => getTo());
+  const [fromField, setFromField] = useState(() => getFrom());
+  const [subjectField, setSubjectField] = useState(() => getSubject());
+
+  const [refField, setRefField] = useState(() => {
+    const prefix: Record<string, string> = {
+      circuit: 'RHC/CIRCUIT',
+      bench: 'RHC/BENCH',
+      partHeard: 'RHC/PART',
+      serviceWeek: 'RHC/SERVICE',
+    };
+    const p = prefix[mode] || 'RHC/AIE';
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `${p}/${random}`;
+  });
+
+  const [dateField, setDateField] = useState(() => {
+    if (!basicInfo.start_date || !basicInfo.end_date) {
+      return new Date().toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+    const startDate = new Date(basicInfo.start_date);
+    const endDate = new Date(basicInfo.end_date);
+    const generated = new Date(startDate.getTime() + Math.random() * (endDate.getTime() - startDate.getTime()));
+    return generated.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
+  });
+
+  // Signature name defaults to the logged-in user but stays editable in case
+  // someone is signing on another officer's behalf.
+  const [signatoryName, setSignatoryName] = useState(() => currentUser?.full_name || '');
+
+  const editableLineClasses =
+    'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none';
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
           <FileSpreadsheet size={16} className="text-[#c9a84c]" />
-          Circuit Memo Preview
+          Memo Preview
         </h4>
         <div className="flex gap-2">
           <GhostButton onClick={onEdit} icon={<Edit size={12} />}>
@@ -371,135 +649,275 @@ const CircuitMemo: React.FC<CircuitMemoProps> = ({
         </div>
       </div>
 
-      <div className="rounded-lg border border-stone-200 bg-white p-6 shadow-sm">
-        {/* Header */}
-        <div className="mb-6 border-b border-stone-200 pb-4 text-center">
-          <h2 className="text-xl font-bold text-[#1a3d1c]">{basicInfo.name}</h2>
-          <p className="text-sm text-stone-500">Circuit Memo</p>
+      {/* ─── The memo sheet itself — plain black-on-white, matches the .docx ─── */}
+      <div className="border border-stone-300 bg-white p-10 shadow-sm font-sans text-black">
+        {/* Crest */}
+        <div className="flex justify-center mb-3">
+          <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-20 w-auto object-contain" />
         </div>
 
-        {/* Circuit Info */}
-        <div className="mb-6 grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <p className="text-xs text-stone-400">Location</p>
-            <p className="font-medium text-stone-800">{basicInfo.location || 'Not specified'}</p>
+        {/* Title block */}
+        <div className="text-center mb-6">
+          <p className="text-lg font-bold uppercase leading-snug">
+            OFFICE OF THE REGISTRAR HIGH COURT
+          </p>
+          <p className="text-lg font-bold uppercase leading-snug border-b-2 border-black inline-block pb-2 px-1">
+            INTERNAL MEMO
+          </p>
+        </div>
+
+        {/* TO / FROM / REF / DATE / SUBJECT — plain stacked lines, now editable */}
+        <div className="space-y-3 text-sm font-bold mb-8">
+          <div className="flex">
+            <span className="w-24 shrink-0">TO</span>
+            <span className="w-4 shrink-0">:</span>
+            <input
+              type="text"
+              value={toField}
+              onChange={(e) => setToField(e.target.value)}
+              className={`${editableLineClasses} uppercase`}
+            />
           </div>
-          <div>
-            <p className="text-xs text-stone-400">Period</p>
-            <p className="font-medium text-stone-800">
-              {formatDate(basicInfo.start_date)} - {formatDate(basicInfo.end_date)}
-            </p>
+          <div className="flex">
+            <span className="w-24 shrink-0">FROM</span>
+            <span className="w-4 shrink-0">:</span>
+            <input
+              type="text"
+              value={fromField}
+              onChange={(e) => setFromField(e.target.value)}
+              className={`${editableLineClasses} uppercase`}
+            />
+          </div>
+          <div className="flex">
+            <span className="w-24 shrink-0">REF</span>
+            <span className="w-4 shrink-0">:</span>
+            <input
+              type="text"
+              value={refField}
+              onChange={(e) => setRefField(e.target.value)}
+              className={editableLineClasses}
+            />
+          </div>
+          <div className="flex">
+            <span className="w-24 shrink-0">DATE</span>
+            <span className="w-4 shrink-0">:</span>
+            <input
+              type="text"
+              value={dateField}
+              onChange={(e) => setDateField(e.target.value)}
+              className={editableLineClasses}
+            />
+          </div>
+          <div className="flex border-b-2 border-black pb-3">
+            <span className="w-24 shrink-0">SUBJECT</span>
+            <span className="w-4 shrink-0">:</span>
+            <input
+              type="text"
+              value={subjectField}
+              onChange={(e) => setSubjectField(e.target.value)}
+              className={`${editableLineClasses} uppercase`}
+            />
           </div>
         </div>
 
-        {/* DSA Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b-2 border-stone-300 bg-stone-100">
-                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-stone-600">#</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-stone-600">Name</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-stone-600">PJ Number</th>
-                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-stone-600">Rate (KES)</th>
-                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-stone-600">Days</th>
-                <th className="px-3 py-2 text-right text-xs font-semibold uppercase text-stone-600">Total (KES)</th>
-                <th className="px-3 py-2 text-left text-xs font-semibold uppercase text-stone-600">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {validDetails.map((detail, index) => (
-                <tr key={index} className="border-b border-stone-100 hover:bg-stone-50">
-                  <td className="px-3 py-2 text-center text-stone-500">{index + 1}</td>
-                  <td className="px-3 py-2 font-medium text-stone-800">{detail.judge_name}</td>
-                  <td className="px-3 py-2 text-stone-600">{detail.pj_number}</td>
-                  <td className="px-3 py-2 text-right text-stone-600">{detail.dsa_per_day.toLocaleString()}</td>
-                  <td className="px-3 py-2 text-right text-stone-600">{detail.days}</td>
-                  <td className="px-3 py-2 text-right font-medium text-emerald-700">
-                    {calculateTotal(detail.dsa_per_day, detail.days).toLocaleString()}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-stone-500">{detail.notes || '-'}</td>
+        {/* Body — plain prose + plain black-bordered table, no color/rounded cards */}
+        <div className="space-y-4 text-sm">
+          <p>
+            The following is a detailed breakdown of the {(subjectField || getSubject()).toLowerCase()} for the period{' '}
+            <span className="font-semibold">
+              {formatDate(basicInfo.start_date)} to {formatDate(basicInfo.end_date)}
+            </span>
+            .
+          </p>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse border border-black">
+              <thead>
+                <tr>
+                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">#</th>
+                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">Judge Name</th>
+                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">PJ Number</th>
+                  <th className="border border-black px-2 py-1 text-right text-xs font-bold">Rate (KES)</th>
+                  <th className="border border-black px-2 py-1 text-right text-xs font-bold">Days</th>
+                  <th className="border border-black px-2 py-1 text-right text-xs font-bold">Total (KES)</th>
+                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">Notes</th>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-stone-300 bg-stone-50">
-                <td colSpan={5} className="px-3 py-3 text-right font-bold text-stone-800">
-                  Grand Total
-                </td>
-                <td className="px-3 py-3 text-right font-bold text-[#1a3d1c]">
-                  {calculateGrandTotal().toLocaleString()}
-                </td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
+              </thead>
+              <tbody>
+                {validDetails.length > 0 ? (
+                  validDetails.map((detail, index) => (
+                    <tr key={index}>
+                      <td className="border border-black px-2 py-1 text-center">{index + 1}</td>
+                      <td className="border border-black px-2 py-1 font-medium">{detail.judge_name}</td>
+                      <td className="border border-black px-2 py-1">{detail.pj_number}</td>
+                      <td className="border border-black px-2 py-1 text-right">{detail.dsa_per_day.toLocaleString()}</td>
+                      <td className="border border-black px-2 py-1 text-right">{detail.days}</td>
+                      <td className="border border-black px-2 py-1 text-right font-medium">
+                        {calculateTotal(detail.dsa_per_day, detail.days).toLocaleString()}
+                      </td>
+                      <td className="border border-black px-2 py-1 text-xs">{detail.notes || '-'}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={7} className="border border-black px-2 py-4 text-center text-stone-500 text-sm">
+                      No DSA details available.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              {validDetails.length > 0 && (
+                <tfoot>
+                  <tr>
+                    <td colSpan={5} className="border border-black px-2 py-2 text-right font-bold">
+                      GRAND TOTAL
+                    </td>
+                    <td className="border border-black px-2 py-2 text-right font-bold">
+                      {grandTotal.toLocaleString()}
+                    </td>
+                    <td className="border border-black"></td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+
+          {grandTotal > 0 && (
+            <p className="text-sm">
+              <span className="font-bold">Amount in Words: </span>
+              <span className="uppercase">{formatCurrencyWords(grandTotal)}</span>
+            </p>
+          )}
         </div>
 
-        {/* Footer */}
-        <div className="mt-6 border-t border-stone-200 pt-4 text-center text-xs text-stone-400">
-          <p>Generated on {new Date().toLocaleDateString('en-KE', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
-          <p className="mt-1">This is a system-generated memo for official use only.</p>
+        {/* Sign-off — signatory name (defaults to the logged-in user) above the
+            office line, both editable, bold + underlined to match the memo */}
+        <div className="mt-16 space-y-1">
+          <input
+            type="text"
+            value={signatoryName}
+            onChange={(e) => setSignatoryName(e.target.value)}
+            placeholder="Signatory name"
+            className={`${editableLineClasses} block text-sm font-bold`}
+          />
+          <input
+            type="text"
+            value={fromField}
+            onChange={(e) => setFromField(e.target.value)}
+            className={`${editableLineClasses} block text-sm font-bold underline uppercase`}
+          />
+        </div>
+
+        {/* Standard court footer strip */}
+        <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
+          <img src={FOOTER_EMBLEM_SRC} alt="" className="h-10 w-auto object-contain" />
+          <div className="text-[10px] leading-tight text-stone-700">
+            <p>
+              Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi
+            </p>
+            <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
+            <p className="mt-1 font-bold text-emerald-800">Justice Be Our Shield and Defender</p>
+          </div>
         </div>
       </div>
     </div>
   );
 };
+// ─── Helper to check item type ─────────────────────────────────────────────
+
+function isCircuit(item: EditingItem | null | undefined): item is Circuit {
+  return !!item && 'location' in item && !('case_reference' in item) && !('week_number' in item);
+}
+
+function isSpecialBench(item: EditingItem | null | undefined): item is SpecialBench {
+  return !!item && 'name' in item && 'case_reference' in item && !('approved_by' in item);
+}
+
+function isPartHeard(item: EditingItem | null | undefined): item is PartHeard {
+  return !!item && 'case_reference' in item && 'approved_by' in item && !('name' in item);
+}
+
+function isServiceWeek(item: EditingItem | null | undefined): item is ServiceWeek {
+  return !!item && 'week_number' in item && 'year' in item;
+}
 
 // ─── Main Circuit Modal ──────────────────────────────────────────────────────
-
-interface CircuitModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  editingCircuit?: Circuit | null;
-}
 
 export const CircuitModal: React.FC<CircuitModalProps> = ({
   isOpen,
   onClose,
-  editingCircuit,
+  mode = 'circuit',
+  editingItem,
 }) => {
   const dispatch = useAppDispatch();
   const mutating = useAppSelector((state) => state.helpdesk.loading.mutating);
 
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
-  // Step 1: Basic Circuit Info
-  const [basicInfo, setBasicInfo] = useState(getDefaultBasicInfo);
+  // Step 1: Basic Info
+  const [basicInfo, setBasicInfo] = useState<BasicInfoType>(() => getDefaultBasicInfo(mode));
 
   // Step 2: DSA Details
   const [dsaDetails, setDsaDetails] = useState<Omit<DSADetailInput, 'id'>[]>(getDefaultDsaDetails);
 
-  // ── Render-time state sync (no useEffect) ───────────────────────────────
-  // Tracks the modal's open state across renders so we can detect the
-  // false → true transition and (re)initialize the form during render,
-  // rather than in a useEffect (which would cause a synchronous setState
-  // -> cascading render warning). This is React's recommended pattern for
-  // "adjusting state when a prop changes": https://react.dev/learn/you-might-not-need-an-effect
+  // ── Render-time state sync ──────────────────────────────────────────────
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
 
   if (isOpen !== prevIsOpen) {
     setPrevIsOpen(isOpen);
 
     if (isOpen) {
-      if (editingCircuit) {
-        setBasicInfo({
-          name: editingCircuit.name,
-          location: editingCircuit.location || '',
-          start_date: editingCircuit.start_date.split('T')[0],
-          end_date: editingCircuit.end_date.split('T')[0],
-        });
-        setDsaDetails(
-          editingCircuit.dsa_details?.map(d => ({
-            judge_name: d.judge_name,
-            pj_number: d.pj_number,
-            dsa_per_day: d.dsa_per_day,
-            days: d.days,
-            notes: d.notes || '',
-          })) || getDefaultDsaDetails()
-        );
+      if (editingItem) {
+        // Populate form based on the type using type guards
+        if (isCircuit(editingItem)) {
+          setBasicInfo({
+            name: editingItem.name,
+            location: editingItem.location || '',
+            start_date: editingItem.start_date.split('T')[0],
+            end_date: editingItem.end_date.split('T')[0],
+          });
+        } else if (isPartHeard(editingItem)) {
+          setBasicInfo({
+            case_reference: editingItem.case_reference,
+            approved_by: editingItem.approved_by || '',
+            start_date: editingItem.start_date.split('T')[0],
+            end_date: editingItem.end_date.split('T')[0],
+          });
+        } else if (isSpecialBench(editingItem)) {
+          setBasicInfo({
+            name: editingItem.name,
+            case_reference: editingItem.case_reference || '',
+            start_date: editingItem.start_date.split('T')[0],
+            end_date: editingItem.end_date.split('T')[0],
+          });
+        } else if (isServiceWeek(editingItem)) {
+          setBasicInfo({
+            name: editingItem.name,
+            week_number: editingItem.week_number,
+            year: editingItem.year,
+            start_date: editingItem.start_date.split('T')[0],
+            end_date: editingItem.end_date.split('T')[0],
+          });
+        }
+
+        // Load DSA details if available
+        const details = (editingItem as EditingItem & WithDsaDetails).dsa_details;
+        if (details && details.length > 0) {
+          setDsaDetails(
+            details.map((d: DSADetailInput) => ({
+              judge_name: d.judge_name,
+              pj_number: d.pj_number,
+              dsa_per_day: d.dsa_per_day,
+              days: d.days,
+              notes: d.notes || '',
+            }))
+          );
+        } else {
+          setDsaDetails(getDefaultDsaDetails());
+        }
         setCurrentStep(2);
       } else {
-        setBasicInfo(getDefaultBasicInfo());
+        setBasicInfo(getDefaultBasicInfo(mode));
         setDsaDetails(getDefaultDsaDetails());
         setCurrentStep(1);
       }
@@ -507,7 +925,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
   }
 
   const resetForm = () => {
-    setBasicInfo(getDefaultBasicInfo());
+    setBasicInfo(getDefaultBasicInfo(mode));
     setDsaDetails(getDefaultDsaDetails());
     setCurrentStep(1);
   };
@@ -537,15 +955,25 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
 
   const handleNextStep = () => {
     if (currentStep === 1) {
-      if (!basicInfo.name.trim() || !basicInfo.start_date || !basicInfo.end_date) {
-        return;
-      }
+      const hasRequiredFields = () => {
+        switch (mode) {
+          case 'circuit':
+            return !!(basicInfo.name?.trim() && basicInfo.start_date && basicInfo.end_date);
+          case 'bench':
+            return !!(basicInfo.name?.trim() && basicInfo.start_date && basicInfo.end_date);
+          case 'partHeard':
+            return !!(basicInfo.case_reference?.trim() && basicInfo.start_date && basicInfo.end_date);
+          case 'serviceWeek':
+            return !!(basicInfo.name?.trim() && basicInfo.start_date && basicInfo.end_date && basicInfo.week_number?.trim());
+          default:
+            return false;
+        }
+      };
+      if (!hasRequiredFields()) return;
       setCurrentStep(2);
     } else if (currentStep === 2) {
       const hasValidRow = dsaDetails.some(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0);
-      if (!hasValidRow) {
-        return;
-      }
+      if (!hasValidRow) return;
       setCurrentStep(3);
     }
   };
@@ -555,39 +983,113 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     else if (currentStep === 3) setCurrentStep(2);
   };
 
-  const handleCreateCircuit = async () => {
+  const handleCreate = async () => {
     try {
-      const input: CreateCircuitInput = {
-        name: basicInfo.name.trim(),
-        location: basicInfo.location.trim() || undefined,
-        start_date: basicInfo.start_date,
-        end_date: basicInfo.end_date,
-        dsa_details: dsaDetails
-          .filter(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0)
-          .map(d => ({
-            judge_name: d.judge_name.trim(),
-            pj_number: d.pj_number.trim(),
-            dsa_per_day: d.dsa_per_day,
-            days: d.days,
-            notes: d.notes || undefined,
-          })),
-      };
+      const dsaData = dsaDetails
+        .filter(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0)
+        .map(d => ({
+          judge_name: d.judge_name.trim(),
+          pj_number: d.pj_number.trim(),
+          dsa_per_day: d.dsa_per_day,
+          days: d.days,
+          notes: d.notes || undefined,
+        }));
 
-      if (editingCircuit) {
-        await dispatch(updateCircuitStatus({
-          id: editingCircuit.id,
-          status: 'Pending' as Status,
-        })).unwrap();
+      if (editingItem) {
+        // Update status based on mode
+        const statusUpdate = { id: editingItem.id, status: 'Pending' as Status };
+        switch (mode) {
+          case 'circuit':
+            await dispatch(updateCircuitStatus(statusUpdate)).unwrap();
+            break;
+          case 'bench':
+            await dispatch(updateBenchStatus(statusUpdate)).unwrap();
+            break;
+          case 'partHeard':
+            await dispatch(updatePartHeardStatus(statusUpdate)).unwrap();
+            break;
+          case 'serviceWeek':
+            await dispatch(updateServiceWeekStatus(statusUpdate)).unwrap();
+            break;
+          default:
+            throw new Error('Invalid mode');
+        }
       } else {
-        await dispatch(createCircuit(input)).unwrap();
+        // Create new based on mode
+        switch (mode) {
+          case 'circuit': {
+            const input: CreateCircuitInput = {
+              name: basicInfo.name!.trim(),
+              location: basicInfo.location?.trim() || undefined,
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+            };
+            await dispatch(createCircuit(input)).unwrap();
+            break;
+          }
+          case 'bench': {
+            const input: CreateSpecialBenchInput = {
+              name: basicInfo.name!.trim(),
+              case_reference: basicInfo.case_reference?.trim() || undefined,
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+            };
+            await dispatch(createBench(input)).unwrap();
+            break;
+          }
+          case 'partHeard': {
+            const input: CreatePartHeardInput = {
+              case_reference: basicInfo.case_reference!.trim(),
+              approved_by: basicInfo.approved_by?.trim() || undefined,
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+            };
+            await dispatch(createPartHeard(input)).unwrap();
+            break;
+          }
+          case 'serviceWeek': {
+            const input: CreateServiceWeekInput = {
+              name: basicInfo.name!.trim(),
+              week_number: basicInfo.week_number!.trim(),
+              year: basicInfo.year!,
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+            };
+            await dispatch(createServiceWeek(input)).unwrap();
+            break;
+          }
+          default:
+            throw new Error('Invalid mode');
+        }
       }
 
-      await dispatch(fetchCircuits({}));
+      // Refresh data based on mode
+      switch (mode) {
+        case 'circuit':
+          await dispatch(fetchCircuits({}));
+          break;
+        case 'bench':
+          await dispatch(fetchBenches({}));
+          break;
+        case 'partHeard':
+          await dispatch(fetchPartHeards({}));
+          break;
+        case 'serviceWeek':
+          await dispatch(fetchServiceWeeks({}));
+          break;
+        default:
+          break;
+      }
       await dispatch(fetchHelpDeskStats());
+
       onClose();
       resetForm();
     } catch (err) {
-      console.error('Failed to save circuit:', err);
+      console.error('Failed to save:', err);
     }
   };
 
@@ -601,6 +1103,20 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     onClose();
   };
 
+  const getModalTitle = () => {
+    const modeMap = {
+      circuit: 'Circuit',
+      bench: 'Bench',
+      partHeard: 'Part-Heard',
+      serviceWeek: 'Service Week',
+    };
+    const label = modeMap[mode] || 'Item';
+    if (editingItem) {
+      return `Edit ${label}`;
+    }
+    return `Add New ${label}`;
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -608,9 +1124,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
       <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
-          <h3 className="text-sm font-semibold text-[#1a3d1c]">
-            {editingCircuit ? 'Edit Circuit' : 'Add New Circuit'}
-          </h3>
+          <h3 className="text-sm font-semibold text-[#1a3d1c]">{getModalTitle()}</h3>
           <button onClick={handleClose} className="text-stone-400 hover:text-stone-600">
             <X className="h-4 w-4" />
           </button>
@@ -651,10 +1165,14 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
 
           {/* Step Content */}
           {currentStep === 1 && (
-            <CircuitBasicForm basicInfo={basicInfo} setBasicInfo={setBasicInfo} />
+            <BasicInfoForm
+              mode={mode}
+              basicInfo={basicInfo}
+              setBasicInfo={setBasicInfo}
+            />
           )}
           {currentStep === 2 && (
-            <CircuitDSADetailsForm
+            <DSADetailsForm
               dsaDetails={dsaDetails}
               onAddRow={handleAddDsaRow}
               onRemoveRow={handleRemoveDsaRow}
@@ -663,7 +1181,8 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
             />
           )}
           {currentStep === 3 && (
-            <CircuitMemo
+            <MemoPreview
+              mode={mode}
               basicInfo={basicInfo}
               dsaDetails={dsaDetails}
               calculateTotal={calculateTotal}
@@ -694,11 +1213,11 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
               </GoldButton>
             ) : (
               <GoldButton
-                onClick={handleCreateCircuit}
+                onClick={handleCreate}
                 disabled={mutating}
                 icon={mutating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save size={14} />}
               >
-                {editingCircuit ? 'Update Circuit' : 'Create Circuit'}
+                {editingItem ? 'Update' : 'Create'}
               </GoldButton>
             )}
           </div>
