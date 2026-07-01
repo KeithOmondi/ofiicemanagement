@@ -14,7 +14,6 @@ import {
   fetchProtocolEvents,
   createUtility,
   createClubMembership,
-  createCircuit,
   updateUtilityStatus,
   updateClubMembershipStatus,
   updateCircuitStatus,
@@ -46,7 +45,6 @@ import {
   setActiveTab,
   type UtilityType,
   type Status,
-  type DSADetail,
   type HelpDeskTab,
   type PartHeard,
   type JudgeRequest,
@@ -83,6 +81,7 @@ import {
   Edit,
   X,
 } from 'lucide-react';
+import CircuitModal from '../../components/modals/CircuitModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -105,7 +104,7 @@ const formatCurrency = (amount: number): string => {
   return `KES ${amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
-const todayIso = (): string => new Date().toISOString().split('T')[0];
+//const todayIso = (): string => new Date().toISOString().split('T')[0];
 
 const getStatusColor = (status: string): string => {
   const map: Record<string, string> = {
@@ -991,46 +990,33 @@ function ClubTab() {
 
 // ─── Circuits Tab ────────────────────────────────────────────────────────────
 
+// ─── Circuits Tab ────────────────────────────────────────────────────────────
+
 function CircuitsTab() {
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllCircuits);
   const loading = useAppSelector((state) => state.helpdesk.loading.circuits);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
-  const [showModal, setShowModal] = useState(false);
-  const [editingItem, setEditingItem] = useState<Circuit | null>(null);
+  const [showCircuitModal, setShowCircuitModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [editingCircuit, setEditingCircuit] = useState<Circuit | null>(null);
+  const [selectedCircuit, setSelectedCircuit] = useState<Circuit | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    name: '',
-    location: '',
-    start_date: todayIso(),
-    end_date: todayIso(),
-    dsa_details: [] as Omit<DSADetail, 'id' | 'total'>[],
-  });
 
-  const resetForm = () => {
-    setForm({ name: '', location: '', start_date: todayIso(), end_date: todayIso(), dsa_details: [] });
-    setEditingItem(null);
+  const handleAddCircuit = () => {
+    setEditingCircuit(null);
+    setShowCircuitModal(true);
   };
 
-  const handleSubmit = async () => {
-    if (!form.name || !form.start_date || !form.end_date) return;
-    try {
-      if (editingItem) {
-        await dispatch(updateCircuitStatus({
-          id: editingItem.id,
-          status: 'Signed' as Status,
-        })).unwrap();
-      } else {
-        await dispatch(createCircuit(form)).unwrap();
-      }
-      await dispatch(fetchCircuits({}));
-      await dispatch(fetchHelpDeskStats());
-      setShowModal(false);
-      resetForm();
-    } catch (err) {
-      console.error('Failed to save:', err);
-    }
+  const handleEditCircuit = (circuit: Circuit) => {
+    setEditingCircuit(circuit);
+    setShowCircuitModal(true);
+  };
+
+  const handleViewCircuit = (circuit: Circuit) => {
+    setSelectedCircuit(circuit);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -1047,6 +1033,11 @@ function CircuitsTab() {
     setDeleteTarget(null);
   };
 
+  // Format currency helper
+  const formatCurrency = (amount: number): string => {
+    return `KES ${amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
   return (
     <>
       <Panel
@@ -1055,116 +1046,265 @@ function CircuitsTab() {
         action={
           <div className="flex gap-2">
             <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
-            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={() => { resetForm(); setShowModal(true); }}>
+            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAddCircuit}>
               Add Circuit
             </GoldOutlineButton>
           </div>
         }
       >
-        <TableWithActions
-          data={data}
-          loading={loading}
-          columns={[
-            { key: 'name', label: 'Circuit' },
-            { key: 'start_date', label: 'Start' },
-            { key: 'end_date', label: 'End' },
-            { key: 'total_dsa', label: 'Total DSA', align: 'right' },
-            { key: 'status', label: 'Status', align: 'center' },
-          ]}
-          renderRow={(item: Circuit) => (
-            <>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
-              <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-              <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-              <td className="px-3 py-2 text-center">
-                <StatusDropdown
-                  status={item.status}
-                  onStatusChange={(s) => handleStatusChange(item.id, s)}
-                  disabled={mutating}
-                />
-              </td>
-            </>
-          )}
-          onEdit={(item: Circuit) => {
-            setForm({
-              name: item.name,
-              location: item.location || '',
-              start_date: item.start_date,
-              end_date: item.end_date,
-              dsa_details: (item.dsa_details ?? []).map((d) => ({
-                judge_name: d.judge_name,
-                pj_number: d.pj_number,
-                dsa_per_day: d.dsa_per_day,
-                days: d.days,
-              })),
-            });
-            setEditingItem(item);
-            setShowModal(true);
-          }}
-          onDelete={(id) => setDeleteTarget(id)}
-          mutating={mutating}
-        />
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-stone-200 text-xs uppercase text-stone-400">
+                <th className="px-3 py-2 font-medium">Circuit</th>
+                <th className="px-3 py-2 font-medium">Start</th>
+                <th className="px-3 py-2 font-medium">End</th>
+                <th className="px-3 py-2 font-medium text-right">Total DSA</th>
+                <th className="px-3 py-2 font-medium text-center">Status</th>
+                <th className="px-3 py-2 font-medium text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-8 text-center">
+                    <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c] mx-auto" />
+                  </td>
+                </tr>
+              ) : data.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-8 text-center text-stone-400">
+                    No circuits found. Click 'Add Circuit' to create one.
+                  </td>
+                </tr>
+              ) : (
+                data.map((item) => (
+                  <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={() => handleViewCircuit(item)}
+                        className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                      >
+                        {item.name}
+                      </button>
+                      {item.location && (
+                        <span className="ml-2 text-xs text-stone-400">({item.location})</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+                    <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+                    <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+                    <td className="px-3 py-2 text-center">
+                      <StatusDropdown
+                        status={item.status}
+                        onStatusChange={(s) => handleStatusChange(item.id, s)}
+                        disabled={mutating}
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => handleViewCircuit(item)}
+                          className="rounded p-1 text-stone-500 hover:bg-stone-100 hover:text-stone-700 transition-colors"
+                          title="View Details"
+                        >
+                          <FileText className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleEditCircuit(item)}
+                          disabled={mutating}
+                          className="rounded p-1 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50"
+                          title="Edit"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget(item.id)}
+                          disabled={mutating}
+                          className="rounded p-1 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </Panel>
 
-      {showModal && (
-        <ModalShell
-          title={editingItem ? 'Edit Circuit' : 'Add New Circuit'}
-          onClose={() => { setShowModal(false); resetForm(); }}
-          footer={
-            <>
-              <GhostButton onClick={() => { setShowModal(false); resetForm(); }}>Cancel</GhostButton>
-              <GoldButton onClick={handleSubmit} disabled={mutating}>
-                {mutating ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {editingItem ? 'Update' : 'Save'}
-              </GoldButton>
-            </>
-          }
-        >
-          <div>
-            <FieldLabel>Circuit Name / Location *</FieldLabel>
-            <input
-              className={inputClasses}
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              placeholder="e.g. Mombasa Circuit"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <FieldLabel>Start Date *</FieldLabel>
-              <input
-                type="date"
-                className={inputClasses}
-                value={form.start_date}
-                onChange={(e) => setForm({ ...form, start_date: e.target.value })}
-              />
+      {/* Circuit Modal - for adding/editing */}
+      <CircuitModal
+        isOpen={showCircuitModal}
+        onClose={() => {
+          setShowCircuitModal(false);
+          setEditingCircuit(null);
+        }}
+        editingCircuit={editingCircuit}
+      />
+
+      {/* Circuit Detail Modal */}
+      {showDetailModal && selectedCircuit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-[#1a3d1c]">{selectedCircuit.name}</h3>
+                {selectedCircuit.location && (
+                  <p className="text-sm text-stone-500 flex items-center gap-1">
+                    <MapPin size={14} />
+                    {selectedCircuit.location}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setShowDetailModal(false)}
+                className="text-stone-400 hover:text-stone-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
-            <div>
-              <FieldLabel>End Date *</FieldLabel>
-              <input
-                type="date"
-                className={inputClasses}
-                value={form.end_date}
-                onChange={(e) => setForm({ ...form, end_date: e.target.value })}
-              />
+
+            {/* Body */}
+            <div className="max-h-[65vh] overflow-y-auto p-6">
+              {/* Status and Quick Info */}
+              <div className="mb-6 grid grid-cols-2 gap-4 rounded-lg bg-stone-50 p-4">
+                <div>
+                  <p className="text-xs text-stone-400">Status</p>
+                  <div className="mt-1">
+                    <StatusDropdown
+                      status={selectedCircuit.status}
+                      onStatusChange={(s) => {
+                        handleStatusChange(selectedCircuit.id, s);
+                        setSelectedCircuit({ ...selectedCircuit, status: s });
+                      }}
+                      disabled={mutating}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-stone-400">Total DSA</p>
+                  <p className="text-lg font-bold text-emerald-700">
+                    {formatCurrency(selectedCircuit.total_dsa)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-stone-400">Period</p>
+                  <p className="text-sm font-medium text-stone-800">
+                    {formatDate(selectedCircuit.start_date)} — {formatDate(selectedCircuit.end_date)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-stone-400">Members</p>
+                  <p className="text-sm font-medium text-stone-800">
+                    {selectedCircuit.dsa_details?.length || 0} judges
+                  </p>
+                </div>
+              </div>
+
+              {/* DSA Details Table */}
+              <div>
+                <h4 className="mb-3 text-sm font-semibold text-stone-800 flex items-center gap-2">
+                  <Users size={16} className="text-[#c9a84c]" />
+                  DSA Details
+                  <span className="text-xs font-normal text-stone-400">
+                    ({selectedCircuit.dsa_details?.length || 0} members)
+                  </span>
+                </h4>
+
+                {!selectedCircuit.dsa_details || selectedCircuit.dsa_details.length === 0 ? (
+                  <div className="rounded-lg border border-stone-200 bg-stone-50 p-8 text-center">
+                    <p className="text-sm text-stone-400">No DSA details available for this circuit.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-stone-200">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-stone-200 bg-stone-50">
+                          <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">#</th>
+                          <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Judge Name</th>
+                          <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">PJ Number</th>
+                          <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Rate (KES)</th>
+                          <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Days</th>
+                          <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Total (KES)</th>
+                          <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-stone-100">
+                        {selectedCircuit.dsa_details.map((detail, index) => (
+                          <tr key={detail.id} className="hover:bg-stone-50 transition-colors">
+                            <td className="px-4 py-2 text-center text-stone-400">{index + 1}</td>
+                            <td className="px-4 py-2 font-medium text-stone-800">{detail.judge_name}</td>
+                            <td className="px-4 py-2 text-stone-600">{detail.pj_number}</td>
+                            <td className="px-4 py-2 text-right text-stone-600">
+                              {detail.dsa_per_day.toLocaleString()}
+                            </td>
+                            <td className="px-4 py-2 text-right text-stone-600">{detail.days}</td>
+                            <td className="px-4 py-2 text-right font-medium text-emerald-700">
+                              {detail.total.toLocaleString()}
+                            </td>
+                            <td className="px-4 py-2 text-xs text-stone-500">{detail.notes || '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t-2 border-stone-200 bg-stone-50">
+                          <td colSpan={5} className="px-4 py-3 text-right font-bold text-stone-800">
+                            Grand Total
+                          </td>
+                          <td className="px-4 py-3 text-right font-bold text-emerald-700">
+                            {formatCurrency(selectedCircuit.total_dsa)}
+                          </td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Metadata */}
+              <div className="mt-6 border-t border-stone-100 pt-4">
+                <div className="grid grid-cols-2 gap-2 text-xs text-stone-400">
+                  <div>
+                    <span className="font-medium">Created:</span>{' '}
+                    {new Date(selectedCircuit.created_at).toLocaleString()}
+                  </div>
+                  <div>
+                    <span className="font-medium">Updated:</span>{' '}
+                    {new Date(selectedCircuit.updated_at).toLocaleString()}
+                  </div>
+                  <div className="col-span-2">
+                    <span className="font-medium">ID:</span> {selectedCircuit.id}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">
+              <GhostButton onClick={() => setShowDetailModal(false)}>
+                Close
+              </GhostButton>
+              <GoldOutlineButton
+                icon={<Edit size={14} />}
+                onClick={() => {
+                  setShowDetailModal(false);
+                  handleEditCircuit(selectedCircuit);
+                }}
+              >
+                Edit Circuit
+              </GoldOutlineButton>
             </div>
           </div>
-          <div>
-            <FieldLabel>Location (optional)</FieldLabel>
-            <input
-              className={inputClasses}
-              value={form.location}
-              onChange={(e) => setForm({ ...form, location: e.target.value })}
-              placeholder="e.g. Mombasa"
-            />
-          </div>
-          <div className="rounded-md bg-stone-50 px-3 py-2 text-sm text-stone-500">
-            <p>DSA details can be added after creation.</p>
-          </div>
-        </ModalShell>
+        </div>
       )}
 
+      {/* Delete Confirmation */}
       {deleteTarget && (
         <ConfirmDialog
           title="Delete Circuit?"
@@ -1441,13 +1581,8 @@ function ProtocolTab() {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-// ─── Main Component ───────────────────────────────────────────────────────────
-
 const Helpdesk: React.FC = () => {
   const dispatch = useAppDispatch();
-  // Use local state for UI tab management, defaulting to 'overview'
   const [activeTabUI, setActiveTabUI] = useState<HelpDeskTab | 'overview'>('overview');
 
   useEffect(() => {
@@ -1480,10 +1615,7 @@ const Helpdesk: React.FC = () => {
   ];
 
   const handleTabChange = (tabKey: HelpDeskTab | 'overview') => {
-    // Update local UI state
     setActiveTabUI(tabKey);
-    // Only dispatch to Redux if it's a valid HelpDeskTab (not 'overview')
-    // This ensures the Redux state stays in sync for tabs that exist in the slice
     if (tabKey !== 'overview') {
       dispatch(setActiveTab(tabKey));
     }

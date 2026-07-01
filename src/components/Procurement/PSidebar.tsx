@@ -79,6 +79,7 @@ const navigationConfig: NavSection[] = [
     title: 'Overview',
     items: [
       { to: 'dashboard', label: 'Dashboard', icon: Icon.dashboard },
+      { to: 'documents', label: 'Documents', icon: Icon.dashboard },
     ],
   },
   {

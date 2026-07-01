@@ -198,6 +198,7 @@ const navigationConfig: NavSection[] = [
     title: 'Others',
     items: [
       { to: '/super-admin/links',      label: 'Other Links', icon: Icon.helpdesk },
+      { to: '/super-admin/templates',      label: 'Templates', icon: Icon.helpdesk },
     ],
   },
 ];

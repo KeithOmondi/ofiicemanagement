@@ -29,6 +29,7 @@ import type {
   RefType,
   FinalizeDraftInput,
   DocumentFilters,
+  RoutePriority,
 } from '../../types/documents.types';
 import type { RegistryEntry, RegistryStatus } from '../../types/registry.types';
 import type { RootState } from '../../store/store';
@@ -56,6 +57,12 @@ const REF_TYPES: { value: RefType; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
+const PRIORITIES: { value: RoutePriority; label: string }[] = [
+  { value: 'low', label: 'Low' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'urgent', label: 'Urgent' },
+];
+
 const TYPE_BADGE: Record<DocumentType, string> = {
   memo: 'bg-blue-100 text-blue-700',
   letter: 'bg-indigo-100 text-indigo-700',
@@ -76,7 +83,24 @@ const STATUS_BADGE: Record<string, string> = {
   filed: 'bg-slate-100 text-slate-700',
 };
 
-// Registry (station-routing) status — distinct lifecycle from document status above
+const PRIORITY_BADGE: Record<RoutePriority, string> = {
+  low: 'bg-slate-100 text-slate-600',
+  normal: 'bg-blue-50 text-blue-700',
+  urgent: 'bg-red-50 text-red-700',
+};
+
+const PRIORITY_DOT: Record<RoutePriority, string> = {
+  low: 'bg-slate-400',
+  normal: 'bg-blue-500',
+  urgent: 'bg-red-500',
+};
+
+const PRIORITY_LABEL: Record<RoutePriority, string> = {
+  low: 'Low',
+  normal: 'Normal',
+  urgent: 'Urgent',
+};
+
 const REGISTRY_STATUS_BADGE: Record<RegistryStatus, string> = {
   in_transit: 'bg-amber-100 text-amber-700',
   received:   'bg-cyan-100 text-cyan-700',
@@ -126,6 +150,137 @@ const Spinner = ({ size = 'sm' }: { size?: 'sm' | 'md' }) => (
   </svg>
 );
 
+const PriorityBadge: React.FC<{ priority: RoutePriority }> = ({ priority }) => (
+  <span
+    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+      PRIORITY_BADGE[priority] ?? 'bg-slate-100 text-slate-600'
+    }`}
+  >
+    <span className={`w-1.5 h-1.5 rounded-full ${PRIORITY_DOT[priority] ?? 'bg-slate-400'}`} />
+    {PRIORITY_LABEL[priority] ?? priority}
+  </span>
+);
+
+// ─── Sticky Note (read-only, draggable) ───────────────────────────────────────
+
+interface StickyNoteProps {
+  authorName: string;
+  text: string;
+}
+
+const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text }) => {
+  const [minimized, setMinimized] = useState(false);
+  const [pos, setPos] = useState({ x: 24, y: 24 });
+  const dragging = useRef(false);
+  const dragOffset = useRef({ x: 0, y: 0 });
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return;
+    dragging.current = true;
+    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current) return;
+      setPos({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
+    };
+    const onUp = () => { dragging.current = false; };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, []);
+
+  if (minimized) {
+    return (
+      <button
+        style={{ left: pos.x, top: pos.y }}
+        className="absolute z-30 flex items-center gap-1.5 rounded-full bg-[#F5C24C] border border-[#E8A840] shadow-md px-3 py-1.5 text-[11px] font-bold text-[#7A4E0D] hover:bg-[#f0bb40] transition-colors cursor-pointer select-none"
+        onClick={() => setMinimized(false)}
+        title="Expand note"
+      >
+        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+          <path strokeLinecap="round" strokeLinejoin="round"
+            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        Note
+      </button>
+    );
+  }
+
+  return (
+    <div
+      style={{ left: pos.x, top: pos.y, width: 240 }}
+      className="absolute z-30 flex flex-col rounded-md shadow-xl select-none"
+      onMouseDown={onMouseDown}
+    >
+      {/* Pin tab */}
+      <div className="flex justify-center -mb-1 pointer-events-none">
+        <div className="w-10 h-3 rounded-sm bg-[#F5C24C]/60 border border-[#E8A840]/40 shadow-sm" />
+      </div>
+
+      <div
+        className="rounded-md overflow-hidden"
+        style={{
+          background: '#FEF08A',
+          boxShadow: '2px 4px 12px rgba(0,0,0,0.18), inset 0 -2px 0 rgba(0,0,0,0.06)',
+        }}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-2.5 pt-2 pb-1.5 cursor-grab active:cursor-grabbing"
+          style={{ background: '#FDE047' }}
+        >
+          <div className="flex items-center gap-1.5 min-w-0">
+            <svg className="h-3 w-3 text-[#7A4E0D] flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M16 2a1 1 0 011 1v1h1a2 2 0 012 2v1a2 2 0 01-2 2h-.5l.5 9H6l.5-9H6a2 2 0 01-2-2V6a2 2 0 012-2h1V3a1 1 0 012 0v1h6V3a1 1 0 011-1z" />
+            </svg>
+            <span className="text-[10px] font-bold text-[#7A4E0D] tracking-wide truncate">
+              {authorName}
+            </span>
+          </div>
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => setMinimized(true)}
+            className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
+            title="Minimise"
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Body — read-only */}
+        <div className="px-2.5 pb-2.5 pt-1.5">
+          <p
+            className="text-[11px] text-stone-800 leading-relaxed whitespace-pre-wrap break-words min-h-[48px]"
+            style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
+          >
+            {text || <span className="italic text-stone-400">No instructions.</span>}
+          </p>
+        </div>
+
+        {/* Footer */}
+        <div className="px-2.5 pb-1.5 flex items-center justify-between">
+          <span className="text-[9px] text-[#7A4E0D]/50 font-medium">Registrar's note</span>
+          <div
+            className="w-4 h-4 flex-shrink-0"
+            style={{
+              background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.10) 50%)',
+              borderRadius: '0 0 4px 0',
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Document Preview Panel ──────────────────────────────────────────────────
 
 interface DocumentPreviewPanelProps {
@@ -153,7 +308,6 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
       );
     }
 
-    // ── PDF preview ──────────────────────────────────────────────────────────
     if (ext === 'pdf') {
       return (
         <iframe
@@ -164,7 +318,6 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
       );
     }
 
-    // ── Image preview ──────────────────────────────────────────────────────
     if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'].includes(ext)) {
       return (
         <div className="flex items-center justify-center h-full min-h-[400px] p-8">
@@ -177,40 +330,26 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
       );
     }
 
-    // ── Text files ──────────────────────────────────────────────────────────
     if (['txt', 'csv', 'log', 'xml', 'json', 'md', 'html', 'css', 'js', 'ts', 'py', 'java', 'c', 'cpp'].includes(ext)) {
       return (
         <div className="flex flex-col h-full min-h-[400px]">
           <div className="bg-slate-50 px-4 py-2 border-b border-slate-200 flex items-center justify-between">
             <span className="text-xs text-slate-600">{fileName}</span>
-            <a
-              href={fileUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-blue-600 hover:underline"
-            >
+            <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
               Open in new tab
             </a>
           </div>
           <div className="flex-1 overflow-auto p-4 bg-white">
-            <iframe
-              src={fileUrl}
-              title={document.title}
-              className="w-full h-full border-0 rounded-sm"
-            />
+            <iframe src={fileUrl} title={document.title} className="w-full h-full border-0 rounded-sm" />
           </div>
         </div>
       );
     }
 
-    // ── Video files ─────────────────────────────────────────────────────────
     if (['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv', 'flv'].includes(ext)) {
       return (
         <div className="flex items-center justify-center h-full min-h-[400px] p-8">
-          <video
-            controls
-            className="max-w-full max-h-[calc(100vh-300px)] rounded shadow-sm"
-          >
+          <video controls className="max-w-full max-h-[calc(100vh-300px)] rounded shadow-sm">
             <source src={fileUrl} />
             Your browser does not support the video tag.
           </video>
@@ -218,7 +357,6 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
       );
     }
 
-    // ── Audio files ─────────────────────────────────────────────────────────
     if (['mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a'].includes(ext)) {
       return (
         <div className="flex flex-col items-center justify-center h-full min-h-[400px] p-8 gap-4">
@@ -234,19 +372,13 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
             <source src={fileUrl} />
             Your browser does not support the audio tag.
           </audio>
-          <a
-            href={fileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-xs text-blue-600 hover:underline"
-          >
+          <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
             Open in new tab
           </a>
         </div>
       );
     }
 
-    // ── Office documents (DOCX, XLSX, PPTX) ──────────────────────────────
     if (['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt'].includes(ext)) {
       const officeViewerUrl = `https://docs.google.com/gview?url=${encodeURIComponent(fileUrl)}&embedded=true`;
       return (
@@ -255,26 +387,17 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
             <span className="text-xs text-slate-600">{fileName}</span>
             <div className="flex items-center gap-3">
               <span className="text-[10px] text-slate-400">Powered by Google Docs Viewer</span>
-              <a
-                href={fileUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-blue-600 hover:underline"
-              >
+              <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline">
                 Open in new tab
               </a>
             </div>
           </div>
-          <iframe
-            src={officeViewerUrl}
-            title={document.title}
-            className="w-full flex-1 border-0 rounded-sm"
-          />
+          <iframe src={officeViewerUrl} title={document.title} className="w-full flex-1 border-0 rounded-sm" />
         </div>
       );
     }
 
-    // ── Fallback for other file types ─────────────────────────────────────
+    // Fallback
     return (
       <div className="flex flex-col items-center justify-center h-full min-h-[400px] p-8 gap-4">
         <svg className="h-16 w-16 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -287,7 +410,11 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
         )}
         <div className="flex flex-col items-center gap-3 mt-2">
           <p className="text-sm text-slate-500 text-center max-w-md">
-            This file type <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.{ext || 'unknown'}</span> cannot be previewed directly in the browser.
+            This file type{' '}
+            <span className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">
+              .{ext || 'unknown'}
+            </span>{' '}
+            cannot be previewed directly in the browser.
           </p>
           <div className="flex gap-3">
             <a
@@ -322,6 +449,7 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-6xl max-h-[90vh] rounded-xl overflow-hidden flex flex-col shadow-2xl">
+
         {/* Header */}
         <div className="px-6 py-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -340,6 +468,10 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
                 ({formatFileSize(document.file_size_bytes)})
               </span>
             )}
+            {/* Show priority in header if non-default */}
+            {document.priority && document.priority !== 'normal' && (
+              <PriorityBadge priority={document.priority} />
+            )}
           </div>
           <div className="flex items-center gap-2">
             {fileUrl && (
@@ -355,10 +487,7 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
                 Download
               </a>
             )}
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-slate-200 rounded-full transition-colors"
-            >
+            <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
               <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -366,8 +495,16 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
           </div>
         </div>
 
-        {/* Preview content */}
-        <div className="flex-1 overflow-hidden bg-slate-100">
+        {/* Preview content — relative so sticky note positions inside */}
+        <div className="flex-1 overflow-hidden bg-slate-100 relative">
+          {/* Sticky note: only rendered when the registrar left instructions */}
+          {document.active_mark?.instructions && (
+            <StickyNote
+              key={document.id}
+              authorName={document.active_mark.marked_by_name ?? 'Registrar'}
+              text={document.active_mark.instructions}
+            />
+          )}
           {renderPreview()}
         </div>
       </div>
@@ -381,13 +518,13 @@ interface UploadModalProps {
   onClose: () => void;
   onSubmit: (payload: { file: File; metadata: CreateUploadDocumentInput }) => void;
   loading: boolean;
-  departmentId?: string | null; // ✅ Added departmentId prop
+  departmentId?: string | null;
 }
 
 const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalProps) => {
   const [file, setFile] = useState<File | null>(null);
   const [type] = useState<Exclude<DocumentType, 'memo' | 'letter'>>('correspondence');
-  const [referenceNo, setReferenceNo] = useState('');
+  const [priority, setPriority] = useState<RoutePriority>('normal');
   const [refType, setRefType] = useState<RefType>('for_attention');
   const [refOtherDescription, setRefOtherDescription] = useState('');
   const [title, setTitle] = useState('');
@@ -399,7 +536,6 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
     if (!file) next.file = 'Please select a file to upload';
     if (!title.trim()) next.title = 'Title is required';
     if (title.trim().length > 200) next.title = 'Title cannot exceed 200 characters';
-    if (referenceNo && referenceNo.length > 50) next.referenceNo = 'Reference number too long';
     if (refType === 'other' && !refOtherDescription.trim()) {
       next.refOtherDescription = 'Please describe the action required';
     }
@@ -410,18 +546,16 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate() || !file) return;
-
-    // ✅ Include department_id in metadata
     onSubmit({
       file,
       metadata: {
         title: title.trim(),
         type,
-        reference_no: referenceNo.trim() || undefined,
         ref_type: refType,
         ref_other_description: refType === 'other' ? refOtherDescription.trim() : undefined,
+        priority,
         is_draft: true,
-        department_id: departmentId || undefined, // ✅ Critical fix
+        department_id: departmentId || undefined,
       },
     });
   };
@@ -511,7 +645,7 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
               {errors.file && <p className="text-xs text-red-500 mt-1">{errors.file}</p>}
             </div>
 
-            {/* Type — locked to correspondence for dept heads */}
+            {/* Type — locked to correspondence */}
             <div>
               <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Document Type *</label>
               <select
@@ -525,7 +659,7 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
               </select>
             </div>
 
-            {/* Action required (ref_type) */}
+            {/* Action required */}
             <div>
               <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Action Required *</label>
               <select
@@ -537,7 +671,6 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
-
               {refType === 'other' && (
                 <div className="mt-2">
                   <input
@@ -556,17 +689,18 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
               )}
             </div>
 
-            {/* Reference number */}
+            {/* Urgency */}
             <div>
-              <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Reference No.</label>
-              <input
-                type="text"
-                value={referenceNo}
-                onChange={(e) => setReferenceNo(e.target.value)}
-                placeholder="e.g., HCT-00-CR-SC-0045-2024"
+              <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Urgency *</label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as RoutePriority)}
                 className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              {errors.referenceNo && <p className="text-xs text-red-500 mt-1">{errors.referenceNo}</p>}
+              >
+                {PRIORITIES.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
             </div>
 
             {/* Title */}
@@ -617,7 +751,12 @@ interface FinalizeDraftModalProps {
   loading: boolean;
 }
 
-const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({ document, onClose, onSubmit, loading }) => {
+const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({
+  document,
+  onClose,
+  onSubmit,
+  loading,
+}) => {
   const dispatch = useAppDispatch();
   const currentUser = useAppSelector(selectCurrentUser);
   const teamMembers = useAppSelector(selectAllUsers);
@@ -641,10 +780,7 @@ const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({ document, onClo
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (mode === 'user') {
-      if (!userId) {
-        setError('Please select a user to mark this document to');
-        return;
-      }
+      if (!userId) { setError('Please select a user to mark this document to'); return; }
       onSubmit({ assigned_to: userId });
     } else {
       onSubmit({ send_to_super_admin: true });
@@ -669,35 +805,25 @@ const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({ document, onClo
         <form onSubmit={handleSubmit}>
           <div className="px-6 py-5 space-y-4">
             <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => { setMode('user'); setError(null); }}
-                className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
-                  mode === 'user'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                Mark to a User
-              </button>
-              <button
-                type="button"
-                onClick={() => { setMode('admin'); setError(null); }}
-                className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
-                  mode === 'admin'
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                Send to Super Admin
-              </button>
+              {(['user', 'admin'] as FinalizeMode[]).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => { setMode(m); setError(null); }}
+                  className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
+                    mode === m
+                      ? 'border-blue-500 bg-blue-50 text-blue-700'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {m === 'user' ? 'Mark to a User' : 'Send to Super Admin'}
+                </button>
+              ))}
             </div>
 
             {mode === 'user' && (
               <div>
-                <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">
-                  Assign to *
-                </label>
+                <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Assign to *</label>
                 <select
                   value={userId}
                   onChange={(e) => { setUserId(e.target.value); setError(null); }}
@@ -708,8 +834,8 @@ const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({ document, onClo
                     {usersLoading
                       ? 'Loading team members…'
                       : teamMembers.length === 0
-                      ? 'No active users in your department'
-                      : '— Select a user —'}
+                        ? 'No active users in your department'
+                        : '— Select a user —'}
                   </option>
                   {teamMembers.map((u) => (
                     <option key={u.id} value={u.id}>{u.full_name} — {u.pj_number}</option>
@@ -761,7 +887,6 @@ const AdminDocs = () => {
   const deletingId = useAppSelector(selectDeletingId);
   const finalizingId = useAppSelector(selectFinalizingId);
 
-  // ── Registry (station-routing) state ──
   const registryEntries = useAppSelector(selectAllRegistryEntries);
   const registryLoading = useAppSelector(selectRegistryListLoading);
   const registryError = useAppSelector(selectRegistryError);
@@ -769,89 +894,46 @@ const AdminDocs = () => {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [page, setPage] = useState(1);
-
-  // ── Preview state ─────────────────────────────────────────────────────────
   const [selectedDocument, setSelectedDocument] = useState<DocType | null>(null);
-
-  // ── Finalize / Mark draft state ──────────────────────────────────────────
   const [finalizeTarget, setFinalizeTarget] = useState<DocType | null>(null);
-
-  // ── Filter state ──────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('');
+
   const searchRef = useRef('');
   const typeFilterRef = useRef<DocumentType | ''>('');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Ensure currentUser is loaded ─────────────────────────────────────────
   useEffect(() => {
-    if (!currentUser) {
-      dispatch(fetchCurrentUser());
-    }
+    if (!currentUser) dispatch(fetchCurrentUser());
   }, [dispatch, currentUser]);
 
-  // ── departmentId derived directly from currentUser (no stale ref) ───────
   const departmentId = currentUser?.department_id ?? null;
 
-  // ── triggerFetch now closes over departmentId directly, so it can never
-  //    fire with a stale/undefined department from a ref that hasn't caught
-  //    up yet. Including departmentId in the deps means this function
-  //    identity changes whenever the department resolves or changes,
-  //    which the effect below reacts to. ────────────────────────────────
   const triggerFetch = useCallback((p: number) => {
-    const params: DocumentFilters = {
-      page: p,
-      limit: PAGE_SIZE,
-    };
-
+    const params: DocumentFilters = { page: p, limit: PAGE_SIZE };
     if (searchRef.current) params.search = searchRef.current;
     if (typeFilterRef.current) params.type = typeFilterRef.current;
-
-    // Only add department_id filter if we have one. This ensures
-    // documents without department_id (like drafts) are still shown.
-    if (departmentId) {
-      params.department_id = departmentId;
-    }
-
+    if (departmentId) params.department_id = departmentId;
     dispatch(fetchDocuments(params));
   }, [dispatch, departmentId]);
 
-  // ✅ Fetch documents when page changes — but only once currentUser has
-  //    resolved. On a hard refresh, currentUser starts out null while
-  //    fetchCurrentUser() is in flight; firing the documents fetch before
-  //    that resolves means departmentId is wrongly treated as "none" (or,
-  //    if currentUser happened to already be in the store, treated as set)
-  //    depending on timing — that race is exactly what was causing the
-  //    inconsistent document count after refresh. Waiting for currentUser
-  //    removes the race, and re-running when departmentId changes (via
-  //    triggerFetch's identity) ensures we re-fetch with the correct
-  //    filter as soon as it's known.
   useEffect(() => {
     if (!currentUser) return;
     triggerFetch(page);
   }, [page, currentUser, triggerFetch]);
 
-  // Registry entries fetch
   useEffect(() => {
     dispatch(fetchRegistryEntries({ limit: 200, sort_by: 'routed_at', sort_order: 'DESC' }));
   }, [dispatch]);
 
-  // ── Error toasts ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (error) {
-      toast.error(error);
-      dispatch(clearError());
-    }
+    if (error) { toast.error(error); dispatch(clearError()); }
   }, [error, dispatch]);
 
   useEffect(() => {
-    if (registryError) {
-      toast.error(registryError);
-      dispatch(clearRegistryError());
-    }
+    if (registryError) { toast.error(registryError); dispatch(clearRegistryError()); }
   }, [registryError, dispatch]);
 
-  // ── Active registry entry per document ──────────────────────────────────
   const activeRegistryByDoc = useMemo(() => {
     const map = new Map<string, RegistryEntry>();
     registryEntries.forEach((entry) => {
@@ -860,18 +942,13 @@ const AdminDocs = () => {
     return map;
   }, [registryEntries]);
 
-  // ── Search handler ────────────────────────────────────────────────────────
   const handleSearchChange = (value: string) => {
     setSearch(value);
     searchRef.current = value;
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      setPage(1);
-      triggerFetch(1);
-    }, 400);
+    timerRef.current = setTimeout(() => { setPage(1); triggerFetch(1); }, 400);
   };
 
-  // ── Type filter handler ───────────────────────────────────────────────────
   const handleTypeFilterChange = (value: DocumentType | '') => {
     setTypeFilter(value);
     typeFilterRef.current = value;
@@ -879,70 +956,49 @@ const AdminDocs = () => {
     triggerFetch(1);
   };
 
-  // ── Upload handler ────────────────────────────────────────────────────────
   const handleUpload = async (payload: { file: File; metadata: CreateUploadDocumentInput }) => {
     setUploading(true);
-
     try {
       const created = await dispatch(
         createUploadDocument({ input: payload.metadata, file: payload.file })
       ).unwrap();
-
       toast.success('Document saved as draft');
       setShowUploadModal(false);
-
-      // ✅ Force a fresh fetch to ensure the document appears in the list
       await triggerFetch(page);
-
-      // ✅ Immediately prompt the dept head to mark it
       setFinalizeTarget(created);
-    } catch (error) {
-      console.error('❌ Upload error:', error);
-      // error surfaced via toast effect
+    } catch {
+      // surfaced via toast effect
     } finally {
       setUploading(false);
     }
   };
 
-  // ── Finalize draft handler ───────────────────────────────────────────────
   const handleFinalizeDraft = async (input: FinalizeDraftInput) => {
     if (!finalizeTarget) return;
-
     try {
       await dispatch(finalizeDraft({ id: finalizeTarget.id, input })).unwrap();
-      toast.success(
-        input.send_to_super_admin
-          ? 'Document sent to Super Admin'
-          : 'Document marked to user'
-      );
+      toast.success(input.send_to_super_admin ? 'Document sent to Super Admin' : 'Document marked to user');
       setFinalizeTarget(null);
       await triggerFetch(page);
-    } catch (error) {
-      console.error('❌ Finalize error:', error);
-      // error surfaced via toast effect
+    } catch {
+      // surfaced via toast effect
     }
   };
 
-  // ── Delete handler ────────────────────────────────────────────────────────
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this document? This action cannot be undone.')) return;
-
     try {
       await dispatch(deleteDocument(id)).unwrap();
       toast.success('Document deleted');
-      if (selectedDocument?.id === id) {
-        setSelectedDocument(null);
-      }
+      if (selectedDocument?.id === id) setSelectedDocument(null);
       const targetPage = documents.length === 1 && page > 1 ? page - 1 : page;
       setPage(targetPage);
       if (targetPage === page) await triggerFetch(page);
-    } catch (error) {
-      console.error('❌ Delete error:', error);
-      // error surfaced via toast effect
+    } catch {
+      // surfaced via toast effect
     }
   };
 
-  // ── Open preview handler ─────────────────────────────────────────────────
   const handlePreview = (doc: DocType) => {
     if (doc.file_url) {
       setSelectedDocument(doc);
@@ -951,13 +1007,10 @@ const AdminDocs = () => {
     }
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
   return (
     <div className="min-h-screen bg-slate-50">
       <Toaster position="top-right" />
 
-      {/* Document preview panel */}
       {selectedDocument && (
         <DocumentPreviewPanel
           document={selectedDocument}
@@ -965,7 +1018,6 @@ const AdminDocs = () => {
         />
       )}
 
-      {/* Upload modal - ✅ Pass departmentId */}
       {showUploadModal && (
         <UploadModal
           onClose={() => setShowUploadModal(false)}
@@ -975,7 +1027,6 @@ const AdminDocs = () => {
         />
       )}
 
-      {/* Mark / Finalize draft modal */}
       {finalizeTarget && (
         <FinalizeDraftModal
           document={finalizeTarget}
@@ -1020,11 +1071,10 @@ const AdminDocs = () => {
               <input
                 value={search}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                placeholder="Search by title, reference…"
+                placeholder="Search by title…"
                 className="pl-9 pr-3 py-2 w-full rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-
             <select
               value={typeFilter}
               onChange={(e) => handleTypeFilterChange(e.target.value as DocumentType | '')}
@@ -1044,7 +1094,7 @@ const AdminDocs = () => {
             <table className="w-full text-sm min-w-[1200px]">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  {['Title', 'Type', 'Ref No.', 'Status', 'Marked To', 'Routed To', 'Uploaded', 'Actions'].map((h) => (
+                  {['Title', 'Type', 'Urgency', 'Status', 'Marked To', 'Routed To', 'Uploaded', 'Actions'].map((h) => (
                     <th
                       key={h}
                       className={`px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide ${
@@ -1079,17 +1129,21 @@ const AdminDocs = () => {
 
                     return (
                       <tr key={doc.id} className="border-b border-slate-50 hover:bg-slate-50/60 transition">
+
                         <td className="px-4 py-3 font-medium text-slate-900 truncate max-w-[200px]" title={doc.title}>
                           {doc.title}
                         </td>
+
                         <td className="px-4 py-3">
                           <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${TYPE_BADGE[doc.type] ?? 'bg-slate-100 text-slate-700'}`}>
                             {doc.type}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-slate-600 font-mono text-xs">
-                          {doc.reference_no ?? '—'}
+
+                        <td className="px-4 py-3">
+                          <PriorityBadge priority={doc.priority ?? 'normal'} />
                         </td>
+
                         <td className="px-4 py-3">
                           <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[doc.status] ?? 'bg-gray-100 text-gray-700'}`}>
                             {doc.is_draft ? 'draft' : doc.status.replace(/_/g, ' ')}
@@ -1100,17 +1154,16 @@ const AdminDocs = () => {
                         <td className="px-4 py-3">
                           {isMarked && activeMark ? (
                             <div className="flex flex-col gap-0.5">
-                              <span className="text-xs font-medium text-slate-700">
-                                {markedToDept}
-                              </span>
+                              <span className="text-xs font-medium text-slate-700">{markedToDept}</span>
                               {assignedTo !== '—' && (
-                                <span className="text-[10px] text-slate-400">
-                                  Assigned to: {assignedTo}
-                                </span>
+                                <span className="text-[10px] text-slate-400">Assigned to: {assignedTo}</span>
                               )}
                               {activeMark.instructions && (
-                                <span className="text-[10px] text-slate-500 italic truncate max-w-[150px]" title={activeMark.instructions}>
-                                  “{activeMark.instructions}”
+                                <span
+                                  className="text-[10px] text-slate-500 italic truncate max-w-[150px]"
+                                  title={activeMark.instructions}
+                                >
+                                  "{activeMark.instructions}"
                                 </span>
                               )}
                             </div>
@@ -1137,9 +1190,7 @@ const AdminDocs = () => {
                               <span className="text-xs font-medium text-slate-700">
                                 {activeRegistry.station_name}
                               </span>
-                              <span
-                                className={`inline-flex w-fit px-1.5 py-0.5 rounded-full text-[10px] font-medium ${REGISTRY_STATUS_BADGE[activeRegistry.status]}`}
-                              >
+                              <span className={`inline-flex w-fit px-1.5 py-0.5 rounded-full text-[10px] font-medium ${REGISTRY_STATUS_BADGE[activeRegistry.status]}`}>
                                 {REGISTRY_STATUS_LABEL[activeRegistry.status]}
                               </span>
                               {activeRegistry.note && (
@@ -1147,7 +1198,7 @@ const AdminDocs = () => {
                                   className="text-[10px] text-slate-500 italic truncate max-w-[150px]"
                                   title={activeRegistry.note}
                                 >
-                                  “{activeRegistry.note}”
+                                  "{activeRegistry.note}"
                                 </span>
                               )}
                             </div>
@@ -1159,10 +1210,10 @@ const AdminDocs = () => {
                         <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
                           {formatDate(doc.created_at)}
                         </td>
+
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-center gap-1">
 
-                            {/* Mark — only for drafts not yet finalized */}
                             {doc.is_draft && (
                               <button
                                 onClick={() => setFinalizeTarget(doc)}
@@ -1176,11 +1227,10 @@ const AdminDocs = () => {
                               </button>
                             )}
 
-                            {/* View — opens inline preview panel */}
                             <button
                               disabled={!doc.file_url}
                               onClick={() => handlePreview(doc)}
-                              title={doc.file_url ? "Preview file" : "No file attached"}
+                              title={doc.file_url ? 'Preview file' : 'No file attached'}
                               className="p-1.5 text-slate-400 hover:text-blue-600 rounded-md transition disabled:opacity-30 disabled:cursor-not-allowed"
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1191,7 +1241,6 @@ const AdminDocs = () => {
                               </svg>
                             </button>
 
-                            {/* Delete */}
                             <button
                               disabled={deletingId === doc.id}
                               onClick={() => handleDelete(doc.id)}

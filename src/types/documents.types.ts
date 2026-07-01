@@ -41,6 +41,7 @@ export interface CreateUploadDocumentInput {
   assigned_to?: string;
   department_id?: string;
   is_draft?: boolean;
+  priority?: RoutePriority; 
 }
 
 export interface UpdateDocumentInput {
@@ -51,6 +52,7 @@ export interface UpdateDocumentInput {
   status?: DocumentStatus;
   assigned_to?: string | null;
   department_id?: string | null;
+  priority?: RoutePriority;
 }
 
 // ── Mark to Department ──────────────────────────────────────────────────────
@@ -156,6 +158,7 @@ export interface Document {
   file_size_bytes: number | null;
   mime_type: string | null;
   original_name: string | null;
+  priority: RoutePriority;
   assigned_to: string | null;
   assigned_to_name: string | null;
   created_by: string;

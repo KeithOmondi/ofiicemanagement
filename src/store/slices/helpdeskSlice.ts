@@ -35,6 +35,15 @@ export interface DSADetail {
   dsa_per_day: number;
   days: number;
   total: number;
+  notes: string | null;  // Added notes field
+}
+
+export interface DSADetailInput {
+  judge_name: string;
+  pj_number: string;
+  dsa_per_day: number;
+  days: number;
+  notes?: string;  // Optional for input
 }
 
 export interface JudgeUtility {
@@ -195,7 +204,7 @@ export interface CreateCircuitInput {
   location?: string;
   start_date: string;
   end_date: string;
-  dsa_details?: Omit<DSADetail, "id" | "total">[];
+  dsa_details?: DSADetailInput[];
 }
 
 export interface CreateSpecialBenchInput {
@@ -203,7 +212,7 @@ export interface CreateSpecialBenchInput {
   case_reference?: string;
   start_date: string;
   end_date: string;
-  dsa_details?: Omit<DSADetail, "id" | "total">[];
+  dsa_details?: DSADetailInput[];
 }
 
 export interface CreatePartHeardInput {
@@ -211,7 +220,7 @@ export interface CreatePartHeardInput {
   approved_by?: string;
   start_date: string;
   end_date: string;
-  dsa_details?: Omit<DSADetail, "id" | "total">[];
+  dsa_details?: DSADetailInput[];
 }
 
 export interface CreateJudgeRequestInput {
@@ -235,13 +244,17 @@ export interface CreateProtocolEventInput {
   start_date: string;
   end_date: string;
   dsa_required?: boolean;
-  dsa_details?: Omit<DSADetail, "id" | "total">[];
+  dsa_details?: DSADetailInput[];
   notes?: string;
 }
 
 export interface UpdateStatusInput {
   status: Status;
   notes?: string;
+}
+
+export interface UpdateCircuitDSADetailsInput {
+  dsa_details: DSADetailInput[];
 }
 
 export interface HelpDeskFilters {
@@ -630,6 +643,24 @@ export const updateCircuitStatus = createAsyncThunk(
       const { data } = await axiosClient.put(
         `/helpdesk/circuits/${id}/status`,
         { status },
+      );
+      return data.data as Circuit;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const updateCircuitDSADetails = createAsyncThunk(
+  "helpdesk/updateCircuitDSADetails",
+  async (
+    { id, dsa_details }: { id: string; dsa_details: DSADetailInput[] },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.put(
+        `/helpdesk/circuits/${id}/dsa-details`,
+        { dsa_details },
       );
       return data.data as Circuit;
     } catch (err) {
@@ -1448,6 +1479,29 @@ const helpdeskSlice = createSlice({
         },
       )
       .addCase(updateCircuitStatus.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updateCircuitDSADetails.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateCircuitDSADetails.fulfilled,
+        (state, action: PayloadAction<Circuit>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.circuits.findIndex(
+            (c) => c.id === action.payload.id,
+          );
+          if (index !== -1) state.circuits[index] = action.payload;
+          if (state.selectedCircuit?.id === action.payload.id)
+            state.selectedCircuit = action.payload;
+        },
+      )
+      .addCase(updateCircuitDSADetails.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
