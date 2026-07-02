@@ -20,6 +20,9 @@ export interface User {
   created_at:    string;
   updated_at:    string;
   last_login?:   string | null;
+  // Public URL of the user's uploaded signature image, or null if none has
+  // been uploaded yet.
+  signature_url: string | null;
 }
 
 export interface CreateUserInput {
@@ -77,10 +80,11 @@ interface UserState {
   stats:    UserStats | null;
   filters:  UserFilters;
   loading: {
-    list:     boolean;
-    detail:   boolean;
-    mutating: boolean;
-    profile:  boolean;
+    list:      boolean;
+    detail:    boolean;
+    mutating:  boolean;
+    profile:   boolean;
+    signature: boolean;
   };
   error:   string | null;
   success: boolean;
@@ -108,10 +112,11 @@ const initialState: UserState = {
     sort_order: 'DESC',
   },
   loading: {
-    list:     false,
-    detail:   false,
-    mutating: false,
-    profile:  false,
+    list:      false,
+    detail:    false,
+    mutating:  false,
+    profile:   false,
+    signature: false,
   },
   error:   null,
   success: false,
@@ -177,6 +182,38 @@ export const updateCurrentUser = createAsyncThunk(
   async (data: { full_name?: string; email?: string }, { rejectWithValue }) => {
     try {
       const response = await axiosClient.put('/users/me', data);
+      return response.data.data as User;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+// ── Signature ────────────────────────────────────────────────────────────
+// Uploads/replaces the current user's signature image. Sent as multipart
+// form data — the backend route expects a single field named `signature`
+// (see uploadSignature multer middleware).
+export const uploadSignature = createAsyncThunk(
+  'users/uploadSignature',
+  async (file: File, { rejectWithValue }) => {
+    try {
+      const formData = new FormData();
+      formData.append('signature', file);
+      const response = await axiosClient.put('/users/me/signature', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data.data as User;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+export const deleteSignature = createAsyncThunk(
+  'users/deleteSignature',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.delete('/users/me/signature');
       return response.data.data as User;
     } catch (err) {
       return rejectWithValue(extractErrorMessage(err));
@@ -308,6 +345,30 @@ const userSlice = createSlice({
       })
       .addCase(updateCurrentUser.rejected,  (state, action) => { state.loading.mutating = false; state.error = action.payload as string; state.success = false; });
 
+    /* ---------- UPLOAD SIGNATURE ---------- */
+    builder
+      .addCase(uploadSignature.pending,   (state) => { state.loading.signature = true;  state.error = null; state.success = false; })
+      .addCase(uploadSignature.fulfilled, (state, action: PayloadAction<User>) => {
+        state.loading.signature = false;
+        state.currentUser       = action.payload;
+        state.success           = true;
+        const index = state.users.findIndex((u) => u.id === action.payload.id);
+        if (index !== -1) state.users[index] = action.payload;
+      })
+      .addCase(uploadSignature.rejected,  (state, action) => { state.loading.signature = false; state.error = action.payload as string; state.success = false; });
+
+    /* ---------- DELETE SIGNATURE ---------- */
+    builder
+      .addCase(deleteSignature.pending,   (state) => { state.loading.signature = true;  state.error = null; state.success = false; })
+      .addCase(deleteSignature.fulfilled, (state, action: PayloadAction<User>) => {
+        state.loading.signature = false;
+        state.currentUser       = action.payload;
+        state.success           = true;
+        const index = state.users.findIndex((u) => u.id === action.payload.id);
+        if (index !== -1) state.users[index] = action.payload;
+      })
+      .addCase(deleteSignature.rejected,  (state, action) => { state.loading.signature = false; state.error = action.payload as string; state.success = false; });
+
     /* ---------- CREATE USER ---------- */
     builder
       .addCase(createUser.pending,   (state) => { state.loading.mutating = true;  state.error = null; state.success = false; })
@@ -411,6 +472,7 @@ export const selectUsersListLoading  = (state: { users: UserState }) => state.us
 export const selectUsersDetailLoading= (state: { users: UserState }) => state.users.loading.detail;
 export const selectUsersMutating     = (state: { users: UserState }) => state.users.loading.mutating;
 export const selectUsersProfileLoading=(state: { users: UserState }) => state.users.loading.profile;
+export const selectUsersSignatureLoading = (state: { users: UserState }) => state.users.loading.signature;
 export const selectUsersError        = (state: { users: UserState }) => state.users.error;
 export const selectUsersSuccess      = (state: { users: UserState }) => state.users.success;
 export const selectTotalUsers        = (state: { users: UserState }) => state.users.pagination.total;

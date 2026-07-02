@@ -124,6 +124,13 @@ const navigationConfig: NavSection[] = [
       { to: 'inventory', label: 'Inventory',    icon: Icon.mail },
     ],
   },
+
+  {
+    title: 'Account',
+    items: [
+      { to: 'Settings', label: 'Settings',    icon: Icon.mail },
+    ],
+  },
 ];
 
 // ── Sidebar link ──────────────────────────────────────────────────────────────

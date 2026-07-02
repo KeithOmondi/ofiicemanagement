@@ -1,5 +1,5 @@
 // src/components/modals/CircuitModal.tsx
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   createCircuit,
@@ -27,10 +27,17 @@ import {
   type CreateServiceWeekInput,
 } from '../../store/slices/helpdeskSlice';
 import {
+  selectCurrentUser,
+  selectUsersSignatureLoading,
+  uploadSignature,
+  deleteSignature,
+} from '../../store/slices/userSlice';
+import {
   X,
   Loader2,
   Plus,
   FileSpreadsheet,
+  FileText,
   Users,
   ClipboardList,
   Save,
@@ -41,7 +48,16 @@ import {
   Gavel,
   FileCheck,
   Calendar,
+  Download,
+  ChevronDown,
+  Upload,
+  Trash2,
+  Image,
 } from 'lucide-react';
+import { generateMemoDocx } from '../../utils/generateMemoDocx';
+import toast, { Toaster } from 'react-hot-toast';
+import { generateMemoPdf } from '../../utils/generateMemoPdf';
+import { generateMemoExcel } from '../../utils/generateMemoExcel';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -49,8 +65,6 @@ export type CircuitModalMode = 'circuit' | 'bench' | 'partHeard' | 'serviceWeek'
 
 type EditingItem = Circuit | SpecialBench | PartHeard | ServiceWeek;
 
-// Some editing items may carry a `dsa_details` array that isn't part of the
-// base type definitions imported above. This narrows that access without `any`.
 type WithDsaDetails = {
   dsa_details?: DSADetailInput[];
 };
@@ -64,11 +78,21 @@ interface CircuitModalProps {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-// Swap these for wherever the assets live in your app (e.g. imported from
-// src/assets or served from /public). Extracted directly from the approved
-// memo template so the preview matches pixel-for-pixel.
 const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1781759596/JOB_LOGO_ubls4m.jpg';
 const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
+
+const DESIGNATION_SUGGESTIONS = [
+  'Presiding Judge',
+  'Judge',
+  'Magistrate',
+  'Senior Principal Magistrate',
+  'Principal Magistrate',
+  'Senior Resident Magistrate',
+  'Resident Magistrate',
+  'Chief Magistrate',
+  'Deputy Registrar',
+  'Senior Deputy Registrar',
+];
 
 const getDefaultDate = (daysOffset: number = 0): string => {
   const date = new Date();
@@ -108,7 +132,7 @@ const getDefaultBasicInfo = (mode: CircuitModalMode): BasicInfoType => {
 };
 
 const getDefaultDsaDetails = (): Omit<DSADetailInput, 'id'>[] => [
-  { judge_name: '', pj_number: '', dsa_per_day: 0, days: 0, notes: '' },
+  { judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: 0, notes: '' },
 ];
 
 // ─── UI Helpers ──────────────────────────────────────────────────────────────
@@ -185,6 +209,88 @@ function GhostButton({
       {icon}
       {children}
     </button>
+  );
+}
+
+// ─── Signature Section ──────────────────────────────────────────────────────
+
+interface SignatureSectionProps {
+  userSignature: string | null;
+  onUpload: (file: File) => Promise<void>;
+  onRemove: () => Promise<void>;
+  isLoading: boolean;
+}
+
+function SignatureSection({ userSignature, onUpload, onRemove, isLoading }: SignatureSectionProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
+    if (!validTypes.includes(file.type)) {
+      toast.error('Please upload an image file (JPEG, PNG, WEBP, GIF, or SVG).');
+      e.target.value = '';
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Signature image must be less than 2MB.');
+      e.target.value = '';
+      return;
+    }
+
+    await onUpload(file);
+    e.target.value = '';
+  };
+
+  return (
+    <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Image size={16} className="text-[#c9a84c]" />
+          <h4 className="text-sm font-semibold text-stone-800">Digital Signature</h4>
+        </div>
+        <div className="flex gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
+            onChange={handleFileChange}
+            className="hidden"
+            disabled={isLoading}
+          />
+          <GhostButton
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isLoading}
+            icon={isLoading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+          >
+            {isLoading ? 'Uploading…' : 'Upload Signature'}
+          </GhostButton>
+          {userSignature && (
+            <GhostButton onClick={onRemove} disabled={isLoading} icon={<Trash2 size={14} />}>
+              Remove
+            </GhostButton>
+          )}
+        </div>
+      </div>
+
+      {userSignature ? (
+        <div className="flex items-center gap-4 p-3 bg-white rounded border border-stone-200">
+          <img src={userSignature} alt="Your signature" className="max-h-16 w-auto object-contain" />
+          <span className="text-xs text-stone-500">✓ Signature uploaded</span>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 p-3 bg-white rounded border border-dashed border-stone-300">
+          <Image size={20} className="text-stone-400" />
+          <div>
+            <p className="text-sm text-stone-600">No signature uploaded</p>
+            <p className="text-xs text-stone-400">Upload your signature to include it in the memo</p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -380,7 +486,7 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({ mode, basicInfo, setBasic
   );
 };
 
-// ─── Step 2: DSA Details Form ──────────────────────────────────────────────
+// ─── Step 2: DSA Details Form ─────────────────────────────────────────────
 
 interface DSADetailsFormProps {
   dsaDetails: Omit<DSADetailInput, 'id'>[];
@@ -411,16 +517,23 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
           </GoldButton>
         </div>
 
+        {/* Shared suggestion list for the free-text designation field below */}
+        <datalist id="designation-suggestions">
+          {DESIGNATION_SUGGESTIONS.map((d) => (
+            <option key={d} value={d} />
+          ))}
+        </datalist>
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-stone-200 text-left text-[10px] uppercase text-stone-500">
                 <th className="pb-2 pr-2 font-semibold">Name</th>
                 <th className="pb-2 pr-2 font-semibold">PJ Number</th>
+                <th className="pb-2 pr-2 font-semibold">Designation</th>
                 <th className="pb-2 pr-2 font-semibold text-right">Rate (KES)</th>
                 <th className="pb-2 pr-2 font-semibold text-right">Days</th>
                 <th className="pb-2 pr-2 font-semibold text-right">Total</th>
-                <th className="pb-2 pr-2 font-semibold">Notes</th>
                 <th className="pb-2 w-8"></th>
               </tr>
             </thead>
@@ -447,6 +560,16 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
                   </td>
                   <td className="py-2 pr-2">
                     <input
+                      type="text"
+                      list="designation-suggestions"
+                      value={detail.designation || ''}
+                      onChange={(e) => onChange(index, 'designation', e.target.value)}
+                      placeholder="e.g. Judge"
+                      className="w-full rounded border border-stone-200 px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none"
+                    />
+                  </td>
+                  <td className="py-2 pr-2">
+                    <input
                       type="number"
                       value={detail.dsa_per_day || ''}
                       onChange={(e) => onChange(index, 'dsa_per_day', parseFloat(e.target.value) || 0)}
@@ -466,15 +589,6 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
                   <td className="py-2 pr-2 text-right font-medium text-emerald-700">
                     {calculateTotal(detail.dsa_per_day, detail.days).toLocaleString()}
                   </td>
-                  <td className="py-2 pr-2">
-                    <input
-                      type="text"
-                      value={detail.notes || ''}
-                      onChange={(e) => onChange(index, 'notes', e.target.value)}
-                      placeholder="Additional notes"
-                      className="w-full rounded border border-stone-200 px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none"
-                    />
-                  </td>
                   <td className="py-2 text-center">
                     <button
                       onClick={() => onRemoveRow(index)}
@@ -489,13 +603,13 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-stone-200 bg-stone-100">
-                <td colSpan={4} className="py-3 pr-2 text-right font-semibold text-stone-800">
+                <td colSpan={5} className="py-3 pr-2 text-right font-semibold text-stone-800">
                   Grand Total:
                 </td>
                 <td className="py-3 pr-2 text-right font-bold text-[#1a3d1c]">
                   {dsaDetails.reduce((sum, d) => sum + (d.dsa_per_day * d.days), 0).toLocaleString()}
                 </td>
-                <td colSpan={2}></td>
+                <td></td>
               </tr>
             </tfoot>
           </table>
@@ -506,17 +620,6 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
 };
 
 // ─── Step 3: Memo Preview ──────────────────────────────────────────────────
-//
-// This mirrors the approved ORHC memo template 1:1:
-//   - centered crest
-//   - centered "OFFICE OF THE REGISTRAR HIGH COURT" / "INTERNAL MEMO"
-//   - plain bold left-aligned TO / FROM / REF / DATE / SUBJECT lines
-//   - a blank/plain body area (no cards, no color) with the DSA schedule
-//   - a bold underlined sign-off line at the bottom
-//   - the standard court footer strip
-//
-// No rounded cards, accent colors, or boxed sections — the source document
-// is intentionally austere, so the preview stays black-on-white throughout.
 
 interface MemoPreviewProps {
   mode: CircuitModalMode;
@@ -527,7 +630,10 @@ interface MemoPreviewProps {
   formatDate: (date: string) => string;
   onEdit: () => void;
   onEditDsa: () => void;
+  signatureUrl?: string | null;
 }
+
+type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
 
 const MemoPreview: React.FC<MemoPreviewProps> = ({
   mode,
@@ -538,6 +644,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   formatDate,
   onEdit,
   onEditDsa,
+  signatureUrl,
 }) => {
   const getSubject = () => {
     switch (mode) {
@@ -561,15 +668,11 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
 
   const getTo = () => 'REGISTRAR ,HIGH COURT/ ORHC AIE HOLDER';
 
-  // Currently logged-in user, used to sign the memo. Adjust the `state.auth`
-  // path below if your root reducer registers the auth slice under a
-  // different key.
   const currentUser = useAppSelector((state) => state.auth.user);
 
   const validDetails = dsaDetails.filter(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0);
   const grandTotal = calculateGrandTotal();
 
-  // Format currency with words
   const formatCurrencyWords = (amount: number): string => {
     const words = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
     const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
@@ -590,14 +693,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
     }
     return result;
   };
-
-  // ─── Editable memo fields ─────────────────────────────────────────────────
-  // TO / FROM / REF / DATE / SUBJECT are seeded from sensible defaults (mode,
-  // basicInfo, a generated ref number) but are then plain controlled inputs —
-  // the office officer reviewing the memo can correct or override any of
-  // them before it's finalized. Lazy useState initializers run exactly once
-  // at mount, which is fine here since MemoPreview only mounts when
-  // currentStep === 3, so the seed always reflects the current mode/basicInfo.
 
   const [toField, setToField] = useState(() => getTo());
   const [fromField, setFromField] = useState(() => getFrom());
@@ -625,12 +720,77 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
     return generated.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
   });
 
-  // Signature name defaults to the logged-in user but stays editable in case
-  // someone is signing on another officer's behalf.
+  // Editable body paragraph — seeded from the same sentence used before,
+  // but now fully free-text so the person can rewrite it before export.
+  const [bodyText, setBodyText] = useState(() =>
+    `The following is a detailed breakdown of the ${getSubject().toLowerCase()} for the period ${formatDate(basicInfo.start_date)} to ${formatDate(basicInfo.end_date)}.`
+  );
+
   const [signatoryName, setSignatoryName] = useState(() => currentUser?.full_name || '');
 
   const editableLineClasses =
     'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none';
+
+  const [downloadingFormat, setDownloadingFormat] = useState<DownloadFormat | null>(null);
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+
+  const buildRows = () =>
+    validDetails.map((d) => ({
+      judgeName: d.judge_name,
+      pjNumber: d.pj_number,
+      designation: d.designation || '',
+      rate: d.dsa_per_day,
+      days: d.days,
+      total: calculateTotal(d.dsa_per_day, d.days),
+      notes: '',
+    }));
+
+  const handleDownload = async (format: DownloadFormat) => {
+    setShowDownloadMenu(false);
+    setDownloadingFormat(format);
+    try {
+      const rows = buildRows();
+      const shared = {
+        to: toField,
+        from: fromField,
+        ref: refField,
+        date: dateField,
+        subject: subjectField,
+        bodyText,
+        rows,
+        grandTotal,
+        amountInWords: formatCurrencyWords(grandTotal),
+        signatoryName,
+      };
+
+      if (format === 'docx') {
+        await generateMemoDocx({
+          ...shared,
+          crestUrl: JUDICIARY_CREST_SRC,
+          signatureUrl: signatureUrl || undefined,
+        });
+      } else if (format === 'pdf') {
+        await generateMemoPdf({
+          ...shared,
+          crestUrl: JUDICIARY_CREST_SRC,
+          signatureUrl: signatureUrl || undefined,
+        });
+      } else {
+        generateMemoExcel(shared);
+      }
+    } catch (err) {
+      console.error(`Failed to generate ${format} memo:`, err);
+      toast.error('Failed to generate document. Please try again.');
+    } finally {
+      setDownloadingFormat(null);
+    }
+  };
+
+  const downloadLabels: Record<DownloadFormat, string> = {
+    docx: 'Preparing Word…',
+    pdf: 'Preparing PDF…',
+    xlsx: 'Preparing Excel…',
+  };
 
   return (
     <div className="space-y-4">
@@ -646,10 +806,52 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
           <GhostButton onClick={onEditDsa} icon={<Edit size={12} />}>
             Edit Details
           </GhostButton>
+
+          <div className="relative">
+            <GoldButton
+              size="sm"
+              onClick={() => setShowDownloadMenu((v) => !v)}
+              disabled={downloadingFormat !== null}
+              icon={downloadingFormat ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+            >
+              {downloadingFormat ? downloadLabels[downloadingFormat] : 'Download'}
+              {!downloadingFormat && <ChevronDown size={12} />}
+            </GoldButton>
+
+            {showDownloadMenu && (
+              <>
+                {/* Click-away backdrop */}
+                <div className="fixed inset-0 z-0" onClick={() => setShowDownloadMenu(false)} />
+                <div className="absolute right-0 z-10 mt-1 w-44 overflow-hidden rounded-lg border border-stone-200 bg-white py-1 shadow-lg">
+                  <button
+                    onClick={() => handleDownload('docx')}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50"
+                  >
+                    <FileText size={14} className="text-blue-600" />
+                    Word (.docx)
+                  </button>
+                  <button
+                    onClick={() => handleDownload('pdf')}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50"
+                  >
+                    <FileText size={14} className="text-red-600" />
+                    PDF (.pdf)
+                  </button>
+                  <button
+                    onClick={() => handleDownload('xlsx')}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50"
+                  >
+                    <FileSpreadsheet size={14} className="text-emerald-600" />
+                    Excel (.xlsx)
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* ─── The memo sheet itself — plain black-on-white, matches the .docx ─── */}
+      {/* ─── The memo sheet itself — plain black-on-white ─── */}
       <div className="border border-stone-300 bg-white p-10 shadow-sm font-sans text-black">
         {/* Crest */}
         <div className="flex justify-center mb-3">
@@ -666,7 +868,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
           </p>
         </div>
 
-        {/* TO / FROM / REF / DATE / SUBJECT — plain stacked lines, now editable */}
+        {/* TO / FROM / REF / DATE / SUBJECT */}
         <div className="space-y-3 text-sm font-bold mb-8">
           <div className="flex">
             <span className="w-24 shrink-0">TO</span>
@@ -720,27 +922,26 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
           </div>
         </div>
 
-        {/* Body — plain prose + plain black-bordered table, no color/rounded cards */}
+        {/* Body — freely editable */}
         <div className="space-y-4 text-sm">
-          <p>
-            The following is a detailed breakdown of the {(subjectField || getSubject()).toLowerCase()} for the period{' '}
-            <span className="font-semibold">
-              {formatDate(basicInfo.start_date)} to {formatDate(basicInfo.end_date)}
-            </span>
-            .
-          </p>
+          <textarea
+            value={bodyText}
+            onChange={(e) => setBodyText(e.target.value)}
+            rows={3}
+            className={`${editableLineClasses} block w-full resize-none leading-relaxed`}
+          />
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse border border-black">
               <thead>
                 <tr>
                   <th className="border border-black px-2 py-1 text-left text-xs font-bold">#</th>
-                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">Judge Name</th>
+                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">Particulars</th>
                   <th className="border border-black px-2 py-1 text-left text-xs font-bold">PJ Number</th>
+                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">Designation</th>
                   <th className="border border-black px-2 py-1 text-right text-xs font-bold">Rate (KES)</th>
                   <th className="border border-black px-2 py-1 text-right text-xs font-bold">Days</th>
                   <th className="border border-black px-2 py-1 text-right text-xs font-bold">Total (KES)</th>
-                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">Notes</th>
                 </tr>
               </thead>
               <tbody>
@@ -750,12 +951,12 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
                       <td className="border border-black px-2 py-1 text-center">{index + 1}</td>
                       <td className="border border-black px-2 py-1 font-medium">{detail.judge_name}</td>
                       <td className="border border-black px-2 py-1">{detail.pj_number}</td>
+                      <td className="border border-black px-2 py-1">{detail.designation || '—'}</td>
                       <td className="border border-black px-2 py-1 text-right">{detail.dsa_per_day.toLocaleString()}</td>
                       <td className="border border-black px-2 py-1 text-right">{detail.days}</td>
                       <td className="border border-black px-2 py-1 text-right font-medium">
                         {calculateTotal(detail.dsa_per_day, detail.days).toLocaleString()}
                       </td>
-                      <td className="border border-black px-2 py-1 text-xs">{detail.notes || '-'}</td>
                     </tr>
                   ))
                 ) : (
@@ -769,29 +970,22 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
               {validDetails.length > 0 && (
                 <tfoot>
                   <tr>
-                    <td colSpan={5} className="border border-black px-2 py-2 text-right font-bold">
+                    <td colSpan={6} className="border border-black px-2 py-2 text-right font-bold">
                       GRAND TOTAL
                     </td>
                     <td className="border border-black px-2 py-2 text-right font-bold">
                       {grandTotal.toLocaleString()}
                     </td>
-                    <td className="border border-black"></td>
                   </tr>
                 </tfoot>
               )}
             </table>
           </div>
 
-          {grandTotal > 0 && (
-            <p className="text-sm">
-              <span className="font-bold">Amount in Words: </span>
-              <span className="uppercase">{formatCurrencyWords(grandTotal)}</span>
-            </p>
-          )}
+          
         </div>
 
-        {/* Sign-off — signatory name (defaults to the logged-in user) above the
-            office line, both editable, bold + underlined to match the memo */}
+        {/* Sign-off — name, then signature image, then department line */}
         <div className="mt-16 space-y-1">
           <input
             type="text"
@@ -800,6 +994,13 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
             placeholder="Signatory name"
             className={`${editableLineClasses} block text-sm font-bold`}
           />
+
+          {signatureUrl && (
+            <div className="py-1">
+              <img src={signatureUrl} alt="Signature" className="max-h-12 w-auto object-contain" />
+            </div>
+          )}
+
           <input
             type="text"
             value={fromField}
@@ -823,6 +1024,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
     </div>
   );
 };
+
 // ─── Helper to check item type ─────────────────────────────────────────────
 
 function isCircuit(item: EditingItem | null | undefined): item is Circuit {
@@ -851,6 +1053,8 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
 }) => {
   const dispatch = useAppDispatch();
   const mutating = useAppSelector((state) => state.helpdesk.loading.mutating);
+  const currentUser = useAppSelector(selectCurrentUser);
+  const signatureLoading = useAppSelector(selectUsersSignatureLoading);
 
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
@@ -907,9 +1111,10 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
             details.map((d: DSADetailInput) => ({
               judge_name: d.judge_name,
               pj_number: d.pj_number,
+              designation: d.designation || '',
               dsa_per_day: d.dsa_per_day,
               days: d.days,
-              notes: d.notes || '',
+              notes: '',
             }))
           );
         } else {
@@ -931,7 +1136,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
   };
 
   const handleAddDsaRow = () => {
-    setDsaDetails([...dsaDetails, { judge_name: '', pj_number: '', dsa_per_day: 0, days: 0, notes: '' }]);
+    setDsaDetails([...dsaDetails, { judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: 0, notes: '' }]);
   };
 
   const handleRemoveDsaRow = (index: number) => {
@@ -953,6 +1158,29 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     return dsaDetails.reduce((sum, d) => sum + (d.dsa_per_day * d.days), 0);
   };
 
+  // ── Signature Handlers ──────────────────────────────────────────────────────
+
+  const handleSignatureUpload = async (file: File) => {
+    try {
+      await dispatch(uploadSignature(file)).unwrap();
+      toast.success('Signature uploaded successfully.');
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to upload signature.');
+    }
+  };
+
+  const handleSignatureRemove = async () => {
+    if (!currentUser?.signature_url) return;
+    try {
+      await dispatch(deleteSignature()).unwrap();
+      toast.success('Signature removed successfully.');
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to remove signature.');
+    }
+  };
+
+  // ── Navigation ─────────────────────────────────────────────────────────────
+
   const handleNextStep = () => {
     if (currentStep === 1) {
       const hasRequiredFields = () => {
@@ -969,11 +1197,17 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
             return false;
         }
       };
-      if (!hasRequiredFields()) return;
+      if (!hasRequiredFields()) {
+        toast.error('Please fill in all required fields.');
+        return;
+      }
       setCurrentStep(2);
     } else if (currentStep === 2) {
       const hasValidRow = dsaDetails.some(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0);
-      if (!hasValidRow) return;
+      if (!hasValidRow) {
+        toast.error('Please add at least one DSA entry with name, PJ number, rate, and days.');
+        return;
+      }
       setCurrentStep(3);
     }
   };
@@ -983,6 +1217,8 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     else if (currentStep === 3) setCurrentStep(2);
   };
 
+  // ── Create/Update ─────────────────────────────────────────────────────────
+
   const handleCreate = async () => {
     try {
       const dsaData = dsaDetails
@@ -990,9 +1226,10 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
         .map(d => ({
           judge_name: d.judge_name.trim(),
           pj_number: d.pj_number.trim(),
+          designation: d.designation || undefined,
           dsa_per_day: d.dsa_per_day,
           days: d.days,
-          notes: d.notes || undefined,
+          notes: undefined,
         }));
 
       if (editingItem) {
@@ -1014,6 +1251,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
           default:
             throw new Error('Invalid mode');
         }
+        toast.success(`${getModalTitle()} updated successfully.`);
       } else {
         // Create new based on mode
         switch (mode) {
@@ -1065,6 +1303,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
           default:
             throw new Error('Invalid mode');
         }
+        toast.success(`${getModalTitle()} created successfully.`);
       }
 
       // Refresh data based on mode
@@ -1090,6 +1329,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
       resetForm();
     } catch (err) {
       console.error('Failed to save:', err);
+      toast.error('Failed to save. Please try again.');
     }
   };
 
@@ -1121,6 +1361,21 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          style: {
+            borderRadius: '10px',
+            fontSize: '13px',
+            background: '#fff',
+            color: '#1c1917',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+          },
+          success: { iconTheme: { primary: '#1a3d1c', secondary: '#fff' } },
+          error: { iconTheme: { primary: '#dc2626', secondary: '#fff' } },
+        }}
+      />
+
       <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
@@ -1181,16 +1436,27 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
             />
           )}
           {currentStep === 3 && (
-            <MemoPreview
-              mode={mode}
-              basicInfo={basicInfo}
-              dsaDetails={dsaDetails}
-              calculateTotal={calculateTotal}
-              calculateGrandTotal={calculateGrandTotal}
-              formatDate={formatDate}
-              onEdit={() => setCurrentStep(1)}
-              onEditDsa={() => setCurrentStep(2)}
-            />
+            <div className="space-y-4">
+              {/* Signature Section */}
+              <SignatureSection
+                userSignature={currentUser?.signature_url || null}
+                onUpload={handleSignatureUpload}
+                onRemove={handleSignatureRemove}
+                isLoading={signatureLoading}
+              />
+
+              <MemoPreview
+                mode={mode}
+                basicInfo={basicInfo}
+                dsaDetails={dsaDetails}
+                calculateTotal={calculateTotal}
+                calculateGrandTotal={calculateGrandTotal}
+                formatDate={formatDate}
+                onEdit={() => setCurrentStep(1)}
+                onEditDsa={() => setCurrentStep(2)}
+                signatureUrl={currentUser?.signature_url}
+              />
+            </div>
           )}
         </div>
 

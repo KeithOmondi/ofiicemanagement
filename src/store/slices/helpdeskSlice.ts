@@ -28,10 +28,96 @@ export type Status =
   | "Active"
   | "Resolved";
 
+// ─── Judge Utilities (restructured: one judge → many utility items) ────────
+
+export type UtilityStatus =
+  | "Awaiting"
+  | "Awaiting Documentation"
+  | "Awaiting Funding"
+  | "In Process"
+  | "Approved"
+  | "Paid"
+  | "Payment NA";
+
+export interface UtilityItem {
+  id: string;
+  request_id: string;
+  utility_type: UtilityType;
+  amount: number;
+  period: string;
+  description: string | null;
+  date_received: string | null;
+  date_forwarded_dass: string | null;
+  date_paid: string | null;
+  status: UtilityStatus;
+  supporting_document_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface JudgeUtility {
+  id: string;
+  judge_name: string;
+  items: UtilityItem[];
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UtilityItemInput {
+  utility_type: UtilityType;
+  amount: number;
+  period: string;
+  description?: string;
+  date_received?: string;
+  date_forwarded_dass?: string;
+  date_paid?: string;
+  status?: UtilityStatus;
+  
+}
+
+export interface CreateUtilityInput {
+  judge_name: string;
+  items: UtilityItemInput[];
+}
+
+export interface AddUtilityItemInput {
+  utility_type: UtilityType;
+  amount: number;
+  period: string;
+  description?: string;
+  date_received?: string;
+  date_forwarded_dass?: string;
+  date_paid?: string;
+  status?: UtilityStatus;
+}
+
+export interface UpdateUtilityItemInput {
+  status?: UtilityStatus;
+  date_received?: string;
+  date_forwarded_dass?: string;
+  date_paid?: string;
+  amount?: number;
+  period?: string;
+  description?: string;
+   utility_type?: UtilityType;
+}
+
+export interface UtilityFilters {
+  search?: string;
+  judge_name?: string;
+  status?: UtilityStatus;
+  limit?: number;
+  offset?: number;
+}
+
+// ─── Everything below is unchanged ────────────────────────────────────────
+
 export interface DSADetail {
   id: string;
   judge_name: string;
   pj_number: string;
+  designation: string | null;  // e.g., "Presiding Judge", "Judge", "Magistrate"
   dsa_per_day: number;
   days: number;
   total: number;
@@ -41,23 +127,10 @@ export interface DSADetail {
 export interface DSADetailInput {
   judge_name: string;
   pj_number: string;
+  designation?: string;
   dsa_per_day: number;
   days: number;
   notes?: string;
-}
-
-export interface JudgeUtility {
-  id: string;
-  judge_name: string;
-  utility_type: UtilityType;
-  amount: number;
-  period: string;
-  description: string | null;
-  supporting_document_url: string | null;
-  status: Status;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface ClubMembership {
@@ -199,15 +272,7 @@ export interface HelpDeskStats {
   protocol_pending: number;
 }
 
-// ─── Input Types ──────────────────────────────────────────────────────────────
-
-export interface CreateUtilityInput {
-  judge_name: string;
-  utility_type: UtilityType;
-  amount: number;
-  period: string;
-  description?: string;
-}
+// ─── Input Types ──────────────────────────────────────────────────────────
 
 export interface CreateClubMembershipInput {
   judge_name: string;
@@ -338,6 +403,7 @@ interface HelpDeskState {
   // UI State
   activeTab: HelpDeskTab;
   filters: HelpDeskFilters;
+  utilityFilters: UtilityFilters;
   searchQuery: string;
 
   // Pagination
@@ -402,6 +468,7 @@ const initialState: HelpDeskState = {
 
   activeTab: "utilities",
   filters: {},
+  utilityFilters: {},
   searchQuery: "",
 
   pagination: {
@@ -448,7 +515,9 @@ const getErrorMessage = (error: unknown): string => {
   );
 };
 
-const buildQueryString = (filters: HelpDeskFilters): string => {
+const buildQueryString = (
+  filters: HelpDeskFilters | UtilityFilters,
+): string => {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
@@ -487,12 +556,12 @@ export const fetchHelpDeskAudit = createAsyncThunk(
 );
 
 /* ============================================================
-   THUNKS - JUDGE UTILITIES
+   THUNKS - JUDGE UTILITIES (one judge → many utility items)
 ============================================================ */
 
 export const fetchUtilities = createAsyncThunk(
   "helpdesk/fetchUtilities",
-  async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
+  async (filters: UtilityFilters = {}, { rejectWithValue }) => {
     try {
       const query = buildQueryString(filters);
       const { data } = await axiosClient.get(`/helpdesk/utilities${query}`);
@@ -515,6 +584,7 @@ export const fetchUtilityById = createAsyncThunk(
   },
 );
 
+// Creates a judge + one or more utility items in one call
 export const createUtility = createAsyncThunk(
   "helpdesk/createUtility",
   async (input: CreateUtilityInput, { rejectWithValue }) => {
@@ -527,18 +597,57 @@ export const createUtility = createAsyncThunk(
   },
 );
 
-export const updateUtilityStatus = createAsyncThunk(
-  "helpdesk/updateUtilityStatus",
+// Adds a new utility item under an existing judge
+export const addUtilityItem = createAsyncThunk(
+  "helpdesk/addUtilityItem",
   async (
-    { id, status }: { id: string; status: Status },
+    { id, item }: { id: string; item: AddUtilityItemInput },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.post(
+        `/helpdesk/utilities/${id}/items`,
+        item,
+      );
+      return data.data as JudgeUtility;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+// Updates a single utility item's status/dates/amount/etc.
+export const updateUtilityItem = createAsyncThunk(
+  "helpdesk/updateUtilityItem",
+  async (
+    {
+      id,
+      itemId,
+      updates,
+    }: { id: string; itemId: string; updates: UpdateUtilityItemInput },
     { rejectWithValue },
   ) => {
     try {
       const { data } = await axiosClient.put(
-        `/helpdesk/utilities/${id}/status`,
-        { status },
+        `/helpdesk/utilities/${id}/items/${itemId}`,
+        updates,
       );
       return data.data as JudgeUtility;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const deleteUtilityItem = createAsyncThunk(
+  "helpdesk/deleteUtilityItem",
+  async (
+    { id, itemId }: { id: string; itemId: string },
+    { rejectWithValue },
+  ) => {
+    try {
+      await axiosClient.delete(`/helpdesk/utilities/${id}/items/${itemId}`);
+      return { id, itemId };
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
     }
@@ -1162,12 +1271,17 @@ const helpdeskSlice = createSlice({
     setFilters(state, action: PayloadAction<Partial<HelpDeskFilters>>) {
       state.filters = { ...state.filters, ...action.payload };
     },
+    setUtilityFilters(state, action: PayloadAction<Partial<UtilityFilters>>) {
+      state.utilityFilters = { ...state.utilityFilters, ...action.payload };
+    },
     setSearchQuery(state, action: PayloadAction<string>) {
       state.searchQuery = action.payload;
       state.filters.search = action.payload || undefined;
+      state.utilityFilters.search = action.payload || undefined;
     },
     clearFilters(state) {
       state.filters = {};
+      state.utilityFilters = {};
       state.searchQuery = "";
     },
 
@@ -1223,15 +1337,24 @@ const helpdeskSlice = createSlice({
     },
 
     // ─── Optimistic Updates ─────────────────────────────────────────────
-    updateUtilityOptimistically(
+    updateUtilityItemOptimistically(
       state,
-      action: PayloadAction<{ id: string; status: Status }>,
+      action: PayloadAction<{
+        id: string;
+        itemId: string;
+        status: UtilityStatus;
+      }>,
     ) {
-      const { id, status } = action.payload;
+      const { id, itemId, status } = action.payload;
       const utility = state.utilities.find((u) => u.id === id);
-      if (utility) utility.status = status;
-      if (state.selectedUtility?.id === id)
-        state.selectedUtility.status = status;
+      const item = utility?.items.find((i) => i.id === itemId);
+      if (item) item.status = status;
+      if (state.selectedUtility?.id === id) {
+        const selectedItem = state.selectedUtility.items.find(
+          (i) => i.id === itemId,
+        );
+        if (selectedItem) selectedItem.status = status;
+      }
     },
     updateClubOptimistically(
       state,
@@ -1380,7 +1503,7 @@ const helpdeskSlice = createSlice({
         state.error = action.payload as string;
       });
 
-    /* ──────── UTILITIES ────────────────────────────────────────────────── */
+    /* ──────── UTILITIES (judge → many items) ───────────────────────────── */
     builder
       .addCase(fetchUtilities.pending, (state) => {
         state.loading.utilities = true;
@@ -1417,13 +1540,13 @@ const helpdeskSlice = createSlice({
         state.error = action.payload as string;
         state.success = false;
       })
-      .addCase(updateUtilityStatus.pending, (state) => {
+      .addCase(addUtilityItem.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
       .addCase(
-        updateUtilityStatus.fulfilled,
+        addUtilityItem.fulfilled,
         (state, action: PayloadAction<JudgeUtility>) => {
           state.loading.mutating = false;
           state.success = true;
@@ -1435,10 +1558,60 @@ const helpdeskSlice = createSlice({
             state.selectedUtility = action.payload;
         },
       )
-      .addCase(updateUtilityStatus.rejected, (state, action) => {
+      .addCase(addUtilityItem.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
+      })
+      .addCase(updateUtilityItem.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateUtilityItem.fulfilled,
+        (state, action: PayloadAction<JudgeUtility>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.utilities.findIndex(
+            (u) => u.id === action.payload.id,
+          );
+          if (index !== -1) state.utilities[index] = action.payload;
+          if (state.selectedUtility?.id === action.payload.id)
+            state.selectedUtility = action.payload;
+        },
+      )
+      .addCase(updateUtilityItem.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(deleteUtilityItem.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+      })
+      .addCase(
+        deleteUtilityItem.fulfilled,
+        (
+          state,
+          action: PayloadAction<{ id: string; itemId: string }>,
+        ) => {
+          state.loading.mutating = false;
+          const { id, itemId } = action.payload;
+          const utility = state.utilities.find((u) => u.id === id);
+          if (utility) {
+            utility.items = utility.items.filter((i) => i.id !== itemId);
+          }
+          if (state.selectedUtility?.id === id) {
+            state.selectedUtility.items = state.selectedUtility.items.filter(
+              (i) => i.id !== itemId,
+            );
+          }
+        },
+      )
+      .addCase(deleteUtilityItem.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
       })
       .addCase(deleteUtility.pending, (state) => {
         state.loading.mutating = true;
@@ -2153,6 +2326,7 @@ const helpdeskSlice = createSlice({
 export const {
   setActiveTab,
   setFilters,
+  setUtilityFilters,
   setSearchQuery,
   clearFilters,
   setPagination,
@@ -2165,7 +2339,7 @@ export const {
   setSelectedRequest,
   setSelectedVisaRequest,
   setSelectedProtocolEvent,
-  updateUtilityOptimistically,
+  updateUtilityItemOptimistically,
   updateClubOptimistically,
   updateCircuitOptimistically,
   updateBenchOptimistically,
@@ -2183,7 +2357,7 @@ export const {
    SELECTORS
 ============================================================ */
 
-// ─── All Data ──────────────────────────────────────────────────────────────────
+// ─── All Data ──────────────────────────────────────────────────────────────
 export const selectAllUtilities = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.utilities;
 export const selectAllClubMemberships = (state: { helpdesk: HelpDeskState }) =>
@@ -2207,7 +2381,7 @@ export const selectHelpDeskAudit = (state: { helpdesk: HelpDeskState }) =>
 export const selectHelpDeskStats = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.stats;
 
-// ─── Selected Items ────────────────────────────────────────────────────────────
+// ─── Selected Items ────────────────────────────────────────────────────────
 export const selectSelectedUtility = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.selectedUtility;
 export const selectSelectedClubMembership = (state: {
@@ -2229,15 +2403,17 @@ export const selectSelectedProtocolEvent = (state: {
   helpdesk: HelpDeskState;
 }) => state.helpdesk.selectedProtocolEvent;
 
-// ─── Filters & UI ──────────────────────────────────────────────────────────────
+// ─── Filters & UI ──────────────────────────────────────────────────────────
 export const selectActiveTab = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.activeTab;
 export const selectHelpDeskFilters = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.filters;
+export const selectUtilityFilters = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.utilityFilters;
 export const selectHelpDeskSearch = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.searchQuery;
 
-// ─── Loading States ────────────────────────────────────────────────────────────
+// ─── Loading States ────────────────────────────────────────────────────────
 export const selectUtilitiesLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.utilities;
 export const selectClubLoading = (state: { helpdesk: HelpDeskState }) =>
@@ -2263,13 +2439,13 @@ export const selectStatsLoading = (state: { helpdesk: HelpDeskState }) =>
 export const selectHelpDeskMutating = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.mutating;
 
-// ─── Status ────────────────────────────────────────────────────────────────────
+// ─── Status ────────────────────────────────────────────────────────────────
 export const selectHelpDeskError = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.error;
 export const selectHelpDeskSuccess = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.success;
 
-// ─── Pagination ────────────────────────────────────────────────────────────────
+// ─── Pagination ────────────────────────────────────────────────────────────
 export const selectUtilitiesPagination = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.pagination.utilities;
 export const selectClubPagination = (state: { helpdesk: HelpDeskState }) =>
@@ -2293,10 +2469,19 @@ export const selectProtocolPagination = (state: { helpdesk: HelpDeskState }) =>
 
 // ─── Derived Selectors ──────────────────────────────────────────────────────
 
-// Get items by status
-export const selectUtilitiesByStatus =
-  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.utilities.filter((u) => u.status === status);
+// Get utility items across all judges, flattened, optionally by status
+export const selectAllUtilityItems = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.utilities.flatMap((u) =>
+    u.items.map((item) => ({ ...item, judge_name: u.judge_name })),
+  );
+
+export const selectUtilityItemsByStatus =
+  (status: UtilityStatus) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.utilities.flatMap((u) =>
+      u.items
+        .filter((item) => item.status === status)
+        .map((item) => ({ ...item, judge_name: u.judge_name })),
+    );
 
 export const selectCircuitsByStatus =
   (status: Status) => (state: { helpdesk: HelpDeskState }) =>
@@ -2310,10 +2495,23 @@ export const selectRequestsByStatus =
   (status: Status) => (state: { helpdesk: HelpDeskState }) =>
     state.helpdesk.requests.filter((r) => r.status === status);
 
-// Get pending counts by module
-export const selectPendingUtilitiesCount = (state: {
+// Get pending-ish counts by module
+export const selectAwaitingUtilityItemsCount = (state: {
   helpdesk: HelpDeskState;
-}) => state.helpdesk.utilities.filter((u) => u.status === "Pending").length;
+}) =>
+  state.helpdesk.utilities.reduce(
+    (sum, u) =>
+      sum +
+      u.items.filter((item) =>
+        [
+          "Awaiting",
+          "Awaiting Documentation",
+          "Awaiting Funding",
+          "In Process",
+        ].includes(item.status),
+      ).length,
+    0,
+  );
 
 export const selectPendingClubCount = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.clubMemberships.filter((c) => c.status === "Pending").length;
