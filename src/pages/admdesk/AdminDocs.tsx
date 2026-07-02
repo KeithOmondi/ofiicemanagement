@@ -8,6 +8,8 @@ import {
   deleteDocument,
   finalizeDraft,
   clearError,
+  fetchDocumentById,
+  respondToDocument,
 } from '../../store/slices/documentSlice';
 import { selectCurrentUser, fetchCurrentUser } from '../../store/slices/userSlice';
 import {
@@ -123,6 +125,11 @@ const formatDate = (date: string | Date): string =>
   new Intl.DateTimeFormat('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }).format(
     new Date(date)
   );
+
+const formatDateTime = (date: string | Date): string =>
+  new Intl.DateTimeFormat('en-KE', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(new Date(date));
 
 const formatFileSize = (bytes: number | null): string => {
   if (!bytes) return '';
@@ -277,6 +284,140 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text }) => {
           />
         </div>
       </div>
+    </div>
+  );
+};
+
+// ─── Response Thread (numbered replies on a returned document) ───────────────
+
+const ResponseThreadPanel: React.FC<{ document: DocType }> = ({ document: doc }) => {
+  const dispatch = useAppDispatch();
+  const currentUser = useAppSelector(selectCurrentUser);
+  const currentDocument = useAppSelector((state: RootState) => state.documents.currentDocument);
+  const respondingId = useAppSelector((state: RootState) => state.documents.actionInProgress.responding);
+
+  const [note, setNote] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    dispatch(fetchDocumentById(doc.id));
+  }, [dispatch, doc.id]);
+
+  const responses = currentDocument?.id === doc.id ? currentDocument.responses ?? [] : [];
+  const isSubmitting = respondingId === doc.id;
+  const canRespond = !!currentUser && doc.assigned_to === currentUser.id && doc.status !== 'filed';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!note.trim() || isSubmitting) return;
+    const result = await dispatch(
+      respondToDocument({ id: doc.id, input: { note: note.trim() }, file: file ?? undefined })
+    );
+    if (respondToDocument.fulfilled.match(result)) {
+      setNote('');
+      setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      toast.success('Response added');
+    } else {
+      toast.error((result.payload as string) ?? 'Failed to add response');
+    }
+  };
+
+  if (!doc.assigned_to && responses.length === 0) return null;
+
+  return (
+    <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <h3 className="text-sm font-semibold text-slate-800">Response Thread</h3>
+        {responses.length > 0 && (
+          <span className="text-xs text-slate-400">
+            ({responses.length} {responses.length === 1 ? 'reply' : 'replies'})
+          </span>
+        )}
+      </div>
+
+      {responses.length === 0 ? (
+        <p className="text-sm text-slate-400 italic">
+          No responses yet. If the Super Admin returned this for more information, your reply
+          will appear here — numbered — instead of a new upload.
+        </p>
+      ) : (
+        <ol className="space-y-3 mb-4">
+          {responses.map((r) => (
+            <li key={r.id} className="flex gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
+                {r.response_number}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                  <span className="text-xs font-semibold text-slate-700">{r.responded_by_name}</span>
+                  <span className="text-[11px] text-slate-400">{formatDateTime(r.created_at)}</span>
+                </div>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{r.note}</p>
+                {r.file_url && (
+                  <a
+                    href={r.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                  >
+                    <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    {r.original_name || 'View attachment'}
+                  </a>
+                )}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      {canRespond ? (
+        <form onSubmit={handleSubmit} className="rounded-lg border border-slate-200 p-3">
+          <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Add Response {responses.length > 0 ? `#${responses.length + 1}` : '#1'}
+          </label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={3}
+            placeholder="Type your response…"
+            className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-800">
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              {file ? file.name : 'Attach a file (optional)'}
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={!note.trim() || isSubmitting}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 transition"
+            >
+              {isSubmitting && <Spinner />}
+              {isSubmitting ? 'Sending…' : 'Send Response'}
+            </button>
+          </div>
+        </form>
+      ) : (
+        responses.length === 0 && (
+          <p className="text-xs text-slate-400">
+            This document is not currently assigned to you.
+          </p>
+        )
+      )}
     </div>
   );
 };
@@ -506,6 +647,12 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
             />
           )}
           {renderPreview()}
+        </div>
+
+        {/* Response thread — lets whoever this document is assigned to reply
+            in place instead of typing the reply into a brand new upload */}
+        <div className="shrink-0 border-t border-slate-200 bg-slate-50 max-h-[40vh] overflow-y-auto px-6 py-4">
+          <ResponseThreadPanel document={document} />
         </div>
       </div>
     </div>
@@ -1000,11 +1147,7 @@ const AdminDocs = () => {
   };
 
   const handlePreview = (doc: DocType) => {
-    if (doc.file_url) {
-      setSelectedDocument(doc);
-    } else {
-      toast.error('This document has no file attached.');
-    }
+    setSelectedDocument(doc);
   };
 
   return (
@@ -1126,6 +1269,8 @@ const AdminDocs = () => {
                     const markedToDept = activeMark?.marked_to_dept_name || '—';
                     const assignedTo = activeMark?.assigned_to_name || '—';
                     const activeRegistry = activeRegistryByDoc.get(doc.id);
+                    const needsMyResponse =
+                      currentUser && doc.assigned_to === currentUser.id && doc.status === 'pending_review' && !doc.is_draft;
 
                     return (
                       <tr key={doc.id} className="border-b border-slate-50 hover:bg-slate-50/60 transition">
@@ -1145,9 +1290,19 @@ const AdminDocs = () => {
                         </td>
 
                         <td className="px-4 py-3">
-                          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[doc.status] ?? 'bg-gray-100 text-gray-700'}`}>
-                            {doc.is_draft ? 'draft' : doc.status.replace(/_/g, ' ')}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[doc.status] ?? 'bg-gray-100 text-gray-700'}`}>
+                              {doc.is_draft ? 'draft' : doc.status.replace(/_/g, ' ')}
+                            </span>
+                            {needsMyResponse && (
+                              <span
+                                className="inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700"
+                                title="Returned to you — a response is needed"
+                              >
+                                Needs response
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* Marked To */}
@@ -1228,10 +1383,13 @@ const AdminDocs = () => {
                             )}
 
                             <button
-                              disabled={!doc.file_url}
                               onClick={() => handlePreview(doc)}
-                              title={doc.file_url ? 'Preview file' : 'No file attached'}
-                              className="p-1.5 text-slate-400 hover:text-blue-600 rounded-md transition disabled:opacity-30 disabled:cursor-not-allowed"
+                              title={needsMyResponse ? 'Open — a response is needed' : 'Preview / open thread'}
+                              className={`p-1.5 rounded-md transition ${
+                                needsMyResponse
+                                  ? 'text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100'
+                                  : 'text-slate-400 hover:text-blue-600'
+                              }`}
                             >
                               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}

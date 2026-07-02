@@ -13,6 +13,7 @@ import type {
   DocumentMark,
   DocumentAnnotation,
   DocumentFlowEntry,
+  DocumentResponse,
   DocumentFilters,
   CreateComposedDocumentInput,
   CreateUploadDocumentInput,
@@ -21,6 +22,7 @@ import type {
   CreateAnnotationInput,
   FinalizeDraftInput,
   ReturnDocumentInput,
+  RespondToDocumentInput,
 } from "../../types/documents.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -31,6 +33,7 @@ interface DocumentState {
   myMarked: Document[];
   markHistory: DocumentMark[];
   flowHistory: DocumentFlowEntry[];
+  responses: DocumentResponse[];
   loading: boolean;
   error: string | null;
   pagination: {
@@ -49,6 +52,7 @@ interface DocumentState {
     deleting?: string;
     finalizingDraft?: string;
     returning?: string;
+    responding?: string;
   };
 }
 
@@ -58,6 +62,7 @@ const initialState: DocumentState = {
   myMarked: [],
   markHistory: [],
   flowHistory: [],
+  responses: [],
   loading: false,
   error: null,
   pagination: null,
@@ -163,6 +168,23 @@ export const fetchFlowHistory = createAsyncThunk(
         success: boolean;
         data: DocumentFlowEntry[];
       }>(`/documents/${documentId}/flow`);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  },
+);
+
+// ── Fetch response thread for a document ────────────────────────────────────
+
+export const fetchResponses = createAsyncThunk(
+  "documents/fetchResponses",
+  async (documentId: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: DocumentResponse[];
+      }>(`/documents/${documentId}/responses`);
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
@@ -336,6 +358,36 @@ export const returnDocument = createAsyncThunk(
   },
 );
 
+// ── Respond to a document (threaded reply, optional file) ───────────────────
+//
+// This is the piece that replaces "type it again into a new upload": the
+// reply is appended to THIS document as the next numbered response, and the
+// document is handed back to the reviewer automatically on the backend.
+
+export const respondToDocument = createAsyncThunk(
+  "documents/respondToDocument",
+  async (
+    { id, input, file }: { id: string; input: RespondToDocumentInput; file?: File },
+    { rejectWithValue },
+  ) => {
+    const formData = new FormData();
+    formData.append("note", input.note);
+    if (file) formData.append("file", file);
+
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: DocumentResponse;
+      }>(`/documents/${id}/respond`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return { documentId: id, response: response.data.data };
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  },
+);
+
 // ── Mark to Department ──────────────────────────────────────────────────────
 
 export const markDocument = createAsyncThunk(
@@ -447,6 +499,9 @@ const documentSlice = createSlice({
     clearFlowHistory: (state) => {
       state.flowHistory = [];
     },
+    clearResponses: (state) => {
+      state.responses = [];
+    },
     resetState: () => initialState,
   },
   extraReducers: (builder) => {
@@ -484,6 +539,7 @@ const documentSlice = createSlice({
         (state, action: PayloadAction<DocumentWithAnnotations>) => {
           state.loading = false;
           state.currentDocument = action.payload;
+          state.responses = action.payload.responses ?? [];
         },
       )
       .addCase(fetchDocumentById.rejected, (state, action) => {
@@ -538,6 +594,23 @@ const documentSlice = createSlice({
         },
       )
       .addCase(fetchFlowHistory.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ── fetchResponses ──────────────────────────────────────────────────────
+      .addCase(fetchResponses.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchResponses.fulfilled,
+        (state, action: PayloadAction<DocumentResponse[]>) => {
+          state.loading = false;
+          state.responses = action.payload;
+        },
+      )
+      .addCase(fetchResponses.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
@@ -638,6 +711,7 @@ const documentSlice = createSlice({
             state.currentDocument = {
               annotations: state.currentDocument.annotations,
               mark_history: state.currentDocument.mark_history,
+              responses: state.currentDocument.responses,
               ...action.payload,
             };
           }
@@ -717,6 +791,29 @@ const documentSlice = createSlice({
       )
       .addCase(returnDocument.rejected, (state) => {
         state.actionInProgress.returning = undefined;
+      })
+
+      // ── respondToDocument ────────────────────────────────────────────────
+      .addCase(respondToDocument.pending, (state, action) => {
+        state.actionInProgress.responding = action.meta.arg.id;
+      })
+      .addCase(respondToDocument.fulfilled, (state, action) => {
+        state.actionInProgress.responding = undefined;
+        const { documentId, response } = action.payload;
+        state.responses.push(response);
+        if (state.currentDocument?.id === documentId) {
+          state.currentDocument.responses = [
+            ...state.currentDocument.responses,
+            response,
+          ];
+          // The document was just handed back to the reviewer on the
+          // backend — reflect that locally until the next full refetch.
+          state.currentDocument.status = "pending_review";
+        }
+      })
+      .addCase(respondToDocument.rejected, (state, action) => {
+        state.actionInProgress.responding = undefined;
+        state.error = action.payload as string;
       })
 
       // ── markDocument ──────────────────────────────────────────────────────
@@ -825,6 +922,7 @@ export const {
   clearError,
   clearMyMarked,
   clearFlowHistory,
+  clearResponses,
   resetState,
 } = documentSlice.actions;
 
@@ -848,6 +946,9 @@ export const selectMarkHistory = (state: { documents: DocumentState }) =>
 export const selectFlowHistory = (state: { documents: DocumentState }) =>
   state.documents.flowHistory;
 
+export const selectResponses = (state: { documents: DocumentState }) =>
+  state.documents.responses;
+
 export const selectLoading = (state: { documents: DocumentState }) =>
   state.documents.loading;
 
@@ -863,3 +964,7 @@ export const selectActionInProgress = (state: { documents: DocumentState }) =>
 export type { DocumentState };
 
 export default documentSlice.reducer;
+
+
+
+

@@ -97,6 +97,12 @@ export interface ReturnDocumentInput {
   requires_more_docs?: boolean;
 }
 
+// ── Response thread input ────────────────────────────────────────────────────
+
+export interface RespondToDocumentInput {
+  note: string;
+}
+
 // ── Entity types ──────────────────────────────────────────────────────────────
 
 // ── Document Mark (to Department) ──────────────────────────────────────────
@@ -126,6 +132,29 @@ export interface DocumentAnnotation {
   comment: string;
   is_urgent: boolean;
   visible_in_summary: boolean;
+  created_at: Date;
+}
+
+// ── Document Response (numbered reply thread) ───────────────────────────────
+//
+// A DocumentResponse is a formal, numbered reply to whatever the document
+// currently needs (typically a super admin's "return for more info"). Unlike
+// an annotation, it can carry a file attachment and it's what drives the
+// document back into the reviewer's queue — see DocumentService.addResponse
+// on the backend.
+
+export interface DocumentResponse {
+  id: string;
+  document_id: string;
+  response_number: number;
+  responded_by: string;
+  responded_by_name: string;
+  note: string;
+  file_url: string | null;
+  file_public_id: string | null;
+  file_size_bytes: number | null;
+  mime_type: string | null;
+  original_name: string | null;
   created_at: Date;
 }
 
@@ -181,6 +210,7 @@ export interface Document {
 export interface DocumentWithAnnotations extends Document {
   annotations: DocumentAnnotation[];
   mark_history: DocumentMark[];
+  responses: DocumentResponse[];
 }
 
 export interface DocumentPaginationResponse {

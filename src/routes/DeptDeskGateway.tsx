@@ -57,6 +57,7 @@ import AdminSettings from '../pages/admdesk/AdminSettings';
 import HelpDeskDocuments from '../pages/helpdesk/HelpDeskDocuments';
 import ProcurementDocuments from '../pages/procurement/ProcurementDocs';
 import HelpdeskSettings from '../pages/helpdesk/HelpdeskSettings';
+import AdminRegistry from '../pages/admdesk/AdminRegistry';
 
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
@@ -221,6 +222,7 @@ if (deskKey === 'helpdesk') {
         <Route path="calendar" element={<AdminCalendar />} />
         <Route path="tasks" element={<AdminTasks />} />
         <Route path="settings" element={<AdminSettings />} />
+        <Route path="registry" element={<AdminRegistry />} />
       </Route>
       <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
     </Routes>
