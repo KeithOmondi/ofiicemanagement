@@ -1010,16 +1010,14 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         </div>
 
         {/* Standard court footer strip */}
-        <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
-          <img src={FOOTER_EMBLEM_SRC} alt="" className="h-10 w-auto object-contain" />
-          <div className="text-[10px] leading-tight text-stone-700">
-            <p>
-              Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi
-            </p>
-            <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
-            <p className="mt-1 font-bold text-emerald-800">Justice Be Our Shield and Defender</p>
-          </div>
-        </div>
+        <div className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3">
+              <img src={FOOTER_EMBLEM_SRC} alt="" className="h-10 w-auto object-contain shrink-0" />
+              <div className="text-[10px] leading-tight text-stone-700 text-right">
+                <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
+                <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
+                <p className="mt-1 font-bold text-emerald-800">Justice Be Our Shield and Defender</p>
+              </div>
+            </div>
       </div>
     </div>
   );
