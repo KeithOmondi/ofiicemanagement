@@ -1,10 +1,12 @@
 // src/pages/dept-head/AdminDocs.tsx
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { toast, Toaster } from 'react-hot-toast';
+//import mammoth from 'mammoth';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   fetchDocuments,
   createUploadDocument,
+  createComposedDocument,
   deleteDocument,
   finalizeDraft,
   clearError,
@@ -24,6 +26,8 @@ import {
   selectRegistryError,
   clearError as clearRegistryError,
 } from '../../store/slices/registrySlice';
+import { fetchActiveTemplate, fetchAllTemplates } from '../../store/slices/templatesSlice';
+import { GLOBAL_KEY, type TemplateType } from '../../types/templates.types';
 import type {
   CreateUploadDocumentInput,
   DocumentType,
@@ -44,6 +48,8 @@ const selectDocLoading = (state: RootState): boolean => state.documents.loading;
 const selectDocError = (state: RootState): string | null => state.documents.error;
 const selectDeletingId = (state: RootState): string | undefined => state.documents.actionInProgress.deleting;
 const selectFinalizingId = (state: RootState): string | undefined => state.documents.actionInProgress.finalizingDraft;
+const selectTemplatesByDepartment = (state: RootState) => state.templates.byDepartment;
+const selectAllTemplates = (state: RootState) => state.templates.all;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -288,7 +294,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text }) => {
   );
 };
 
-// ─── Response Thread (numbered replies on a returned document) ───────────────
+// ─── Response Thread Panel ───────────────────────────────────────────────────
 
 const ResponseThreadPanel: React.FC<{ document: DocType }> = ({ document: doc }) => {
   const dispatch = useAppDispatch();
@@ -299,10 +305,21 @@ const ResponseThreadPanel: React.FC<{ document: DocType }> = ({ document: doc })
   const [note, setNote] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
     dispatch(fetchDocumentById(doc.id));
   }, [dispatch, doc.id]);
+
+  const hasResponses = currentDocument?.id === doc.id ? (currentDocument.responses ?? []).length > 0 : false;
+
+  const hasAutoExpanded = useRef(false);
+  useEffect(() => {
+    if (hasResponses && !hasAutoExpanded.current) {
+      hasAutoExpanded.current = true;
+      setIsExpanded(true);
+    }
+  }, [hasResponses]);
 
   const responses = currentDocument?.id === doc.id ? currentDocument.responses ?? [] : [];
   const isSubmitting = respondingId === doc.id;
@@ -319,104 +336,139 @@ const ResponseThreadPanel: React.FC<{ document: DocType }> = ({ document: doc })
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       toast.success('Response added');
+      dispatch(fetchDocuments({ page: 1, limit: PAGE_SIZE, for_my_action: true }));
     } else {
       toast.error((result.payload as string) ?? 'Failed to add response');
     }
   };
 
-  if (!doc.assigned_to && responses.length === 0) return null;
+  const isAssignedToUser = doc.assigned_to === currentUser?.id;
+
+  if (!hasResponses && !isAssignedToUser) return null;
+
+  const showToggleButton = !hasResponses && isAssignedToUser;
 
   return (
     <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
-      <div className="flex items-center gap-2 mb-3">
-        <h3 className="text-sm font-semibold text-slate-800">Response Thread</h3>
-        {responses.length > 0 && (
-          <span className="text-xs text-slate-400">
-            ({responses.length} {responses.length === 1 ? 'reply' : 'replies'})
-          </span>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-slate-800">Response Thread</h3>
+          {hasResponses && (
+            <span className="text-xs text-slate-400">
+              ({responses.length} {responses.length === 1 ? 'reply' : 'replies'})
+            </span>
+          )}
+        </div>
+        {showToggleButton && (
+          <button
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-1"
+          >
+            {isExpanded ? (
+              <>
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+                Hide Response
+              </>
+            ) : (
+              <>
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                Add Response
+              </>
+            )}
+          </button>
         )}
       </div>
 
-      {responses.length === 0 ? (
-        <p className="text-sm text-slate-400 italic">
-          No responses yet. If the Super Admin returned this for more information, your reply
-          will appear here — numbered — instead of a new upload.
-        </p>
-      ) : (
-        <ol className="space-y-3 mb-4">
-          {responses.map((r) => (
-            <li key={r.id} className="flex gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
-                {r.response_number}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                  <span className="text-xs font-semibold text-slate-700">{r.responded_by_name}</span>
-                  <span className="text-[11px] text-slate-400">{formatDateTime(r.created_at)}</span>
-                </div>
-                <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{r.note}</p>
-                {r.file_url && (
-                  <a
-                    href={r.file_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-2 inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
-                  >
-                    <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    {r.original_name || 'View attachment'}
-                  </a>
-                )}
-              </div>
-            </li>
-          ))}
-        </ol>
-      )}
+      {(isExpanded || hasResponses) && (
+        <>
+          {!hasResponses && isAssignedToUser && (
+            <p className="text-sm text-slate-400 italic mb-3">
+              No responses yet. If the Super Admin returned this for more information, your reply
+              will appear here — numbered — instead of a new upload.
+            </p>
+          )}
 
-      {canRespond ? (
-        <form onSubmit={handleSubmit} className="rounded-lg border border-slate-200 p-3">
-          <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-            Add Response {responses.length > 0 ? `#${responses.length + 1}` : '#1'}
-          </label>
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            rows={3}
-            placeholder="Type your response…"
-            className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-800">
-              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
-              {file ? file.name : 'Attach a file (optional)'}
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          {hasResponses && (
+            <ol className="space-y-3 mb-4">
+              {responses.map((r) => (
+                <li key={r.id} className="flex gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white">
+                    {r.response_number}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <span className="text-xs font-semibold text-slate-700">{r.responded_by_name}</span>
+                      <span className="text-[11px] text-slate-400">{formatDateTime(r.created_at)}</span>
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{r.note}</p>
+                    {r.file_url && (
+                      <a
+                        href={r.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+                      >
+                        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        {r.original_name || 'View attachment'}
+                      </a>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          )}
+
+          {canRespond && (
+            <form onSubmit={handleSubmit} className="rounded-lg border border-slate-200 p-3">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Add Response {responses.length > 0 ? `#${responses.length + 1}` : '#1'}
+              </label>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={3}
+                placeholder="Type your response…"
+                className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-            </label>
-            <button
-              type="submit"
-              disabled={!note.trim() || isSubmitting}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 transition"
-            >
-              {isSubmitting && <Spinner />}
-              {isSubmitting ? 'Sending…' : 'Send Response'}
-            </button>
-          </div>
-        </form>
-      ) : (
-        responses.length === 0 && (
-          <p className="text-xs text-slate-400">
-            This document is not currently assigned to you.
-          </p>
-        )
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-800">
+                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  {file ? file.name : 'Attach a file (optional)'}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    className="hidden"
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={!note.trim() || isSubmitting}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 transition"
+                >
+                  {isSubmitting && <Spinner />}
+                  {isSubmitting ? 'Sending…' : 'Send Response'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {!canRespond && hasResponses && (
+            <p className="text-xs text-slate-400">
+              This document is not currently assigned to you.
+            </p>
+          )}
+        </>
       )}
     </div>
   );
@@ -435,8 +487,20 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
   const fileUrl = document.file_url;
   const ext = getFileExtension(fileUrl);
   const fileName = document.original_name || document.title;
+  const isComposed = document.type === 'memo' || document.type === 'letter';
 
   const renderPreview = () => {
+    if (isComposed && document.body) {
+      return (
+        <div className="h-full overflow-y-auto p-4 sm:p-8">
+          <div
+            className="mx-auto max-w-[794px] bg-white shadow-sm rounded-sm px-8 py-10 sm:px-16 sm:py-14 text-sm"
+            dangerouslySetInnerHTML={{ __html: document.body }}
+          />
+        </div>
+      );
+    }
+
     if (!fileUrl) {
       return (
         <div className="flex flex-col items-center justify-center h-full min-h-[400px] p-8">
@@ -538,7 +602,6 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
       );
     }
 
-    // Fallback
     return (
       <div className="flex flex-col items-center justify-center h-full min-h-[400px] p-8 gap-4">
         <svg className="h-16 w-16 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -590,8 +653,6 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-6xl max-h-[90vh] rounded-xl overflow-hidden flex flex-col shadow-2xl">
-
-        {/* Header */}
         <div className="px-6 py-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Preview</span>
@@ -609,7 +670,6 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
                 ({formatFileSize(document.file_size_bytes)})
               </span>
             )}
-            {/* Show priority in header if non-default */}
             {document.priority && document.priority !== 'normal' && (
               <PriorityBadge priority={document.priority} />
             )}
@@ -636,9 +696,7 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
           </div>
         </div>
 
-        {/* Preview content — relative so sticky note positions inside */}
         <div className="flex-1 overflow-hidden bg-slate-100 relative">
-          {/* Sticky note: only rendered when the registrar left instructions */}
           {document.active_mark?.instructions && (
             <StickyNote
               key={document.id}
@@ -649,10 +707,373 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
           {renderPreview()}
         </div>
 
-        {/* Response thread — lets whoever this document is assigned to reply
-            in place instead of typing the reply into a brand new upload */}
         <div className="shrink-0 border-t border-slate-200 bg-slate-50 max-h-[40vh] overflow-y-auto px-6 py-4">
           <ResponseThreadPanel document={document} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Template Composer Modal (memo / letter) ─────────────────────────────────
+
+interface TemplateComposerModalProps {
+  type: TemplateType;
+  departmentId: string | null;
+  onClose: () => void;
+  onCreated: (doc: DocType) => void;
+}
+
+// Drop-in replacement for TemplateComposerModal in src/pages/dept-head/AdminDocs.tsx
+//
+// WHY THIS EXISTS: mammoth.js cannot reproduce Word paragraph borders, tab-stop
+// alignment, or empty-paragraph vertical spacing — see the chat explanation.
+// Rather than fighting mammoth for pixel parity it structurally can't deliver,
+// the crest / title / TO-FROM-REF-DATE-SUBJECT block is now hardcoded React +
+// Tailwind (matching SAMPLE_MEMO.docx exactly, same approach used for the
+// CircuitModal memo preview earlier). Mammoth is no longer used in this
+// component at all — only the department's footer_image_url / footer_text
+// (already extracted server-side via extractFooterAssets) are pulled from
+// the active template. The contentEditable area is now ONLY the free-form
+// body, which is exactly where user-authored content actually belongs.
+
+interface TemplateComposerModalProps {
+  type: TemplateType;
+  departmentId: string | null;
+  onClose: () => void;
+  onCreated: (doc: DocType) => void;
+}
+
+const TEMPLATE_TYPE_LABEL: Record<TemplateType, string> = {
+  memo: 'Memo',
+  letter: 'Letter',
+};
+
+const JUDICIARY_CREST_SRC = '/JOB_LOGO.jpg';
+
+const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
+  type,
+  departmentId,
+  onClose,
+  onCreated,
+}) => {
+  const dispatch = useAppDispatch();
+  const templatesByDepartment = useAppSelector(selectTemplatesByDepartment);
+  const allTemplates = useAppSelector(selectAllTemplates);
+  const currentUser = useAppSelector(selectCurrentUser);
+
+  const [loadingTemplate, setLoadingTemplate] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const [title, setTitle] = useState(
+    `${TEMPLATE_TYPE_LABEL[type]} — ${new Intl.DateTimeFormat('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())}`
+  );
+
+  // ── Header fields — editable, seeded with sensible defaults ──────────────
+  const [toField, setToField] = useState('REGISTRAR, HIGH COURT / ORHC AIE HOLDER');
+  const [fromField, setFromField] = useState('HIGH COURT SUPPORT OFFICE -ORHC');
+  const [refField, setRefField] = useState('');
+  const [dateField, setDateField] = useState(
+    new Intl.DateTimeFormat('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())
+  );
+  const [subjectField, setSubjectField] = useState('');
+  const [signatoryName, setSignatoryName] = useState(currentUser?.full_name ?? '');
+
+  const [footerImageUrl, setFooterImageUrl] = useState<string | null>(null);
+  const [footerText, setFooterText] = useState<string>('');
+
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  const editableLineClasses =
+    'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none';
+
+  // Resolve the active template purely to grab its footer assets — the
+  // header is no longer sourced from the docx at all.
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setLoadingTemplate(true);
+      setLoadError(null);
+
+      try {
+        const key = departmentId ?? GLOBAL_KEY;
+        let template = templatesByDepartment[key]?.[type];
+
+        if (!template && departmentId) {
+          const deptTemplates = allTemplates.filter(
+            (t) => t.department_id === departmentId && t.type === type
+          );
+          if (deptTemplates.length > 0) {
+            template = [...deptTemplates].sort(
+              (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+            )[0];
+          }
+        }
+
+        if (!template) {
+          const result = await dispatch(fetchActiveTemplate({ departmentId, type }));
+          if (fetchActiveTemplate.fulfilled.match(result) && result.payload.template) {
+            template = result.payload.template;
+          }
+        }
+
+        if (!cancelled) {
+          if (template) {
+            setFooterImageUrl(template.footer_image_url ?? null);
+            setFooterText(template.footer_text ?? '');
+          } else {
+            // No uploaded template yet — that's fine, the header/footer
+            // chrome below still renders correctly without one. Only warn
+            // if you specifically need the department's custom footer.
+            setFooterImageUrl(null);
+            setFooterText('');
+          }
+        }
+      } catch (error) {
+        console.error('[TemplateComposerModal] Failed to resolve template footer:', error);
+        if (!cancelled) setLoadError("Couldn't load the department's footer — continuing without it.");
+      } finally {
+        if (!cancelled) setLoadingTemplate(false);
+      }
+    };
+
+    load();
+    return () => { cancelled = true; };
+    
+  }, [type, departmentId, dispatch, templatesByDepartment, allTemplates]);
+
+  const exec = (command: string, value?: string) => {
+    editorRef.current?.focus();
+    window.document.execCommand(command, false, value);
+  };
+
+  const handleSaveDraft = async () => {
+    if (!title.trim()) {
+      toast.error('Please give this document a title');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      // Assemble the full memo as one HTML blob — fixed header (matching the
+      // PDF exactly) + whatever the user typed in the body + footer — so the
+      // stored `body` looks identical whether it's viewed here, in the
+      // super-admin editor, or exported to .docx/PDF later.
+      const headerHtml = `
+        <div style="text-align:center;margin-bottom:12px;">
+          <img src="${JUDICIARY_CREST_SRC}" alt="Judiciary crest" style="height:70px;margin:0 auto;display:block;" />
+        </div>
+        <p style="text-align:center;font-weight:bold;text-transform:uppercase;margin:0;">OFFICE OF THE REGISTRAR HIGH COURT</p>
+        <p style="text-align:center;font-weight:bold;text-transform:uppercase;border-bottom:2px solid black;display:inline-block;margin:0 auto 16px;padding-bottom:6px;">INTERNAL MEMO</p>
+        <table style="width:100%;font-weight:bold;font-size:13px;margin-bottom:16px;">
+          <tr><td style="width:90px;">TO</td><td style="width:16px;">:</td><td style="text-transform:uppercase;">${toField}</td></tr>
+          <tr><td>FROM</td><td>:</td><td style="text-transform:uppercase;">${fromField}</td></tr>
+          <tr><td>REF</td><td>:</td><td>${refField}</td></tr>
+          <tr><td>DATE</td><td>:</td><td>${dateField}</td></tr>
+          <tr style="border-bottom:2px solid black;"><td>SUBJECT</td><td>:</td><td style="text-transform:uppercase;">${subjectField}</td></tr>
+        </table>
+      `;
+      const signOffHtml = `
+        <div style="margin-top:64px;">
+          <p style="font-weight:bold;margin:0;">${signatoryName}</p>
+          <p style="font-weight:bold;text-decoration:underline;text-transform:uppercase;margin:0;">${fromField}</p>
+        </div>
+      `;
+
+      const bodyHtml = editorRef.current?.innerHTML ?? '';
+      const fullHtml = headerHtml + bodyHtml + signOffHtml;
+
+      const result = await dispatch(
+        createComposedDocument({
+          title: title.trim(),
+          type,
+          body: fullHtml,
+          department_id: departmentId ?? undefined,
+        })
+      );
+      if (createComposedDocument.fulfilled.match(result)) {
+        toast.success(`${TEMPLATE_TYPE_LABEL[type]} saved as draft`);
+        onCreated(result.payload as DocType);
+      } else {
+        toast.error((result.payload as string) ?? 'Failed to save document');
+      }
+    } catch (error) {
+      console.error('[TemplateComposerModal] Save error:', error);
+      toast.error('An unexpected error occurred');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+      <div className="bg-white w-full max-w-4xl max-h-[92vh] rounded-xl overflow-hidden flex flex-col shadow-2xl">
+        {/* Modal chrome header — document title metadata, separate from the memo's own SUBJECT field */}
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 bg-slate-50 shrink-0">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">
+              New {TEMPLATE_TYPE_LABEL[type]}
+            </p>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full text-sm font-semibold text-slate-900 bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:outline-none transition-colors"
+              placeholder="Document title (internal reference, not printed on the memo)"
+            />
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors flex-shrink-0">
+            <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {loadingTemplate ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20">
+            <Spinner size="md" />
+            <p className="text-sm text-slate-400">Loading department letterhead…</p>
+          </div>
+        ) : (
+          <>
+            {/* Toolbar — only affects the body text below */}
+            <div className="flex items-center gap-1 bg-slate-800 px-3 py-1.5 flex-shrink-0">
+              {([
+                { label: 'B', command: 'bold', cls: 'font-extrabold' },
+                { label: 'I', command: 'italic', cls: 'italic' },
+                { label: 'U', command: 'underline', cls: 'underline' },
+              ] as const).map(({ label, command, cls }) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => exec(command)}
+                  className={`w-6 h-6 rounded text-xs text-white/80 hover:bg-white/10 transition-colors ${cls}`}
+                >
+                  {label}
+                </button>
+              ))}
+              <div className="w-px h-4 bg-white/20 mx-1" />
+              <button type="button" onClick={() => exec('insertUnorderedList')} className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors">
+                • List
+              </button>
+              <button type="button" onClick={() => exec('insertOrderedList')} className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors">
+                1. List
+              </button>
+              <span className="ml-auto text-[10px] text-white/40">Formats the body only — header/footer are fixed</span>
+            </div>
+
+            {/* The memo sheet — fixed header/footer, editable body between them */}
+            <div className="flex-1 overflow-y-auto bg-slate-100 py-6 px-4 sm:px-6">
+              <div className="mx-auto max-w-[794px] bg-white shadow-sm rounded-sm px-8 py-10 sm:px-16 sm:py-14 text-sm text-black font-sans">
+                {loadError && (
+                  <p className="mb-4 rounded bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                    {loadError}
+                  </p>
+                )}
+
+                {/* Crest */}
+                <div className="flex justify-center mb-3">
+                  <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-16 w-auto object-contain" />
+                </div>
+
+                {/* Title block */}
+                <div className="text-center mb-6">
+                  <p className="text-base font-bold uppercase leading-snug">OFFICE OF THE REGISTRAR HIGH COURT</p>
+                  <p className="text-base font-bold uppercase leading-snug border-b-2 border-black inline-block pb-2 px-1">
+                    INTERNAL MEMO
+                  </p>
+                </div>
+
+                {/* TO / FROM / REF / DATE / SUBJECT — editable, matches the PDF exactly */}
+                <div className="space-y-3 text-sm font-bold mb-8">
+                  <div className="flex">
+                    <span className="w-24 shrink-0">TO</span>
+                    <span className="w-4 shrink-0">:</span>
+                    <input value={toField} onChange={(e) => setToField(e.target.value)} className={`${editableLineClasses} uppercase`} />
+                  </div>
+                  <div className="flex">
+                    <span className="w-24 shrink-0">FROM</span>
+                    <span className="w-4 shrink-0">:</span>
+                    <input value={fromField} onChange={(e) => setFromField(e.target.value)} className={`${editableLineClasses} uppercase`} />
+                  </div>
+                  <div className="flex">
+                    <span className="w-24 shrink-0">REF</span>
+                    <span className="w-4 shrink-0">:</span>
+                    <input value={refField} onChange={(e) => setRefField(e.target.value)} placeholder="RHC/AIE/___" className={editableLineClasses} />
+                  </div>
+                  <div className="flex">
+                    <span className="w-24 shrink-0">DATE</span>
+                    <span className="w-4 shrink-0">:</span>
+                    <input value={dateField} onChange={(e) => setDateField(e.target.value)} className={editableLineClasses} />
+                  </div>
+                  <div className="flex border-b-2 border-black pb-3">
+                    <span className="w-24 shrink-0">SUBJECT</span>
+                    <span className="w-4 shrink-0">:</span>
+                    <input
+                      value={subjectField}
+                      onChange={(e) => setSubjectField(e.target.value)}
+                      placeholder="Subject of this memo"
+                      className={`${editableLineClasses} uppercase`}
+                    />
+                  </div>
+                </div>
+
+                {/* Body — the ONLY part that's a free-form contentEditable area */}
+                <div
+                  ref={editorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  data-placeholder="Start typing the body of the memo…"
+                  className="min-h-[220px] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
+                />
+
+                {/* Sign-off */}
+                <div className="mt-16 space-y-1">
+                  <input
+                    value={signatoryName}
+                    onChange={(e) => setSignatoryName(e.target.value)}
+                    placeholder="Signatory name"
+                    className={`${editableLineClasses} block text-sm font-bold`}
+                  />
+                  <input
+                    value={fromField}
+                    onChange={(e) => setFromField(e.target.value)}
+                    className={`${editableLineClasses} block text-sm font-bold underline uppercase`}
+                  />
+                </div>
+
+                {/* Footer — pulled from the department's uploaded template, if any */}
+                {(footerImageUrl || footerText) && (
+                  <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
+                    {footerImageUrl && (
+                      <img src={footerImageUrl} alt="" className="h-10 w-auto object-contain" />
+                    )}
+                    {footerText && (
+                      <p className="text-[10px] leading-tight text-stone-700 whitespace-pre-wrap">{footerText}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSaveDraft}
+            disabled={saving || loadingTemplate}
+            className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 transition"
+          >
+            {saving && <Spinner />}
+            {saving ? 'Saving…' : 'Save Draft & Continue'}
+          </button>
         </div>
       </div>
     </div>
@@ -722,7 +1143,6 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
     <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto">
       <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} />
       <div className="relative z-10 w-full max-w-lg my-8 rounded-xl bg-white shadow-2xl border border-slate-100">
-
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div>
             <h2 className="text-base font-semibold text-slate-900">Upload Document</h2>
@@ -739,8 +1159,6 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
 
         <form onSubmit={handleSubmit} noValidate>
           <div className="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
-
-            {/* Drop zone */}
             <div>
               <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">File *</label>
               <div
@@ -792,7 +1210,6 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
               {errors.file && <p className="text-xs text-red-500 mt-1">{errors.file}</p>}
             </div>
 
-            {/* Type — locked to correspondence */}
             <div>
               <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Document Type *</label>
               <select
@@ -806,7 +1223,6 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
               </select>
             </div>
 
-            {/* Action required */}
             <div>
               <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Action Required *</label>
               <select
@@ -836,7 +1252,6 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
               )}
             </div>
 
-            {/* Urgency */}
             <div>
               <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Urgency *</label>
               <select
@@ -850,7 +1265,6 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
               </select>
             </div>
 
-            {/* Title */}
             <div>
               <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Title / Description *</label>
               <input
@@ -1025,6 +1439,8 @@ const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const AdminDocs = () => {
+  console.log('[AdminDocs] Component mounted');
+  
   const dispatch = useAppDispatch();
   const currentUser = useAppSelector(selectCurrentUser);
   const documents = useAppSelector(selectAllDocuments);
@@ -1046,39 +1462,69 @@ const AdminDocs = () => {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('');
 
+  const [composerType, setComposerType] = useState<TemplateType | null>(null);
+
   const searchRef = useRef('');
   const typeFilterRef = useRef<DocumentType | ''>('');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!currentUser) dispatch(fetchCurrentUser());
+    console.log('[AdminDocs] Checking for current user');
+    if (!currentUser) {
+      console.log('[AdminDocs] No current user, fetching...');
+      dispatch(fetchCurrentUser());
+    }
   }, [dispatch, currentUser]);
+
+  useEffect(() => {
+    console.log('[AdminDocs] Fetching all templates...');
+    dispatch(fetchAllTemplates());
+  }, [dispatch]);
 
   const departmentId = currentUser?.department_id ?? null;
 
   const triggerFetch = useCallback((p: number) => {
-    const params: DocumentFilters = { page: p, limit: PAGE_SIZE };
+    console.log(`[AdminDocs] triggerFetch page: ${p}`);
+    const params: DocumentFilters = {
+      page: p,
+      limit: PAGE_SIZE,
+      for_my_action: true,
+    };
     if (searchRef.current) params.search = searchRef.current;
     if (typeFilterRef.current) params.type = typeFilterRef.current;
     if (departmentId) params.department_id = departmentId;
+
     dispatch(fetchDocuments(params));
   }, [dispatch, departmentId]);
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser || !currentUser.department_id) {
+      console.log('[AdminDocs] Skipping document fetch - no current user or department');
+      return;
+    }
+    console.log(`[AdminDocs] Initial document fetch for page: ${page}`);
     triggerFetch(page);
   }, [page, currentUser, triggerFetch]);
 
   useEffect(() => {
+    console.log('[AdminDocs] Fetching registry entries...');
     dispatch(fetchRegistryEntries({ limit: 200, sort_by: 'routed_at', sort_order: 'DESC' }));
   }, [dispatch]);
 
   useEffect(() => {
-    if (error) { toast.error(error); dispatch(clearError()); }
+    if (error) { 
+      console.error('[AdminDocs] Document error:', error);
+      toast.error(error); 
+      dispatch(clearError()); 
+    }
   }, [error, dispatch]);
 
   useEffect(() => {
-    if (registryError) { toast.error(registryError); dispatch(clearRegistryError()); }
+    if (registryError) { 
+      console.error('[AdminDocs] Registry error:', registryError);
+      toast.error(registryError); 
+      dispatch(clearRegistryError()); 
+    }
   }, [registryError, dispatch]);
 
   const activeRegistryByDoc = useMemo(() => {
@@ -1090,13 +1536,18 @@ const AdminDocs = () => {
   }, [registryEntries]);
 
   const handleSearchChange = (value: string) => {
+    console.log(`[AdminDocs] Search changed: "${value}"`);
     setSearch(value);
     searchRef.current = value;
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => { setPage(1); triggerFetch(1); }, 400);
+    timerRef.current = setTimeout(() => { 
+      setPage(1); 
+      triggerFetch(1); 
+    }, 400);
   };
 
   const handleTypeFilterChange = (value: DocumentType | '') => {
+    console.log(`[AdminDocs] Type filter changed: "${value}"`);
     setTypeFilter(value);
     typeFilterRef.current = value;
     setPage(1);
@@ -1104,17 +1555,19 @@ const AdminDocs = () => {
   };
 
   const handleUpload = async (payload: { file: File; metadata: CreateUploadDocumentInput }) => {
+    console.log('[AdminDocs] handleUpload called');
     setUploading(true);
     try {
       const created = await dispatch(
         createUploadDocument({ input: payload.metadata, file: payload.file })
       ).unwrap();
+      console.log('[AdminDocs] Upload successful:', created);
       toast.success('Document saved as draft');
       setShowUploadModal(false);
       await triggerFetch(page);
       setFinalizeTarget(created);
-    } catch {
-      // surfaced via toast effect
+    } catch (err) {
+      console.error('[AdminDocs] Upload failed:', err);
     } finally {
       setUploading(false);
     }
@@ -1122,17 +1575,19 @@ const AdminDocs = () => {
 
   const handleFinalizeDraft = async (input: FinalizeDraftInput) => {
     if (!finalizeTarget) return;
+    console.log('[AdminDocs] Finalizing draft:', finalizeTarget.id);
     try {
       await dispatch(finalizeDraft({ id: finalizeTarget.id, input })).unwrap();
       toast.success(input.send_to_super_admin ? 'Document sent to Super Admin' : 'Document marked to user');
       setFinalizeTarget(null);
       await triggerFetch(page);
-    } catch {
-      // surfaced via toast effect
+    } catch (err) {
+      console.error('[AdminDocs] Finalize failed:', err);
     }
   };
 
   const handleDelete = async (id: string) => {
+    console.log(`[AdminDocs] Delete document: ${id}`);
     if (!window.confirm('Delete this document? This action cannot be undone.')) return;
     try {
       await dispatch(deleteDocument(id)).unwrap();
@@ -1141,14 +1596,34 @@ const AdminDocs = () => {
       const targetPage = documents.length === 1 && page > 1 ? page - 1 : page;
       setPage(targetPage);
       if (targetPage === page) await triggerFetch(page);
-    } catch {
-      // surfaced via toast effect
+    } catch (err) {
+      console.error('[AdminDocs] Delete failed:', err);
     }
   };
 
   const handlePreview = (doc: DocType) => {
+    console.log(`[AdminDocs] Previewing document: ${doc.id}`);
     setSelectedDocument(doc);
   };
+
+  const handleTemplateCreated = async (doc: DocType) => {
+    console.log(`[AdminDocs] Template created: ${doc.id}`);
+    setComposerType(null);
+    await triggerFetch(page);
+    setFinalizeTarget(doc);
+  };
+
+  const filteredDocuments = useMemo(() => {
+    if (!currentUser) return documents;
+
+    return documents.filter(doc => {
+      if (doc.assigned_to === currentUser.id) return true;
+      if (doc.is_draft && doc.created_by === currentUser.id) return true;
+      if (doc.created_by === currentUser.id && !doc.is_draft) return true;
+      if ((doc.type === 'memo' || doc.type === 'letter') && doc.status === 'pending_review' && doc.assigned_to === currentUser.id) return true;
+      return false;
+    });
+  }, [documents, currentUser]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -1179,9 +1654,16 @@ const AdminDocs = () => {
         />
       )}
 
-      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {composerType && (
+        <TemplateComposerModal
+          type={composerType}
+          departmentId={departmentId}
+          onClose={() => setComposerType(null)}
+          onCreated={handleTemplateCreated}
+        />
+      )}
 
-        {/* Page header */}
+      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
             <h1 className="text-xl font-semibold text-slate-900">Document Management</h1>
@@ -1191,18 +1673,50 @@ const AdminDocs = () => {
                 : 'Loading…'}
             </p>
           </div>
-          <button
-            onClick={() => setShowUploadModal(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-sm"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Upload Document
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => {
+                console.log('[AdminDocs] New Memo clicked');
+                setComposerType('memo');
+              }}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-[#7A4E0D] bg-[#F5C24C] border border-[#E8A840] rounded-lg hover:bg-[#f0bb40] transition shadow-sm"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              New Memo
+            </button>
+
+            <button
+              onClick={() => {
+                console.log('[AdminDocs] New Letter clicked');
+                setComposerType('letter');
+              }}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition shadow-sm"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              New Letter
+            </button>
+
+            <button
+              onClick={() => {
+                console.log('[AdminDocs] Upload Document clicked');
+                setShowUploadModal(true);
+              }}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-sm"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              Upload Document
+            </button>
+          </div>
         </div>
 
-        {/* Filters */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm mb-4">
           <div className="flex flex-wrap items-center gap-3 px-4 py-3">
             <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -1231,7 +1745,6 @@ const AdminDocs = () => {
           </div>
         </div>
 
-        {/* Table */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[1200px]">
@@ -1256,14 +1769,14 @@ const AdminDocs = () => {
                       <div className="flex justify-center"><Spinner size="md" /></div>
                     </td>
                   </tr>
-                ) : documents.length === 0 ? (
+                ) : filteredDocuments.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="py-20 text-center text-slate-400 text-sm">
                       No documents found
                     </td>
                   </tr>
                 ) : (
-                  documents.map((doc) => {
+                  filteredDocuments.map((doc) => {
                     const activeMark = doc.active_mark;
                     const isMarked = doc.status === 'marked' || doc.status === 'in_progress';
                     const markedToDept = activeMark?.marked_to_dept_name || '—';
@@ -1274,7 +1787,6 @@ const AdminDocs = () => {
 
                     return (
                       <tr key={doc.id} className="border-b border-slate-50 hover:bg-slate-50/60 transition">
-
                         <td className="px-4 py-3 font-medium text-slate-900 truncate max-w-[200px]" title={doc.title}>
                           {doc.title}
                         </td>
@@ -1305,7 +1817,6 @@ const AdminDocs = () => {
                           </div>
                         </td>
 
-                        {/* Marked To */}
                         <td className="px-4 py-3">
                           {isMarked && activeMark ? (
                             <div className="flex flex-col gap-0.5">
@@ -1336,7 +1847,6 @@ const AdminDocs = () => {
                           )}
                         </td>
 
-                        {/* Routed To */}
                         <td className="px-4 py-3">
                           {registryLoading && !activeRegistry ? (
                             <span className="text-xs text-slate-300">…</span>
@@ -1368,7 +1878,6 @@ const AdminDocs = () => {
 
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-center gap-1">
-
                             {doc.is_draft && (
                               <button
                                 onClick={() => setFinalizeTarget(doc)}

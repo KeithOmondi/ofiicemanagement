@@ -23,6 +23,9 @@ import type {
   FinalizeDraftInput,
   ReturnDocumentInput,
   RespondToDocumentInput,
+  CreateMemoInput,
+  CreateLetterInput,
+  SendToUserInput,
 } from "../../types/documents.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -53,6 +56,9 @@ interface DocumentState {
     finalizingDraft?: string;
     returning?: string;
     responding?: string;
+    creatingMemo?: boolean;
+    creatingLetter?: boolean;
+    sendingToUser?: string;
   };
 }
 
@@ -66,8 +72,10 @@ const initialState: DocumentState = {
   loading: false,
   error: null,
   pagination: null,
+  latestDocumentsRequestId: null, // NEW
   actionInProgress: {},
 };
+
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
@@ -134,6 +142,23 @@ export const fetchMyMarked = createAsyncThunk(
         success: boolean;
         data: Document[];
       }>("/documents/my-marked");
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  },
+);
+
+// ── Fetch received documents ────────────────────────────────────────────────
+
+export const fetchReceivedDocuments = createAsyncThunk(
+  "documents/fetchReceivedDocuments",
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: Document[];
+      }>("/documents/received");
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
@@ -209,6 +234,90 @@ export const createComposedDocument = createAsyncThunk(
   },
 );
 
+// ── Create Memo ──────────────────────────────────────────────────────────────
+
+export const createMemo = createAsyncThunk(
+  "documents/createMemo",
+  async (
+    { data, file }: { data: CreateMemoInput; file?: File },
+    { rejectWithValue }
+  ) => {
+    const formData = new FormData();
+    Object.entries(data).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        formData.append(key, String(value));
+      }
+    });
+    if (file) {
+      formData.append("file", file);
+    }
+
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>("/documents/memo", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Create Letter ────────────────────────────────────────────────────────────
+
+export const createLetter = createAsyncThunk(
+  "documents/createLetter",
+  async (
+    { data, file }: { data: CreateLetterInput; file?: File },
+    { rejectWithValue }
+  ) => {
+    const formData = new FormData();
+    Object.entries(data).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        formData.append(key, String(value));
+      }
+    });
+    if (file) {
+      formData.append("file", file);
+    }
+
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>("/documents/letter", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Send document to user ───────────────────────────────────────────────────
+
+export const sendDocumentToUser = createAsyncThunk(
+  "documents/sendDocumentToUser",
+  async (
+    { id, input }: { id: string; input: SendToUserInput },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/send-to-user`, input);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
 // ── Create upload (with file) ──────────────────────────────────────────────
 
 export const createUploadDocument = createAsyncThunk(
@@ -273,7 +382,8 @@ export const deleteDocument = createAsyncThunk(
   },
 );
 
-// ── Sign with OTP — update existing signDocument thunk ───────────────────────
+// ── Sign with OTP ──────────────────────────────────────────────────────────
+
 export const signDocument = createAsyncThunk(
   'documents/signDocument',
   async ({ id, otp }: { id: string; otp: string }, { rejectWithValue }) => {
@@ -290,6 +400,7 @@ export const signDocument = createAsyncThunk(
 );
 
 // ── Request OTP ───────────────────────────────────────────────────────────────
+
 export const requestSignOtp = createAsyncThunk(
   'documents/requestSignOtp',
   async (id: string, { rejectWithValue }) => {
@@ -359,10 +470,6 @@ export const returnDocument = createAsyncThunk(
 );
 
 // ── Respond to a document (threaded reply, optional file) ───────────────────
-//
-// This is the piece that replaces "type it again into a new upload": the
-// reply is appended to THIS document as the next numbered response, and the
-// document is handed back to the reviewer automatically on the backend.
 
 export const respondToDocument = createAsyncThunk(
   "documents/respondToDocument",
@@ -481,6 +588,46 @@ export const deleteAnnotation = createAsyncThunk(
   },
 );
 
+// ─── State shape (only the changed part shown for context — keep the rest of your interface as-is) ──
+
+// ─── State shape (only the changed part shown for context — keep the rest of your interface as-is) ──
+
+interface DocumentState {
+  documents: Document[];
+  currentDocument: DocumentWithAnnotations | null;
+  myMarked: Document[];
+  markHistory: DocumentMark[];
+  flowHistory: DocumentFlowEntry[];
+  responses: DocumentResponse[];
+  loading: boolean;
+  error: string | null;
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  } | null;
+  // NEW: tracks the requestId of the most recently *dispatched* fetchDocuments call,
+  // so an older, slower-resolving response can't overwrite a newer one.
+  latestDocumentsRequestId: string | null;
+  actionInProgress: {
+    signing?: string;
+    sending?: string;
+    marking?: string;
+    acknowledging?: string;
+    completing?: string;
+    deleting?: string;
+    finalizingDraft?: string;
+    returning?: string;
+    responding?: string;
+    creatingMemo?: boolean;
+    creatingLetter?: boolean;
+    sendingToUser?: string;
+  };
+}
+
+
+
 // ─── Slice ────────────────────────────────────────────────────────────────────
 
 const documentSlice = createSlice({
@@ -507,25 +654,38 @@ const documentSlice = createSlice({
   extraReducers: (builder) => {
     builder
       // ── fetchDocuments ──────────────────────────────────────────────────────
-      .addCase(fetchDocuments.pending, (state) => {
+      .addCase(fetchDocuments.pending, (state, action) => {
         state.loading = true;
         state.error = null;
+        // Record this request as the latest one dispatched. Any earlier
+        // in-flight request that resolves after this one will be ignored.
+        // NOTE: no explicit `action: PayloadAction<...>` annotation here —
+        // that would strip the `meta` field. Let TS infer the type from
+        // fetchDocuments.pending itself, which already carries meta.requestId.
+        state.latestDocumentsRequestId = action.meta.requestId;
       })
-      .addCase(
-        fetchDocuments.fulfilled,
-        (state, action: PayloadAction<DocumentPaginationResponse>) => {
-          state.loading = false;
-          state.documents = action.payload.data;
-          state.pagination = {
-            total: action.payload.total,
-            page: action.payload.page,
-            limit: action.payload.limit,
-            totalPages: action.payload.totalPages,
-          };
-        },
-      )
+      .addCase(fetchDocuments.fulfilled, (state, action) => {
+        state.loading = false;
+        // Stale response guard: only apply if this is still the most
+        // recently dispatched fetchDocuments request.
+        if (action.meta.requestId !== state.latestDocumentsRequestId) {
+          return;
+        }
+        state.documents = action.payload.data;
+        state.pagination = {
+          total: action.payload.total,
+          page: action.payload.page,
+          limit: action.payload.limit,
+          totalPages: action.payload.totalPages,
+        };
+      })
       .addCase(fetchDocuments.rejected, (state, action) => {
         state.loading = false;
+        // Only surface the error if it belongs to the latest request too,
+        // otherwise an old cancelled/superseded request could show a stale error.
+        if (action.meta.requestId !== state.latestDocumentsRequestId) {
+          return;
+        }
         state.error = action.payload as string;
       })
 
@@ -560,6 +720,26 @@ const documentSlice = createSlice({
         },
       )
       .addCase(fetchMyMarked.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ── fetchReceivedDocuments ─────────────────────────────────────────────
+      .addCase(fetchReceivedDocuments.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchReceivedDocuments.fulfilled,
+        (state, action: PayloadAction<Document[]>) => {
+          state.loading = false;
+          // Add received documents to the documents list if not already present
+          const existingIds = new Set(state.documents.map(d => d.id));
+          const newDocs = action.payload.filter(d => !existingIds.has(d.id));
+          state.documents = [...newDocs, ...state.documents];
+        },
+      )
+      .addCase(fetchReceivedDocuments.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
@@ -629,6 +809,72 @@ const documentSlice = createSlice({
       )
       .addCase(createComposedDocument.rejected, (state, action) => {
         state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ── createMemo ─────────────────────────────────────────────────────────
+      .addCase(createMemo.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.actionInProgress.creatingMemo = true;
+      })
+      .addCase(
+        createMemo.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.loading = false;
+          state.actionInProgress.creatingMemo = false;
+          state.documents = [action.payload, ...state.documents];
+        },
+      )
+      .addCase(createMemo.rejected, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.creatingMemo = false;
+        state.error = action.payload as string;
+      })
+
+      // ── createLetter ───────────────────────────────────────────────────────
+      .addCase(createLetter.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.actionInProgress.creatingLetter = true;
+      })
+      .addCase(
+        createLetter.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.loading = false;
+          state.actionInProgress.creatingLetter = false;
+          state.documents = [action.payload, ...state.documents];
+        },
+      )
+      .addCase(createLetter.rejected, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.creatingLetter = false;
+        state.error = action.payload as string;
+      })
+
+      // ── sendDocumentToUser ─────────────────────────────────────────────────
+      .addCase(sendDocumentToUser.pending, (state, action) => {
+        state.actionInProgress.sendingToUser = action.meta.arg.id;
+        state.error = null;
+      })
+      .addCase(
+        sendDocumentToUser.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.sendingToUser = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+        },
+      )
+      .addCase(sendDocumentToUser.rejected, (state, action) => {
+        state.actionInProgress.sendingToUser = undefined;
         state.error = action.payload as string;
       })
 
@@ -793,22 +1039,29 @@ const documentSlice = createSlice({
         state.actionInProgress.returning = undefined;
       })
 
-      // ── respondToDocument ────────────────────────────────────────────────
+      // ── respondToDocument ──────────────────────────────────────────────────
       .addCase(respondToDocument.pending, (state, action) => {
         state.actionInProgress.responding = action.meta.arg.id;
       })
       .addCase(respondToDocument.fulfilled, (state, action) => {
         state.actionInProgress.responding = undefined;
         const { documentId, response } = action.payload;
+
         state.responses.push(response);
+
         if (state.currentDocument?.id === documentId) {
           state.currentDocument.responses = [
             ...state.currentDocument.responses,
             response,
           ];
-          // The document was just handed back to the reviewer on the
-          // backend — reflect that locally until the next full refetch.
+          state.currentDocument.response_count = (state.currentDocument.response_count || 0) + 1;
           state.currentDocument.status = "pending_review";
+        }
+
+        const docIndex = state.documents.findIndex((d) => d.id === documentId);
+        if (docIndex !== -1) {
+          state.documents[docIndex].response_count = (state.documents[docIndex].response_count || 0) + 1;
+          state.documents[docIndex].status = "pending_review";
         }
       })
       .addCase(respondToDocument.rejected, (state, action) => {
@@ -926,10 +1179,9 @@ export const {
   resetState,
 } = documentSlice.actions;
 
+// src/features/documents/documentSlice.ts
+
 // ── Selectors ─────────────────────────────────────────────────────────────────
-// Typed against the local slice shape so this file has no dependency on the
-// store's RootState (avoids circular imports). Adjust the key ("documents")
-// if you mount this reducer under a different slice name in the root reducer.
 
 export const selectDocuments = (state: { documents: DocumentState }) =>
   state.documents.documents;
@@ -961,10 +1213,28 @@ export const selectPagination = (state: { documents: DocumentState }) =>
 export const selectActionInProgress = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress;
 
+// ── Additional selectors ──────────────────────────────────────────────────────
+
+// This selector returns the current document's responses
+export const selectCurrentDocumentResponses = (state: { documents: DocumentState }) =>
+  state.documents.currentDocument?.responses ?? [];
+
+// This selector returns whether a specific document is being responded to
+export const selectIsResponding = (state: { documents: DocumentState }, documentId: string) =>
+  state.documents.actionInProgress.responding === documentId;
+
+// This selector returns whether a memo is being created
+export const selectIsCreatingMemo = (state: { documents: DocumentState }) =>
+  state.documents.actionInProgress.creatingMemo || false;
+
+// This selector returns whether a letter is being created
+export const selectIsCreatingLetter = (state: { documents: DocumentState }) =>
+  state.documents.actionInProgress.creatingLetter || false;
+
+// This selector returns the document ID currently being sent to a user
+export const selectIsSendingToUser = (state: { documents: DocumentState }) =>
+  state.documents.actionInProgress.sendingToUser || null;
+
 export type { DocumentState };
 
 export default documentSlice.reducer;
-
-
-
-

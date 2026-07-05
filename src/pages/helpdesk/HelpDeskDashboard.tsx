@@ -7,9 +7,12 @@ import {
   fetchUtilities,
   fetchClubMemberships,
   fetchCircuits,
+  fetchOtherPayments,
   fetchBenches,
   fetchPartHeards,
-  fetchRequests,
+  fetchServiceWeeks,
+  fetchMedicalClaims,
+  fetchGeneralRequests,
   fetchVisaRequests,
   fetchProtocolEvents,
   selectHelpDeskStats,
@@ -19,11 +22,9 @@ import {
   selectAllUtilities,
   selectAllClubMemberships,
   selectAllCircuits,
-  selectAllBenches,
-  selectAllPartHeards,
-  selectAllRequests,
-  selectAllVisaRequests,
-  selectAllProtocolEvents,
+  selectAllOtherPayments,
+  selectAllMedicalClaims,
+  selectAllGeneralRequests,
   setActiveTab,
   clearError,
   clearSuccess,
@@ -58,9 +59,11 @@ import {
   Sparkles,
   Zap,
   Wallet,
+  CreditCard,
+  Stethoscope,
 } from "lucide-react";
 
-// ─── Import the UtilitiesModal ──────────────────────────────────────────────
+// ─── Import Modals ──────────────────────────────────────────────────────────
 import { UtilitiesModal } from "../../components/modals/UtilitiesModal";
 import type { JudgeUtility } from "../../store/slices/helpdeskSlice";
 
@@ -213,33 +216,47 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
     </div>
     {statusBreakdown && (
       <div className="mt-4 flex items-center space-x-4 text-xs">
-        {Object.entries(statusBreakdown).map(([status, value]) => (
-          <div key={status} className="flex items-center space-x-1">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                status === "Pending"
-                  ? "bg-yellow-400"
-                  : status === "Completed" || status === "Signed"
-                  ? "bg-green-400"
-                  : status === "Rejected"
-                  ? "bg-red-400"
-                  : "bg-blue-400"
-              }`}
-            />
-            <span className="text-gray-500 capitalize">{status}</span>
-            <span className="font-medium text-gray-700">{value}</span>
-          </div>
-        ))}
+        {Object.entries(statusBreakdown)
+          .filter(([, value]) => value > 0)
+          .slice(0, 4)
+          .map(([status, value]) => (
+            <div key={status} className="flex items-center space-x-1">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  status === "Pending"
+                    ? "bg-yellow-400"
+                    : status === "Completed" || status === "Signed"
+                    ? "bg-green-400"
+                    : status === "Rejected"
+                    ? "bg-red-400"
+                    : status === "In Progress"
+                    ? "bg-blue-400"
+                    : "bg-gray-400"
+                }`}
+              />
+              <span className="text-gray-500 capitalize">{status}</span>
+              <span className="font-medium text-gray-700">{value}</span>
+            </div>
+          ))}
       </div>
     )}
   </div>
 );
 
+// ─── Helper Functions ──────────────────────────────────────────────────────
+
+const getActivityStatus = (action: string): ActivityStatus => {
+  if (action.includes("Complete")) return "completed";
+  if (action.includes("Reject")) return "rejected";
+  if (action.includes("Progress")) return "in-progress";
+  return "pending";
+};
+
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 const HelpDeskDashboard: React.FC = () => {
   const dispatch = useAppDispatch();
-  
+
   // Helpdesk data
   const stats = useAppSelector(selectHelpDeskStats);
   const auditLog = useAppSelector(selectHelpDeskAudit);
@@ -250,13 +267,9 @@ const HelpDeskDashboard: React.FC = () => {
   const utilities = useAppSelector(selectAllUtilities);
   const clubMemberships = useAppSelector(selectAllClubMemberships);
   const circuits = useAppSelector(selectAllCircuits);
-  const benches = useAppSelector(selectAllBenches);
-  const partHeards = useAppSelector(selectAllPartHeards);
-  const requests = useAppSelector(selectAllRequests);
-  const visaRequests = useAppSelector(selectAllVisaRequests);
-  const protocolEvents = useAppSelector(selectAllProtocolEvents);
-
-  // Document data
+  const otherPayments = useAppSelector(selectAllOtherPayments);
+  const medicalClaims = useAppSelector(selectAllMedicalClaims);
+  const generalRequests = useAppSelector(selectAllGeneralRequests);
   const myMarked = useAppSelector(selectMyMarked);
 
   // ─── Modal State ──────────────────────────────────────────────────────────
@@ -279,9 +292,12 @@ const HelpDeskDashboard: React.FC = () => {
         dispatch(fetchUtilities({ limit: 100 })).unwrap(),
         dispatch(fetchClubMemberships({ limit: 100 })).unwrap(),
         dispatch(fetchCircuits({ limit: 100 })).unwrap(),
+        dispatch(fetchOtherPayments({ limit: 100 })).unwrap(),
         dispatch(fetchBenches({ limit: 100 })).unwrap(),
         dispatch(fetchPartHeards({ limit: 100 })).unwrap(),
-        dispatch(fetchRequests({ limit: 100 })).unwrap(),
+        dispatch(fetchServiceWeeks({ limit: 100 })).unwrap(),
+        dispatch(fetchMedicalClaims({ limit: 100 })).unwrap(),
+        dispatch(fetchGeneralRequests({ limit: 100 })).unwrap(),
         dispatch(fetchVisaRequests({ limit: 100 })).unwrap(),
         dispatch(fetchProtocolEvents({ limit: 100 })).unwrap(),
         dispatch(fetchMyMarked()).unwrap(),
@@ -316,8 +332,6 @@ const HelpDeskDashboard: React.FC = () => {
     dispatch(setActiveTab(tab));
   };
 
-  // ─── Utility Modal Handlers ─────────────────────────────────────────────
-
   const handleOpenUtilitiesModal = (utility?: JudgeUtility | null) => {
     setEditingUtility(utility || null);
     setIsUtilitiesModalOpen(true);
@@ -336,7 +350,6 @@ const HelpDeskDashboard: React.FC = () => {
   const protocolPending = stats?.protocol_pending || 0;
 
   // Status breakdowns for module cards
-  // JudgeUtility has items with individual statuses, aggregate them
   const utilityStatusBreakdown = utilities.reduce((acc, u) => {
     u.items?.forEach(item => {
       const status = item.status as Status;
@@ -350,22 +363,18 @@ const HelpDeskDashboard: React.FC = () => {
     return acc;
   }, {} as Record<Status, number>);
 
-  const requestStatusBreakdown = requests.reduce((acc, r) => {
+  const medicalClaimStatusBreakdown = medicalClaims.reduce((acc, c) => {
+    acc[c.status] = (acc[c.status] || 0) + 1;
+    return acc;
+  }, {} as Record<Status, number>);
+
+  const generalRequestStatusBreakdown = generalRequests.reduce((acc, r) => {
     acc[r.status] = (acc[r.status] || 0) + 1;
     return acc;
   }, {} as Record<Status, number>);
 
-  // Helper function to determine activity status
-  const getActivityStatus = (action: string): ActivityStatus => {
-    if (action.includes("Complete")) return "completed";
-    if (action.includes("Reject")) return "rejected";
-    if (action.includes("Progress")) return "in-progress";
-    return "pending";
-  };
-
   // ─── Recent Activities ──────────────────────────────────────────────────
 
-  // Create audit activities with proper typing
   const auditActivities: ActivityItemProps[] = auditLog.slice(0, 8).map((entry) => ({
     title: entry.action,
     description: entry.detail || `${entry.actor_name || "System"} action`,
@@ -373,7 +382,6 @@ const HelpDeskDashboard: React.FC = () => {
     status: getActivityStatus(entry.action),
   }));
 
-  // Create document activities with proper typing
   const documentActivities: ActivityItemProps[] = myMarked.slice(0, 3).map((doc) => ({
     title: `Document: ${doc.title}`,
     description: `Marked to you - ${doc.status}`,
@@ -382,7 +390,6 @@ const HelpDeskDashboard: React.FC = () => {
     icon: <FileCheck className="w-5 h-5 text-blue-500" />,
   }));
 
-  // Combine and limit
   const recentActivities: ActivityItemProps[] = [
     ...auditActivities,
     ...documentActivities,
@@ -414,7 +421,6 @@ const HelpDeskDashboard: React.FC = () => {
               </div>
 
               <div className="flex items-center space-x-3">
-                {/* Period Selector */}
                 <div className="flex rounded-lg border border-gray-200 p-1 bg-gray-50">
                   {(["today", "week", "month"] as const).map((period) => (
                     <button
@@ -431,7 +437,6 @@ const HelpDeskDashboard: React.FC = () => {
                   ))}
                 </div>
 
-                {/* Refresh */}
                 <button
                   onClick={handleRefresh}
                   disabled={isRefreshing}
@@ -442,7 +447,6 @@ const HelpDeskDashboard: React.FC = () => {
                   />
                 </button>
 
-                {/* Notifications */}
                 <button className="relative p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-gray-100">
                   <Bell className="w-5 h-5" />
                   <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
@@ -502,7 +506,7 @@ const HelpDeskDashboard: React.FC = () => {
               icon={<Activity className="w-5 h-5 text-white" />}
               color="bg-blue-500"
               subtitle="Active tasks"
-              onClick={() => navigateToTab("requests")}
+              onClick={() => navigateToTab("medicalClaims")}
             />
             <StatCard
               title="Active Visas"
@@ -540,33 +544,31 @@ const HelpDeskDashboard: React.FC = () => {
             </div>
             <div 
               className="bg-white rounded-lg border border-gray-100 p-4 text-center cursor-pointer hover:border-indigo-300 transition-colors"
-              onClick={() => navigateToTab("benches")}
+              onClick={() => navigateToTab("otherPayments")}
             >
-              <p className="text-xs text-gray-400">Benches</p>
-              <p className="text-lg font-bold text-gray-900">{benches.length}</p>
-            </div>
-            <div 
-              className="bg-white rounded-lg border border-gray-100 p-4 text-center cursor-pointer hover:border-indigo-300 transition-colors"
-              onClick={() => navigateToTab("partHeard")}
-            >
-              <p className="text-xs text-gray-400">Part-Heard</p>
-              <p className="text-lg font-bold text-gray-900">{partHeards.length}</p>
+              <p className="text-xs text-gray-400">Other Payments</p>
+              <p className="text-lg font-bold text-gray-900">{otherPayments.length}</p>
             </div>
             <div 
               className="bg-white rounded-lg border border-gray-100 p-4 text-center cursor-pointer hover:border-indigo-300 transition-colors"
               onClick={() => navigateToTab("club")}
             >
               <p className="text-xs text-gray-400">Club Members</p>
-              <p className="text-lg font-bold text-gray-900">
-                {clubMemberships.length}
-              </p>
+              <p className="text-lg font-bold text-gray-900">{clubMemberships.length}</p>
             </div>
             <div 
               className="bg-white rounded-lg border border-gray-100 p-4 text-center cursor-pointer hover:border-indigo-300 transition-colors"
-              onClick={() => navigateToTab("utilities")}
+              onClick={() => navigateToTab("medicalClaims")}
             >
-              <p className="text-xs text-gray-400">Marked to Me</p>
-              <p className="text-lg font-bold text-gray-900">{myMarked.length}</p>
+              <p className="text-xs text-gray-400">Medical Claims</p>
+              <p className="text-lg font-bold text-gray-900">{medicalClaims.length}</p>
+            </div>
+            <div 
+              className="bg-white rounded-lg border border-gray-100 p-4 text-center cursor-pointer hover:border-indigo-300 transition-colors"
+              onClick={() => navigateToTab("generalRequests")}
+            >
+              <p className="text-xs text-gray-400">General Requests</p>
+              <p className="text-lg font-bold text-gray-900">{generalRequests.length}</p>
             </div>
           </div>
 
@@ -593,26 +595,27 @@ const HelpDeskDashboard: React.FC = () => {
                   onClick={() => navigateToTab("circuits")}
                 />
                 <ModuleCard
-                  title="Judges' Requests"
-                  count={requests.length}
+                  title="Other Payments"
+                  count={otherPayments.length}
+                  icon={<CreditCard className="w-5 h-5 text-white" />}
+                  color="bg-cyan-500"
+                  onClick={() => navigateToTab("otherPayments")}
+                />
+                <ModuleCard
+                  title="Medical Claims"
+                  count={medicalClaims.length}
+                  icon={<Stethoscope className="w-5 h-5 text-white" />}
+                  color="bg-rose-500"
+                  statusBreakdown={medicalClaimStatusBreakdown}
+                  onClick={() => navigateToTab("medicalClaims")}
+                />
+                <ModuleCard
+                  title="General Requests"
+                  count={generalRequests.length}
                   icon={<Mail className="w-5 h-5 text-white" />}
                   color="bg-purple-500"
-                  statusBreakdown={requestStatusBreakdown}
-                  onClick={() => navigateToTab("requests")}
-                />
-                <ModuleCard
-                  title="Visa Support"
-                  count={visaRequests.length}
-                  icon={<Plane className="w-5 h-5 text-white" />}
-                  color="bg-green-500"
-                  onClick={() => navigateToTab("visa")}
-                />
-                <ModuleCard
-                  title="Protocol Events"
-                  count={protocolEvents.length}
-                  icon={<Calendar className="w-5 h-5 text-white" />}
-                  color="bg-amber-500"
-                  onClick={() => navigateToTab("protocol")}
+                  statusBreakdown={generalRequestStatusBreakdown}
+                  onClick={() => navigateToTab("generalRequests")}
                 />
                 <ModuleCard
                   title="Documents Marked"
@@ -674,28 +677,62 @@ const HelpDeskDashboard: React.FC = () => {
                     </div>
                     <Plus className="w-4 h-4 text-gray-300 group-hover:text-indigo-500 transition-colors" />
                   </button>
-                  {[
-                    { label: "Create Circuit", icon: <Globe />, tab: "circuits" as HelpDeskTab },
-                    { label: "New Visa Application", icon: <Plane />, tab: "visa" as HelpDeskTab },
-                    { label: "Create Protocol Event", icon: <Calendar />, tab: "protocol" as HelpDeskTab },
-                    { label: "Compose Document", icon: <FileText />, tab: "utilities" as HelpDeskTab },
-                  ].map((action, index) => (
-                    <button
-                      key={index}
-                      onClick={() => navigateToTab(action.tab)}
-                      className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors group border border-transparent hover:border-gray-100"
-                    >
-                      <div className="flex items-center space-x-3">
-                        <span className="text-gray-400 group-hover:text-indigo-500 transition-colors">
-                          {action.icon}
-                        </span>
-                        <span className="text-sm text-gray-700 group-hover:text-gray-900">
-                          {action.label}
-                        </span>
-                      </div>
-                      <Plus className="w-4 h-4 text-gray-300 group-hover:text-indigo-500 transition-colors" />
-                    </button>
-                  ))}
+                  <button
+                    onClick={() => navigateToTab("circuits")}
+                    className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors group border border-transparent hover:border-gray-100"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <span className="text-gray-400 group-hover:text-indigo-500 transition-colors">
+                        <Globe className="w-4 h-4" />
+                      </span>
+                      <span className="text-sm text-gray-700 group-hover:text-gray-900">
+                        Create Circuit
+                      </span>
+                    </div>
+                    <Plus className="w-4 h-4 text-gray-300 group-hover:text-indigo-500 transition-colors" />
+                  </button>
+                  <button
+                    onClick={() => navigateToTab("visa")}
+                    className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors group border border-transparent hover:border-gray-100"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <span className="text-gray-400 group-hover:text-indigo-500 transition-colors">
+                        <Plane className="w-4 h-4" />
+                      </span>
+                      <span className="text-sm text-gray-700 group-hover:text-gray-900">
+                        New Visa Application
+                      </span>
+                    </div>
+                    <Plus className="w-4 h-4 text-gray-300 group-hover:text-indigo-500 transition-colors" />
+                  </button>
+                  <button
+                    onClick={() => navigateToTab("protocol")}
+                    className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors group border border-transparent hover:border-gray-100"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <span className="text-gray-400 group-hover:text-indigo-500 transition-colors">
+                        <Calendar className="w-4 h-4" />
+                      </span>
+                      <span className="text-sm text-gray-700 group-hover:text-gray-900">
+                        Create Protocol Event
+                      </span>
+                    </div>
+                    <Plus className="w-4 h-4 text-gray-300 group-hover:text-indigo-500 transition-colors" />
+                  </button>
+                  <button
+                    onClick={() => navigateToTab("medicalClaims")}
+                    className="w-full flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors group border border-transparent hover:border-gray-100"
+                  >
+                    <div className="flex items-center space-x-3">
+                      <span className="text-gray-400 group-hover:text-indigo-500 transition-colors">
+                        <Stethoscope className="w-4 h-4" />
+                      </span>
+                      <span className="text-sm text-gray-700 group-hover:text-gray-900">
+                        New Medical Claim
+                      </span>
+                    </div>
+                    <Plus className="w-4 h-4 text-gray-300 group-hover:text-indigo-500 transition-colors" />
+                  </button>
                 </div>
               </div>
 
@@ -728,12 +765,28 @@ const HelpDeskDashboard: React.FC = () => {
                       <p className="text-xs text-gray-500">Active tasks</p>
                     </div>
                     <button
-                      onClick={() => navigateToTab("requests")}
+                      onClick={() => navigateToTab("medicalClaims")}
                       className="text-sm text-blue-600 hover:text-blue-700 font-medium"
                     >
                       View
                     </button>
                   </div>
+                  {medicalClaims.filter(c => c.status === "Pending").length > 0 && (
+                    <div className="flex items-center justify-between p-3 bg-rose-50 rounded-lg border border-rose-100">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">
+                          {medicalClaims.filter(c => c.status === "Pending").length} Medical Claims
+                        </p>
+                        <p className="text-xs text-gray-500">Awaiting review</p>
+                      </div>
+                      <button
+                        onClick={() => navigateToTab("medicalClaims")}
+                        className="text-sm text-rose-600 hover:text-rose-700 font-medium"
+                      >
+                        Review
+                      </button>
+                    </div>
+                  )}
                   {myMarked.length > 0 && (
                     <div className="flex items-center justify-between p-3 bg-teal-50 rounded-lg border border-teal-100">
                       <div>

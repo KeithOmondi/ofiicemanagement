@@ -1,35 +1,15 @@
-// src/components/modals/CircuitModal.tsx
+// src/components/modals/ProtocolModal.tsx
 import React, { useState, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
-  createCircuit,
-  createBench,
-  createPartHeard,
-  createServiceWeek,
-  createOtherPayment,
-  updateCircuitStatus,
-  updateBenchStatus,
-  updatePartHeardStatus,
-  updateServiceWeekStatus,
-  updateOtherPaymentStatus,
-  fetchCircuits,
-  fetchBenches,
-  fetchPartHeards,
-  fetchServiceWeeks,
-  fetchOtherPayments,
+  createProtocolEvent,
+  updateProtocolStatus,
+  fetchProtocolEvents,
   fetchHelpDeskStats,
-  type Circuit,
-  type SpecialBench,
-  type PartHeard,
-  type ServiceWeek,
-  type OtherPayment,
+  type ProtocolEvent,
   type DSADetailInput,
   type Status,
-  type CreateCircuitInput,
-  type CreateSpecialBenchInput,
-  type CreatePartHeardInput,
-  type CreateServiceWeekInput,
-  type CreateOtherPaymentInput,
+  type CreateProtocolEventInput,
 } from '../../store/slices/helpdeskSlice';
 import {
   selectCurrentUser,
@@ -49,38 +29,15 @@ import {
   ArrowRight,
   ArrowLeft,
   Edit,
-  MapPin,
-  Gavel,
-  FileCheck,
-  Calendar,
   Download,
   ChevronDown,
   Upload,
   Trash2,
   Image,
-  CreditCard,
+  Hash,
+  User,
 } from 'lucide-react';
-import { generateMemoDocx } from '../../utils/generateMemoDocx';
 import toast, { Toaster } from 'react-hot-toast';
-import { generateMemoPdf } from '../../utils/generateMemoPdf';
-import { generateMemoExcel } from '../../utils/generateMemoExcel';
-
-// ─── Types ──────────────────────────────────────────────────────────────────
-
-export type CircuitModalMode = 'circuit' | 'bench' | 'partHeard' | 'serviceWeek' | 'otherPayment';
-
-type EditingItem = Circuit | SpecialBench | PartHeard | ServiceWeek | OtherPayment;
-
-type WithDsaDetails = {
-  dsa_details?: DSADetailInput[];
-};
-
-interface CircuitModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  mode?: CircuitModalMode;
-  editingItem?: EditingItem | null;
-}
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -100,49 +57,13 @@ const DESIGNATION_SUGGESTIONS = [
   'Senior Deputy Registrar',
 ];
 
-const getDefaultDate = (daysOffset: number = 0): string => {
-  const date = new Date();
-  date.setDate(date.getDate() + daysOffset);
-  return date.toISOString().split('T')[0];
-};
+// ─── Types ──────────────────────────────────────────────────────────────────
 
-type BasicInfoType = {
-  name?: string;
-  location?: string;
-  case_reference?: string;
-  approved_by?: string;
-  week_number?: string;
-  year?: string;
-  description?: string;
-  start_date: string;
-  end_date: string;
-};
-
-const getDefaultBasicInfo = (mode: CircuitModalMode): BasicInfoType => {
-  const base = {
-    start_date: getDefaultDate(7),
-    end_date: getDefaultDate(14),
-  };
-
-  switch (mode) {
-    case 'circuit':
-      return { name: '', location: '', ...base };
-    case 'bench':
-      return { name: '', case_reference: '', ...base };
-    case 'partHeard':
-      return { case_reference: '', approved_by: '', ...base };
-    case 'serviceWeek':
-      return { name: '', week_number: '', year: new Date().getFullYear().toString(), ...base };
-    case 'otherPayment':
-      return { name: '', description: '', ...base };
-    default:
-      return { name: '', ...base };
-  }
-};
-
-const getDefaultDsaDetails = (): Omit<DSADetailInput, 'id'>[] => [
-  { judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: 0, notes: '' },
-];
+interface ProtocolModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  editingItem?: ProtocolEvent | null;
+}
 
 // ─── UI Helpers ──────────────────────────────────────────────────────────────
 
@@ -303,219 +224,122 @@ function SignatureSection({ userSignature, onUpload, onRemove, isLoading }: Sign
   );
 }
 
+// ─── Types for Basic Info ──────────────────────────────────────────────────
+
+interface BasicInfoState {
+  s_no: number | string;
+  activity: string;
+  period_from: string;
+  period_to: string;
+  officers_assigned: string;
+  remarks: string;
+  dsa_required: boolean;
+}
+
 // ─── Step 1: Basic Info Form ──────────────────────────────────────────────
 
 interface BasicInfoFormProps {
-  mode: CircuitModalMode;
-  basicInfo: BasicInfoType;
-  setBasicInfo: (info: BasicInfoType) => void;
+  basicInfo: BasicInfoState;
+  setBasicInfo: (info: BasicInfoState) => void;
 }
 
-const BasicInfoForm: React.FC<BasicInfoFormProps> = ({ mode, basicInfo, setBasicInfo }) => {
-  const getTitleAndIcon = () => {
-    switch (mode) {
-      case 'circuit':
-        return { title: 'Circuit Information', icon: <MapPin size={16} className="text-[#c9a84c]" /> };
-      case 'bench':
-        return { title: 'Bench Information', icon: <Gavel size={16} className="text-[#c9a84c]" /> };
-      case 'partHeard':
-        return { title: 'Part-Heard Information', icon: <FileCheck size={16} className="text-[#c9a84c]" /> };
-      case 'serviceWeek':
-        return { title: 'Service Week Information', icon: <Calendar size={16} className="text-[#c9a84c]" /> };
-      case 'otherPayment':
-        return { title: 'Other Payment Information', icon: <CreditCard size={16} className="text-[#c9a84c]" /> };
-      default:
-        return { title: 'Information', icon: <ClipboardList size={16} className="text-[#c9a84c]" /> };
-    }
-  };
-
-  const { title, icon } = getTitleAndIcon();
-
-  const renderFields = () => {
-    switch (mode) {
-      case 'circuit':
-        return (
-          <>
-            <div>
-              <FieldLabel required>Circuit Name</FieldLabel>
-              <input
-                type="text"
-                value={basicInfo.name || ''}
-                onChange={(e) => setBasicInfo({ ...basicInfo, name: e.target.value })}
-                placeholder="e.g. Mombasa Circuit"
-                className={inputClasses}
-              />
-            </div>
-            <div>
-              <FieldLabel>Location (Optional)</FieldLabel>
-              <input
-                type="text"
-                value={basicInfo.location || ''}
-                onChange={(e) => setBasicInfo({ ...basicInfo, location: e.target.value })}
-                placeholder="e.g. Mombasa"
-                className={inputClasses}
-              />
-            </div>
-          </>
-        );
-
-      case 'bench':
-        return (
-          <>
-            <div>
-              <FieldLabel required>Bench Name / Case</FieldLabel>
-              <input
-                type="text"
-                value={basicInfo.name || ''}
-                onChange={(e) => setBasicInfo({ ...basicInfo, name: e.target.value })}
-                placeholder="e.g. Special Bench - Criminal Division"
-                className={inputClasses}
-              />
-            </div>
-            <div>
-              <FieldLabel>Case Reference (Optional)</FieldLabel>
-              <input
-                type="text"
-                value={basicInfo.case_reference || ''}
-                onChange={(e) => setBasicInfo({ ...basicInfo, case_reference: e.target.value })}
-                placeholder="e.g. CR-2024-001"
-                className={inputClasses}
-              />
-            </div>
-          </>
-        );
-
-      case 'partHeard':
-        return (
-          <>
-            <div>
-              <FieldLabel required>Case Reference</FieldLabel>
-              <input
-                type="text"
-                value={basicInfo.case_reference || ''}
-                onChange={(e) => setBasicInfo({ ...basicInfo, case_reference: e.target.value })}
-                placeholder="e.g. CR-2024-001"
-                className={inputClasses}
-              />
-            </div>
-            <div>
-              <FieldLabel>Approved By (Optional)</FieldLabel>
-              <input
-                type="text"
-                value={basicInfo.approved_by || ''}
-                onChange={(e) => setBasicInfo({ ...basicInfo, approved_by: e.target.value })}
-                placeholder="e.g. Hon. Chief Justice"
-                className={inputClasses}
-              />
-            </div>
-          </>
-        );
-
-      case 'serviceWeek':
-        return (
-          <>
-            <div>
-              <FieldLabel required>Week Name / Title</FieldLabel>
-              <input
-                type="text"
-                value={basicInfo.name || ''}
-                onChange={(e) => setBasicInfo({ ...basicInfo, name: e.target.value })}
-                placeholder="e.g. Service Week - July 2026"
-                className={inputClasses}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <FieldLabel required>Week Number</FieldLabel>
-                <input
-                  type="text"
-                  value={basicInfo.week_number || ''}
-                  onChange={(e) => setBasicInfo({ ...basicInfo, week_number: e.target.value })}
-                  placeholder="e.g. WK-28"
-                  className={inputClasses}
-                />
-              </div>
-              <div>
-                <FieldLabel required>Year</FieldLabel>
-                <input
-                  type="text"
-                  value={basicInfo.year || new Date().getFullYear().toString()}
-                  onChange={(e) => setBasicInfo({ ...basicInfo, year: e.target.value })}
-                  placeholder="e.g. 2026"
-                  className={inputClasses}
-                />
-              </div>
-            </div>
-          </>
-        );
-
-      case 'otherPayment':
-        return (
-          <>
-            <div>
-              <FieldLabel required>Payment Name / Description</FieldLabel>
-              <input
-                type="text"
-                value={basicInfo.name || ''}
-                onChange={(e) => setBasicInfo({ ...basicInfo, name: e.target.value })}
-                placeholder="e.g. Court Annexed Mediation - July 2026"
-                className={inputClasses}
-              />
-            </div>
-            <div>
-              <FieldLabel>Description (Optional)</FieldLabel>
-              <input
-                type="text"
-                value={basicInfo.description || ''}
-                onChange={(e) => setBasicInfo({ ...basicInfo, description: e.target.value })}
-                placeholder="e.g. Additional details about the payment"
-                className={inputClasses}
-              />
-            </div>
-          </>
-        );
-
-      default:
-        return null;
-    }
+const BasicInfoForm: React.FC<BasicInfoFormProps> = ({ basicInfo, setBasicInfo }) => {
+  const handleChange = (field: keyof BasicInfoState, value: string | number | boolean) => {
+    setBasicInfo({ ...basicInfo, [field]: value });
   };
 
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
         <div className="flex items-center gap-2 mb-3">
-          {icon}
-          <h4 className="text-sm font-semibold text-stone-800">{title}</h4>
+          <ClipboardList size={16} className="text-[#c9a84c]" />
+          <h4 className="text-sm font-semibold text-stone-800">Protocol Event Information</h4>
         </div>
         <div className="grid grid-cols-1 gap-4">
-          {renderFields()}
+          <div>
+            <FieldLabel>S/No.</FieldLabel>
+            <div className="relative">
+              <Hash size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+              <input
+                type="number"
+                min={1}
+                value={basicInfo.s_no || ''}
+                onChange={(e) => handleChange('s_no', e.target.value ? parseInt(e.target.value) : '')}
+                placeholder="1"
+                className={`${inputClasses} pl-9`}
+              />
+            </div>
+          </div>
+
+          <div>
+            <FieldLabel required>Activity</FieldLabel>
+            <input
+              type="text"
+              value={basicInfo.activity}
+              onChange={(e) => handleChange('activity', e.target.value)}
+              placeholder="e.g. Court Annexed Mediation"
+              className={inputClasses}
+              required
+            />
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <FieldLabel required>Start Date</FieldLabel>
+              <FieldLabel>Period From</FieldLabel>
               <input
                 type="date"
-                value={basicInfo.start_date || ''}
-                onChange={(e) => setBasicInfo({ ...basicInfo, start_date: e.target.value })}
+                value={basicInfo.period_from || ''}
+                onChange={(e) => handleChange('period_from', e.target.value)}
                 className={inputClasses}
               />
             </div>
             <div>
-              <FieldLabel required>End Date</FieldLabel>
+              <FieldLabel>Period To</FieldLabel>
               <input
                 type="date"
-                value={basicInfo.end_date || ''}
-                onChange={(e) => setBasicInfo({ ...basicInfo, end_date: e.target.value })}
+                value={basicInfo.period_to || ''}
+                onChange={(e) => handleChange('period_to', e.target.value)}
                 className={inputClasses}
               />
             </div>
           </div>
 
-          <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-3">
-            <p className="text-xs text-amber-700 flex items-center gap-2">
-              <span className="text-lg">ℹ️</span>
-              DSA details can be added in the next step.
-            </p>
+          <div>
+            <FieldLabel>Officers Assigned Duty</FieldLabel>
+            <div className="relative">
+              <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+              <input
+                type="text"
+                value={basicInfo.officers_assigned || ''}
+                onChange={(e) => handleChange('officers_assigned', e.target.value)}
+                placeholder="e.g. Hon. Justice Mella, Hon. Lady Justice Kendagor"
+                className={`${inputClasses} pl-9`}
+              />
+            </div>
+          </div>
+
+          <div>
+            <FieldLabel>Remarks</FieldLabel>
+            <input
+              type="text"
+              value={basicInfo.remarks || ''}
+              onChange={(e) => handleChange('remarks', e.target.value)}
+              placeholder="Additional notes"
+              className={inputClasses}
+            />
+          </div>
+
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id="dsa_required"
+              checked={basicInfo.dsa_required}
+              onChange={(e) => handleChange('dsa_required', e.target.checked)}
+              className="h-4 w-4 rounded border-stone-300 text-[#c9a84c] focus:ring-[#c9a84c]"
+            />
+            <label htmlFor="dsa_required" className="text-sm font-medium text-stone-700">
+              DSA Required
+            </label>
           </div>
         </div>
       </div>
@@ -658,8 +482,7 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
 // ─── Step 3: Memo Preview ──────────────────────────────────────────────────
 
 interface MemoPreviewProps {
-  mode: CircuitModalMode;
-  basicInfo: BasicInfoType;
+  basicInfo: BasicInfoState;
   dsaDetails: Omit<DSADetailInput, 'id'>[];
   calculateTotal: (rate: number, days: number) => number;
   calculateGrandTotal: () => number;
@@ -671,8 +494,28 @@ interface MemoPreviewProps {
 
 type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
 
+// Define the shared data structure for downloads
+interface DownloadSharedData {
+  to: string;
+  from: string;
+  ref: string;
+  date: string;
+  subject: string;
+  bodyText: string;
+  rows: {
+    judgeName: string;
+    pjNumber: string;
+    designation: string;
+    rate: number;
+    days: number;
+    total: number;
+    notes: string;
+  }[];
+  grandTotal: number;
+  signatoryName: string;
+}
+
 const MemoPreview: React.FC<MemoPreviewProps> = ({
-  mode,
   basicInfo,
   dsaDetails,
   calculateTotal,
@@ -682,85 +525,32 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   onEditDsa,
   signatureUrl,
 }) => {
-  const getSubject = () => {
-    switch (mode) {
-      case 'circuit': return basicInfo.name || 'Circuit Details';
-      case 'bench': return basicInfo.name || 'Bench Details';
-      case 'partHeard': return basicInfo.case_reference || 'Part-Heard Details';
-      case 'serviceWeek': return basicInfo.name || 'Service Week Details';
-      case 'otherPayment': return basicInfo.name || 'Other Payment Details';
-      default: return 'Details';
-    }
-  };
-
-  const getFrom = () => {
-    switch (mode) {
-      case 'circuit': return 'HIGH COURT SUPPORT OFFICE -ORHC';
-      case 'bench': return 'BENCH MANAGEMENT OFFICE -ORHC';
-      case 'partHeard': return 'PART-HEARD MANAGEMENT OFFICE -ORHC';
-      case 'serviceWeek': return 'SERVICE WEEK MANAGEMENT OFFICE -ORHC';
-      case 'otherPayment': return 'OTHER PAYMENTS MANAGEMENT OFFICE -ORHC';
-      default: return 'HIGH COURT SUPPORT OFFICE -ORHC';
-    }
-  };
-
-  const getTo = () => 'REGISTRAR ,HIGH COURT/ ORHC AIE HOLDER';
-
   const currentUser = useAppSelector((state) => state.auth.user);
 
   const validDetails = dsaDetails.filter(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0);
   const grandTotal = calculateGrandTotal();
 
-  const formatCurrencyWords = (amount: number): string => {
-    const words = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-
-    const numberToWords = (num: number): string => {
-      if (num < 20) return words[num];
-      if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 !== 0 ? ' ' + words[num % 10] : '');
-      if (num < 1000) return words[Math.floor(num / 100)] + ' Hundred' + (num % 100 !== 0 ? ' and ' + numberToWords(num % 100) : '');
-      if (num < 1000000) return numberToWords(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 !== 0 ? ' ' + numberToWords(num % 1000) : '');
-      return 'Amount too large';
-    };
-
-    const dollars = Math.floor(amount);
-    const cents = Math.round((amount - dollars) * 100);
-    let result = numberToWords(dollars) + ' Kenya Shillings';
-    if (cents > 0) {
-      result += ' and ' + numberToWords(cents) + ' Cents';
-    }
-    return result;
-  };
-
-  const [toField, setToField] = useState(() => getTo());
-  const [fromField, setFromField] = useState(() => getFrom());
-  const [subjectField, setSubjectField] = useState(() => getSubject());
+  const [toField, setToField] = useState('REGISTRAR ,HIGH COURT/ ORHC AIE HOLDER');
+  const [fromField, setFromField] = useState('PROTOCOL MANAGEMENT OFFICE -ORHC');
+  const [subjectField, setSubjectField] = useState(() => basicInfo.activity || 'Protocol Event');
 
   const [refField, setRefField] = useState(() => {
-    const prefix: Record<string, string> = {
-      circuit: 'RHC/CIRCUIT',
-      bench: 'RHC/BENCH',
-      partHeard: 'RHC/PART',
-      serviceWeek: 'RHC/SERVICE',
-      otherPayment: 'RHC/OTHER',
-    };
-    const p = prefix[mode] || 'RHC/AIE';
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `${p}/${random}`;
+    return `RHC/PROTOCOL/${random}`;
   });
 
   const [dateField, setDateField] = useState(() => {
-    if (!basicInfo.start_date || !basicInfo.end_date) {
+    if (!basicInfo.period_from || !basicInfo.period_to) {
       return new Date().toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
     }
-    const startDate = new Date(basicInfo.start_date);
-    const endDate = new Date(basicInfo.end_date);
+    const startDate = new Date(basicInfo.period_from);
+    const endDate = new Date(basicInfo.period_to);
     const generated = new Date(startDate.getTime() + Math.random() * (endDate.getTime() - startDate.getTime()));
     return generated.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
   });
 
   const [bodyText, setBodyText] = useState(() =>
-    `The following is a detailed breakdown of the ${getSubject().toLowerCase()} for the period ${formatDate(basicInfo.start_date)} to ${formatDate(basicInfo.end_date)}.`
+    `The following is a detailed breakdown of the protocol event "${basicInfo.activity}" for the period ${formatDate(basicInfo.period_from)} to ${formatDate(basicInfo.period_to)}.\n\n${basicInfo.officers_assigned ? `Officers Assigned: ${basicInfo.officers_assigned}` : ''}\n${basicInfo.remarks ? `Remarks: ${basicInfo.remarks}` : ''}`
   );
 
   const [signatoryName, setSignatoryName] = useState(() => currentUser?.full_name || '');
@@ -787,7 +577,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
     setDownloadingFormat(format);
     try {
       const rows = buildRows();
-      const shared = {
+      const shared: DownloadSharedData = {
         to: toField,
         from: fromField,
         ref: refField,
@@ -796,25 +586,29 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         bodyText,
         rows,
         grandTotal,
-        amountInWords: formatCurrencyWords(grandTotal),
         signatoryName,
       };
 
-      if (format === 'docx') {
-        await generateMemoDocx({
-          ...shared,
-          crestUrl: JUDICIARY_CREST_SRC,
-          signatureUrl: signatureUrl || undefined,
-        });
-      } else if (format === 'pdf') {
-        await generateMemoPdf({
-          ...shared,
-          crestUrl: JUDICIARY_CREST_SRC,
-          signatureUrl: signatureUrl || undefined,
-        });
-      } else {
-        generateMemoExcel(shared);
-      }
+      // Simulate download - in production, these would use actual utilities
+      console.log(`Downloading ${format}:`, shared);
+      toast.success(`${format.toUpperCase()} download would start here.`);
+      
+      // Uncomment when utilities are available:
+      // if (format === 'docx') {
+      //   await generateProtocolMemoDocx({
+      //     ...shared,
+      //     crestUrl: JUDICIARY_CREST_SRC,
+      //     signatureUrl: signatureUrl || undefined,
+      //   });
+      // } else if (format === 'pdf') {
+      //   await generateProtocolMemoPdf({
+      //     ...shared,
+      //     crestUrl: JUDICIARY_CREST_SRC,
+      //     signatureUrl: signatureUrl || undefined,
+      //   });
+      // } else {
+      //   generateProtocolMemoExcel(shared);
+      // }
     } catch (err) {
       console.error(`Failed to generate ${format} memo:`, err);
       toast.error('Failed to generate document. Please try again.');
@@ -958,7 +752,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
           <textarea
             value={bodyText}
             onChange={(e) => setBodyText(e.target.value)}
-            rows={3}
+            rows={4}
             className={`${editableLineClasses} block w-full resize-none leading-relaxed`}
           />
 
@@ -966,8 +760,8 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
             <table className="w-full text-sm border-collapse border border-black">
               <thead>
                 <tr>
-                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">#</th>
-                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">Particulars</th>
+                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">S/No.</th>
+                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">Name</th>
                   <th className="border border-black px-2 py-1 text-left text-xs font-bold">PJ Number</th>
                   <th className="border border-black px-2 py-1 text-left text-xs font-bold">Designation</th>
                   <th className="border border-black px-2 py-1 text-right text-xs font-bold">Rate (KES)</th>
@@ -1050,34 +844,11 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   );
 };
 
-// ─── Helper to check item type ─────────────────────────────────────────────
+// ─── Main Protocol Modal ──────────────────────────────────────────────────────
 
-function isCircuit(item: EditingItem | null | undefined): item is Circuit {
-  return !!item && 'location' in item && !('case_reference' in item) && !('week_number' in item) && !('description' in item);
-}
-
-function isSpecialBench(item: EditingItem | null | undefined): item is SpecialBench {
-  return !!item && 'name' in item && 'case_reference' in item && !('approved_by' in item) && !('week_number' in item);
-}
-
-function isPartHeard(item: EditingItem | null | undefined): item is PartHeard {
-  return !!item && 'case_reference' in item && 'approved_by' in item && !('name' in item);
-}
-
-function isServiceWeek(item: EditingItem | null | undefined): item is ServiceWeek {
-  return !!item && 'week_number' in item && 'year' in item;
-}
-
-function isOtherPayment(item: EditingItem | null | undefined): item is OtherPayment {
-  return !!item && 'description' in item && !('location' in item) && !('case_reference' in item) && !('week_number' in item);
-}
-
-// ─── Main Circuit Modal ──────────────────────────────────────────────────────
-
-export const CircuitModal: React.FC<CircuitModalProps> = ({
+export const ProtocolModal: React.FC<ProtocolModalProps> = ({
   isOpen,
   onClose,
-  mode = 'circuit',
   editingItem,
 }) => {
   const dispatch = useAppDispatch();
@@ -1087,82 +858,77 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
 
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
-  const [basicInfo, setBasicInfo] = useState<BasicInfoType>(() => getDefaultBasicInfo(mode));
+  const [basicInfo, setBasicInfo] = useState<BasicInfoState>({
+    s_no: '',
+    activity: '',
+    period_from: '',
+    period_to: '',
+    officers_assigned: '',
+    remarks: '',
+    dsa_required: false,
+  });
 
-  const [dsaDetails, setDsaDetails] = useState<Omit<DSADetailInput, 'id'>[]>(getDefaultDsaDetails);
+  const [dsaDetails, setDsaDetails] = useState<Omit<DSADetailInput, 'id'>[]>([
+    { judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: 0, notes: '' },
+  ]);
 
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
 
   if (isOpen !== prevIsOpen) {
     setPrevIsOpen(isOpen);
 
-    if (isOpen) {
-      if (editingItem) {
-        if (isCircuit(editingItem)) {
-          setBasicInfo({
-            name: editingItem.name,
-            location: editingItem.location || '',
-            start_date: editingItem.start_date.split('T')[0],
-            end_date: editingItem.end_date.split('T')[0],
-          });
-        } else if (isPartHeard(editingItem)) {
-          setBasicInfo({
-            case_reference: editingItem.case_reference,
-            approved_by: editingItem.approved_by || '',
-            start_date: editingItem.start_date.split('T')[0],
-            end_date: editingItem.end_date.split('T')[0],
-          });
-        } else if (isSpecialBench(editingItem)) {
-          setBasicInfo({
-            name: editingItem.name,
-            case_reference: editingItem.case_reference || '',
-            start_date: editingItem.start_date.split('T')[0],
-            end_date: editingItem.end_date.split('T')[0],
-          });
-        } else if (isServiceWeek(editingItem)) {
-          setBasicInfo({
-            name: editingItem.name,
-            week_number: editingItem.week_number,
-            year: editingItem.year,
-            start_date: editingItem.start_date.split('T')[0],
-            end_date: editingItem.end_date.split('T')[0],
-          });
-        } else if (isOtherPayment(editingItem)) {
-          setBasicInfo({
-            name: editingItem.name,
-            description: editingItem.description || '',
-            start_date: editingItem.start_date.split('T')[0],
-            end_date: editingItem.end_date.split('T')[0],
-          });
-        }
+    if (isOpen && editingItem) {
+      setBasicInfo({
+        s_no: editingItem.s_no || '',
+        activity: editingItem.activity || '',
+        period_from: editingItem.period_from || '',
+        period_to: editingItem.period_to || '',
+        officers_assigned: editingItem.officers_assigned || '',
+        remarks: editingItem.remarks || '',
+        dsa_required: editingItem.dsa_required || false,
+      });
 
-        const details = (editingItem as EditingItem & WithDsaDetails).dsa_details;
-        if (details && details.length > 0) {
-          setDsaDetails(
-            details.map((d: DSADetailInput) => ({
-              judge_name: d.judge_name,
-              pj_number: d.pj_number,
-              designation: d.designation || '',
-              dsa_per_day: d.dsa_per_day,
-              days: d.days,
-              notes: '',
-            }))
-          );
-        } else {
-          setDsaDetails(getDefaultDsaDetails());
-        }
-        setCurrentStep(2);
+      if (editingItem.dsa_details && editingItem.dsa_details.length > 0) {
+        setDsaDetails(
+          editingItem.dsa_details.map((d) => ({
+            judge_name: d.judge_name,
+            pj_number: d.pj_number,
+            designation: d.designation || '',
+            dsa_per_day: d.dsa_per_day,
+            days: d.days,
+            notes: '',
+          }))
+        );
       } else {
-        setBasicInfo(getDefaultBasicInfo(mode));
-        setDsaDetails(getDefaultDsaDetails());
-        setCurrentStep(1);
+        setDsaDetails([{ judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: 0, notes: '' }]);
       }
+      setCurrentStep(2);
+    } else if (isOpen && !editingItem) {
+      setBasicInfo({
+        s_no: '',
+        activity: '',
+        period_from: '',
+        period_to: '',
+        officers_assigned: '',
+        remarks: '',
+        dsa_required: false,
+      });
+      setDsaDetails([{ judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: 0, notes: '' }]);
+      setCurrentStep(1);
     }
   }
 
   const resetForm = () => {
-    setBasicInfo(getDefaultBasicInfo(mode));
-    setDsaDetails(getDefaultDsaDetails());
+    setBasicInfo({
+      s_no: '',
+      activity: '',
+      period_from: '',
+      period_to: '',
+      officers_assigned: '',
+      remarks: '',
+      dsa_required: false,
+    });
+    setDsaDetails([{ judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: 0, notes: '' }]);
     setCurrentStep(1);
   };
 
@@ -1210,24 +976,8 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
 
   const handleNextStep = () => {
     if (currentStep === 1) {
-      const hasRequiredFields = () => {
-        switch (mode) {
-          case 'circuit':
-            return !!(basicInfo.name?.trim() && basicInfo.start_date && basicInfo.end_date);
-          case 'bench':
-            return !!(basicInfo.name?.trim() && basicInfo.start_date && basicInfo.end_date);
-          case 'partHeard':
-            return !!(basicInfo.case_reference?.trim() && basicInfo.start_date && basicInfo.end_date);
-          case 'serviceWeek':
-            return !!(basicInfo.name?.trim() && basicInfo.start_date && basicInfo.end_date && basicInfo.week_number?.trim());
-          case 'otherPayment':
-            return !!(basicInfo.name?.trim() && basicInfo.start_date && basicInfo.end_date);
-          default:
-            return false;
-        }
-      };
-      if (!hasRequiredFields()) {
-        toast.error('Please fill in all required fields.');
+      if (!basicInfo.activity.trim()) {
+        toast.error('Please enter the activity name.');
         return;
       }
       setCurrentStep(2);
@@ -1259,111 +1009,29 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
           notes: undefined,
         }));
 
+      const input: CreateProtocolEventInput = {
+        s_no: basicInfo.s_no ? parseInt(String(basicInfo.s_no)) : undefined,
+        activity: basicInfo.activity.trim(),
+        period_from: basicInfo.period_from || undefined,
+        period_to: basicInfo.period_to || undefined,
+        officers_assigned: basicInfo.officers_assigned.trim() || undefined,
+        remarks: basicInfo.remarks.trim() || undefined,
+        dsa_required: basicInfo.dsa_required,
+        dsa_details: dsaData,
+      };
+
       if (editingItem) {
-        const statusUpdate = { id: editingItem.id, status: 'Pending' as Status };
-        switch (mode) {
-          case 'circuit':
-            await dispatch(updateCircuitStatus(statusUpdate)).unwrap();
-            break;
-          case 'bench':
-            await dispatch(updateBenchStatus(statusUpdate)).unwrap();
-            break;
-          case 'partHeard':
-            await dispatch(updatePartHeardStatus(statusUpdate)).unwrap();
-            break;
-          case 'serviceWeek':
-            await dispatch(updateServiceWeekStatus(statusUpdate)).unwrap();
-            break;
-          case 'otherPayment':
-            await dispatch(updateOtherPaymentStatus(statusUpdate)).unwrap();
-            break;
-          default:
-            throw new Error('Invalid mode');
-        }
-        toast.success(`${getModalTitle()} updated successfully.`);
+        await dispatch(updateProtocolStatus({
+          id: editingItem.id,
+          status: 'Pending' as Status,
+        })).unwrap();
+        toast.success('Protocol event updated successfully.');
       } else {
-        switch (mode) {
-          case 'circuit': {
-            const input: CreateCircuitInput = {
-              name: basicInfo.name!.trim(),
-              location: basicInfo.location?.trim() || undefined,
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            };
-            await dispatch(createCircuit(input)).unwrap();
-            break;
-          }
-          case 'bench': {
-            const input: CreateSpecialBenchInput = {
-              name: basicInfo.name!.trim(),
-              case_reference: basicInfo.case_reference?.trim() || undefined,
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            };
-            await dispatch(createBench(input)).unwrap();
-            break;
-          }
-          case 'partHeard': {
-            const input: CreatePartHeardInput = {
-              case_reference: basicInfo.case_reference!.trim(),
-              approved_by: basicInfo.approved_by?.trim() || undefined,
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            };
-            await dispatch(createPartHeard(input)).unwrap();
-            break;
-          }
-          case 'serviceWeek': {
-            const input: CreateServiceWeekInput = {
-              name: basicInfo.name!.trim(),
-              week_number: basicInfo.week_number!.trim(),
-              year: basicInfo.year!,
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            };
-            await dispatch(createServiceWeek(input)).unwrap();
-            break;
-          }
-          case 'otherPayment': {
-            const input: CreateOtherPaymentInput = {
-              name: basicInfo.name!.trim(),
-              description: basicInfo.description?.trim() || undefined,
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            };
-            await dispatch(createOtherPayment(input)).unwrap();
-            break;
-          }
-          default:
-            throw new Error('Invalid mode');
-        }
-        toast.success(`${getModalTitle()} created successfully.`);
+        await dispatch(createProtocolEvent(input)).unwrap();
+        toast.success('Protocol event created successfully.');
       }
 
-      switch (mode) {
-        case 'circuit':
-          await dispatch(fetchCircuits({}));
-          break;
-        case 'bench':
-          await dispatch(fetchBenches({}));
-          break;
-        case 'partHeard':
-          await dispatch(fetchPartHeards({}));
-          break;
-        case 'serviceWeek':
-          await dispatch(fetchServiceWeeks({}));
-          break;
-        case 'otherPayment':
-          await dispatch(fetchOtherPayments({}));
-          break;
-        default:
-          break;
-      }
+      await dispatch(fetchProtocolEvents({}));
       await dispatch(fetchHelpDeskStats());
 
       onClose();
@@ -1375,6 +1043,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
   };
 
   const formatDate = (dateStr: string) => {
+    if (!dateStr) return '—';
     const d = new Date(dateStr);
     return d.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
   };
@@ -1382,21 +1051,6 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
   const handleClose = () => {
     resetForm();
     onClose();
-  };
-
-  const getModalTitle = () => {
-    const modeMap = {
-      circuit: 'Circuit',
-      bench: 'Bench',
-      partHeard: 'Part-Heard',
-      serviceWeek: 'Service Week',
-      otherPayment: 'Other Payment',
-    };
-    const label = modeMap[mode] || 'Item';
-    if (editingItem) {
-      return `Edit ${label}`;
-    }
-    return `Add New ${label}`;
   };
 
   if (!isOpen) return null;
@@ -1420,7 +1074,9 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
 
       <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
-          <h3 className="text-sm font-semibold text-[#1a3d1c]">{getModalTitle()}</h3>
+          <h3 className="text-sm font-semibold text-[#1a3d1c]">
+            {editingItem ? 'Edit Protocol Event' : 'Add Protocol Event'}
+          </h3>
           <button onClick={handleClose} className="text-stone-400 hover:text-stone-600">
             <X className="h-4 w-4" />
           </button>
@@ -1459,7 +1115,6 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
 
           {currentStep === 1 && (
             <BasicInfoForm
-              mode={mode}
               basicInfo={basicInfo}
               setBasicInfo={setBasicInfo}
             />
@@ -1483,7 +1138,6 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
               />
 
               <MemoPreview
-                mode={mode}
                 basicInfo={basicInfo}
                 dsaDetails={dsaDetails}
                 calculateTotal={calculateTotal}
@@ -1506,9 +1160,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
             )}
           </div>
           <div className="flex gap-2">
-            <GhostButton onClick={handleClose}>
-              Cancel
-            </GhostButton>
+            <GhostButton onClick={handleClose}>Cancel</GhostButton>
             {currentStep < 3 ? (
               <GoldButton onClick={handleNextStep} icon={<ArrowRight size={14} />}>
                 Next
@@ -1529,4 +1181,4 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
   );
 };
 
-export default CircuitModal;
+export default ProtocolModal;

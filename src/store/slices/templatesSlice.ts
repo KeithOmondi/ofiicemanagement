@@ -1,203 +1,320 @@
 // src/store/slices/templatesSlice.ts
-import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
-import type { AxiosError } from 'axios';
-import { GLOBAL_KEY, type GroupedTemplates, type TemplatesState, type TemplateType } from '../../types/templates.types';
-import { templatesApi } from '../../templates/templates.api';
+import { createSlice, createAsyncThunk } from "@reduxjs/toolkit";
+import type { AxiosError } from "axios";
+import { GLOBAL_KEY, type DocumentTemplate, type TemplateType } from "../../types/templates.types";
+import axiosClient from "../../api/api";
+
+interface TemplatesState {
+  byDepartment: Record<string, Partial<Record<TemplateType, DocumentTemplate>>>;
+  all: DocumentTemplate[];
+  loading: boolean;
+  uploading: boolean;
+  error: string | null;
+}
 
 const initialState: TemplatesState = {
   byDepartment: {},
-  grouped: null,
-  history: {},
-  status: 'idle',
-  uploadStatus: 'idle',
+  all: [],
+  loading: false,
+  uploading: false,
   error: null,
 };
 
-function getErrorMessage(err: unknown, fallback: string): string {
-  const axiosErr = err as AxiosError<{ message?: string }>;
-  return axiosErr.response?.data?.message ?? fallback;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function normalizeTemplateList(payload: unknown): DocumentTemplate[] {
+  console.log('[templatesSlice] normalizeTemplateList called with:', payload);
+  
+  if (Array.isArray(payload)) {
+    console.log(`[templatesSlice] Payload is array with ${payload.length} items`);
+    return payload;
+  }
+
+  if (payload && typeof payload === "object") {
+    const obj = payload as Record<string, unknown>;
+    
+    // Check for data array (backend response shape)
+    if (Array.isArray(obj.data)) {
+      console.log(`[templatesSlice] Found data array with ${obj.data.length} items`);
+      return obj.data as DocumentTemplate[];
+    }
+    
+    // Check for templates array
+    if (Array.isArray(obj.templates)) {
+      console.log(`[templatesSlice] Found templates array with ${obj.templates.length} items`);
+      return obj.templates as DocumentTemplate[];
+    }
+    
+    // Check for rows array
+    if (Array.isArray(obj.rows)) {
+      console.log(`[templatesSlice] Found rows array with ${obj.rows.length} items`);
+      return obj.rows as DocumentTemplate[];
+    }
+  }
+
+  console.log('[templatesSlice] No valid template list found, returning empty array');
+  return [];
 }
 
-// helper: real department_id (or null) -> the key used in byDepartment/history
-const keyFor = (departmentId: string | null) => departmentId ?? GLOBAL_KEY;
-
-// ── Thunks ────────────────────────────────────────────────────────────────
-
-export const fetchGroupedTemplates = createAsyncThunk(
-  'templates/fetchGrouped',
-  async (_: void, { rejectWithValue }) => {
-    try {
-      return await templatesApi.listAllGrouped();
-    } catch (err) {
-      return rejectWithValue(getErrorMessage(err, 'Failed to load templates'));
-    }
-  }
-);
-
-export const fetchDepartmentTemplates = createAsyncThunk(
-  'templates/fetchForDepartment',
-  async (departmentId: string, { rejectWithValue }) => {
-    try {
-      const templates = await templatesApi.listForDepartment(departmentId);
-      return { departmentId, templates };
-    } catch (err) {
-      return rejectWithValue(getErrorMessage(err, 'Failed to load department templates'));
-    }
-  }
-);
+// ─── Thunks ───────────────────────────────────────────────────────────────────
 
 export const fetchActiveTemplate = createAsyncThunk(
-  'templates/fetchActive',
+  "templates/fetchActive",
   async (
     { departmentId, type }: { departmentId: string | null; type: TemplateType },
     { rejectWithValue }
   ) => {
+    console.log(`[templatesSlice] fetchActiveTemplate called: departmentId=${departmentId || 'global'}, type=${type}`);
+    
     try {
-      const template = await templatesApi.getActive(departmentId, type);
+      const params: Record<string, string> = { type };
+      if (departmentId) {
+        params.department_id = departmentId;
+        console.log(`[templatesSlice] Including department_id: ${departmentId}`);
+      }
+      
+      console.log(`[templatesSlice] Making request to /templates/active with params:`, params);
+      const { data } = await axiosClient.get("/templates/active", { params });
+      console.log(`[templatesSlice] fetchActiveTemplate response:`, data);
+      
+      // Backend returns: { success: true, data: { template: DocumentTemplate | null } }
+      const template = data.data?.template as DocumentTemplate | null;
+      console.log(`[templatesSlice] Template found:`, template ? `yes (${template.id})` : 'no');
+      
       return { departmentId, type, template };
     } catch (err) {
-      return rejectWithValue(getErrorMessage(err, `No ${type} template found`));
+      const error = err as AxiosError<{ message: string }>;
+      console.error(`[templatesSlice] fetchActiveTemplate error:`, error);
+      console.error(`[templatesSlice] Error response:`, error.response?.data);
+      return rejectWithValue(error.response?.data?.message ?? "Failed to fetch template");
     }
   },
-  {
-    condition: ({ departmentId, type }, { getState }) => {
-      const state = getState() as { templates: TemplatesState };
-      const cached = state.templates.byDepartment[keyFor(departmentId)]?.[type];
-      return !cached;
-    },
-  }
 );
 
-export const fetchTemplateHistory = createAsyncThunk(
-  'templates/fetchHistory',
-  async (
-    { departmentId, type }: { departmentId: string | null; type: TemplateType },
-    { rejectWithValue }
-  ) => {
+export const fetchAllTemplates = createAsyncThunk(
+  "templates/fetchAll",
+  async (_, { rejectWithValue }) => {
+    console.log('[templatesSlice] fetchAllTemplates called');
+    
     try {
-      const history = await templatesApi.getHistory(departmentId, type);
-      return { departmentId, type, history };
+      console.log('[templatesSlice] Making request to /templates');
+      const { data } = await axiosClient.get("/templates");
+      console.log('[templatesSlice] fetchAllTemplates response:', data);
+      
+      // Backend returns: { success: true, data: DocumentTemplate[] }
+      const templates = data.data || [];
+      console.log(`[templatesSlice] fetchAllTemplates found ${templates.length} templates`);
+      
+      // Log each template for debugging
+      templates.forEach((t: DocumentTemplate) => {
+        console.log(`  Template: ${t.id} | ${t.type} | dept: ${t.department_id || 'global'} | active: ${t.is_active}`);
+      });
+      
+      return templates;
     } catch (err) {
-      return rejectWithValue(getErrorMessage(err, 'Failed to load template history'));
+      const error = err as AxiosError<{ message: string }>;
+      console.error('[templatesSlice] fetchAllTemplates error:', error);
+      return rejectWithValue(error.response?.data?.message ?? "Failed to fetch templates");
     }
-  }
+  },
 );
 
 export const uploadTemplate = createAsyncThunk(
-  'templates/upload',
+  "templates/upload",
   async (
-    { departmentId, type, file }: { departmentId: string | null; type: TemplateType; file: File },
+    { file, type, departmentId }: { file: File; type: TemplateType; departmentId?: string },
     { rejectWithValue }
   ) => {
+    console.log(`[templatesSlice] uploadTemplate called: type=${type}, departmentId=${departmentId || 'global'}`);
+    console.log(`[templatesSlice] File: ${file.name}, size: ${file.size} bytes`);
+    
     try {
-      const template = await templatesApi.upload(departmentId, type, file);
-      return { departmentId, type, template };
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("type", type);
+      if (departmentId) {
+        formData.append("department_id", departmentId);
+        console.log(`[templatesSlice] Including department_id in form data: ${departmentId}`);
+      }
+
+      console.log('[templatesSlice] Making POST request to /templates');
+      const { data } = await axiosClient.post("/templates", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      
+      console.log('[templatesSlice] uploadTemplate response:', data);
+      // Backend returns: { success: true, data: DocumentTemplate }
+      const template = data.data as DocumentTemplate;
+      console.log(`[templatesSlice] Upload successful: template ID ${template.id}`);
+      
+      return template;
     } catch (err) {
-      return rejectWithValue(getErrorMessage(err, 'Failed to upload template'));
+      const error = err as AxiosError<{ message: string }>;
+      console.error('[templatesSlice] uploadTemplate error:', error);
+      console.error('[templatesSlice] Error response:', error.response?.data);
+      return rejectWithValue(error.response?.data?.message ?? "Failed to upload template");
     }
-  }
+  },
 );
 
-export const deactivateTemplate = createAsyncThunk(
-  'templates/deactivate',
-  async (
-    { id, departmentId, type }: { id: string; departmentId: string | null; type: TemplateType },
-    { rejectWithValue }
-  ) => {
+export const deleteTemplate = createAsyncThunk(
+  "templates/delete",
+  async (id: string, { rejectWithValue }) => {
+    console.log(`[templatesSlice] deleteTemplate called for ID: ${id}`);
+    
     try {
-      await templatesApi.deactivate(id);
-      return { departmentId, type };
+      console.log(`[templatesSlice] Making DELETE request to /templates/${id}`);
+      const { data } = await axiosClient.delete(`/templates/${id}`);
+      console.log('[templatesSlice] deleteTemplate response:', data);
+      console.log(`[templatesSlice] Template ${id} deleted successfully`);
+      return id;
     } catch (err) {
-      return rejectWithValue(getErrorMessage(err, 'Failed to deactivate template'));
+      const error = err as AxiosError<{ message: string }>;
+      console.error(`[templatesSlice] deleteTemplate error for ${id}:`, error);
+      return rejectWithValue(error.response?.data?.message ?? "Failed to delete template");
     }
-  }
+  },
 );
 
-// ── Slice ─────────────────────────────────────────────────────────────────
+// ─── Slice ────────────────────────────────────────────────────────────────────
 
 const templatesSlice = createSlice({
-  name: 'templates',
+  name: "templates",
   initialState,
   reducers: {
-    clearTemplateError(state) {
-      state.error = null;
-    },
-    invalidateTemplate(state, action: PayloadAction<{ departmentId: string | null; type: TemplateType }>) {
-      const key = keyFor(action.payload.departmentId);
-      delete state.byDepartment[key]?.[action.payload.type];
+    clearTemplatesError: (state) => { 
+      console.log('[templatesSlice] Clearing error');
+      state.error = null; 
     },
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchGroupedTemplates.pending, (state) => {
-        state.status = 'loading';
-        state.error = null;
-      })
-      .addCase(fetchGroupedTemplates.fulfilled, (state, action: PayloadAction<GroupedTemplates>) => {
-        state.status = 'succeeded';
-        state.grouped = action.payload;
-        Object.values(action.payload).flat().forEach((tpl) => {
-          const key = keyFor(tpl.department_id);
-          state.byDepartment[key] ??= {};
-          state.byDepartment[key][tpl.type] = tpl;
-        });
-      })
-      .addCase(fetchGroupedTemplates.rejected, (state, action) => {
-        state.status = 'failed';
-        state.error = (action.payload as string) ?? 'Failed to load templates';
-      })
-
-      .addCase(fetchDepartmentTemplates.fulfilled, (state, action) => {
-        const { departmentId, templates } = action.payload;
-        state.byDepartment[departmentId] ??= {};
-        templates.forEach((tpl) => {
-          state.byDepartment[departmentId][tpl.type] = tpl;
-        });
-      })
-
+      // ── Fetch Active Template ──
       .addCase(fetchActiveTemplate.pending, (state) => {
-        state.status = 'loading';
+        console.log('[templatesSlice] fetchActiveTemplate pending');
+        state.loading = true;
         state.error = null;
       })
       .addCase(fetchActiveTemplate.fulfilled, (state, action) => {
-        state.status = 'succeeded';
+        console.log('[templatesSlice] fetchActiveTemplate fulfilled');
+        state.loading = false;
+        
         const { departmentId, type, template } = action.payload;
-        const key = keyFor(departmentId);
-        state.byDepartment[key] ??= {};
-        state.byDepartment[key][type] = template;
+        const key = departmentId ?? GLOBAL_KEY;
+        console.log(`[templatesSlice] Storing template for key: ${key}, type: ${type}`);
+        
+        if (!state.byDepartment[key]) {
+          state.byDepartment[key] = {};
+        }
+        
+        if (template) {
+          console.log(`[templatesSlice] Template found: ${template.id}, active: ${template.is_active}`);
+          state.byDepartment[key][type] = template;
+        } else {
+          console.log(`[templatesSlice] No template found, clearing stale entry`);
+          delete state.byDepartment[key][type];
+        }
       })
       .addCase(fetchActiveTemplate.rejected, (state, action) => {
-        state.status = 'failed';
-        state.error = (action.payload as string) ?? 'Template not found';
+        console.log('[templatesSlice] fetchActiveTemplate rejected:', action.payload);
+        state.loading = false;
+        state.error = action.payload as string;
       })
 
-      .addCase(fetchTemplateHistory.fulfilled, (state, action) => {
-        const { departmentId, type, history } = action.payload;
-        state.history[`${keyFor(departmentId)}:${type}`] = history;
+      // ── Fetch All Templates ──
+      .addCase(fetchAllTemplates.pending, (state) => { 
+        console.log('[templatesSlice] fetchAllTemplates pending');
+        state.loading = true; 
+        state.error = null; 
+      })
+      .addCase(fetchAllTemplates.fulfilled, (state, action) => {
+        console.log('[templatesSlice] fetchAllTemplates fulfilled');
+        state.loading = false;
+        state.all = normalizeTemplateList(action.payload);
+        console.log(`[templatesSlice] State updated with ${state.all.length} templates`);
+      })
+      .addCase(fetchAllTemplates.rejected, (state, action) => {
+        console.log('[templatesSlice] fetchAllTemplates rejected:', action.payload);
+        state.loading = false;
+        state.error = action.payload as string;
       })
 
-      .addCase(uploadTemplate.pending, (state) => {
-        state.uploadStatus = 'loading';
-        state.error = null;
+      // ── Upload Template ──
+      .addCase(uploadTemplate.pending, (state) => { 
+        console.log('[templatesSlice] uploadTemplate pending');
+        state.uploading = true; 
+        state.error = null; 
       })
       .addCase(uploadTemplate.fulfilled, (state, action) => {
-        state.uploadStatus = 'succeeded';
-        const { departmentId, type, template } = action.payload;
-        const key = keyFor(departmentId);
-        state.byDepartment[key] ??= {};
-        state.byDepartment[key][type] = template;
+        console.log('[templatesSlice] uploadTemplate fulfilled');
+        state.uploading = false;
+        
+        const template = action.payload;
+        console.log(`[templatesSlice] Adding template to state: ${template.id}`);
+        
+        // Add to all list, replacing any existing with same type/department
+        state.all = [template, ...state.all.filter(
+          (t) => !(t.type === template.type && t.department_id === template.department_id)
+        )];
+        
+        // Update byDepartment
+        const key = template.department_id ?? GLOBAL_KEY;
+        if (!state.byDepartment[key]) {
+          state.byDepartment[key] = {};
+        }
+        state.byDepartment[key][template.type] = template;
+        
+        console.log(`[templatesSlice] Template ${template.id} added to state`);
       })
       .addCase(uploadTemplate.rejected, (state, action) => {
-        state.uploadStatus = 'failed';
-        state.error = (action.payload as string) ?? 'Failed to upload template';
+        console.log('[templatesSlice] uploadTemplate rejected:', action.payload);
+        state.uploading = false;
+        state.error = action.payload as string;
       })
 
-      .addCase(deactivateTemplate.fulfilled, (state, action) => {
-        const { departmentId, type } = action.payload;
-        delete state.byDepartment[keyFor(departmentId)]?.[type];
+      // ── Delete Template ──
+      .addCase(deleteTemplate.pending, (state) => {
+        console.log('[templatesSlice] deleteTemplate pending');
+        state.loading = true;
+      })
+      .addCase(deleteTemplate.fulfilled, (state, action) => {
+        console.log(`[templatesSlice] deleteTemplate fulfilled for ID: ${action.payload}`);
+        state.loading = false;
+        state.all = state.all.filter((t) => t.id !== action.payload);
+        console.log(`[templatesSlice] Remaining templates: ${state.all.length}`);
+      })
+      .addCase(deleteTemplate.rejected, (state, action) => {
+        console.log('[templatesSlice] deleteTemplate rejected:', action.payload);
+        state.loading = false;
+        state.error = action.payload as string;
       });
   },
 });
 
-export const { clearTemplateError, invalidateTemplate } = templatesSlice.actions;
+export const { clearTemplatesError } = templatesSlice.actions;
+
+// ─── Selectors ──────────────────────────────────────────────────────────────────
+
+export const selectAllTemplates = (state: { templates: TemplatesState }) => {
+  console.log('[templatesSlice] selectAllTemplates called');
+  return state.templates.all;
+};
+
+export const selectTemplatesLoading = (state: { templates: TemplatesState }) => {
+  return state.templates.loading;
+};
+
+export const selectTemplatesUploading = (state: { templates: TemplatesState }) => {
+  return state.templates.uploading;
+};
+
+export const selectTemplatesError = (state: { templates: TemplatesState }) => {
+  return state.templates.error;
+};
+
+export const selectTemplatesByDepartment = (state: { templates: TemplatesState }) => {
+  console.log('[templatesSlice] selectTemplatesByDepartment called');
+  return state.templates.byDepartment;
+};
+
 export default templatesSlice.reducer;

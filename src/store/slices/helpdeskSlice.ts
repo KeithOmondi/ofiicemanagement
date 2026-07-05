@@ -28,7 +28,7 @@ export type Status =
   | "Active"
   | "Resolved";
 
-// ─── Judge Utilities (restructured: one judge → many utility items) ────────
+// ─── Judge Utilities ──────────────────────────────────────────────────────────
 
 export type UtilityStatus =
   | "Awaiting"
@@ -43,6 +43,7 @@ export interface UtilityItem {
   id: string;
   request_id: string;
   utility_type: UtilityType;
+  requisition_number: string | null;
   amount: number;
   period: string;
   description: string | null;
@@ -66,6 +67,7 @@ export interface JudgeUtility {
 
 export interface UtilityItemInput {
   utility_type: UtilityType;
+  requisition_number?: string;
   amount: number;
   period: string;
   description?: string;
@@ -73,7 +75,6 @@ export interface UtilityItemInput {
   date_forwarded_dass?: string;
   date_paid?: string;
   status?: UtilityStatus;
-  
 }
 
 export interface CreateUtilityInput {
@@ -83,6 +84,7 @@ export interface CreateUtilityInput {
 
 export interface AddUtilityItemInput {
   utility_type: UtilityType;
+  requisition_number?: string;
   amount: number;
   period: string;
   description?: string;
@@ -100,7 +102,8 @@ export interface UpdateUtilityItemInput {
   amount?: number;
   period?: string;
   description?: string;
-   utility_type?: UtilityType;
+  utility_type?: UtilityType;
+  requisition_number?: string;
 }
 
 export interface UtilityFilters {
@@ -111,13 +114,32 @@ export interface UtilityFilters {
   offset?: number;
 }
 
-// ─── Everything below is unchanged ────────────────────────────────────────
+// ─── Club Membership ──────────────────────────────────────────────────────────
+
+export interface ClubMembership {
+  id: string;
+  pj_no: string | null;
+  judge_name: string;
+  club_name: string;
+  entry_fee: number | null;
+  annual_fee: number | null;
+  date_submitted_dass: string | null;
+  court: string | null;
+  payment_date: string | null;
+  remarks: string | null;
+  status: Status;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── DSA Details ─────────────────────────────────────────────────────────────
 
 export interface DSADetail {
   id: string;
   judge_name: string;
   pj_number: string;
-  designation: string | null;  // e.g., "Presiding Judge", "Judge", "Magistrate"
+  designation: string | null;
   dsa_per_day: number;
   days: number;
   total: number;
@@ -133,18 +155,7 @@ export interface DSADetailInput {
   notes?: string;
 }
 
-export interface ClubMembership {
-  id: string;
-  judge_name: string;
-  club_name: string;
-  annual_fee: number;
-  period: string;
-  supporting_document_url: string | null;
-  status: Status;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
-}
+// ─── Circuits ────────────────────────────────────────────────────────────────
 
 export interface Circuit {
   id: string;
@@ -160,6 +171,24 @@ export interface Circuit {
   updated_at: string;
 }
 
+// ─── Other Payments ──────────────────────────────────────────────────────────
+
+export interface OtherPayment {
+  id: string;
+  name: string;
+  description: string | null;
+  start_date: string;
+  end_date: string;
+  total_dsa: number;
+  status: Status;
+  dsa_details?: DSADetail[];
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── Special Benches ─────────────────────────────────────────────────────────
+
 export interface SpecialBench {
   id: string;
   name: string;
@@ -174,6 +203,8 @@ export interface SpecialBench {
   updated_at: string;
 }
 
+// ─── Part-Heards ─────────────────────────────────────────────────────────────
+
 export interface PartHeard {
   id: string;
   case_reference: string;
@@ -187,6 +218,8 @@ export interface PartHeard {
   created_at: string;
   updated_at: string;
 }
+
+// ─── Service Weeks ───────────────────────────────────────────────────────────
 
 export interface ServiceWeek {
   id: string;
@@ -203,18 +236,38 @@ export interface ServiceWeek {
   updated_at: string;
 }
 
-export interface JudgeRequest {
+// ─── Medical Expense Claims ──────────────────────────────────────────────────
+
+export interface MedicalClaim {
   id: string;
-  judge_name: string;
-  nature: string;
-  mode: RequestMode;
-  received_date: string;
+  s_no: number | null;
+  officer_name: string;
+  claim_amount: number;
+  date_forwarded_dhr: string | null;
   status: Status;
-  resolution_notes: string | null;
+  remarks: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
 }
+
+// ─── General Requests ────────────────────────────────────────────────────────
+
+export interface GeneralRequest {
+  id: string;
+  s_no: number | null;
+  judge_name: string;
+  request: string;
+  date_received: string | null;
+  officer_assigned: string | null;
+  status: Status;
+  remarks: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── Visa Support ────────────────────────────────────────────────────────────
 
 export interface VisaDocument {
   id: string;
@@ -226,11 +279,14 @@ export interface VisaDocument {
 
 export interface VisaRequest {
   id: string;
-  judge_name: string;
-  request_date: string;
+  s_no: number | null;
+  name: string;
   destination_country: string;
+  date_of_travel: string | null;
+  date_of_return: string | null;
   visa_type: VisaType;
-  travel_date: string | null;
+  purpose_of_travel: string | null;
+  remarks: string | null;
   status: Status;
   notes: string | null;
   documents?: VisaDocument[];
@@ -239,20 +295,27 @@ export interface VisaRequest {
   updated_at: string;
 }
 
+// ─── Protocol Support ────────────────────────────────────────────────────────
+
 export interface ProtocolEvent {
   id: string;
-  event_name: string;
-  start_date: string;
-  end_date: string;
-  dsa_required: boolean;
-  total_dsa: number;
+  s_no: number | null;
+  activity: string;
+  period_from: string | null;
+  period_to: string | null;
+  officers_assigned: string | null;
+  remarks: string | null;
   status: Status;
   notes: string | null;
+  dsa_required: boolean;
+  total_dsa: number;
   dsa_details?: DSADetail[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
 }
+
+// ─── Audit & Stats ──────────────────────────────────────────────────────────
 
 export interface HelpDeskAuditEntry {
   id: string;
@@ -272,18 +335,31 @@ export interface HelpDeskStats {
   protocol_pending: number;
 }
 
-// ─── Input Types ──────────────────────────────────────────────────────────
+// ─── Input Types ─────────────────────────────────────────────────────────────
 
 export interface CreateClubMembershipInput {
+  pj_no?: string;
   judge_name: string;
   club_name: string;
-  annual_fee: number;
-  period: string;
+  entry_fee?: number;
+  annual_fee?: number;
+  date_submitted_dass?: string;
+  court?: string;
+  payment_date?: string;
+  remarks?: string;
 }
 
 export interface CreateCircuitInput {
   name: string;
   location?: string;
+  start_date: string;
+  end_date: string;
+  dsa_details?: DSADetailInput[];
+}
+
+export interface CreateOtherPaymentInput {
+  name: string;
+  description?: string;
   start_date: string;
   end_date: string;
   dsa_details?: DSADetailInput[];
@@ -314,29 +390,47 @@ export interface CreateServiceWeekInput {
   dsa_details?: DSADetailInput[];
 }
 
-export interface CreateJudgeRequestInput {
+export interface CreateMedicalClaimInput {
+  s_no?: number;
+  officer_name: string;
+  claim_amount: number;
+  date_forwarded_dhr?: string;
+  status?: Status;
+  remarks?: string;
+}
+
+export interface CreateGeneralRequestInput {
+  s_no?: number;
   judge_name: string;
-  nature: string;
-  mode: RequestMode;
-  received_date: string;
+  request: string;
+  date_received?: string;
+  officer_assigned?: string;
+  status?: Status;
+  remarks?: string;
 }
 
 export interface CreateVisaRequestInput {
-  judge_name: string;
-  request_date: string;
+  s_no?: number;
+  name: string;
   destination_country: string;
+  date_of_travel?: string;
+  date_of_return?: string;
   visa_type: VisaType;
-  travel_date?: string;
+  purpose_of_travel?: string;
+  remarks?: string;
   notes?: string;
 }
 
 export interface CreateProtocolEventInput {
-  event_name: string;
-  start_date: string;
-  end_date: string;
+  s_no?: number;
+  activity: string;
+  period_from?: string;
+  period_to?: string;
+  officers_assigned?: string;
+  remarks?: string;
+  notes?: string;
   dsa_required?: boolean;
   dsa_details?: DSADetailInput[];
-  notes?: string;
 }
 
 export interface UpdateStatusInput {
@@ -364,10 +458,12 @@ export type HelpDeskTab =
   | "utilities"
   | "club"
   | "circuits"
+  | "otherPayments"
   | "benches"
   | "partHeard"
   | "serviceWeek"
-  | "requests"
+  | "medicalClaims"
+  | "generalRequests"
   | "visa"
   | "protocol";
 
@@ -380,10 +476,12 @@ interface HelpDeskState {
   utilities: JudgeUtility[];
   clubMemberships: ClubMembership[];
   circuits: Circuit[];
+  otherPayments: OtherPayment[];
   benches: SpecialBench[];
   partHeards: PartHeard[];
   serviceWeeks: ServiceWeek[];
-  requests: JudgeRequest[];
+  medicalClaims: MedicalClaim[];
+  generalRequests: GeneralRequest[];
   visaRequests: VisaRequest[];
   protocolEvents: ProtocolEvent[];
   auditLog: HelpDeskAuditEntry[];
@@ -393,10 +491,12 @@ interface HelpDeskState {
   selectedUtility: JudgeUtility | null;
   selectedClubMembership: ClubMembership | null;
   selectedCircuit: Circuit | null;
+  selectedOtherPayment: OtherPayment | null;
   selectedBench: SpecialBench | null;
   selectedPartHeard: PartHeard | null;
   selectedServiceWeek: ServiceWeek | null;
-  selectedRequest: JudgeRequest | null;
+  selectedMedicalClaim: MedicalClaim | null;
+  selectedGeneralRequest: GeneralRequest | null;
   selectedVisaRequest: VisaRequest | null;
   selectedProtocolEvent: ProtocolEvent | null;
 
@@ -411,10 +511,12 @@ interface HelpDeskState {
     utilities: { total: number; page: number; limit: number };
     club: { total: number; page: number; limit: number };
     circuits: { total: number; page: number; limit: number };
+    otherPayments: { total: number; page: number; limit: number };
     benches: { total: number; page: number; limit: number };
     partHeards: { total: number; page: number; limit: number };
     serviceWeeks: { total: number; page: number; limit: number };
-    requests: { total: number; page: number; limit: number };
+    medicalClaims: { total: number; page: number; limit: number };
+    generalRequests: { total: number; page: number; limit: number };
     visa: { total: number; page: number; limit: number };
     protocol: { total: number; page: number; limit: number };
   };
@@ -424,10 +526,12 @@ interface HelpDeskState {
     utilities: boolean;
     club: boolean;
     circuits: boolean;
+    otherPayments: boolean;
     benches: boolean;
     partHeards: boolean;
     serviceWeeks: boolean;
-    requests: boolean;
+    medicalClaims: boolean;
+    generalRequests: boolean;
     visa: boolean;
     protocol: boolean;
     audit: boolean;
@@ -447,10 +551,12 @@ const initialState: HelpDeskState = {
   utilities: [],
   clubMemberships: [],
   circuits: [],
+  otherPayments: [],
   benches: [],
   partHeards: [],
   serviceWeeks: [],
-  requests: [],
+  medicalClaims: [],
+  generalRequests: [],
   visaRequests: [],
   protocolEvents: [],
   auditLog: [],
@@ -459,10 +565,12 @@ const initialState: HelpDeskState = {
   selectedUtility: null,
   selectedClubMembership: null,
   selectedCircuit: null,
+  selectedOtherPayment: null,
   selectedBench: null,
   selectedPartHeard: null,
   selectedServiceWeek: null,
-  selectedRequest: null,
+  selectedMedicalClaim: null,
+  selectedGeneralRequest: null,
   selectedVisaRequest: null,
   selectedProtocolEvent: null,
 
@@ -475,10 +583,12 @@ const initialState: HelpDeskState = {
     utilities: { total: 0, page: 1, limit: 20 },
     club: { total: 0, page: 1, limit: 20 },
     circuits: { total: 0, page: 1, limit: 20 },
+    otherPayments: { total: 0, page: 1, limit: 20 },
     benches: { total: 0, page: 1, limit: 20 },
     partHeards: { total: 0, page: 1, limit: 20 },
     serviceWeeks: { total: 0, page: 1, limit: 20 },
-    requests: { total: 0, page: 1, limit: 20 },
+    medicalClaims: { total: 0, page: 1, limit: 20 },
+    generalRequests: { total: 0, page: 1, limit: 20 },
     visa: { total: 0, page: 1, limit: 20 },
     protocol: { total: 0, page: 1, limit: 20 },
   },
@@ -487,10 +597,12 @@ const initialState: HelpDeskState = {
     utilities: false,
     club: false,
     circuits: false,
+    otherPayments: false,
     benches: false,
     partHeards: false,
     serviceWeeks: false,
-    requests: false,
+    medicalClaims: false,
+    generalRequests: false,
     visa: false,
     protocol: false,
     audit: false,
@@ -556,7 +668,7 @@ export const fetchHelpDeskAudit = createAsyncThunk(
 );
 
 /* ============================================================
-   THUNKS - JUDGE UTILITIES (one judge → many utility items)
+   THUNKS - JUDGE UTILITIES
 ============================================================ */
 
 export const fetchUtilities = createAsyncThunk(
@@ -584,7 +696,6 @@ export const fetchUtilityById = createAsyncThunk(
   },
 );
 
-// Creates a judge + one or more utility items in one call
 export const createUtility = createAsyncThunk(
   "helpdesk/createUtility",
   async (input: CreateUtilityInput, { rejectWithValue }) => {
@@ -597,7 +708,6 @@ export const createUtility = createAsyncThunk(
   },
 );
 
-// Adds a new utility item under an existing judge
 export const addUtilityItem = createAsyncThunk(
   "helpdesk/addUtilityItem",
   async (
@@ -616,7 +726,6 @@ export const addUtilityItem = createAsyncThunk(
   },
 );
 
-// Updates a single utility item's status/dates/amount/etc.
 export const updateUtilityItem = createAsyncThunk(
   "helpdesk/updateUtilityItem",
   async (
@@ -826,6 +935,95 @@ export const deleteCircuit = createAsyncThunk(
 );
 
 /* ============================================================
+   THUNKS - OTHER PAYMENTS
+============================================================ */
+
+export const fetchOtherPayments = createAsyncThunk(
+  "helpdesk/fetchOtherPayments",
+  async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
+    try {
+      const query = buildQueryString(filters);
+      const { data } = await axiosClient.get(`/helpdesk/other-payments${query}`);
+      return data.data as OtherPayment[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchOtherPaymentById = createAsyncThunk(
+  "helpdesk/fetchOtherPaymentById",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`/helpdesk/other-payments/${id}`);
+      return data.data as OtherPayment;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const createOtherPayment = createAsyncThunk(
+  "helpdesk/createOtherPayment",
+  async (input: CreateOtherPaymentInput, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.post("/helpdesk/other-payments", input);
+      return data.data as OtherPayment;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const updateOtherPaymentStatus = createAsyncThunk(
+  "helpdesk/updateOtherPaymentStatus",
+  async (
+    { id, status }: { id: string; status: Status },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.put(
+        `/helpdesk/other-payments/${id}/status`,
+        { status },
+      );
+      return data.data as OtherPayment;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const updateOtherPaymentDSADetails = createAsyncThunk(
+  "helpdesk/updateOtherPaymentDSADetails",
+  async (
+    { id, dsa_details }: { id: string; dsa_details: DSADetailInput[] },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.put(
+        `/helpdesk/other-payments/${id}/dsa-details`,
+        { dsa_details },
+      );
+      return data.data as OtherPayment;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const deleteOtherPayment = createAsyncThunk(
+  "helpdesk/deleteOtherPayment",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      await axiosClient.delete(`/helpdesk/other-payments/${id}`);
+      return id;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+/* ============================================================
    THUNKS - SPECIAL BENCHES
 ============================================================ */
 
@@ -967,7 +1165,7 @@ export const deletePartHeard = createAsyncThunk(
 );
 
 /* ============================================================
-   THUNKS - SERVICE WEEK
+   THUNKS - SERVICE WEEKS
 ============================================================ */
 
 export const fetchServiceWeeks = createAsyncThunk(
@@ -1038,73 +1236,140 @@ export const deleteServiceWeek = createAsyncThunk(
 );
 
 /* ============================================================
-   THUNKS - JUDGES' REQUESTS
+   THUNKS - MEDICAL EXPENSE CLAIMS
 ============================================================ */
 
-export const fetchRequests = createAsyncThunk(
-  "helpdesk/fetchRequests",
+export const fetchMedicalClaims = createAsyncThunk(
+  "helpdesk/fetchMedicalClaims",
   async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
     try {
       const query = buildQueryString(filters);
-      const { data } = await axiosClient.get(`/helpdesk/requests${query}`);
-      return data.data as JudgeRequest[];
+      const { data } = await axiosClient.get(`/helpdesk/medical-claims${query}`);
+      return data.data as MedicalClaim[];
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
     }
   },
 );
 
-export const fetchRequestById = createAsyncThunk(
-  "helpdesk/fetchRequestById",
+export const fetchMedicalClaimById = createAsyncThunk(
+  "helpdesk/fetchMedicalClaimById",
   async (id: string, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.get(`/helpdesk/requests/${id}`);
-      return data.data as JudgeRequest;
+      const { data } = await axiosClient.get(`/helpdesk/medical-claims/${id}`);
+      return data.data as MedicalClaim;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
     }
   },
 );
 
-export const createRequest = createAsyncThunk(
-  "helpdesk/createRequest",
-  async (input: CreateJudgeRequestInput, { rejectWithValue }) => {
+export const createMedicalClaim = createAsyncThunk(
+  "helpdesk/createMedicalClaim",
+  async (input: CreateMedicalClaimInput, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.post("/helpdesk/requests", input);
-      return data.data as JudgeRequest;
+      const { data } = await axiosClient.post("/helpdesk/medical-claims", input);
+      return data.data as MedicalClaim;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
     }
   },
 );
 
-export const updateRequest = createAsyncThunk(
-  "helpdesk/updateRequest",
+export const updateMedicalClaimStatus = createAsyncThunk(
+  "helpdesk/updateMedicalClaimStatus",
   async (
-    {
-      id,
-      status,
-      resolution_notes,
-    }: { id: string; status: Status; resolution_notes?: string },
+    { id, status, remarks }: { id: string; status: Status; remarks?: string },
     { rejectWithValue },
   ) => {
     try {
-      const { data } = await axiosClient.put(`/helpdesk/requests/${id}`, {
-        status,
-        resolution_notes,
-      });
-      return data.data as JudgeRequest;
+      const { data } = await axiosClient.put(
+        `/helpdesk/medical-claims/${id}/status`,
+        { status, remarks },
+      );
+      return data.data as MedicalClaim;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
     }
   },
 );
 
-export const deleteRequest = createAsyncThunk(
-  "helpdesk/deleteRequest",
+export const deleteMedicalClaim = createAsyncThunk(
+  "helpdesk/deleteMedicalClaim",
   async (id: string, { rejectWithValue }) => {
     try {
-      await axiosClient.delete(`/helpdesk/requests/${id}`);
+      await axiosClient.delete(`/helpdesk/medical-claims/${id}`);
+      return id;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+/* ============================================================
+   THUNKS - GENERAL REQUESTS
+============================================================ */
+
+export const fetchGeneralRequests = createAsyncThunk(
+  "helpdesk/fetchGeneralRequests",
+  async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
+    try {
+      const query = buildQueryString(filters);
+      const { data } = await axiosClient.get(`/helpdesk/general-requests${query}`);
+      return data.data as GeneralRequest[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchGeneralRequestById = createAsyncThunk(
+  "helpdesk/fetchGeneralRequestById",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`/helpdesk/general-requests/${id}`);
+      return data.data as GeneralRequest;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const createGeneralRequest = createAsyncThunk(
+  "helpdesk/createGeneralRequest",
+  async (input: CreateGeneralRequestInput, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.post("/helpdesk/general-requests", input);
+      return data.data as GeneralRequest;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const updateGeneralRequestStatus = createAsyncThunk(
+  "helpdesk/updateGeneralRequestStatus",
+  async (
+    { id, status, remarks }: { id: string; status: Status; remarks?: string },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.put(
+        `/helpdesk/general-requests/${id}/status`,
+        { status, remarks },
+      );
+      return data.data as GeneralRequest;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const deleteGeneralRequest = createAsyncThunk(
+  "helpdesk/deleteGeneralRequest",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      await axiosClient.delete(`/helpdesk/general-requests/${id}`);
       return id;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -1262,12 +1527,10 @@ const helpdeskSlice = createSlice({
   name: "helpdesk",
   initialState,
   reducers: {
-    // ─── Tab Selection ──────────────────────────────────────────────────
     setActiveTab(state, action: PayloadAction<HelpDeskTab>) {
       state.activeTab = action.payload;
     },
 
-    // ─── Filters ────────────────────────────────────────────────────────
     setFilters(state, action: PayloadAction<Partial<HelpDeskFilters>>) {
       state.filters = { ...state.filters, ...action.payload };
     },
@@ -1285,7 +1548,6 @@ const helpdeskSlice = createSlice({
       state.searchQuery = "";
     },
 
-    // ─── Pagination ─────────────────────────────────────────────────────
     setPagination(
       state,
       action: PayloadAction<{
@@ -1301,7 +1563,6 @@ const helpdeskSlice = createSlice({
       }
     },
 
-    // ─── Selection ─────────────────────────────────────────────────────
     setSelectedUtility(state, action: PayloadAction<JudgeUtility | null>) {
       state.selectedUtility = action.payload;
     },
@@ -1314,6 +1575,9 @@ const helpdeskSlice = createSlice({
     setSelectedCircuit(state, action: PayloadAction<Circuit | null>) {
       state.selectedCircuit = action.payload;
     },
+    setSelectedOtherPayment(state, action: PayloadAction<OtherPayment | null>) {
+      state.selectedOtherPayment = action.payload;
+    },
     setSelectedBench(state, action: PayloadAction<SpecialBench | null>) {
       state.selectedBench = action.payload;
     },
@@ -1323,8 +1587,14 @@ const helpdeskSlice = createSlice({
     setSelectedServiceWeek(state, action: PayloadAction<ServiceWeek | null>) {
       state.selectedServiceWeek = action.payload;
     },
-    setSelectedRequest(state, action: PayloadAction<JudgeRequest | null>) {
-      state.selectedRequest = action.payload;
+    setSelectedMedicalClaim(state, action: PayloadAction<MedicalClaim | null>) {
+      state.selectedMedicalClaim = action.payload;
+    },
+    setSelectedGeneralRequest(
+      state,
+      action: PayloadAction<GeneralRequest | null>,
+    ) {
+      state.selectedGeneralRequest = action.payload;
     },
     setSelectedVisaRequest(state, action: PayloadAction<VisaRequest | null>) {
       state.selectedVisaRequest = action.payload;
@@ -1376,6 +1646,16 @@ const helpdeskSlice = createSlice({
       if (state.selectedCircuit?.id === id)
         state.selectedCircuit.status = status;
     },
+    updateOtherPaymentOptimistically(
+      state,
+      action: PayloadAction<{ id: string; status: Status }>,
+    ) {
+      const { id, status } = action.payload;
+      const payment = state.otherPayments.find((p) => p.id === id);
+      if (payment) payment.status = status;
+      if (state.selectedOtherPayment?.id === id)
+        state.selectedOtherPayment.status = status;
+    },
     updateBenchOptimistically(
       state,
       action: PayloadAction<{ id: string; status: Status }>,
@@ -1405,25 +1685,34 @@ const helpdeskSlice = createSlice({
       if (state.selectedServiceWeek?.id === id)
         state.selectedServiceWeek.status = status;
     },
-    updateRequestOptimistically(
+    updateMedicalClaimOptimistically(
       state,
-      action: PayloadAction<{
-        id: string;
-        status: Status;
-        resolution_notes?: string;
-      }>,
+      action: PayloadAction<{ id: string; status: Status; remarks?: string }>,
     ) {
-      const { id, status, resolution_notes } = action.payload;
-      const request = state.requests.find((r) => r.id === id);
+      const { id, status, remarks } = action.payload;
+      const claim = state.medicalClaims.find((c) => c.id === id);
+      if (claim) {
+        claim.status = status;
+        if (remarks !== undefined) claim.remarks = remarks;
+      }
+      if (state.selectedMedicalClaim?.id === id) {
+        state.selectedMedicalClaim.status = status;
+        if (remarks !== undefined) state.selectedMedicalClaim.remarks = remarks;
+      }
+    },
+    updateGeneralRequestOptimistically(
+      state,
+      action: PayloadAction<{ id: string; status: Status; remarks?: string }>,
+    ) {
+      const { id, status, remarks } = action.payload;
+      const request = state.generalRequests.find((r) => r.id === id);
       if (request) {
         request.status = status;
-        if (resolution_notes !== undefined)
-          request.resolution_notes = resolution_notes;
+        if (remarks !== undefined) request.remarks = remarks;
       }
-      if (state.selectedRequest?.id === id) {
-        state.selectedRequest.status = status;
-        if (resolution_notes !== undefined)
-          state.selectedRequest.resolution_notes = resolution_notes;
+      if (state.selectedGeneralRequest?.id === id) {
+        state.selectedGeneralRequest.status = status;
+        if (remarks !== undefined) state.selectedGeneralRequest.remarks = remarks;
       }
     },
     updateVisaOptimistically(
@@ -1457,7 +1746,6 @@ const helpdeskSlice = createSlice({
       }
     },
 
-    // ─── Status ─────────────────────────────────────────────────────────
     clearError(state) {
       state.error = null;
     },
@@ -1503,7 +1791,7 @@ const helpdeskSlice = createSlice({
         state.error = action.payload as string;
       });
 
-    /* ──────── UTILITIES (judge → many items) ───────────────────────────── */
+    /* ──────── UTILITIES ───────────────────────────────────────────────── */
     builder
       .addCase(fetchUtilities.pending, (state) => {
         state.loading.utilities = true;
@@ -1819,6 +2107,110 @@ const helpdeskSlice = createSlice({
         state.error = action.payload as string;
       });
 
+    /* ──────── OTHER PAYMENTS ───────────────────────────────────────────── */
+    builder
+      .addCase(fetchOtherPayments.pending, (state) => {
+        state.loading.otherPayments = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchOtherPayments.fulfilled,
+        (state, action: PayloadAction<OtherPayment[]>) => {
+          state.loading.otherPayments = false;
+          state.otherPayments = action.payload;
+          state.pagination.otherPayments.total = action.payload.length;
+        },
+      )
+      .addCase(fetchOtherPayments.rejected, (state, action) => {
+        state.loading.otherPayments = false;
+        state.error = action.payload as string;
+      })
+      .addCase(createOtherPayment.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        createOtherPayment.fulfilled,
+        (state, action: PayloadAction<OtherPayment>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          state.otherPayments = [action.payload, ...state.otherPayments];
+          if (state.stats) state.stats.total_records += 1;
+        },
+      )
+      .addCase(createOtherPayment.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updateOtherPaymentStatus.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateOtherPaymentStatus.fulfilled,
+        (state, action: PayloadAction<OtherPayment>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.otherPayments.findIndex(
+            (p) => p.id === action.payload.id,
+          );
+          if (index !== -1) state.otherPayments[index] = action.payload;
+          if (state.selectedOtherPayment?.id === action.payload.id)
+            state.selectedOtherPayment = action.payload;
+        },
+      )
+      .addCase(updateOtherPaymentStatus.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updateOtherPaymentDSADetails.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateOtherPaymentDSADetails.fulfilled,
+        (state, action: PayloadAction<OtherPayment>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.otherPayments.findIndex(
+            (p) => p.id === action.payload.id,
+          );
+          if (index !== -1) state.otherPayments[index] = action.payload;
+          if (state.selectedOtherPayment?.id === action.payload.id)
+            state.selectedOtherPayment = action.payload;
+        },
+      )
+      .addCase(updateOtherPaymentDSADetails.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(deleteOtherPayment.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+      })
+      .addCase(
+        deleteOtherPayment.fulfilled,
+        (state, action: PayloadAction<string>) => {
+          state.loading.mutating = false;
+          state.otherPayments = state.otherPayments.filter(
+            (p) => p.id !== action.payload,
+          );
+          if (state.selectedOtherPayment?.id === action.payload)
+            state.selectedOtherPayment = null;
+          if (state.stats) state.stats.total_records -= 1;
+        },
+      )
+      .addCase(deleteOtherPayment.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+      });
+
     /* ──────── BENCHES ──────────────────────────────────────────────────── */
     builder
       .addCase(fetchBenches.pending, (state) => {
@@ -2060,83 +2452,164 @@ const helpdeskSlice = createSlice({
         state.error = action.payload as string;
       });
 
-    /* ──────── REQUESTS ─────────────────────────────────────────────────── */
+    /* ──────── MEDICAL CLAIMS ───────────────────────────────────────────── */
     builder
-      .addCase(fetchRequests.pending, (state) => {
-        state.loading.requests = true;
+      .addCase(fetchMedicalClaims.pending, (state) => {
+        state.loading.medicalClaims = true;
         state.error = null;
       })
       .addCase(
-        fetchRequests.fulfilled,
-        (state, action: PayloadAction<JudgeRequest[]>) => {
-          state.loading.requests = false;
-          state.requests = action.payload;
-          state.pagination.requests.total = action.payload.length;
+        fetchMedicalClaims.fulfilled,
+        (state, action: PayloadAction<MedicalClaim[]>) => {
+          state.loading.medicalClaims = false;
+          state.medicalClaims = action.payload;
+          state.pagination.medicalClaims.total = action.payload.length;
         },
       )
-      .addCase(fetchRequests.rejected, (state, action) => {
-        state.loading.requests = false;
+      .addCase(fetchMedicalClaims.rejected, (state, action) => {
+        state.loading.medicalClaims = false;
         state.error = action.payload as string;
       })
-      .addCase(createRequest.pending, (state) => {
+      .addCase(createMedicalClaim.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
       .addCase(
-        createRequest.fulfilled,
-        (state, action: PayloadAction<JudgeRequest>) => {
+        createMedicalClaim.fulfilled,
+        (state, action: PayloadAction<MedicalClaim>) => {
           state.loading.mutating = false;
           state.success = true;
-          state.requests = [action.payload, ...state.requests];
+          state.medicalClaims = [action.payload, ...state.medicalClaims];
           if (state.stats) state.stats.total_records += 1;
         },
       )
-      .addCase(createRequest.rejected, (state, action) => {
+      .addCase(createMedicalClaim.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
       })
-      .addCase(updateRequest.pending, (state) => {
+      .addCase(updateMedicalClaimStatus.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
       .addCase(
-        updateRequest.fulfilled,
-        (state, action: PayloadAction<JudgeRequest>) => {
+        updateMedicalClaimStatus.fulfilled,
+        (state, action: PayloadAction<MedicalClaim>) => {
           state.loading.mutating = false;
           state.success = true;
-          const index = state.requests.findIndex(
-            (r) => r.id === action.payload.id,
+          const index = state.medicalClaims.findIndex(
+            (c) => c.id === action.payload.id,
           );
-          if (index !== -1) state.requests[index] = action.payload;
-          if (state.selectedRequest?.id === action.payload.id)
-            state.selectedRequest = action.payload;
+          if (index !== -1) state.medicalClaims[index] = action.payload;
+          if (state.selectedMedicalClaim?.id === action.payload.id)
+            state.selectedMedicalClaim = action.payload;
         },
       )
-      .addCase(updateRequest.rejected, (state, action) => {
+      .addCase(updateMedicalClaimStatus.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
       })
-      .addCase(deleteRequest.pending, (state) => {
+      .addCase(deleteMedicalClaim.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
       })
       .addCase(
-        deleteRequest.fulfilled,
+        deleteMedicalClaim.fulfilled,
         (state, action: PayloadAction<string>) => {
           state.loading.mutating = false;
-          state.requests = state.requests.filter(
-            (r) => r.id !== action.payload,
+          state.medicalClaims = state.medicalClaims.filter(
+            (c) => c.id !== action.payload,
           );
-          if (state.selectedRequest?.id === action.payload)
-            state.selectedRequest = null;
+          if (state.selectedMedicalClaim?.id === action.payload)
+            state.selectedMedicalClaim = null;
           if (state.stats) state.stats.total_records -= 1;
         },
       )
-      .addCase(deleteRequest.rejected, (state, action) => {
+      .addCase(deleteMedicalClaim.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+      });
+
+    /* ──────── GENERAL REQUESTS ─────────────────────────────────────────── */
+    builder
+      .addCase(fetchGeneralRequests.pending, (state) => {
+        state.loading.generalRequests = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchGeneralRequests.fulfilled,
+        (state, action: PayloadAction<GeneralRequest[]>) => {
+          state.loading.generalRequests = false;
+          state.generalRequests = action.payload;
+          state.pagination.generalRequests.total = action.payload.length;
+        },
+      )
+      .addCase(fetchGeneralRequests.rejected, (state, action) => {
+        state.loading.generalRequests = false;
+        state.error = action.payload as string;
+      })
+      .addCase(createGeneralRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        createGeneralRequest.fulfilled,
+        (state, action: PayloadAction<GeneralRequest>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          state.generalRequests = [action.payload, ...state.generalRequests];
+          if (state.stats) state.stats.total_records += 1;
+        },
+      )
+      .addCase(createGeneralRequest.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updateGeneralRequestStatus.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateGeneralRequestStatus.fulfilled,
+        (state, action: PayloadAction<GeneralRequest>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.generalRequests.findIndex(
+            (r) => r.id === action.payload.id,
+          );
+          if (index !== -1) state.generalRequests[index] = action.payload;
+          if (state.selectedGeneralRequest?.id === action.payload.id)
+            state.selectedGeneralRequest = action.payload;
+        },
+      )
+      .addCase(updateGeneralRequestStatus.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(deleteGeneralRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+      })
+      .addCase(
+        deleteGeneralRequest.fulfilled,
+        (state, action: PayloadAction<string>) => {
+          state.loading.mutating = false;
+          state.generalRequests = state.generalRequests.filter(
+            (r) => r.id !== action.payload,
+          );
+          if (state.selectedGeneralRequest?.id === action.payload)
+            state.selectedGeneralRequest = null;
+          if (state.stats) state.stats.total_records -= 1;
+        },
+      )
+      .addCase(deleteGeneralRequest.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
       });
@@ -2333,19 +2806,23 @@ export const {
   setSelectedUtility,
   setSelectedClubMembership,
   setSelectedCircuit,
+  setSelectedOtherPayment,
   setSelectedBench,
   setSelectedPartHeard,
   setSelectedServiceWeek,
-  setSelectedRequest,
+  setSelectedMedicalClaim,
+  setSelectedGeneralRequest,
   setSelectedVisaRequest,
   setSelectedProtocolEvent,
   updateUtilityItemOptimistically,
   updateClubOptimistically,
   updateCircuitOptimistically,
+  updateOtherPaymentOptimistically,
   updateBenchOptimistically,
   updatePartHeardOptimistically,
   updateServiceWeekOptimistically,
-  updateRequestOptimistically,
+  updateMedicalClaimOptimistically,
+  updateGeneralRequestOptimistically,
   updateVisaOptimistically,
   updateProtocolOptimistically,
   clearError,
@@ -2364,14 +2841,18 @@ export const selectAllClubMemberships = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.clubMemberships;
 export const selectAllCircuits = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.circuits;
+export const selectAllOtherPayments = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.otherPayments;
 export const selectAllBenches = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.benches;
 export const selectAllPartHeards = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.partHeards;
 export const selectAllServiceWeeks = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.serviceWeeks;
-export const selectAllRequests = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.requests;
+export const selectAllMedicalClaims = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.medicalClaims;
+export const selectAllGeneralRequests = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.generalRequests;
 export const selectAllVisaRequests = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.visaRequests;
 export const selectAllProtocolEvents = (state: { helpdesk: HelpDeskState }) =>
@@ -2389,14 +2870,19 @@ export const selectSelectedClubMembership = (state: {
 }) => state.helpdesk.selectedClubMembership;
 export const selectSelectedCircuit = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.selectedCircuit;
+export const selectSelectedOtherPayment = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.selectedOtherPayment;
 export const selectSelectedBench = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.selectedBench;
 export const selectSelectedPartHeard = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.selectedPartHeard;
 export const selectSelectedServiceWeek = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.selectedServiceWeek;
-export const selectSelectedRequest = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.selectedRequest;
+export const selectSelectedMedicalClaim = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.selectedMedicalClaim;
+export const selectSelectedGeneralRequest = (state: {
+  helpdesk: HelpDeskState;
+}) => state.helpdesk.selectedGeneralRequest;
 export const selectSelectedVisaRequest = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.selectedVisaRequest;
 export const selectSelectedProtocolEvent = (state: {
@@ -2420,14 +2906,19 @@ export const selectClubLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.club;
 export const selectCircuitsLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.circuits;
+export const selectOtherPaymentsLoading = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.loading.otherPayments;
 export const selectBenchesLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.benches;
 export const selectPartHeardsLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.partHeards;
 export const selectServiceWeeksLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.serviceWeeks;
-export const selectRequestsLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.requests;
+export const selectMedicalClaimsLoading = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.loading.medicalClaims;
+export const selectGeneralRequestsLoading = (state: {
+  helpdesk: HelpDeskState;
+}) => state.helpdesk.loading.generalRequests;
 export const selectVisaLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.visa;
 export const selectProtocolLoading = (state: { helpdesk: HelpDeskState }) =>
@@ -2452,6 +2943,9 @@ export const selectClubPagination = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.pagination.club;
 export const selectCircuitsPagination = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.pagination.circuits;
+export const selectOtherPaymentsPagination = (state: {
+  helpdesk: HelpDeskState;
+}) => state.helpdesk.pagination.otherPayments;
 export const selectBenchesPagination = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.pagination.benches;
 export const selectPartHeardsPagination = (state: {
@@ -2460,8 +2954,12 @@ export const selectPartHeardsPagination = (state: {
 export const selectServiceWeeksPagination = (state: {
   helpdesk: HelpDeskState;
 }) => state.helpdesk.pagination.serviceWeeks;
-export const selectRequestsPagination = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.pagination.requests;
+export const selectMedicalClaimsPagination = (state: {
+  helpdesk: HelpDeskState;
+}) => state.helpdesk.pagination.medicalClaims;
+export const selectGeneralRequestsPagination = (state: {
+  helpdesk: HelpDeskState;
+}) => state.helpdesk.pagination.generalRequests;
 export const selectVisaPagination = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.pagination.visa;
 export const selectProtocolPagination = (state: { helpdesk: HelpDeskState }) =>
@@ -2469,7 +2967,6 @@ export const selectProtocolPagination = (state: { helpdesk: HelpDeskState }) =>
 
 // ─── Derived Selectors ──────────────────────────────────────────────────────
 
-// Get utility items across all judges, flattened, optionally by status
 export const selectAllUtilityItems = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.utilities.flatMap((u) =>
     u.items.map((item) => ({ ...item, judge_name: u.judge_name })),
@@ -2487,15 +2984,24 @@ export const selectCircuitsByStatus =
   (status: Status) => (state: { helpdesk: HelpDeskState }) =>
     state.helpdesk.circuits.filter((c) => c.status === status);
 
+export const selectOtherPaymentsByStatus =
+  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.otherPayments.filter((p) => p.status === status);
+
 export const selectBenchesByStatus =
   (status: Status) => (state: { helpdesk: HelpDeskState }) =>
     state.helpdesk.benches.filter((b) => b.status === status);
 
-export const selectRequestsByStatus =
+export const selectMedicalClaimsByStatus =
   (status: Status) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.requests.filter((r) => r.status === status);
+    state.helpdesk.medicalClaims.filter((c) => c.status === status);
 
-// Get pending-ish counts by module
+export const selectGeneralRequestsByStatus =
+  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.generalRequests.filter((r) => r.status === status);
+
+// ─── Pending Counts ─────────────────────────────────────────────────────────
+
 export const selectAwaitingUtilityItemsCount = (state: {
   helpdesk: HelpDeskState;
 }) =>
@@ -2523,14 +3029,39 @@ export const selectPendingCircuitsCount = (state: {
     (c) => c.status === "Pending" || c.status === "In Progress",
   ).length;
 
+export const selectPendingOtherPaymentsCount = (state: {
+  helpdesk: HelpDeskState;
+}) =>
+  state.helpdesk.otherPayments.filter(
+    (p) => p.status === "Pending" || p.status === "In Progress",
+  ).length;
+
+export const selectPendingMedicalClaimsCount = (state: {
+  helpdesk: HelpDeskState;
+}) =>
+  state.helpdesk.medicalClaims.filter(
+    (c) => c.status === "Pending" || c.status === "In Progress",
+  ).length;
+
+export const selectPendingGeneralRequestsCount = (state: {
+  helpdesk: HelpDeskState;
+}) =>
+  state.helpdesk.generalRequests.filter(
+    (r) => r.status === "Pending" || r.status === "In Progress",
+  ).length;
+
 export const selectPendingProtocolCount = (state: {
   helpdesk: HelpDeskState;
 }) =>
   state.helpdesk.protocolEvents.filter((p) => p.status === "Pending").length;
 
-// Get total DSA across all modules
+// ─── Total DSA ──────────────────────────────────────────────────────────────
+
 export const selectTotalCircuitDSA = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.circuits.reduce((sum, c) => sum + c.total_dsa, 0);
+
+export const selectTotalOtherPaymentDSA = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.otherPayments.reduce((sum, p) => sum + p.total_dsa, 0);
 
 export const selectTotalBenchDSA = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.benches.reduce((sum, b) => sum + b.total_dsa, 0);
@@ -2540,5 +3071,8 @@ export const selectTotalPartHeardDSA = (state: { helpdesk: HelpDeskState }) =>
 
 export const selectTotalServiceWeekDSA = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.serviceWeeks.reduce((sum, w) => sum + w.total_dsa, 0);
+
+export const selectTotalProtocolDSA = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.protocolEvents.reduce((sum, p) => sum + p.total_dsa, 0);
 
 export default helpdeskSlice.reducer;

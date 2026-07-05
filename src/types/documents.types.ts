@@ -31,6 +31,34 @@ export interface CreateComposedDocumentInput {
   department_id?: string;
 }
 
+export interface CreateMemoInput {
+  to: string;
+  from: string;
+  cc?: string;
+  ref: string;
+  date: string;
+  subject: string;
+  body: string;
+  recipient_id?: string;
+  note?: string;
+}
+
+export interface CreateLetterInput {
+  to: string;
+  from: string;
+  ref: string;
+  date: string;
+  subject: string;
+  body: string;
+  recipient_id?: string;
+  note?: string;
+}
+
+export interface SendToUserInput {
+  recipient_id: string;
+  note?: string;
+}
+
 export interface CreateUploadDocumentInput {
   title: string;
   type: Exclude<DocumentType, 'memo' | 'letter'>;
@@ -136,12 +164,6 @@ export interface DocumentAnnotation {
 }
 
 // ── Document Response (numbered reply thread) ───────────────────────────────
-//
-// A DocumentResponse is a formal, numbered reply to whatever the document
-// currently needs (typically a super admin's "return for more info"). Unlike
-// an annotation, it can carry a file attachment and it's what drives the
-// document back into the reviewer's queue — see DocumentService.addResponse
-// on the backend.
 
 export interface DocumentResponse {
   id: string;
@@ -171,6 +193,8 @@ export interface DocumentFlowEntry {
   note: string | null;
   created_at: Date;
 }
+
+// ── Document ─────────────────────────────────────────────────────────────────
 
 export interface Document {
   id: string;
@@ -205,6 +229,7 @@ export interface Document {
   created_at: Date;
   updated_at: Date;
   active_mark: DocumentMark | null;
+  response_count?: number;
 }
 
 export interface DocumentWithAnnotations extends Document {

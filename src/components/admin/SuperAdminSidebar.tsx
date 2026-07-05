@@ -126,6 +126,7 @@ const navigationConfig: NavSection[] = [
       { to: '/super-admin/dashboard',  label: 'Dashboard',          icon: Icon.dashboard },
       { to: '/super-admin/documents',  label: 'Document Management', icon: Icon.document  },
       { to: '/super-admin/registry',   label: 'ORHC Registry',       icon: Icon.registry  },
+      { to: '/super-admin/memo-letters',   label: 'Memo and Letters',       icon: Icon.registry  },
     ],
   },
   {

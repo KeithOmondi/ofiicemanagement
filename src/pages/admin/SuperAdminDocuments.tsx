@@ -9,11 +9,11 @@ import {
   markDocument,
   acknowledgeMark,
   completeMark,
-  createComposedDocument,
   createUploadDocument,
   updateDocument,
   clearError,
   requestSignOtp,
+  fetchResponses,
 } from "../../store/slices/documentSlice";
 import { hasRole } from "../../store/slices/authSlice";
 import {
@@ -26,22 +26,18 @@ import {
   selectAllDepartments,
   selectDepartmentsListLoading,
 } from "../../store/slices/departmentsSlice";
-import { fetchActiveTemplate } from "../../store/slices/templatesSlice";
-import { GLOBAL_KEY, type TemplateType } from "../../types/templates.types";
 import type {
   Document,
   DocumentStatus,
   DocumentType,
   DocumentFilters,
-  CreateComposedDocumentInput,
   CreateUploadDocumentInput,
   RefType,
 } from "../../types/documents.types";
 import { format } from "date-fns";
-// NOTE: requires `npm install mammoth`. If your bundler complains about
-// node built-ins (fs/path) being missing, switch this to:
-//   import * as mammoth from "mammoth/mammoth.browser";
-import mammoth from "mammoth";
+import SuperAdminMemo from "../../components/templates/SuperAdminMemo";
+import SuperAdminLetter from "../../components/templates/SuperAdminLetter";
+//import toast from "react-hot-toast";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -393,14 +389,14 @@ const EmptyState: React.FC<{
             disabled={creating}
             className="inline-flex items-center gap-1.5 rounded-lg bg-[#F5C24C] border border-[#E8A840] px-3 py-2 text-xs font-semibold text-[#7A4E0D] hover:bg-[#f0bb40] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            📄 {creating ? "Loading template…" : "New Memo"}
+            📄 {creating ? "Loading…" : "New Memo"}
           </button>
           <button
             onClick={onNewLetter}
             disabled={creating}
             className="inline-flex items-center gap-1.5 rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            ✉️ {creating ? "Loading template…" : "New Letter"}
+            ✉️ {creating ? "Loading…" : "New Letter"}
           </button>
           <button
             onClick={onUpload}
@@ -421,13 +417,16 @@ const ListItem: React.FC<{
   document: Document;
   selected: boolean;
   onSelect: () => void;
-}> = ({ document, selected, onSelect }) => (
+  hasResponse?: boolean;
+}> = ({ document, selected, onSelect, hasResponse = false }) => (
   <div
     onClick={onSelect}
     className={`flex items-start gap-2.5 px-3 py-2.5 cursor-pointer transition-colors ${
       selected
         ? "bg-[#1E4620]/5 border-l-2 border-[#1E4620]"
-        : "hover:bg-stone-50 border-l-2 border-transparent"
+        : hasResponse
+          ? "hover:bg-blue-50/50 border-l-2 border-blue-300/50 bg-blue-50/20"
+          : "hover:bg-stone-50 border-l-2 border-transparent"
     }`}
   >
     <div className="mt-0.5 flex-shrink-0">
@@ -441,7 +440,18 @@ const ListItem: React.FC<{
         >
           {document.title}
         </p>
-        <StatusBadge status={document.status} />
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {hasResponse && (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[8px] font-medium text-blue-700 border border-blue-200">
+              <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
+                <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
+              </svg>
+              {document.response_count || 1}
+            </span>
+          )}
+          <StatusBadge status={document.status} />
+        </div>
       </div>
 
       <div className="mt-0.5 flex items-center gap-1 text-[10px] text-stone-400 flex-wrap">
@@ -751,6 +761,94 @@ const Spinner: React.FC<{ className?: string }> = ({
   </svg>
 );
 
+// ─── Responses Panel ──────────────────────────────────────────────────────────
+
+const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
+  const dispatch = useAppDispatch();
+  const responses = useAppSelector((state) => state.documents.responses);
+  const loading = useAppSelector((state) => state.documents.loading);
+
+  useEffect(() => {
+    dispatch(fetchResponses(documentId));
+  }, [dispatch, documentId]);
+
+  if (loading) {
+    return (
+      <div className="bg-white border-t border-stone-200 flex-shrink-0 px-4 py-6 flex justify-center">
+        <Spinner className="h-4 w-4 text-stone-400" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border-t border-stone-200 flex-shrink-0">
+      <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-stone-100">
+        <span className="text-xs font-semibold text-[#1E4620]">
+          Responses
+          {responses.length > 0 && (
+            <span className="ml-1.5 rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-medium text-stone-500">
+              {responses.length}
+            </span>
+          )}
+        </span>
+      </div>
+
+      <div className="px-3 sm:px-4 py-3 max-h-[220px] overflow-y-auto space-y-2">
+        {responses.length === 0 ? (
+          <p className="text-[10px] text-stone-400 italic">No responses yet.</p>
+        ) : (
+          responses.map((r) => (
+            <div
+              key={r.id}
+              className="rounded-lg border border-stone-200 bg-stone-50 p-2.5"
+            >
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[#1E4620] text-[8px] font-bold text-white">
+                    {r.response_number}
+                  </span>
+                  <span className="text-[11px] font-semibold text-stone-800 truncate">
+                    {r.responded_by_name}
+                  </span>
+                </div>
+                <span className="text-[9px] text-stone-400 whitespace-nowrap flex-shrink-0">
+                  {format(new Date(r.created_at), "dd MMM yyyy · hh:mm aa")}
+                </span>
+              </div>
+
+              {r.note && (
+                <p className="text-[11px] text-stone-700 leading-relaxed mt-1 whitespace-pre-wrap">
+                  {r.note}
+                </p>
+              )}
+
+              {r.file_url && (
+                <a
+                  href={r.file_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-[#1E4620] hover:underline font-medium"
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round"
+                      d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                  {r.original_name ?? "Attached file"}
+                  {r.file_size_bytes && (
+                    <span className="text-stone-400 ml-1">
+                      ({formatFileSize(r.file_size_bytes)})
+                    </span>
+                  )}
+                </a>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ─── Document Editor ──────────────────────────────────────────────────────────
 
 interface DocumentEditorProps {
@@ -799,6 +897,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const hasMarkNote = !!document.active_mark?.instructions;
 
   const [showNote, setShowNote] = useState(hasMarkNote);
+  const [showResponses, setShowResponses] = useState(false);
 
   const stickyNoteText = document.active_mark?.instructions ?? "";
   const noteAuthor = document.active_mark
@@ -806,10 +905,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     : currentUserName;
 
   // ── Editing state ───────────────────────────────────────────────────────
-  // `document` here is the prop (a Document record), which shadows the
-  // global `window.document`. We always call window.document.execCommand
-  // explicitly below to avoid accidentally calling a method that doesn't
-  // exist on the Document type.
   const editorRef = useRef<HTMLDivElement>(null);
   const lastSavedHtml = useRef(document.body ?? "");
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -950,6 +1045,28 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
+          {/* ─── Responses Button ──────────────────────────────────────── */}
+          <button
+            onClick={() => setShowResponses((v) => !v)}
+            title={showResponses ? "Hide responses" : "Show responses"}
+            className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
+              showResponses
+                ? "border-[#1E4620] bg-[#1E4620]/10 text-[#1E4620]"
+                : "border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
+            }`}
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-4 4-4-4z" />
+            </svg>
+            Responses
+            {document.response_count && document.response_count > 0 && (
+              <span className="ml-0.5 rounded-full bg-[#1E4620]/20 px-1.5 py-0.5 text-[9px] font-bold text-[#1E4620]">
+                {document.response_count}
+              </span>
+            )}
+          </button>
+
           {(isSuperAdmin || hasMarkNote) && (
             <button
               onClick={() => setShowNote((v) => !v)}
@@ -1062,7 +1179,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
                 />
               </svg>
-              Convert to PDF &amp; Send
+              Convert to PDF & Send
             </button>
           )}
 
@@ -1349,11 +1466,14 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
               onClick={onSend}
               className="rounded bg-[#1E4620] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap"
             >
-              Convert to PDF &amp; Send
+              Convert to PDF & Send
             </button>
           )}
         </div>
       </div>
+
+      {/* ─── Responses Panel ───────────────────────────────────────────── */}
+      {showResponses && <ResponsesPanel documentId={document.id} />}
 
       <AnnotationsPanel document={document} />
     </div>
@@ -1895,9 +2015,6 @@ const SuperAdminDocuments: React.FC = () => {
   const { user } = useAppSelector((state) => state.auth);
   const { documents, loading, error, pagination, actionInProgress } =
     useAppSelector((state) => state.documents);
-  const templatesByDepartment = useAppSelector(
-    (state) => state.templates.byDepartment,
-  );
 
   const [activeTab, setActiveTab] = useState<Tab>("all");
   const [activeChip, setActiveChip] = useState<string | null>(null);
@@ -1909,13 +2026,17 @@ const SuperAdminDocuments: React.FC = () => {
   const [showMarkModal, setShowMarkModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [signToast, setSignToast] = useState<ToastState | null>(null);
-  const [isCreatingDocument, setIsCreatingDocument] = useState(false);
+  const [isCreatingDocument] = useState(false);
 
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [otpValue, setOtpValue] = useState("");
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
   const [signingDocId, setSigningDocId] = useState<string | null>(null);
+
+  // ── Memo/Letter Modal States ──────────────────────────────────────────────
+  const [showMemoModal, setShowMemoModal] = useState(false);
+  const [showLetterModal, setShowLetterModal] = useState(false);
 
   const draftsRef = useRef<HTMLDivElement>(null);
 
@@ -1945,72 +2066,29 @@ const SuperAdminDocuments: React.FC = () => {
     dispatch(fetchDocuments(params));
   }, [dispatch, activeTab, searchQuery, canView]);
 
-  // Resolves the department's active uploaded Word template (if any) for the
-  // given memo/letter type and converts it to HTML so it can be dropped
-  // straight into the contentEditable canvas as a starting point.
-  const getTemplateBodyHtml = async (
-    type: TemplateType,
-    departmentId: string | null,
-  ): Promise<string> => {
-    const key = departmentId ?? GLOBAL_KEY;
-    let template = templatesByDepartment[key]?.[type];
-
-    if (!template) {
-      const result = await dispatch(fetchActiveTemplate({ departmentId, type }));
-      if (fetchActiveTemplate.fulfilled.match(result)) {
-        template = result.payload.template;
-      }
-    }
-
-    if (!template?.file_url) return "";
-
-    try {
-      const response = await fetch(template.file_url);
-      if (!response.ok) throw new Error("Template download failed");
-      const arrayBuffer = await response.arrayBuffer();
-      const { value: html } = await mammoth.convertToHtml({ arrayBuffer });
-      return html;
-    } catch {
-      showToast({
-        type: "error",
-        message:
-          "Couldn't load the department template — starting with a blank document.",
-      });
-      return "";
-    }
+  const handleNewMemo = () => {
+    setShowDraftsMenu(false);
+    setShowMemoModal(true);
   };
 
-  const handleNewTemplate = async (
-    templateType: "memo" | "letter" | "draft",
-  ) => {
+  const handleNewLetter = () => {
     setShowDraftsMenu(false);
-    setIsCreatingDocument(true);
-    try {
-      const dateStr = format(new Date(), "dd MMM yyyy");
-      const title =
-        templateType === "memo"
-          ? `New Memo — ${dateStr}`
-          : templateType === "letter"
-            ? `New Letter — ${dateStr}`
-            : `Draft — ${dateStr}`;
+    setShowLetterModal(true);
+    console.log("showLetterModal set to true");
+  };
 
-      const composedType: TemplateType = templateType === "draft" ? "memo" : templateType;
-      const departmentId = user?.department_id ?? null;
-
-      const body = await getTemplateBodyHtml(composedType, departmentId);
-
-      const input: CreateComposedDocumentInput = {
-        title,
-        type: composedType,
-        body,
-      };
-
-      const result = await dispatch(createComposedDocument(input));
-      if (createComposedDocument.fulfilled.match(result)) {
-        setSelectedDocument(result.payload as Document);
-      }
-    } finally {
-      setIsCreatingDocument(false);
+  const handleModalClose = (type: 'memo' | 'letter') => {
+    if (type === 'memo') setShowMemoModal(false);
+    else setShowLetterModal(false);
+    
+    // Refresh documents after creation
+    if (canView) {
+      const params: DocumentFilters = { page: 1, limit: 10 };
+      if (activeTab === "my_action") params.for_my_action = true;
+      else if (activeTab === "judgments") params.type = "judgment";
+      else if (activeTab === "rulings") params.type = "ruling";
+      if (searchQuery) params.search = searchQuery;
+      dispatch(fetchDocuments(params));
     }
   };
 
@@ -2238,9 +2316,14 @@ const SuperAdminDocuments: React.FC = () => {
                   ].map(({ key, label, icon }) => (
                     <button
                       key={key}
-                      onClick={() =>
-                        handleNewTemplate(key as "memo" | "letter" | "draft")
-                      }
+                      onClick={() => {
+                        if (key === "memo") handleNewMemo();
+                        else if (key === "letter") handleNewLetter();
+                        else if (key === "draft") {
+                          // TODO: Handle blank draft creation
+                          setShowDraftsMenu(false);
+                        }
+                      }}
                       className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-stone-700 hover:bg-stone-50 transition-colors text-left"
                     >
                       <span>{icon}</span>
@@ -2382,13 +2465,14 @@ const SuperAdminDocuments: React.FC = () => {
                     document={doc}
                     selected={selectedDocument?.id === doc.id}
                     onSelect={() => setSelectedDocument(doc)}
+                    hasResponse={(doc.response_count ?? 0) > 0}
                   />
                 ))}
               </div>
             )}
           </div>
 
-          {/* Pagination - Shows 10 items per page with page numbers */}
+          {/* Pagination */}
           {pagination && pagination.totalPages > 1 && (
             <div className="border-t border-stone-200 bg-stone-50 px-3 py-2.5 flex-shrink-0">
               <div className="flex items-center justify-between gap-2">
@@ -2402,7 +2486,6 @@ const SuperAdminDocuments: React.FC = () => {
                 </span>
 
                 <div className="flex items-center gap-0.5">
-                  {/* Previous button */}
                   <button
                     onClick={() => handlePageChange(pagination.page - 1)}
                     disabled={pagination.page <= 1}
@@ -2424,7 +2507,6 @@ const SuperAdminDocuments: React.FC = () => {
                     </svg>
                   </button>
 
-                  {/* Page numbers */}
                   <div className="flex items-center gap-0.5">
                     {(() => {
                       const total = pagination.totalPages;
@@ -2435,16 +2517,11 @@ const SuperAdminDocuments: React.FC = () => {
                         for (let i = 1; i <= total; i++) pages.push(i);
                       } else {
                         pages.push(1);
-
                         const start = Math.max(2, current - 1);
                         const end = Math.min(total - 1, current + 1);
-
                         if (start > 2) pages.push("ellipsis");
-
                         for (let i = start; i <= end; i++) pages.push(i);
-
                         if (end < total - 1) pages.push("ellipsis");
-
                         pages.push(total);
                       }
 
@@ -2459,7 +2536,6 @@ const SuperAdminDocuments: React.FC = () => {
                             </span>
                           );
                         }
-
                         return (
                           <button
                             key={page}
@@ -2477,7 +2553,6 @@ const SuperAdminDocuments: React.FC = () => {
                     })()}
                   </div>
 
-                  {/* Next button */}
                   <button
                     onClick={() => handlePageChange(pagination.page + 1)}
                     disabled={pagination.page >= pagination.totalPages}
@@ -2562,15 +2637,35 @@ const SuperAdminDocuments: React.FC = () => {
             <EmptyState
               canUpload={canUpload}
               creating={isCreatingDocument}
-              onNewMemo={() => handleNewTemplate("memo")}
-              onNewLetter={() => handleNewTemplate("letter")}
+              onNewMemo={handleNewMemo}
+              onNewLetter={handleNewLetter}
               onUpload={() => setShowUploadModal(true)}
             />
           )}
         </div>
       </div>
 
-      {/* Modals */}
+      {/* ─── Modals ────────────────────────────────────────────────────────── */}
+      
+      {/* Memo Modal */}
+      <SuperAdminMemo
+        isOpen={showMemoModal}
+        onClose={() => handleModalClose('memo')}
+        initialData={{
+          from: "REGISTRAR, HIGH COURT",
+          subject: "",
+        }}
+      />
+
+      {/* Letter Modal */}
+      <SuperAdminLetter
+        isOpen={showLetterModal}
+        onClose={() => handleModalClose('letter')}
+        initialData={{
+          from: "REGISTRAR, HIGH COURT",
+        }}
+      />
+
       {showMarkModal && selectedDocument && (
         <MarkModal
           document={selectedDocument}

@@ -41,6 +41,7 @@ import {
   ChevronDown,
   Image,
   Upload,
+  Hash,
 } from 'lucide-react';
 import { generateUtilityMemoDocx } from '../../utils/generateUtilityMemoDocx';
 import { generateUtilityMemoPdf } from '../../utils/generateUtilityMemoPdf';
@@ -219,6 +220,7 @@ function ConfirmDialog({
 interface UtilityItemFormState {
   id: string | null;
   utility_type: UtilityType;
+  requisition_number: string;  // ADDED
   amount: number;
   period: string;
   description: string;
@@ -232,6 +234,7 @@ function buildEmptyItem(): UtilityItemFormState {
   return {
     id: null,
     utility_type: 'Electricity',
+    requisition_number: '',  // ADDED
     amount: 0,
     period: '',
     description: '',
@@ -246,6 +249,7 @@ function itemToFormState(item: UtilityItem): UtilityItemFormState {
   return {
     id: item.id,
     utility_type: item.utility_type,
+    requisition_number: item.requisition_number ?? '',  // ADDED
     amount: item.amount,
     period: item.period,
     description: item.description ?? '',
@@ -351,6 +355,21 @@ const UtilityItemRow: React.FC<UtilityItemRowProps> = ({
         </div>
       </div>
 
+      {/* ADDED: Requisition Number field */}
+      <div>
+        <FieldLabel>Requisition Number</FieldLabel>
+        <div className="relative">
+          <Hash size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-stone-400" />
+          <input
+            type="text"
+            value={item.requisition_number}
+            onChange={(e) => handleChange('requisition_number', e.target.value)}
+            placeholder="e.g. REQ-2026-001"
+            className={`${smallInputClasses} pl-8`}
+          />
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 gap-2">
         <div>
           <FieldLabel required>Amount (KES)</FieldLabel>
@@ -441,7 +460,7 @@ interface JudgeTotals {
   kplc: number;
   water: number;
   wifi: number;
-  other: number; // Fuel + Other, folded into total, no dedicated column (matches sample)
+  other: number;
   total: number;
 }
 
@@ -454,7 +473,7 @@ function computeJudgeTotals(judges: JudgeUtility[]): JudgeTotals[] {
           case 'Electricity': kplc += item.amount; break;
           case 'Water': water += item.amount; break;
           case 'Internet': wifi += item.amount; break;
-          default: other += item.amount; break; // Fuel, Other
+          default: other += item.amount; break;
         }
       });
       return { judge_name: j.judge_name, kplc, water, wifi, other, total: kplc + water + wifi + other };
@@ -490,8 +509,6 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
     `I hereby forward the utility bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`
   );
 
-  // Signatory name is no longer freely editable — it's always the logged-in
-  // user's name, sourced live from the users slice.
   const signatoryName = currentUser?.full_name || '';
 
   const handleSignatureUpload = async (file: File) => {
@@ -712,7 +729,7 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
               className="w-full bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none resize-none text-sm leading-relaxed mb-6"
             />
 
-            {/* Consolidated Judges Table — S/NO | NAMES | KPLC | WATER | WIFI | TOTAL */}
+            {/* Consolidated Judges Table */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse border border-black">
                 <thead>
@@ -759,9 +776,7 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
               </table>
             </div>
 
-            {/* Sign-off — name comes straight from the logged-in user, no free
-                text field; signature is embedded between the name and the
-                REGISTRAR, HIGH COURT line, also sourced from the users slice. */}
+            {/* Sign-off */}
             <div className="mt-16 space-y-1">
               <p className="text-sm font-bold text-black">{signatoryName}</p>
               {currentUser?.signature_url && (
@@ -822,7 +837,7 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
   );
 };
 
-// ─── Main UtilitiesModal (create/edit judge utility record) ───────────────
+// ─── Main UtilitiesModal ───────────────────────────────────────────────
 
 interface UtilitiesModalProps {
   isOpen: boolean;
@@ -893,6 +908,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         itemId: item.id,
         updates: {
           status: item.status,
+          requisition_number: item.requisition_number.trim() || undefined,  // ADDED
           date_received: formatDateForAPI(item.date_received),
           date_forwarded_dass: formatDateForAPI(item.date_forwarded_dass),
           date_paid: formatDateForAPI(item.date_paid),
@@ -942,6 +958,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     try {
       const input: UtilityItemInput = {
         utility_type: newItem.utility_type,
+        requisition_number: newItem.requisition_number.trim() || undefined,  // ADDED
         amount: 0,
         period: 'New item',
         status: newItem.status,
@@ -971,6 +988,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         judge_name: judgeName.trim(),
         items: filledItems.map((item) => ({
           utility_type: item.utility_type,
+          requisition_number: item.requisition_number.trim() || undefined,  // ADDED
           amount: item.amount,
           period: item.period.trim(),
           description: item.description.trim() || undefined,
