@@ -104,11 +104,11 @@ import {
   Stethoscope,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
-import ClubModal from '../../components/modals/clubModal';
 import UtilitiesModal, { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
 import { ProtocolModal } from '../../components/modals/ProtocolModal';
 import { VisaModal } from '../../components/modals/VisaModal';
 import { RequestModal } from '../../components/modals/RequestModal';
+import ClubModal from '../../components/Layout/ClubModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
