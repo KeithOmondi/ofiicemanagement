@@ -65,8 +65,7 @@ import { generateMemoDocx } from '../../utils/generateMemoDocx';
 import toast, { Toaster } from 'react-hot-toast';
 import { generateMemoPdf } from '../../utils/generateMemoPdf';
 import { generateMemoExcel } from '../../utils/generateMemoExcel';
-import { uploadHelpdeskDocument } from '../../utils/uploadHelpdeskDocument';
-import type { DocumentEntityType, DocumentFormat } from '../../store/slices/helpdeskDocumentsSlice';
+import { uploadHelpdeskDocument, type DocumentEntityType, type DocumentFormat } from '../../store/slices/helpdeskDocumentsSlice';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -717,6 +716,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   const [toField, setToField] = useState(() => getTo());
   const [fromField, setFromField] = useState(() => getFrom());
   const [subjectField, setSubjectField] = useState(() => getSubject());
+  const dispatch = useAppDispatch();
 
   const [refField, setRefField] = useState(() => {
     const prefix: Record<string, string> = {
@@ -815,6 +815,19 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         serviceWeek: 'serviceWeek',
         otherPayment: 'otherPayment',
       };
+
+      await dispatch(
+        uploadHelpdeskDocument({
+          blob,
+          filename,
+          ref: refField,
+          subject: subjectField,
+          entity_type: entityTypeMap[mode],
+          format: format as DocumentFormat,
+        })
+      ).unwrap();
+
+      toast.success(`${format.toUpperCase()} document saved to the system.`);
 
       await uploadHelpdeskDocument({
         blob,

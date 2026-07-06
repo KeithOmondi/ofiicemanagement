@@ -1,6 +1,8 @@
 // src/store/slices/helpdeskDocumentsSlice.ts
 
 import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
+import type { AxiosError } from 'axios';
+import axiosClient from '../../api/api';
 import type { RootState } from '../store';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -70,56 +72,54 @@ const initialState: HelpdeskDocumentsState = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function buildQuery(filters: HelpdeskDocumentFilters): string {
-    const params = new URLSearchParams();
-    if (filters.entity_type) params.set('entity_type', filters.entity_type);
-    if (filters.entity_id)   params.set('entity_id',   filters.entity_id);
-    if (filters.format)      params.set('format',      filters.format);
-    if (filters.search)      params.set('search',      filters.search);
-    if (filters.limit)       params.set('limit',       String(filters.limit));
-    if (filters.offset)      params.set('offset',      String(filters.offset));
-    const qs = params.toString();
-    return qs ? `?${qs}` : '';
+function buildParams(filters: HelpdeskDocumentFilters): Record<string, string> {
+    const params: Record<string, string> = {};
+    if (filters.entity_type) params.entity_type = filters.entity_type;
+    if (filters.entity_id)   params.entity_id   = filters.entity_id;
+    if (filters.format)      params.format      = filters.format;
+    if (filters.search)      params.search      = filters.search;
+    if (filters.limit)       params.limit       = String(filters.limit);
+    if (filters.offset)      params.offset      = String(filters.offset);
+    return params;
+}
+
+function getErrorMessage(err: unknown, fallback: string): string {
+    const error = err as AxiosError<{ message?: string }>;
+    return error.response?.data?.message ?? fallback;
 }
 
 // ─── Thunks ───────────────────────────────────────────────────────────────────
-
-// Type for error responses from the API
-interface ApiErrorResponse {
-    message?: string;
-}
-
-// Helper to extract error message safely
-function getErrorMessage(error: unknown): string {
-    if (error && typeof error === 'object' && 'message' in error) {
-        return typeof error.message === 'string' ? error.message : 'An error occurred';
-    }
-    return 'An error occurred';
-}
+//
+// These all go through axiosClient (not raw fetch) so the request interceptor
+// attaches the bearer token and the response interceptor can silently refresh
+// it on a 401 — the same as every other slice (templatesSlice, documentSlice).
+// Paths are relative to axiosClient's baseURL, which already includes the
+// API prefix — the router for this feature is mounted at /api/v1/uploads,
+// so requests here are just "/uploads", "/uploads/upload", "/uploads/:id".
 
 export const fetchHelpdeskDocuments = createAsyncThunk<
     HelpdeskDocument[],
-    HelpdeskDocumentFilters
+    HelpdeskDocumentFilters,
+    { rejectValue: string }
 >(
     'helpdeskDocuments/fetchAll',
     async (filters = {}, { rejectWithValue }) => {
         try {
-            const res = await fetch(`/api/helpdesk/documents${buildQuery(filters)}`);
-            if (!res.ok) {
-                const err = await res.json().catch((): ApiErrorResponse => ({}));
-                return rejectWithValue(err.message ?? 'Failed to fetch documents');
-            }
-            const json = await res.json();
-            return json.data as HelpdeskDocument[];
-        } catch (error: unknown) {
-            return rejectWithValue(getErrorMessage(error));
+            const { data } = await axiosClient.get('/uploads', {
+                params: buildParams(filters),
+            });
+            // Response shape: { success: true, data: HelpdeskDocument[] }
+            return data.data as HelpdeskDocument[];
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to fetch documents'));
         }
     }
 );
 
 export const uploadHelpdeskDocument = createAsyncThunk<
     HelpdeskDocument,
-    UploadHelpdeskDocumentPayload
+    UploadHelpdeskDocumentPayload,
+    { rejectValue: string }
 >(
     'helpdeskDocuments/upload',
     async (payload, { rejectWithValue }) => {
@@ -132,41 +132,30 @@ export const uploadHelpdeskDocument = createAsyncThunk<
             form.append('format',      payload.format);
             if (payload.entity_id) form.append('entity_id', payload.entity_id);
 
-            const res = await fetch('/api/helpdesk/documents/upload', {
-                method: 'POST',
-                body:   form,
+            const { data } = await axiosClient.post('/uploads/upload', form, {
+                headers: { 'Content-Type': 'multipart/form-data' },
             });
 
-            if (!res.ok) {
-                const err = await res.json().catch((): ApiErrorResponse => ({}));
-                return rejectWithValue(err.message ?? 'Upload failed');
-            }
-
-            const json = await res.json();
-            return json.data as HelpdeskDocument;
-        } catch (error: unknown) {
-            return rejectWithValue(getErrorMessage(error));
+            // Response shape: { success: true, data: HelpdeskDocument }
+            return data.data as HelpdeskDocument;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Upload failed'));
         }
     }
 );
 
 export const deleteHelpdeskDocument = createAsyncThunk<
     string,           // returns the deleted id
-    string            // accepts the document id
+    string,           // accepts the document id
+    { rejectValue: string }
 >(
     'helpdeskDocuments/delete',
     async (id, { rejectWithValue }) => {
         try {
-            const res = await fetch(`/api/helpdesk/documents/${id}`, {
-                method: 'DELETE',
-            });
-            if (!res.ok) {
-                const err = await res.json().catch((): ApiErrorResponse => ({}));
-                return rejectWithValue(err.message ?? 'Delete failed');
-            }
+            await axiosClient.delete(`/uploads/${id}`);
             return id;
-        } catch (error: unknown) {
-            return rejectWithValue(getErrorMessage(error));
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Delete failed'));
         }
     }
 );

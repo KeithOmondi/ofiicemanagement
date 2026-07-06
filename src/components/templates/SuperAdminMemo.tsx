@@ -28,8 +28,7 @@ import {
 import toast, { Toaster } from 'react-hot-toast';
 import { generateAdminMemoDocx } from '../../utils/generateAdminMemoDocx';
 import { generateAdminMemoPdf } from '../../utils/generateAdminMemoPdf';
-import { uploadHelpdeskDocument } from '../../utils/uploadHelpdeskDocument';
-import type { DocumentEntityType, DocumentFormat } from '../../store/slices/helpdeskDocumentsSlice';
+import { uploadHelpdeskDocument, type DocumentEntityType, type DocumentFormat } from '../../store/slices/helpdeskDocumentsSlice';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
