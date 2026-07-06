@@ -2,10 +2,14 @@
 //
 // Builds a printable PDF memo mirroring the .docx layout: crest, title
 // block, TO/FROM/REF/DATE/SUBJECT lines, an editable body paragraph, a DSA
-// schedule table, amount-in-words, and a signature block.
+// schedule table, and a signature block with footer.
+// Returns a Blob for upload or download.
 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+
+const FOOTER_EMBLEM_SRC =
+  'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
 
 export interface MemoPdfRow {
   judgeName: string;
@@ -14,7 +18,6 @@ export interface MemoPdfRow {
   rate: number;
   days: number;
   total: number;
-  notes: string;
 }
 
 export interface MemoPdfParams {
@@ -26,7 +29,6 @@ export interface MemoPdfParams {
   bodyText: string;
   rows: MemoPdfRow[];
   grandTotal: number;
-  amountInWords: string;
   signatoryName: string;
   crestUrl: string;
   signatureUrl?: string;
@@ -53,22 +55,30 @@ function detectImageFormat(dataUrl: string): 'PNG' | 'JPEG' {
   return dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
 }
 
-export async function generateMemoPdf(params: MemoPdfParams): Promise<void> {
+export async function generateMemoPdf(params: MemoPdfParams): Promise<Blob> {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 54; // ~0.75in
   let cursorY = 40;
 
-  // Crest
+  // ── Crest ────────────────────────────────────────────────────────────────
   const crestDataUrl = await urlToDataUrl(params.crestUrl);
   if (crestDataUrl) {
     const crestW = 90;
     const crestH = 45;
-    doc.addImage(crestDataUrl, detectImageFormat(crestDataUrl), (pageWidth - crestW) / 2, cursorY, crestW, crestH);
+    doc.addImage(
+      crestDataUrl,
+      detectImageFormat(crestDataUrl),
+      (pageWidth - crestW) / 2,
+      cursorY,
+      crestW,
+      crestH,
+    );
     cursorY += crestH + 12;
   }
 
-  // Title block
+  // ── Title block ──────────────────────────────────────────────────────────
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(13);
   doc.text('OFFICE OF THE REGISTRAR HIGH COURT', pageWidth / 2, cursorY, { align: 'center' });
@@ -76,10 +86,15 @@ export async function generateMemoPdf(params: MemoPdfParams): Promise<void> {
   doc.text('INTERNAL MEMO', pageWidth / 2, cursorY, { align: 'center' });
   const titleWidth = doc.getTextWidth('INTERNAL MEMO');
   doc.setLineWidth(1);
-  doc.line(pageWidth / 2 - titleWidth / 2, cursorY + 3, pageWidth / 2 + titleWidth / 2, cursorY + 3);
+  doc.line(
+    pageWidth / 2 - titleWidth / 2,
+    cursorY + 3,
+    pageWidth / 2 + titleWidth / 2,
+    cursorY + 3,
+  );
   cursorY += 24;
 
-  // TO / FROM / REF / DATE / SUBJECT
+  // ── TO / FROM / REF / DATE / SUBJECT ────────────────────────────────────
   doc.setFontSize(10);
   const labelX = margin;
   const valueX = margin + 70;
@@ -97,25 +112,25 @@ export async function generateMemoPdf(params: MemoPdfParams): Promise<void> {
     cursorY += 16;
   };
 
-  writeLabelLine('TO', params.to);
-  writeLabelLine('FROM', params.from);
+  writeLabelLine('TO', params.to.toUpperCase());
+  writeLabelLine('FROM', params.from.toUpperCase());
   writeLabelLine('REF', params.ref);
   writeLabelLine('DATE', params.date);
-  writeLabelLine('SUBJECT', params.subject, true);
+  writeLabelLine('SUBJECT', params.subject.toUpperCase(), true);
   cursorY += 6;
 
-  // Body (user-editable in the preview)
+  // ── Body ─────────────────────────────────────────────────────────────────
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   const bodyLines = doc.splitTextToSize(params.bodyText, pageWidth - margin * 2);
   doc.text(bodyLines, margin, cursorY);
   cursorY += bodyLines.length * 13 + 10;
 
-  // Table
+  // ── Table ─────────────────────────────────────────────────────────────────
   autoTable(doc, {
     startY: cursorY,
     margin: { left: margin, right: margin },
-    head: [['#', 'Judge Name', 'PJ Number', 'Designation', 'Rate (KES)', 'Days', 'Total (KES)', 'Notes']],
+    head: [['#', 'Particulars', 'PJ Number', 'Designation', 'Rate (KES)', 'Days', 'Total (KES)']],
     body:
       params.rows.length > 0
         ? params.rows.map((r, i) => [
@@ -126,50 +141,127 @@ export async function generateMemoPdf(params: MemoPdfParams): Promise<void> {
             r.rate.toLocaleString(),
             String(r.days),
             r.total.toLocaleString(),
-            r.notes || '-',
           ])
-        : [['—', 'No DSA details available.', '', '', '', '', '', '']],
+        : [['—', 'No DSA details available.', '', '', '', '', '']],
     foot:
       params.rows.length > 0
-        ? [['', '', '', '', '', 'GRAND TOTAL', params.grandTotal.toLocaleString(), '']]
+        ? [
+            [
+              {
+                content: 'GRAND TOTAL',
+                colSpan: 6,
+                styles: { halign: 'right' as const, fontStyle: 'bold' as const },
+              },
+              params.grandTotal.toLocaleString(),
+            ],
+          ]
         : undefined,
     styles: { font: 'helvetica', fontSize: 8, cellPadding: 4 },
     headStyles: { fillColor: [242, 242, 242], textColor: [0, 0, 0], fontStyle: 'bold' },
     footStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold' },
     theme: 'grid',
+    columnStyles: {
+      0: { cellWidth: 20, halign: 'center' },
+      1: { cellWidth: 'auto' },
+      2: { cellWidth: 50 },
+      3: { cellWidth: 'auto' },
+      4: { cellWidth: 55, halign: 'right' },
+      5: { cellWidth: 35, halign: 'right' },
+      6: { cellWidth: 60, halign: 'right' },
+    },
   });
 
-  cursorY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 20;
+  // ── Footer — emblem + address, anchored to page bottom ──────────────────
+  const footerLogoW = 48;
+  const footerLogoH = 36;
+  const footerBlockH = 52;
+  const footerY = pageHeight - footerBlockH - 8;
 
-  // Amount in words
+  // ── Signature block — sits just above the footer separator line ───────────
+  const signatureDataUrl = params.signatureUrl
+    ? await urlToDataUrl(params.signatureUrl)
+    : null;
+
+  const sigBlockH = (signatureDataUrl ? 40 + 4 : 10) + 16 + 6;
+  let sigCursorY = footerY - sigBlockH - 10;
+
+  // Signatory name
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
-  doc.text('Amount in Words: ', margin, cursorY);
-  doc.setFont('helvetica', 'normal');
-  doc.text(params.amountInWords.toUpperCase(), margin + 95, cursorY);
-  cursorY += 40;
+  doc.text(params.signatoryName || ' ', margin, sigCursorY);
+  sigCursorY += 6;
 
-  // Signature block — name, then signature image, then department line
-  doc.setFont('helvetica', 'bold');
-  doc.text(params.signatoryName || ' ', margin, cursorY);
-  cursorY += 6;
-
-  const signatureDataUrl = params.signatureUrl ? await urlToDataUrl(params.signatureUrl) : null;
+  // Optional signature image
   if (signatureDataUrl) {
     const sigW = 110;
     const sigH = 40;
-    doc.addImage(signatureDataUrl, detectImageFormat(signatureDataUrl), margin, cursorY, sigW, sigH);
-    cursorY += sigH + 4;
+    doc.addImage(
+      signatureDataUrl,
+      detectImageFormat(signatureDataUrl),
+      margin,
+      sigCursorY,
+      sigW,
+      sigH,
+    );
+    sigCursorY += sigH + 4;
   } else {
-    cursorY += 10;
+    sigCursorY += 10;
   }
 
+  // FROM department line with underline
   doc.setFont('helvetica', 'bold');
-  doc.text(params.from, margin, cursorY);
+  doc.text(params.from, margin, sigCursorY);
   const fromWidth = doc.getTextWidth(params.from);
   doc.setLineWidth(0.5);
-  doc.line(margin, cursorY + 2, margin + fromWidth, cursorY + 2);
+  doc.line(margin, sigCursorY + 2, margin + fromWidth, sigCursorY + 2);
 
-  const filename = `${(params.ref || 'memo').replace(/[\\/:*?"<>|]/g, '-')}.pdf`;
-  doc.save(filename);
+  // ── Separator line ────────────────────────────────────────────────────────
+  doc.setLineWidth(0.5);
+  doc.setDrawColor(180, 180, 180);
+  doc.line(margin, footerY, pageWidth - margin, footerY);
+
+  // ── Footer emblem (left side) ────────────────────────────────────────────
+  const footerEmblemDataUrl = await urlToDataUrl(FOOTER_EMBLEM_SRC);
+  if (footerEmblemDataUrl) {
+    const logoTopY = footerY + (footerBlockH - footerLogoH) / 2;
+    doc.addImage(
+      footerEmblemDataUrl,
+      detectImageFormat(footerEmblemDataUrl),
+      margin,
+      logoTopY,
+      footerLogoW,
+      footerLogoH,
+    );
+  }
+
+  // ── Footer text (right-aligned) ───────────────────────────────────────────
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7);
+  doc.setTextColor(80, 80, 80);
+  doc.text(
+    'Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi',
+    pageWidth - margin,
+    footerY + 14,
+    { align: 'right' },
+  );
+  doc.text(
+    'Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke',
+    pageWidth - margin,
+    footerY + 26,
+    { align: 'right' },
+  );
+
+  // Motto in dark green + bold
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(26, 61, 28);
+  doc.text('Justice Be Our Shield and Defender', pageWidth - margin, footerY + 34, {
+    align: 'right',
+  });
+
+  // Reset colours
+  doc.setTextColor(0, 0, 0);
+  doc.setDrawColor(0, 0, 0);
+
+  // ── Return Blob instead of saving ──────────────────────────────────────
+  return doc.output('blob');
 }

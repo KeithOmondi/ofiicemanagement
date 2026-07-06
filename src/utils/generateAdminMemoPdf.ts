@@ -1,13 +1,12 @@
 // src/utils/generateAdminMemoPdf.ts
+
 import jsPDF from 'jspdf';
 import type { AdminMemoData } from '../components/templates/SuperAdminMemo';
-
-// ─── Constants ──────────────────────────────────────────────────────────────
 
 const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1781759596/JOB_LOGO_ubls4m.jpg';
 const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
 
-export async function generateAdminMemoPdf(data: AdminMemoData, returnBlob: boolean = false): Promise<void | Blob> {
+export async function generateAdminMemoPdf(data: AdminMemoData): Promise<Blob> {
   const doc = new jsPDF('p', 'mm', 'a4');
   const pageWidth = 210;
   const pageHeight = 297;
@@ -23,21 +22,19 @@ export async function generateAdminMemoPdf(data: AdminMemoData, returnBlob: bool
 
   // ─── Add Logo/Crest ──────────────────────────────────────────────────────
   try {
-    const response = await fetch(JUDICIARY_CREST_SRC);
+    const response = await fetch(data.crestUrl || JUDICIARY_CREST_SRC);
     const blob = await response.blob();
     const reader = new FileReader();
     const base64 = await new Promise<string>((resolve) => {
       reader.onload = () => resolve(reader.result as string);
       reader.readAsDataURL(blob);
     });
-    // Logo at top center
     const imgWidth = 40;
     const imgHeight = 40;
     const imgX = (pageWidth - imgWidth) / 2;
     doc.addImage(base64, 'PNG', imgX, y, imgWidth, imgHeight);
     y += imgHeight + 4;
   } catch {
-    // Fallback to text if image fails to load
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
     doc.text('REPUBLIC OF KENYA', pageWidth / 2, y, { align: 'center' });
@@ -60,14 +57,12 @@ export async function generateAdminMemoPdf(data: AdminMemoData, returnBlob: bool
   doc.setFontSize(12);
   doc.setFont('helvetica', 'bold');
 
-  // TO
   doc.text('TO', margin, y);
   doc.text(':', margin + 20, y);
   doc.setFont('helvetica', 'normal');
   doc.text(data.to.toUpperCase(), margin + 25, y);
   y += 7;
 
-  // FROM
   doc.setFont('helvetica', 'bold');
   doc.text('FROM', margin, y);
   doc.text(':', margin + 20, y);
@@ -75,7 +70,6 @@ export async function generateAdminMemoPdf(data: AdminMemoData, returnBlob: bool
   doc.text(data.from.toUpperCase(), margin + 25, y);
   y += 7;
 
-  // CC (if provided)
   if (data.cc) {
     doc.setFont('helvetica', 'bold');
     doc.text('CC', margin, y);
@@ -85,7 +79,6 @@ export async function generateAdminMemoPdf(data: AdminMemoData, returnBlob: bool
     y += 7;
   }
 
-  // REF
   doc.setFont('helvetica', 'bold');
   doc.text('REF', margin, y);
   doc.text(':', margin + 20, y);
@@ -93,7 +86,6 @@ export async function generateAdminMemoPdf(data: AdminMemoData, returnBlob: bool
   doc.text(data.ref.toUpperCase(), margin + 25, y);
   y += 7;
 
-  // DATE
   doc.setFont('helvetica', 'bold');
   doc.text('DATE', margin, y);
   doc.text(':', margin + 20, y);
@@ -101,7 +93,6 @@ export async function generateAdminMemoPdf(data: AdminMemoData, returnBlob: bool
   doc.text(data.date, margin + 25, y);
   y += 7;
 
-  // SUBJECT
   doc.setFont('helvetica', 'bold');
   doc.text('SUBJECT', margin, y);
   doc.text(':', margin + 20, y);
@@ -140,7 +131,6 @@ export async function generateAdminMemoPdf(data: AdminMemoData, returnBlob: bool
   doc.text(data.signatoryName, margin, y);
   y += 4;
 
-  // Signature
   if (data.signatureUrl) {
     try {
       const response = await fetch(data.signatureUrl);
@@ -167,16 +157,16 @@ export async function generateAdminMemoPdf(data: AdminMemoData, returnBlob: bool
   doc.setFontSize(10);
   doc.setFont('helvetica', 'italic');
   doc.setTextColor(102, 102, 102);
-  doc.text(`RHC/${data.signatoryName.split(' ').map(n => n[0]).join('').toUpperCase()}`, margin, y);
+  const initials = data.signatoryName.split(' ').map(n => n[0]).join('').toUpperCase();
+  doc.text(`RHC/${initials}`, margin, y);
   y += 12;
 
   // ─── Footer ──────────────────────────────────────────────────────────────
   checkPage(30);
   y = pageHeight - margin - 25;
 
-  // Footer emblem
   try {
-    const response = await fetch(FOOTER_EMBLEM_SRC);
+    const response = await fetch(data.footerEmblemUrl || FOOTER_EMBLEM_SRC);
     const blob = await response.blob();
     const reader = new FileReader();
     const base64 = await new Promise<string>((resolve) => {
@@ -199,9 +189,6 @@ export async function generateAdminMemoPdf(data: AdminMemoData, returnBlob: bool
   doc.setTextColor(26, 61, 28);
   doc.text('Justice Be Our Shield and Defender', pageWidth / 2, y, { align: 'center' });
 
-  if (returnBlob) {
-    return doc.output('blob');
-  } else {
-    doc.save(`Memo_${data.ref || 'untitled'}.pdf`);
-  }
+  // Return Blob instead of saving
+  return doc.output('blob');
 }

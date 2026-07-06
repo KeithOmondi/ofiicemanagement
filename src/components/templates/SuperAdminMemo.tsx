@@ -1,7 +1,13 @@
 // src/components/templates/SuperAdminMemo.tsx
+
 import React, { useState, useRef, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
-import { selectCurrentUser, selectUsersSignatureLoading, uploadSignature, deleteSignature } from '../../store/slices/userSlice';
+import { 
+  selectCurrentUser, 
+  selectUsersSignatureLoading, 
+  uploadSignature, 
+  deleteSignature 
+} from '../../store/slices/userSlice';
 import { createMemo } from '../../store/slices/documentSlice';
 import { fetchUsers, selectAllUsers } from '../../store/slices/userSlice';
 import {
@@ -22,6 +28,8 @@ import {
 import toast, { Toaster } from 'react-hot-toast';
 import { generateAdminMemoDocx } from '../../utils/generateAdminMemoDocx';
 import { generateAdminMemoPdf } from '../../utils/generateAdminMemoPdf';
+import { uploadHelpdeskDocument } from '../../utils/uploadHelpdeskDocument';
+import type { DocumentEntityType, DocumentFormat } from '../../store/slices/helpdeskDocumentsSlice';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -238,12 +246,16 @@ interface SuperAdminMemoProps {
   onClose: () => void;
   initialData?: Partial<AdminMemoData>;
   templateFile?: File | null;
+  entityType?: DocumentEntityType;
+  entityId?: string;
 }
 
 const SuperAdminMemo: React.FC<SuperAdminMemoProps> = ({
   isOpen,
   onClose,
   initialData,
+  entityType = 'otherPayment',
+  entityId,
 }) => {
   const dispatch = useAppDispatch();
   const currentUser = useAppSelector(selectCurrentUser);
@@ -277,10 +289,7 @@ const SuperAdminMemo: React.FC<SuperAdminMemoProps> = ({
   const signatoryName = currentUser?.full_name || '';
   const userInitials = getInitials(signatoryName);
   
-  // Track the last file we actually parsed, without triggering re-renders
   const lastLoadedFileRef = useRef<File | null>(null);
-  
-  // Track if users have been loaded to prevent cascading renders
   const usersLoadedRef = useRef(false);
 
   // ── Load users for send modal ──────────────────────────────────────────────
@@ -292,7 +301,6 @@ const SuperAdminMemo: React.FC<SuperAdminMemoProps> = ({
       dispatch(fetchUsers({ is_active: true, limit: 100 }))
         .finally(() => setLoadingUsers(false));
     }
-    // Reset the ref when modal closes
     if (!showSendModal) {
       usersLoadedRef.current = false;
     }
@@ -333,21 +341,58 @@ const SuperAdminMemo: React.FC<SuperAdminMemoProps> = ({
     footerEmblemUrl: FOOTER_EMBLEM_SRC,
   });
 
+  // ─── Updated handleDownload with upload functionality ────────────────────
+
   const handleDownload = async (format: DownloadFormat) => {
     setShowDownloadMenu(false);
     setDownloadingFormat(format);
+
     try {
       const memoData = buildMemoData();
 
+      // ── Step 1: Generate the Blob ──────────────────────────────────────────
+      let blob: Blob | null = null;
+
       if (format === 'docx') {
-        await generateAdminMemoDocx(memoData);
+        blob = await generateAdminMemoDocx(memoData);
       } else if (format === 'pdf') {
-        await generateAdminMemoPdf(memoData);
+        blob = await generateAdminMemoPdf(memoData);
       }
-      toast.success(`Memo downloaded as ${format.toUpperCase()}`);
+
+      if (!blob) {
+        throw new Error('Generator returned no blob');
+      }
+
+      // ── Step 2: Upload to the helpdesk system ─────────────────────────────
+      const safeRef = (refField || 'memo').replace(/[\\/:*?"<>|]/g, '-');
+      const filename = `${safeRef}.${format}`;
+
+      await uploadHelpdeskDocument({
+        blob,
+        filename,
+        ref: refField,
+        subject: subjectField || 'Admin Memo',
+        entity_type: entityType,
+        entity_id: entityId || undefined,
+        format: format as DocumentFormat,
+      });
+
+      toast.success(`${format.toUpperCase()} document saved to the system.`);
+
+      // ── Optional: Also allow local download ──────────────────────────────
+      // Uncomment if you want both behaviors:
+      // const url = URL.createObjectURL(blob);
+      // const link = document.createElement('a');
+      // link.href = url;
+      // link.download = filename;
+      // document.body.appendChild(link);
+      // link.click();
+      // document.body.removeChild(link);
+      // URL.revokeObjectURL(url);
+
     } catch (err) {
-      console.error(`Failed to generate ${format} memo:`, err);
-      toast.error('Failed to generate document. Please try again.');
+      console.error(`Failed to generate/upload ${format} memo:`, err);
+      toast.error('Failed to save document. Please try again.');
     } finally {
       setDownloadingFormat(null);
     }
@@ -373,11 +418,11 @@ const SuperAdminMemo: React.FC<SuperAdminMemoProps> = ({
     try {
       const memoData = buildMemoData();
       
-      // Generate PDF and convert to File
-      const pdfBlob = await generateAdminMemoPdf(memoData, true) as Blob;
+      // Generate PDF blob
+      const pdfBlob = await generateAdminMemoPdf(memoData);
       const pdfFile = new File([pdfBlob], `Memo_${memoData.ref || 'untitled'}.pdf`, { type: 'application/pdf' });
       
-      // Create and send the memo via the API with the PDF attached
+      // Create and send the memo via the API
       await dispatch(createMemo({
         data: {
           to: memoData.to,
@@ -390,12 +435,28 @@ const SuperAdminMemo: React.FC<SuperAdminMemoProps> = ({
           recipient_id: recipientId,
           note: note,
         },
-        file: pdfFile, // Attach the generated PDF
+        file: pdfFile,
       })).unwrap();
+
+      // Also save to helpdesk system
+      try {
+        await uploadHelpdeskDocument({
+          blob: pdfBlob,
+          filename: `Memo_${memoData.ref || 'untitled'}.pdf`,
+          ref: memoData.ref,
+          subject: memoData.subject || 'Admin Memo',
+          entity_type: entityType,
+          entity_id: entityId || undefined,
+          format: 'pdf',
+        });
+      } catch (uploadErr) {
+        console.warn('Failed to save to helpdesk:', uploadErr);
+        // Don't fail the send if upload fails
+      }
 
       toast.success('Memo sent successfully!');
       setShowSendModal(false);
-      onClose(); // Close the memo modal after sending
+      onClose();
     } catch (err) {
       console.error('Failed to send memo:', err);
       toast.error('Failed to send memo. Please try again.');
@@ -405,7 +466,6 @@ const SuperAdminMemo: React.FC<SuperAdminMemoProps> = ({
     }
   };
 
-  // ── Close handler ──────────────────────────────────────────────────────────
   const handleClose = () => {
     lastLoadedFileRef.current = null;
     onClose();
@@ -655,7 +715,6 @@ const SuperAdminMemo: React.FC<SuperAdminMemoProps> = ({
               </span>
             </div>
             <div className="flex gap-2">
-              {/* Send Button */}
               <GoldButton
                 size="sm"
                 onClick={handleOpenSendModal}

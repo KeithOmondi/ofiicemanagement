@@ -3,10 +3,11 @@
 // Builds a real, editable .docx memo — not a screenshot/PDF — matching the
 // layout of the approved ORHC memo template: centered crest, centered title
 // block, plain TO/FROM/REF/DATE/SUBJECT lines, an editable body paragraph,
-// a bordered DSA schedule table, amount-in-words, and a signature block.
+// a bordered DSA schedule table, and a signature block.
 //
 // Runs entirely client-side. The crest image is fetched from wherever your
 // app serves static assets (same path used by <CircuitModal />'s preview).
+// Returns a Blob for upload or download.
 
 import {
   Document,
@@ -21,7 +22,6 @@ import {
   BorderStyle,
   WidthType,
 } from 'docx';
-import { saveAs } from 'file-saver';
 
 export interface MemoDocxRow {
   judgeName: string;
@@ -30,7 +30,6 @@ export interface MemoDocxRow {
   rate: number;
   days: number;
   total: number;
-  notes: string;
 }
 
 export interface MemoDocxParams {
@@ -59,7 +58,6 @@ async function fetchImageBuffer(url: string): Promise<ArrayBuffer> {
     return res.arrayBuffer();
   } catch (error) {
     console.error('Failed to fetch image:', error);
-    // Return an empty buffer or a placeholder if image fails to load
     return new ArrayBuffer(0);
   }
 }
@@ -91,7 +89,11 @@ function tableHeaderCell(text: string, widthPct: number): TableCell {
   });
 }
 
-function tableBodyCell(text: string, widthPct: number, align: typeof AlignmentType[keyof typeof AlignmentType] = AlignmentType.LEFT): TableCell {
+function tableBodyCell(
+  text: string, 
+  widthPct: number, 
+  align: typeof AlignmentType[keyof typeof AlignmentType] = AlignmentType.LEFT
+): TableCell {
   return new TableCell({
     width: { size: widthPct, type: WidthType.PERCENTAGE },
     children: [
@@ -103,7 +105,7 @@ function tableBodyCell(text: string, widthPct: number, align: typeof AlignmentTy
   });
 }
 
-export async function generateMemoDocx(params: MemoDocxParams): Promise<void> {
+export async function generateMemoDocx(params: MemoDocxParams): Promise<Blob> {
   // Fetch the crest image
   let crestBuffer = new ArrayBuffer(0);
   try {
@@ -122,7 +124,8 @@ export async function generateMemoDocx(params: MemoDocxParams): Promise<void> {
     }
   }
 
-  const COL_WIDTHS = [5, 18, 12, 14, 12, 8, 12, 19]; // sums to 100
+  // 7 columns: #, Judge Name, PJ Number, Designation, Rate, Days, Total
+  const COL_WIDTHS = [5, 20, 14, 16, 14, 9, 22]; // sums to 100
 
   const headerRow = new TableRow({
     tableHeader: true,
@@ -134,7 +137,6 @@ export async function generateMemoDocx(params: MemoDocxParams): Promise<void> {
       tableHeaderCell('Rate (KES)', COL_WIDTHS[4]),
       tableHeaderCell('Days', COL_WIDTHS[5]),
       tableHeaderCell('Total (KES)', COL_WIDTHS[6]),
-      tableHeaderCell('Notes', COL_WIDTHS[7]),
     ],
   });
 
@@ -151,7 +153,6 @@ export async function generateMemoDocx(params: MemoDocxParams): Promise<void> {
                 tableBodyCell(r.rate.toLocaleString(), COL_WIDTHS[4], AlignmentType.RIGHT),
                 tableBodyCell(String(r.days), COL_WIDTHS[5], AlignmentType.RIGHT),
                 tableBodyCell(r.total.toLocaleString(), COL_WIDTHS[6], AlignmentType.RIGHT),
-                //tableBodyCell(r.notes || '-', COL_WIDTHS[7]),
               ],
             })
         )
@@ -159,7 +160,7 @@ export async function generateMemoDocx(params: MemoDocxParams): Promise<void> {
           new TableRow({
             children: [
               new TableCell({
-                columnSpan: 8,
+                columnSpan: 7,
                 children: [
                   new Paragraph({
                     alignment: AlignmentType.CENTER,
@@ -188,11 +189,17 @@ export async function generateMemoDocx(params: MemoDocxParams): Promise<void> {
               children: [
                 new Paragraph({
                   alignment: AlignmentType.RIGHT,
-                  children: [new TextRun({ text: params.grandTotal.toLocaleString(), bold: true, font: TAHOMA, size: 18 })],
+                  children: [
+                    new TextRun({ 
+                      text: params.grandTotal.toLocaleString(), 
+                      bold: true, 
+                      font: TAHOMA, 
+                      size: 18 
+                    }),
+                  ],
                 }),
               ],
             }),
-            new TableCell({ children: [new Paragraph({ children: [] })] }),
           ],
         })
       : null;
@@ -245,7 +252,7 @@ export async function generateMemoDocx(params: MemoDocxParams): Promise<void> {
     labelLine('FROM', params.from),
     labelLine('REF', params.ref),
     labelLine('DATE', params.date),
-    new Paragraph({ spacing: { after: 300 }, children: [] }), // small gap before the bordered SUBJECT line
+    new Paragraph({ spacing: { after: 300 }, children: [] }),
     labelLine('SUBJECT', params.subject, true),
     new Paragraph({ spacing: { before: 200, after: 200 }, children: [] })
   );
@@ -267,16 +274,8 @@ export async function generateMemoDocx(params: MemoDocxParams): Promise<void> {
   // Table
   children.push(table);
 
-  // Amount in words
-  children.push(
-    new Paragraph({
-      spacing: { before: 240, after: 480 },
-      children: [
-        new TextRun({ text: 'Amount in Words: ', bold: true, font: TAHOMA, size: 22 }),
-        new TextRun({ text: params.amountInWords.toUpperCase(), font: TAHOMA, size: 22 }),
-      ],
-    })
-  );
+  // Amount in words - removed as per requirements
+  // No longer displaying amount in words
 
   // Signature block - signatory name
   children.push(
@@ -332,7 +331,6 @@ export async function generateMemoDocx(params: MemoDocxParams): Promise<void> {
     ],
   });
 
-  const blob = await Packer.toBlob(doc);
-  const filename = `${params.ref.replace(/[\\/:*?"<>|]/g, '-') || 'memo'}.docx`;
-  saveAs(blob, filename);
+  // Return Blob instead of saving
+  return Packer.toBlob(doc);
 }

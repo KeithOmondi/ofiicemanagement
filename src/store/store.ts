@@ -20,6 +20,7 @@ import noticesReducer from "./slices/noticesSlice"
 import notificationsReducer from "./slices/notificationsSlice"
 import linksReducer from "./slices/linksSlice"
 import templatesReducer from "./slices/templatesSlice"
+import helpdeskDocumentsReducer from './slices/helpdeskDocumentsSlice';
 
 export const store = configureStore({
   reducer: {
@@ -42,6 +43,7 @@ export const store = configureStore({
     notifications: notificationsReducer,
     links: linksReducer,
     templates: templatesReducer,
+    helpdeskDocuments: helpdeskDocumentsReducer,
   },
 });
 

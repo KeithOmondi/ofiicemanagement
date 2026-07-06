@@ -1,4 +1,5 @@
 // src/components/modals/CircuitModal.tsx
+
 import React, { useState, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -64,6 +65,8 @@ import { generateMemoDocx } from '../../utils/generateMemoDocx';
 import toast, { Toaster } from 'react-hot-toast';
 import { generateMemoPdf } from '../../utils/generateMemoPdf';
 import { generateMemoExcel } from '../../utils/generateMemoExcel';
+import { uploadHelpdeskDocument } from '../../utils/uploadHelpdeskDocument';
+import type { DocumentEntityType, DocumentFormat } from '../../store/slices/helpdeskDocumentsSlice';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -704,33 +707,12 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
     }
   };
 
-  const getTo = () => 'REGISTRAR ,HIGH COURT/ ORHC AIE HOLDER';
+  const getTo = () => 'REGISTRAR, HIGH COURT/ ORHC AIE HOLDER';
 
   const currentUser = useAppSelector((state) => state.auth.user);
 
   const validDetails = dsaDetails.filter(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0);
   const grandTotal = calculateGrandTotal();
-
-  const formatCurrencyWords = (amount: number): string => {
-    const words = ['Zero', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-
-    const numberToWords = (num: number): string => {
-      if (num < 20) return words[num];
-      if (num < 100) return tens[Math.floor(num / 10)] + (num % 10 !== 0 ? ' ' + words[num % 10] : '');
-      if (num < 1000) return words[Math.floor(num / 100)] + ' Hundred' + (num % 100 !== 0 ? ' and ' + numberToWords(num % 100) : '');
-      if (num < 1000000) return numberToWords(Math.floor(num / 1000)) + ' Thousand' + (num % 1000 !== 0 ? ' ' + numberToWords(num % 1000) : '');
-      return 'Amount too large';
-    };
-
-    const dollars = Math.floor(amount);
-    const cents = Math.round((amount - dollars) * 100);
-    let result = numberToWords(dollars) + ' Kenya Shillings';
-    if (cents > 0) {
-      result += ' and ' + numberToWords(cents) + ' Cents';
-    }
-    return result;
-  };
 
   const [toField, setToField] = useState(() => getTo());
   const [fromField, setFromField] = useState(() => getFrom());
@@ -750,13 +732,10 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   });
 
   const [dateField, setDateField] = useState(() => {
-    if (!basicInfo.start_date || !basicInfo.end_date) {
+    if (!basicInfo.start_date) {
       return new Date().toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
     }
-    const startDate = new Date(basicInfo.start_date);
-    const endDate = new Date(basicInfo.end_date);
-    const generated = new Date(startDate.getTime() + Math.random() * (endDate.getTime() - startDate.getTime()));
-    return generated.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
+    return new Date(basicInfo.start_date).toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
   });
 
   const [bodyText, setBodyText] = useState(() =>
@@ -779,12 +758,14 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
       rate: d.dsa_per_day,
       days: d.days,
       total: calculateTotal(d.dsa_per_day, d.days),
-      notes: '',
     }));
+
+  // ─── Updated handleDownload with upload functionality ────────────────────
 
   const handleDownload = async (format: DownloadFormat) => {
     setShowDownloadMenu(false);
     setDownloadingFormat(format);
+
     try {
       const rows = buildRows();
       const shared = {
@@ -796,28 +777,70 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         bodyText,
         rows,
         grandTotal,
-        amountInWords: formatCurrencyWords(grandTotal),
+        amountInWords: '',
         signatoryName,
       };
 
+      // ── Step 1: Generate the Blob ──────────────────────────────────────────
+      let blob: Blob | null = null;
+
       if (format === 'docx') {
-        await generateMemoDocx({
+        blob = await generateMemoDocx({
           ...shared,
           crestUrl: JUDICIARY_CREST_SRC,
           signatureUrl: signatureUrl || undefined,
         });
       } else if (format === 'pdf') {
-        await generateMemoPdf({
+        blob = await generateMemoPdf({
           ...shared,
           crestUrl: JUDICIARY_CREST_SRC,
           signatureUrl: signatureUrl || undefined,
         });
-      } else {
-        generateMemoExcel(shared);
+      } else if (format === 'xlsx') {
+        blob = generateMemoExcel(shared);
       }
+
+      if (!blob) {
+        throw new Error('Generator returned no blob');
+      }
+
+      // ── Step 2: Upload to the system ──────────────────────────────────────
+      const safeRef = (refField || 'memo').replace(/[\\/:*?"<>|]/g, '-');
+      const filename = `${safeRef}.${format}`;
+
+      const entityTypeMap: Record<CircuitModalMode, DocumentEntityType> = {
+        circuit: 'circuit',
+        bench: 'bench',
+        partHeard: 'partHeard',
+        serviceWeek: 'serviceWeek',
+        otherPayment: 'otherPayment',
+      };
+
+      await uploadHelpdeskDocument({
+        blob,
+        filename,
+        ref: refField,
+        subject: subjectField,
+        entity_type: entityTypeMap[mode],
+        format: format as DocumentFormat,
+      });
+
+      toast.success(`${format.toUpperCase()} document saved to the system.`);
+
+      // ── Optional: Also allow local download ──────────────────────────────
+      // Uncomment if you want both behaviors:
+      // const url = URL.createObjectURL(blob);
+      // const link = document.createElement('a');
+      // link.href = url;
+      // link.download = filename;
+      // document.body.appendChild(link);
+      // link.click();
+      // document.body.removeChild(link);
+      // URL.revokeObjectURL(url);
+
     } catch (err) {
-      console.error(`Failed to generate ${format} memo:`, err);
-      toast.error('Failed to generate document. Please try again.');
+      console.error(`Failed to generate/upload ${format} memo:`, err);
+      toast.error('Failed to save document. Please try again.');
     } finally {
       setDownloadingFormat(null);
     }
@@ -887,162 +910,178 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         </div>
       </div>
 
-      <div className="border border-stone-300 bg-white p-10 shadow-sm font-sans text-black">
-        <div className="flex justify-center mb-3">
-          <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-20 w-auto object-contain" />
-        </div>
-
-        <div className="text-center mb-6">
-          <p className="text-lg font-bold uppercase leading-snug">
-            OFFICE OF THE REGISTRAR HIGH COURT
-          </p>
-          <p className="text-lg font-bold uppercase leading-snug border-b-2 border-black inline-block pb-2 px-1">
-            INTERNAL MEMO
-          </p>
-        </div>
-
-        <div className="space-y-3 text-sm font-bold mb-8">
-          <div className="flex">
-            <span className="w-24 shrink-0">TO</span>
-            <span className="w-4 shrink-0">:</span>
-            <input
-              type="text"
-              value={toField}
-              onChange={(e) => setToField(e.target.value)}
-              className={`${editableLineClasses} uppercase`}
-            />
-          </div>
-          <div className="flex">
-            <span className="w-24 shrink-0">FROM</span>
-            <span className="w-4 shrink-0">:</span>
-            <input
-              type="text"
-              value={fromField}
-              onChange={(e) => setFromField(e.target.value)}
-              className={`${editableLineClasses} uppercase`}
-            />
-          </div>
-          <div className="flex">
-            <span className="w-24 shrink-0">REF</span>
-            <span className="w-4 shrink-0">:</span>
-            <input
-              type="text"
-              value={refField}
-              onChange={(e) => setRefField(e.target.value)}
-              className={editableLineClasses}
-            />
-          </div>
-          <div className="flex">
-            <span className="w-24 shrink-0">DATE</span>
-            <span className="w-4 shrink-0">:</span>
-            <input
-              type="text"
-              value={dateField}
-              onChange={(e) => setDateField(e.target.value)}
-              className={editableLineClasses}
-            />
-          </div>
-          <div className="flex border-b-2 border-black pb-3">
-            <span className="w-24 shrink-0">SUBJECT</span>
-            <span className="w-4 shrink-0">:</span>
-            <input
-              type="text"
-              value={subjectField}
-              onChange={(e) => setSubjectField(e.target.value)}
-              className={`${editableLineClasses} uppercase`}
-            />
-          </div>
-        </div>
-
-        <div className="space-y-4 text-sm">
-          <textarea
-            value={bodyText}
-            onChange={(e) => setBodyText(e.target.value)}
-            rows={3}
-            className={`${editableLineClasses} block w-full resize-none leading-relaxed`}
-          />
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse border border-black">
-              <thead>
-                <tr>
-                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">#</th>
-                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">Particulars</th>
-                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">PJ Number</th>
-                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">Designation</th>
-                  <th className="border border-black px-2 py-1 text-right text-xs font-bold">Rate (KES)</th>
-                  <th className="border border-black px-2 py-1 text-right text-xs font-bold">Days</th>
-                  <th className="border border-black px-2 py-1 text-right text-xs font-bold">Total (KES)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {validDetails.length > 0 ? (
-                  validDetails.map((detail, index) => (
-                    <tr key={index}>
-                      <td className="border border-black px-2 py-1 text-center">{index + 1}</td>
-                      <td className="border border-black px-2 py-1 font-medium">{detail.judge_name}</td>
-                      <td className="border border-black px-2 py-1">{detail.pj_number}</td>
-                      <td className="border border-black px-2 py-1">{detail.designation || '—'}</td>
-                      <td className="border border-black px-2 py-1 text-right">{detail.dsa_per_day.toLocaleString()}</td>
-                      <td className="border border-black px-2 py-1 text-right">{detail.days}</td>
-                      <td className="border border-black px-2 py-1 text-right font-medium">
-                        {calculateTotal(detail.dsa_per_day, detail.days).toLocaleString()}
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={7} className="border border-black px-2 py-4 text-center text-stone-500 text-sm">
-                      No DSA details available.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-              {validDetails.length > 0 && (
-                <tfoot>
-                  <tr>
-                    <td colSpan={6} className="border border-black px-2 py-2 text-right font-bold">
-                      GRAND TOTAL
-                    </td>
-                    <td className="border border-black px-2 py-2 text-right font-bold">
-                      {grandTotal.toLocaleString()}
-                    </td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
-        </div>
-
-        <div className="mt-16 space-y-1">
-          <input
-            type="text"
-            value={signatoryName}
-            onChange={(e) => setSignatoryName(e.target.value)}
-            placeholder="Signatory name"
-            className={`${editableLineClasses} block text-sm font-bold`}
-          />
-
-          {signatureUrl && (
-            <div className="py-1">
-              <img src={signatureUrl} alt="Signature" className="max-h-12 w-auto object-contain" />
+      {/* ─── Memo Preview - Proper A4 layout with footer at bottom ─── */}
+      <div className="border border-stone-300 bg-white shadow-sm font-sans text-black" style={{ minHeight: '297mm' }}>
+        <div className="flex flex-col" style={{ minHeight: '297mm' }}>
+          {/* Header - pushed to top */}
+          <div className="p-10">
+            {/* Crest */}
+            <div className="flex justify-center mb-3">
+              <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-20 w-auto object-contain" />
             </div>
-          )}
 
-          <input
-            type="text"
-            value={fromField}
-            onChange={(e) => setFromField(e.target.value)}
-            className={`${editableLineClasses} block text-sm font-bold underline uppercase`}
-          />
-        </div>
+            {/* Title block */}
+            <div className="text-center mb-6">
+              <p className="text-lg font-bold uppercase leading-snug">
+                OFFICE OF THE REGISTRAR HIGH COURT
+              </p>
+              <p className="text-lg font-bold uppercase leading-snug border-b-2 border-black inline-block pb-2 px-1">
+                INTERNAL MEMO
+              </p>
+            </div>
 
-        <div className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3">
-          <img src={FOOTER_EMBLEM_SRC} alt="" className="h-10 w-auto object-contain shrink-0" />
-          <div className="text-[10px] leading-tight text-stone-700 text-right">
-            <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
-            <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
-            <p className="mt-1 font-bold text-emerald-800">Justice Be Our Shield and Defender</p>
+            {/* TO / FROM / REF / DATE / SUBJECT */}
+            <div className="space-y-3 text-sm font-bold mb-8">
+              <div className="flex">
+                <span className="w-24 shrink-0">TO</span>
+                <span className="w-4 shrink-0">:</span>
+                <input
+                  type="text"
+                  value={toField}
+                  onChange={(e) => setToField(e.target.value)}
+                  className={`${editableLineClasses} uppercase`}
+                />
+              </div>
+              <div className="flex">
+                <span className="w-24 shrink-0">FROM</span>
+                <span className="w-4 shrink-0">:</span>
+                <input
+                  type="text"
+                  value={fromField}
+                  onChange={(e) => setFromField(e.target.value)}
+                  className={`${editableLineClasses} uppercase`}
+                />
+              </div>
+              <div className="flex">
+                <span className="w-24 shrink-0">REF</span>
+                <span className="w-4 shrink-0">:</span>
+                <input
+                  type="text"
+                  value={refField}
+                  onChange={(e) => setRefField(e.target.value)}
+                  className={editableLineClasses}
+                />
+              </div>
+              <div className="flex">
+                <span className="w-24 shrink-0">DATE</span>
+                <span className="w-4 shrink-0">:</span>
+                <input
+                  type="text"
+                  value={dateField}
+                  onChange={(e) => setDateField(e.target.value)}
+                  className={editableLineClasses}
+                />
+              </div>
+              <div className="flex border-b-2 border-black pb-3">
+                <span className="w-24 shrink-0">SUBJECT</span>
+                <span className="w-4 shrink-0">:</span>
+                <input
+                  type="text"
+                  value={subjectField}
+                  onChange={(e) => setSubjectField(e.target.value)}
+                  className={`${editableLineClasses} uppercase`}
+                />
+              </div>
+            </div>
+
+            {/* Body */}
+            <div className="space-y-4 text-sm">
+              <textarea
+                value={bodyText}
+                onChange={(e) => setBodyText(e.target.value)}
+                rows={3}
+                className={`${editableLineClasses} block w-full resize-none leading-relaxed`}
+              />
+
+              {/* Table - without Notes column */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse border border-black">
+                  <thead>
+                    <tr>
+                      <th className="border border-black px-2 py-1 text-left text-xs font-bold">#</th>
+                      <th className="border border-black px-2 py-1 text-left text-xs font-bold">Judge Name</th>
+                      <th className="border border-black px-2 py-1 text-left text-xs font-bold">P.J Number</th>
+                      <th className="border border-black px-2 py-1 text-left text-xs font-bold">Designation</th>
+                      <th className="border border-black px-2 py-1 text-right text-xs font-bold">Rate (KES)</th>
+                      <th className="border border-black px-2 py-1 text-right text-xs font-bold">Days</th>
+                      <th className="border border-black px-2 py-1 text-right text-xs font-bold">Total (KES)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {validDetails.length > 0 ? (
+                      validDetails.map((detail, index) => (
+                        <tr key={index}>
+                          <td className="border border-black px-2 py-1 text-center">{index + 1}</td>
+                          <td className="border border-black px-2 py-1 font-medium">{detail.judge_name}</td>
+                          <td className="border border-black px-2 py-1">{detail.pj_number}</td>
+                          <td className="border border-black px-2 py-1">{detail.designation || '—'}</td>
+                          <td className="border border-black px-2 py-1 text-right">{detail.dsa_per_day.toLocaleString()}</td>
+                          <td className="border border-black px-2 py-1 text-right">{detail.days}</td>
+                          <td className="border border-black px-2 py-1 text-right font-medium">
+                            {calculateTotal(detail.dsa_per_day, detail.days).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={7} className="border border-black px-2 py-4 text-center text-stone-500 text-sm">
+                          No DSA details available.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                  {validDetails.length > 0 && (
+                    <tfoot>
+                      <tr>
+                        <td colSpan={6} className="border border-black px-2 py-2 text-right font-bold">
+                          GRAND TOTAL
+                        </td>
+                        <td className="border border-black px-2 py-2 text-right font-bold">
+                          {grandTotal.toLocaleString()}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Sign-off - pushed to bottom with flex-grow */}
+          <div className="flex-1"></div>
+          <div className="p-10 pt-0">
+            <div className="space-y-1">
+              <input
+                type="text"
+                value={signatoryName}
+                onChange={(e) => setSignatoryName(e.target.value)}
+                placeholder="Signatory name"
+                className={`${editableLineClasses} block text-sm font-bold`}
+              />
+
+              {signatureUrl && (
+                <div className="py-1">
+                  <img src={signatureUrl} alt="Signature" className="max-h-12 w-auto object-contain" />
+                </div>
+              )}
+
+              <input
+                type="text"
+                value={fromField}
+                onChange={(e) => setFromField(e.target.value)}
+                className={`${editableLineClasses} block text-sm font-bold underline uppercase`}
+              />
+            </div>
+
+            {/* Footer */}
+            <div className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3">
+              <img src={FOOTER_EMBLEM_SRC} alt="" className="h-10 w-auto object-contain shrink-0" />
+              <div className="text-[10px] leading-tight text-stone-700 text-right">
+                <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
+                <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
+                <p className="mt-1 font-bold text-emerald-800">Justice Be Our Shield and Defender</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>

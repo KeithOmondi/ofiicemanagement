@@ -58,6 +58,7 @@ import HelpDeskDocuments from '../pages/helpdesk/HelpDeskDocuments';
 import ProcurementDocuments from '../pages/procurement/ProcurementDocs';
 import HelpdeskSettings from '../pages/helpdesk/HelpdeskSettings';
 import AdminRegistry from '../pages/admdesk/AdminRegistry';
+import HelpdeskDocs from '../pages/helpdesk/HelpdeskDocs';
 
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
@@ -183,6 +184,7 @@ if (deskKey === 'helpdesk') {
         <Route path="inventory" element={<HelpdeskInventory />} />
         <Route path="documents" element={<HelpDeskDocuments />} />
         <Route path="settings" element={<HelpdeskSettings />} />
+        <Route path="uploads" element={<HelpdeskDocs />} />
       </Route>
       <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
     </Routes>

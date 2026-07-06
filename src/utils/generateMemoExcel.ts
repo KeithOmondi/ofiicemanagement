@@ -3,6 +3,7 @@
 // Builds a real, editable .xlsx workbook version of the memo — header
 // fields, the editable body paragraph, and the DSA schedule as a proper
 // table (no images; Excel is a data export, not a facsimile).
+// Returns a Blob for upload or download.
 
 import * as XLSX from 'xlsx';
 
@@ -13,7 +14,6 @@ export interface MemoExcelRow {
   rate: number;
   days: number;
   total: number;
-  notes: string;
 }
 
 export interface MemoExcelParams {
@@ -25,11 +25,10 @@ export interface MemoExcelParams {
   bodyText: string;
   rows: MemoExcelRow[];
   grandTotal: number;
-  amountInWords: string;
   signatoryName: string;
 }
 
-export function generateMemoExcel(params: MemoExcelParams): void {
+export function generateMemoExcel(params: MemoExcelParams): Blob {
   const wsData: (string | number)[][] = [
     ['OFFICE OF THE REGISTRAR HIGH COURT'],
     ['INTERNAL MEMO'],
@@ -42,21 +41,19 @@ export function generateMemoExcel(params: MemoExcelParams): void {
     [],
     [params.bodyText],
     [],
-    ['#', 'Judge Name', 'PJ Number', 'Designation', 'Rate (KES)', 'Days', 'Total (KES)', 'Notes'],
+    ['#', 'Judge Name', 'PJ Number', 'Designation', 'Rate (KES)', 'Days', 'Total (KES)'],
   ];
 
   params.rows.forEach((r, i) => {
-    wsData.push([i + 1, r.judgeName, r.pjNumber, r.designation || '-', r.rate, r.days, r.total, r.notes || '-']);
+    wsData.push([i + 1, r.judgeName, r.pjNumber, r.designation || '-', r.rate, r.days, r.total]);
   });
 
   if (params.rows.length === 0) {
-    wsData.push(['—', 'No DSA details available.', '', '', '', '', '', '']);
+    wsData.push(['—', 'No DSA details available.', '', '', '', '', '']);
   } else {
-    wsData.push(['', '', '', '', '', 'GRAND TOTAL', params.grandTotal, '']);
+    wsData.push(['', '', '', '', '', 'GRAND TOTAL', params.grandTotal]);
   }
 
-  wsData.push([]);
-  wsData.push(['Amount in Words:', params.amountInWords.toUpperCase()]);
   wsData.push([]);
   wsData.push([params.signatoryName]);
   wsData.push([params.from]);
@@ -65,18 +62,18 @@ export function generateMemoExcel(params: MemoExcelParams): void {
 
   worksheet['!cols'] = [
     { wch: 4 },
-    { wch: 24 },
+    { wch: 28 },
     { wch: 14 },
-    { wch: 20 },
-    { wch: 12 },
-    { wch: 8 },
+    { wch: 22 },
     { wch: 14 },
-    { wch: 20 },
+    { wch: 10 },
+    { wch: 18 },
   ];
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Memo');
 
-  const filename = `${(params.ref || 'memo').replace(/[\\/:*?"<>|]/g, '-')}.xlsx`;
-  XLSX.writeFile(workbook, filename);
+  // Generate and return blob instead of saving
+  const wbout = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+  return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
