@@ -1,4 +1,5 @@
 // src/pages/documents/SuperAdminDocuments.tsx
+
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAppDispatch, useAppSelector } from "../../store/hook";
 import {
@@ -35,9 +36,8 @@ import type {
   RefType,
 } from "../../types/documents.types";
 import { format } from "date-fns";
-import SuperAdminMemo from "../../components/templates/SuperAdminMemo";
-import SuperAdminLetter from "../../components/templates/SuperAdminLetter";
-//import toast from "react-hot-toast";
+import toast from "react-hot-toast";
+import TemplateComposerModal from "../../components/templates/TemplateComposerModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2028,15 +2028,16 @@ const SuperAdminDocuments: React.FC = () => {
   const [signToast, setSignToast] = useState<ToastState | null>(null);
   const [isCreatingDocument] = useState(false);
 
+  // ── Memo/Letter Composer Modal states ──────────────────────────────────
+  const [composerType, setComposerType] = useState<"memo" | "letter" | null>(
+    null,
+  );
+
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [otpValue, setOtpValue] = useState("");
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
   const [signingDocId, setSigningDocId] = useState<string | null>(null);
-
-  // ── Memo/Letter Modal States ──────────────────────────────────────────────
-  const [showMemoModal, setShowMemoModal] = useState(false);
-  const [showLetterModal, setShowLetterModal] = useState(false);
 
   const draftsRef = useRef<HTMLDivElement>(null);
 
@@ -2045,6 +2046,7 @@ const SuperAdminDocuments: React.FC = () => {
   const isSuperAdmin = hasRole(user, "super_admin");
   const canView = !!user;
 
+  // ─── Fetch documents ─────────────────────────────────────────────────────
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (draftsRef.current && !draftsRef.current.contains(e.target as Node)) {
@@ -2055,7 +2057,6 @@ const SuperAdminDocuments: React.FC = () => {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // Fetch documents with pagination - 10 items per page
   useEffect(() => {
     if (!canView) return;
     const params: DocumentFilters = { page: 1, limit: 10 };
@@ -2066,22 +2067,21 @@ const SuperAdminDocuments: React.FC = () => {
     dispatch(fetchDocuments(params));
   }, [dispatch, activeTab, searchQuery, canView]);
 
+  // ─── Handlers ────────────────────────────────────────────────────────────
+
   const handleNewMemo = () => {
     setShowDraftsMenu(false);
-    setShowMemoModal(true);
+    setComposerType("memo");
   };
 
   const handleNewLetter = () => {
     setShowDraftsMenu(false);
-    setShowLetterModal(true);
-    console.log("showLetterModal set to true");
+    setComposerType("letter");
   };
 
-  const handleModalClose = (type: 'memo' | 'letter') => {
-    if (type === 'memo') setShowMemoModal(false);
-    else setShowLetterModal(false);
-    
-    // Refresh documents after creation
+  const handleComposerClose = async () => {
+    setComposerType(null);
+    // Refresh document list after creation
     if (canView) {
       const params: DocumentFilters = { page: 1, limit: 10 };
       if (activeTab === "my_action") params.for_my_action = true;
@@ -2090,6 +2090,12 @@ const SuperAdminDocuments: React.FC = () => {
       if (searchQuery) params.search = searchQuery;
       dispatch(fetchDocuments(params));
     }
+  };
+
+  const handleTemplateCreated = (doc: Document) => {
+    toast.success(`${doc.type} created successfully`);
+    handleComposerClose();
+    setSelectedDocument(doc);
   };
 
   const handleDelete = (id: string) => {
@@ -2237,6 +2243,16 @@ const SuperAdminDocuments: React.FC = () => {
         </div>
       )}
 
+      {/* ─── Template Composer Modal ────────────────────────────────────── */}
+      {composerType && (
+        <TemplateComposerModal
+          type={composerType}
+          departmentId={user?.department_id ?? null}
+          onClose={handleComposerClose}
+          onCreated={handleTemplateCreated}
+        />
+      )}
+
       {/* Page Header */}
       <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b border-stone-200 bg-white flex-wrap">
         <div className="min-w-0">
@@ -2289,9 +2305,7 @@ const SuperAdminDocuments: React.FC = () => {
                     d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
                   />
                 </svg>
-                <span className="hidden sm:inline">
-                  {isCreatingDocument ? "Loading…" : "Drafts"}
-                </span>
+                <span className="hidden sm:inline">Drafts</span>
                 <svg
                   className="h-3 w-3 ml-0.5"
                   fill="none"
@@ -2309,27 +2323,20 @@ const SuperAdminDocuments: React.FC = () => {
 
               {showDraftsMenu && (
                 <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-lg border border-stone-200 bg-white shadow-lg py-1">
-                  {[
-                    { key: "memo", label: "New Memo", icon: "📄" },
-                    { key: "letter", label: "New Letter", icon: "✉️" },
-                    { key: "draft", label: "Blank Draft", icon: "📝" },
-                  ].map(({ key, label, icon }) => (
-                    <button
-                      key={key}
-                      onClick={() => {
-                        if (key === "memo") handleNewMemo();
-                        else if (key === "letter") handleNewLetter();
-                        else if (key === "draft") {
-                          // TODO: Handle blank draft creation
-                          setShowDraftsMenu(false);
-                        }
-                      }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-stone-700 hover:bg-stone-50 transition-colors text-left"
-                    >
-                      <span>{icon}</span>
-                      <span className="font-medium">{label}</span>
-                    </button>
-                  ))}
+                  <button
+                    onClick={handleNewMemo}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-stone-700 hover:bg-stone-50 transition-colors text-left"
+                  >
+                    <span>📄</span>
+                    <span className="font-medium">New Memo</span>
+                  </button>
+                  <button
+                    onClick={handleNewLetter}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-xs text-stone-700 hover:bg-stone-50 transition-colors text-left"
+                  >
+                    <span>✉️</span>
+                    <span className="font-medium">New Letter</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -2646,25 +2653,6 @@ const SuperAdminDocuments: React.FC = () => {
       </div>
 
       {/* ─── Modals ────────────────────────────────────────────────────────── */}
-      
-      {/* Memo Modal */}
-      <SuperAdminMemo
-        isOpen={showMemoModal}
-        onClose={() => handleModalClose('memo')}
-        initialData={{
-          from: "REGISTRAR, HIGH COURT",
-          subject: "",
-        }}
-      />
-
-      {/* Letter Modal */}
-      <SuperAdminLetter
-        isOpen={showLetterModal}
-        onClose={() => handleModalClose('letter')}
-        initialData={{
-          from: "REGISTRAR, HIGH COURT",
-        }}
-      />
 
       {showMarkModal && selectedDocument && (
         <MarkModal
