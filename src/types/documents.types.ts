@@ -21,9 +21,10 @@ export type RefType =
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
+// For the existing /compose endpoint (judgments, rulings, orders)
 export interface CreateComposedDocumentInput {
   title: string;
-  type: 'memo' | 'letter';
+  type: 'judgment' | 'ruling' | 'order';
   category?: DocumentCategory;
   reference_no?: string;
   body: string;
@@ -31,28 +32,33 @@ export interface CreateComposedDocumentInput {
   department_id?: string;
 }
 
-export interface CreateMemoInput {
-  to: string;
-  from: string;
-  cc?: string;
-  ref: string;
-  date: string;
-  subject: string;
+// For the new /compose-memo endpoint
+export interface ComposeMemoInput {
+  title: string;               // subject
+  to: string;                  // recipient
+  date?: string;               // ISO date string, optional (backend defaults to now)
   body: string;
-  recipient_id?: string;
-  note?: string;
+  from?: string;               // sender name, optional (backend uses current user)
+  signatureTitle?: string;     // e.g. "Registrar, High Court"
+  department_id?: string;
+  reference_no?: string;       // optional user‑provided reference
 }
 
-export interface CreateLetterInput {
+// For the new /compose-letter endpoint
+export interface ComposeLetterInput {
+  title: string;
   to: string;
-  from: string;
-  ref: string;
-  date: string;
-  subject: string;
+  date?: string;
   body: string;
-  recipient_id?: string;
-  note?: string;
+  from?: string;
+  signatureTitle?: string;
+  department_id?: string;
+  reference_no?: string;
+  cc?: string;                 // carbon copy
+  enclosures?: string;         // list of enclosures
 }
+
+// ── Other input types ──────────────────────────────────────────────────────────
 
 export interface SendToUserInput {
   recipient_id: string;
@@ -69,7 +75,7 @@ export interface CreateUploadDocumentInput {
   assigned_to?: string;
   department_id?: string;
   is_draft?: boolean;
-  priority?: RoutePriority; 
+  priority?: RoutePriority;
 }
 
 export interface UpdateDocumentInput {

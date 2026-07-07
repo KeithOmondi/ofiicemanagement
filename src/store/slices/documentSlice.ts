@@ -1,4 +1,5 @@
 // src/features/documents/documentSlice.ts
+
 import {
   createSlice,
   createAsyncThunk,
@@ -23,8 +24,8 @@ import type {
   FinalizeDraftInput,
   ReturnDocumentInput,
   RespondToDocumentInput,
-  CreateMemoInput,
-  CreateLetterInput,
+  ComposeMemoInput,
+  ComposeLetterInput,
   SendToUserInput,
 } from "../../types/documents.types";
 
@@ -45,7 +46,7 @@ interface DocumentState {
     limit: number;
     totalPages: number;
   } | null;
-  // For optimistic updates / action status
+  latestDocumentsRequestId: string | null; // for stale response guarding
   actionInProgress: {
     signing?: string;
     sending?: string;
@@ -59,6 +60,7 @@ interface DocumentState {
     creatingMemo?: boolean;
     creatingLetter?: boolean;
     sendingToUser?: string;
+    uploading?: boolean;
   };
 }
 
@@ -72,10 +74,9 @@ const initialState: DocumentState = {
   loading: false,
   error: null,
   pagination: null,
-  latestDocumentsRequestId: null, // NEW
+  latestDocumentsRequestId: null,
   actionInProgress: {},
 };
-
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
@@ -217,7 +218,7 @@ export const fetchResponses = createAsyncThunk(
   },
 );
 
-// ── Create composed (memo/letter) ───────────────────────────────────────────
+// ── Create composed (judgments, rulings, orders) ───────────────────────────
 
 export const createComposedDocument = createAsyncThunk(
   "documents/createComposed",
@@ -234,31 +235,16 @@ export const createComposedDocument = createAsyncThunk(
   },
 );
 
-// ── Create Memo ──────────────────────────────────────────────────────────────
+// ── Create Memo (generates PDF from HTML template) ─────────────────────────
 
 export const createMemo = createAsyncThunk(
   "documents/createMemo",
-  async (
-    { data, file }: { data: CreateMemoInput; file?: File },
-    { rejectWithValue }
-  ) => {
-    const formData = new FormData();
-    Object.entries(data).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        formData.append(key, String(value));
-      }
-    });
-    if (file) {
-      formData.append("file", file);
-    }
-
+  async (data: ComposeMemoInput, { rejectWithValue }) => {
     try {
       const response = await axiosClient.post<{
         success: boolean;
         data: Document;
-      }>("/documents/memo", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      }>("/documents/compose-memo", data);
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
@@ -266,31 +252,16 @@ export const createMemo = createAsyncThunk(
   }
 );
 
-// ── Create Letter ────────────────────────────────────────────────────────────
+// ── Create Letter (generates PDF from HTML template) ────────────────────────
 
 export const createLetter = createAsyncThunk(
   "documents/createLetter",
-  async (
-    { data, file }: { data: CreateLetterInput; file?: File },
-    { rejectWithValue }
-  ) => {
-    const formData = new FormData();
-    Object.entries(data).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        formData.append(key, String(value));
-      }
-    });
-    if (file) {
-      formData.append("file", file);
-    }
-
+  async (data: ComposeLetterInput, { rejectWithValue }) => {
     try {
       const response = await axiosClient.post<{
         success: boolean;
         data: Document;
-      }>("/documents/letter", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      }>("/documents/compose-letter", data);
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
@@ -588,46 +559,6 @@ export const deleteAnnotation = createAsyncThunk(
   },
 );
 
-// ─── State shape (only the changed part shown for context — keep the rest of your interface as-is) ──
-
-// ─── State shape (only the changed part shown for context — keep the rest of your interface as-is) ──
-
-interface DocumentState {
-  documents: Document[];
-  currentDocument: DocumentWithAnnotations | null;
-  myMarked: Document[];
-  markHistory: DocumentMark[];
-  flowHistory: DocumentFlowEntry[];
-  responses: DocumentResponse[];
-  loading: boolean;
-  error: string | null;
-  pagination: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-  } | null;
-  // NEW: tracks the requestId of the most recently *dispatched* fetchDocuments call,
-  // so an older, slower-resolving response can't overwrite a newer one.
-  latestDocumentsRequestId: string | null;
-  actionInProgress: {
-    signing?: string;
-    sending?: string;
-    marking?: string;
-    acknowledging?: string;
-    completing?: string;
-    deleting?: string;
-    finalizingDraft?: string;
-    returning?: string;
-    responding?: string;
-    creatingMemo?: boolean;
-    creatingLetter?: boolean;
-    sendingToUser?: string;
-  };
-}
-
-
-
 // ─── Slice ────────────────────────────────────────────────────────────────────
 
 const documentSlice = createSlice({
@@ -657,20 +588,11 @@ const documentSlice = createSlice({
       .addCase(fetchDocuments.pending, (state, action) => {
         state.loading = true;
         state.error = null;
-        // Record this request as the latest one dispatched. Any earlier
-        // in-flight request that resolves after this one will be ignored.
-        // NOTE: no explicit `action: PayloadAction<...>` annotation here —
-        // that would strip the `meta` field. Let TS infer the type from
-        // fetchDocuments.pending itself, which already carries meta.requestId.
         state.latestDocumentsRequestId = action.meta.requestId;
       })
       .addCase(fetchDocuments.fulfilled, (state, action) => {
         state.loading = false;
-        // Stale response guard: only apply if this is still the most
-        // recently dispatched fetchDocuments request.
-        if (action.meta.requestId !== state.latestDocumentsRequestId) {
-          return;
-        }
+        if (action.meta.requestId !== state.latestDocumentsRequestId) return;
         state.documents = action.payload.data;
         state.pagination = {
           total: action.payload.total,
@@ -681,11 +603,7 @@ const documentSlice = createSlice({
       })
       .addCase(fetchDocuments.rejected, (state, action) => {
         state.loading = false;
-        // Only surface the error if it belongs to the latest request too,
-        // otherwise an old cancelled/superseded request could show a stale error.
-        if (action.meta.requestId !== state.latestDocumentsRequestId) {
-          return;
-        }
+        if (action.meta.requestId !== state.latestDocumentsRequestId) return;
         state.error = action.payload as string;
       })
 
@@ -733,7 +651,6 @@ const documentSlice = createSlice({
         fetchReceivedDocuments.fulfilled,
         (state, action: PayloadAction<Document[]>) => {
           state.loading = false;
-          // Add received documents to the documents list if not already present
           const existingIds = new Set(state.documents.map(d => d.id));
           const newDocs = action.payload.filter(d => !existingIds.has(d.id));
           state.documents = [...newDocs, ...state.documents];
@@ -882,16 +799,19 @@ const documentSlice = createSlice({
       .addCase(createUploadDocument.pending, (state) => {
         state.loading = true;
         state.error = null;
+        state.actionInProgress.uploading = true;
       })
       .addCase(
         createUploadDocument.fulfilled,
         (state, action: PayloadAction<Document>) => {
           state.loading = false;
+          state.actionInProgress.uploading = false;
           state.documents = [action.payload, ...state.documents];
         },
       )
       .addCase(createUploadDocument.rejected, (state, action) => {
         state.loading = false;
+        state.actionInProgress.uploading = false;
         state.error = action.payload as string;
       })
 
@@ -1179,8 +1099,6 @@ export const {
   resetState,
 } = documentSlice.actions;
 
-// src/features/documents/documentSlice.ts
-
 // ── Selectors ─────────────────────────────────────────────────────────────────
 
 export const selectDocuments = (state: { documents: DocumentState }) =>
@@ -1213,27 +1131,23 @@ export const selectPagination = (state: { documents: DocumentState }) =>
 export const selectActionInProgress = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress;
 
-// ── Additional selectors ──────────────────────────────────────────────────────
-
-// This selector returns the current document's responses
 export const selectCurrentDocumentResponses = (state: { documents: DocumentState }) =>
   state.documents.currentDocument?.responses ?? [];
 
-// This selector returns whether a specific document is being responded to
 export const selectIsResponding = (state: { documents: DocumentState }, documentId: string) =>
   state.documents.actionInProgress.responding === documentId;
 
-// This selector returns whether a memo is being created
 export const selectIsCreatingMemo = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.creatingMemo || false;
 
-// This selector returns whether a letter is being created
 export const selectIsCreatingLetter = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.creatingLetter || false;
 
-// This selector returns the document ID currently being sent to a user
 export const selectIsSendingToUser = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.sendingToUser || null;
+
+export const selectIsUploading = (state: { documents: DocumentState }) =>
+  state.documents.actionInProgress.uploading || false;
 
 export type { DocumentState };
 

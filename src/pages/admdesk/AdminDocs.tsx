@@ -1,17 +1,18 @@
 // src/pages/dept-head/AdminDocs.tsx
+
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { toast, Toaster } from 'react-hot-toast';
-//import mammoth from 'mammoth';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   fetchDocuments,
   createUploadDocument,
-  createComposedDocument,
   deleteDocument,
   finalizeDraft,
   clearError,
   fetchDocumentById,
   respondToDocument,
+  createMemo,
+  createLetter,
 } from '../../store/slices/documentSlice';
 import { selectCurrentUser, fetchCurrentUser } from '../../store/slices/userSlice';
 import {
@@ -36,6 +37,8 @@ import type {
   FinalizeDraftInput,
   DocumentFilters,
   RoutePriority,
+  ComposeMemoInput,
+  ComposeLetterInput,
 } from '../../types/documents.types';
 import type { RegistryEntry, RegistryStatus } from '../../types/registry.types';
 import type { RootState } from '../../store/store';
@@ -50,6 +53,8 @@ const selectDeletingId = (state: RootState): string | undefined => state.documen
 const selectFinalizingId = (state: RootState): string | undefined => state.documents.actionInProgress.finalizingDraft;
 const selectTemplatesByDepartment = (state: RootState) => state.templates.byDepartment;
 const selectAllTemplates = (state: RootState) => state.templates.all;
+const selectIsCreatingMemo = (state: RootState) => state.documents.actionInProgress.creatingMemo || false;
+const selectIsCreatingLetter = (state: RootState) => state.documents.actionInProgress.creatingLetter || false;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -111,19 +116,26 @@ const PRIORITY_LABEL: Record<RoutePriority, string> = {
 
 const REGISTRY_STATUS_BADGE: Record<RegistryStatus, string> = {
   in_transit: 'bg-amber-100 text-amber-700',
-  received:   'bg-cyan-100 text-cyan-700',
-  filed:      'bg-emerald-100 text-emerald-700',
-  returned:   'bg-slate-100 text-slate-700',
+  received: 'bg-cyan-100 text-cyan-700',
+  filed: 'bg-emerald-100 text-emerald-700',
+  returned: 'bg-slate-100 text-slate-700',
 };
 
 const REGISTRY_STATUS_LABEL: Record<RegistryStatus, string> = {
   in_transit: 'In Transit',
-  received:   'Received',
-  filed:      'Filed',
-  returned:   'Returned',
+  received: 'Received',
+  filed: 'Filed',
+  returned: 'Returned',
 };
 
 const PAGE_SIZE = 10;
+const JUDICIARY_CREST_SRC = '/JOB_LOGO.jpg';
+const GOLD = '#C29B38';
+
+const TEMPLATE_TYPE_LABEL: Record<TemplateType, string> = {
+  memo: 'Memo',
+  letter: 'Letter',
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -174,7 +186,7 @@ const PriorityBadge: React.FC<{ priority: RoutePriority }> = ({ priority }) => (
   </span>
 );
 
-// ─── Sticky Note (read-only, draggable) ───────────────────────────────────────
+// ─── Sticky Note ──────────────────────────────────────────────────────────────
 
 interface StickyNoteProps {
   authorName: string;
@@ -231,7 +243,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text }) => {
       className="absolute z-30 flex flex-col rounded-md shadow-xl select-none"
       onMouseDown={onMouseDown}
     >
-      {/* Pin tab */}
       <div className="flex justify-center -mb-1 pointer-events-none">
         <div className="w-10 h-3 rounded-sm bg-[#F5C24C]/60 border border-[#E8A840]/40 shadow-sm" />
       </div>
@@ -243,7 +254,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text }) => {
           boxShadow: '2px 4px 12px rgba(0,0,0,0.18), inset 0 -2px 0 rgba(0,0,0,0.06)',
         }}
       >
-        {/* Header */}
         <div
           className="flex items-center justify-between px-2.5 pt-2 pb-1.5 cursor-grab active:cursor-grabbing"
           style={{ background: '#FDE047' }}
@@ -268,7 +278,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text }) => {
           </button>
         </div>
 
-        {/* Body — read-only */}
         <div className="px-2.5 pb-2.5 pt-1.5">
           <p
             className="text-[11px] text-stone-800 leading-relaxed whitespace-pre-wrap break-words min-h-[48px]"
@@ -278,7 +287,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text }) => {
           </p>
         </div>
 
-        {/* Footer */}
         <div className="px-2.5 pb-1.5 flex items-center justify-between">
           <span className="text-[9px] text-[#7A4E0D]/50 font-medium">Registrar's note</span>
           <div
@@ -489,7 +497,28 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
   const fileName = document.original_name || document.title;
   const isComposed = document.type === 'memo' || document.type === 'letter';
 
+  // Trust mime_type first — it's set explicitly by the backend when the PDF
+  // is generated and doesn't depend on the shape of the storage URL. `ext`
+  // (parsed from the URL string) is only a fallback for legacy records or
+  // providers that don't preserve the file extension in the URL — Cloudinary
+  // in particular can return hashed, extension-less URLs for raw uploads.
+  const isPdf = document.mime_type === 'application/pdf' || ext === 'pdf';
+
   const renderPreview = () => {
+    // Composed documents (memo/letter): always prefer the generated PDF —
+    // it carries the full letterhead, crest, and field layout. Only fall
+    // back to the raw contentEditable HTML body if no PDF exists at all
+    // (e.g. an older record, or PDF generation failed silently).
+    if (isComposed && fileUrl && isPdf) {
+      return (
+        <iframe
+          src={`${fileUrl}#toolbar=0`}
+          title={document.title}
+          className="w-full h-full min-h-[600px] border-0 rounded-sm"
+        />
+      );
+    }
+
     if (isComposed && document.body) {
       return (
         <div className="h-full overflow-y-auto p-4 sm:p-8">
@@ -513,7 +542,8 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
       );
     }
 
-    if (ext === 'pdf') {
+    // Non-composed documents (uploads, judgments, etc.): same mime_type-first check.
+    if (isPdf) {
       return (
         <iframe
           src={`${fileUrl}#toolbar=0`}
@@ -715,7 +745,7 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
   );
 };
 
-// ─── Template Composer Modal (memo / letter) ─────────────────────────────────
+// ─── Template Composer Modal ─────────────────────────────────────────────────
 
 interface TemplateComposerModalProps {
   type: TemplateType;
@@ -723,33 +753,6 @@ interface TemplateComposerModalProps {
   onClose: () => void;
   onCreated: (doc: DocType) => void;
 }
-
-// Drop-in replacement for TemplateComposerModal in src/pages/dept-head/AdminDocs.tsx
-//
-// WHY THIS EXISTS: mammoth.js cannot reproduce Word paragraph borders, tab-stop
-// alignment, or empty-paragraph vertical spacing — see the chat explanation.
-// Rather than fighting mammoth for pixel parity it structurally can't deliver,
-// the crest / title / TO-FROM-REF-DATE-SUBJECT block is now hardcoded React +
-// Tailwind (matching SAMPLE_MEMO.docx exactly, same approach used for the
-// CircuitModal memo preview earlier). Mammoth is no longer used in this
-// component at all — only the department's footer_image_url / footer_text
-// (already extracted server-side via extractFooterAssets) are pulled from
-// the active template. The contentEditable area is now ONLY the free-form
-// body, which is exactly where user-authored content actually belongs.
-
-interface TemplateComposerModalProps {
-  type: TemplateType;
-  departmentId: string | null;
-  onClose: () => void;
-  onCreated: (doc: DocType) => void;
-}
-
-const TEMPLATE_TYPE_LABEL: Record<TemplateType, string> = {
-  memo: 'Memo',
-  letter: 'Letter',
-};
-
-const JUDICIARY_CREST_SRC = '/JOB_LOGO.jpg';
 
 const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
   type,
@@ -761,16 +764,15 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
   const templatesByDepartment = useAppSelector(selectTemplatesByDepartment);
   const allTemplates = useAppSelector(selectAllTemplates);
   const currentUser = useAppSelector(selectCurrentUser);
+  const isCreating = useAppSelector(type === 'memo' ? selectIsCreatingMemo : selectIsCreatingLetter);
 
   const [loadingTemplate, setLoadingTemplate] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
   const [title, setTitle] = useState(
     `${TEMPLATE_TYPE_LABEL[type]} — ${new Intl.DateTimeFormat('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())}`
   );
 
-  // ── Header fields — editable, seeded with sensible defaults ──────────────
   const [toField, setToField] = useState('REGISTRAR, HIGH COURT / ORHC AIE HOLDER');
   const [fromField, setFromField] = useState('HIGH COURT SUPPORT OFFICE -ORHC');
   const [refField, setRefField] = useState('');
@@ -779,6 +781,10 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
   );
   const [subjectField, setSubjectField] = useState('');
   const [signatoryName, setSignatoryName] = useState(currentUser?.full_name ?? '');
+  const [senderTitleField, setSenderTitleField] = useState('Registrar, High Court');
+
+  const [ccField, setCcField] = useState('');
+  const [enclosuresField, setEnclosuresField] = useState('');
 
   const [footerImageUrl, setFooterImageUrl] = useState<string | null>(null);
   const [footerText, setFooterText] = useState<string>('');
@@ -788,8 +794,14 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
   const editableLineClasses =
     'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none';
 
-  // Resolve the active template purely to grab its footer assets — the
-  // header is no longer sourced from the docx at all.
+  const templatesByDepartmentRef = useRef(templatesByDepartment);
+  const allTemplatesRef = useRef(allTemplates);
+
+  useEffect(() => {
+    templatesByDepartmentRef.current = templatesByDepartment;
+    allTemplatesRef.current = allTemplates;
+  });
+
   useEffect(() => {
     let cancelled = false;
 
@@ -799,10 +811,10 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
 
       try {
         const key = departmentId ?? GLOBAL_KEY;
-        let template = templatesByDepartment[key]?.[type];
+        let template = templatesByDepartmentRef.current[key]?.[type];
 
         if (!template && departmentId) {
-          const deptTemplates = allTemplates.filter(
+          const deptTemplates = allTemplatesRef.current.filter(
             (t) => t.department_id === departmentId && t.type === type
           );
           if (deptTemplates.length > 0) {
@@ -820,16 +832,8 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
         }
 
         if (!cancelled) {
-          if (template) {
-            setFooterImageUrl(template.footer_image_url ?? null);
-            setFooterText(template.footer_text ?? '');
-          } else {
-            // No uploaded template yet — that's fine, the header/footer
-            // chrome below still renders correctly without one. Only warn
-            // if you specifically need the department's custom footer.
-            setFooterImageUrl(null);
-            setFooterText('');
-          }
+          setFooterImageUrl(template?.footer_image_url ?? null);
+          setFooterText(template?.footer_text ?? '');
         }
       } catch (error) {
         console.error('[TemplateComposerModal] Failed to resolve template footer:', error);
@@ -841,8 +845,7 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
 
     load();
     return () => { cancelled = true; };
-    
-  }, [type, departmentId, dispatch, templatesByDepartment, allTemplates]);
+  }, [type, departmentId, dispatch]);
 
   const exec = (command: string, value?: string) => {
     editorRef.current?.focus();
@@ -855,62 +858,52 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
       return;
     }
 
-    setSaving(true);
-    try {
-      // Assemble the full memo as one HTML blob — fixed header (matching the
-      // PDF exactly) + whatever the user typed in the body + footer — so the
-      // stored `body` looks identical whether it's viewed here, in the
-      // super-admin editor, or exported to .docx/PDF later.
-      const headerHtml = `
-        <div style="text-align:center;margin-bottom:12px;">
-          <img src="${JUDICIARY_CREST_SRC}" alt="Judiciary crest" style="height:70px;margin:0 auto;display:block;" />
-        </div>
-        <p style="text-align:center;font-weight:bold;text-transform:uppercase;margin:0;">OFFICE OF THE REGISTRAR HIGH COURT</p>
-        <p style="text-align:center;font-weight:bold;text-transform:uppercase;border-bottom:2px solid black;display:inline-block;margin:0 auto 16px;padding-bottom:6px;">INTERNAL MEMO</p>
-        <table style="width:100%;font-weight:bold;font-size:13px;margin-bottom:16px;">
-          <tr><td style="width:90px;">TO</td><td style="width:16px;">:</td><td style="text-transform:uppercase;">${toField}</td></tr>
-          <tr><td>FROM</td><td>:</td><td style="text-transform:uppercase;">${fromField}</td></tr>
-          <tr><td>REF</td><td>:</td><td>${refField}</td></tr>
-          <tr><td>DATE</td><td>:</td><td>${dateField}</td></tr>
-          <tr style="border-bottom:2px solid black;"><td>SUBJECT</td><td>:</td><td style="text-transform:uppercase;">${subjectField}</td></tr>
-        </table>
-      `;
-      const signOffHtml = `
-        <div style="margin-top:64px;">
-          <p style="font-weight:bold;margin:0;">${signatoryName}</p>
-          <p style="font-weight:bold;text-decoration:underline;text-transform:uppercase;margin:0;">${fromField}</p>
-        </div>
-      `;
+    const bodyHtml = editorRef.current?.innerHTML ?? '';
+    if (!bodyHtml.trim()) {
+      toast.error('Please write some content in the body');
+      return;
+    }
 
-      const bodyHtml = editorRef.current?.innerHTML ?? '';
-      const fullHtml = headerHtml + bodyHtml + signOffHtml;
+    let result;
+    if (type === 'memo') {
+      const payload: ComposeMemoInput = {
+        title: title.trim(),
+        to: toField.trim(),
+        date: new Date(dateField).toISOString(),
+        body: bodyHtml,
+        from: fromField.trim(),
+        signatureTitle: fromField.trim(),
+        department_id: departmentId ?? undefined,
+        reference_no: refField.trim() || undefined,
+      };
+      result = await dispatch(createMemo(payload));
+    } else {
+      const payload: ComposeLetterInput = {
+        title: title.trim(),
+        to: toField.trim(),
+        date: new Date(dateField).toISOString(),
+        body: bodyHtml,
+        from: signatoryName.trim(),
+        signatureTitle: senderTitleField.trim(),
+        department_id: departmentId ?? undefined,
+        reference_no: refField.trim() || undefined,
+        cc: ccField.trim() || undefined,
+        enclosures: enclosuresField.trim() || undefined,
+      };
+      result = await dispatch(createLetter(payload));
+    }
 
-      const result = await dispatch(
-        createComposedDocument({
-          title: title.trim(),
-          type,
-          body: fullHtml,
-          department_id: departmentId ?? undefined,
-        })
-      );
-      if (createComposedDocument.fulfilled.match(result)) {
-        toast.success(`${TEMPLATE_TYPE_LABEL[type]} saved as draft`);
-        onCreated(result.payload as DocType);
-      } else {
-        toast.error((result.payload as string) ?? 'Failed to save document');
-      }
-    } catch (error) {
-      console.error('[TemplateComposerModal] Save error:', error);
-      toast.error('An unexpected error occurred');
-    } finally {
-      setSaving(false);
+    if (createMemo.fulfilled.match(result) || createLetter.fulfilled.match(result)) {
+      toast.success(`${TEMPLATE_TYPE_LABEL[type]} saved as draft`);
+      onCreated(result.payload as DocType);
+    } else {
+      toast.error((result.payload as string) ?? 'Failed to save document');
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-4xl max-h-[92vh] rounded-xl overflow-hidden flex flex-col shadow-2xl">
-        {/* Modal chrome header — document title metadata, separate from the memo's own SUBJECT field */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 bg-slate-50 shrink-0">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">
@@ -920,7 +913,7 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full text-sm font-semibold text-slate-900 bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:outline-none transition-colors"
-              placeholder="Document title (internal reference, not printed on the memo)"
+              placeholder="Document title (internal reference, not printed on the document)"
             />
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors flex-shrink-0">
@@ -937,7 +930,6 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
           </div>
         ) : (
           <>
-            {/* Toolbar — only affects the body text below */}
             <div className="flex items-center gap-1 bg-slate-800 px-3 py-1.5 flex-shrink-0">
               {([
                 { label: 'B', command: 'bold', cls: 'font-extrabold' },
@@ -963,87 +955,160 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
               <span className="ml-auto text-[10px] text-white/40">Formats the body only — header/footer are fixed</span>
             </div>
 
-            {/* The memo sheet — fixed header/footer, editable body between them */}
             <div className="flex-1 overflow-y-auto bg-slate-100 py-6 px-4 sm:px-6">
-              <div className="mx-auto max-w-[794px] bg-white shadow-sm rounded-sm px-8 py-10 sm:px-16 sm:py-14 text-sm text-black font-sans">
+              <div
+                className="mx-auto max-w-[794px] bg-white shadow-sm rounded-sm px-8 py-10 sm:px-16 sm:py-14 text-sm text-black"
+                style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
+              >
                 {loadError && (
                   <p className="mb-4 rounded bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
                     {loadError}
                   </p>
                 )}
 
-                {/* Crest */}
-                <div className="flex justify-center mb-3">
-                  <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-16 w-auto object-contain" />
-                </div>
-
-                {/* Title block */}
-                <div className="text-center mb-6">
-                  <p className="text-base font-bold uppercase leading-snug">OFFICE OF THE REGISTRAR HIGH COURT</p>
-                  <p className="text-base font-bold uppercase leading-snug border-b-2 border-black inline-block pb-2 px-1">
-                    INTERNAL MEMO
-                  </p>
-                </div>
-
-                {/* TO / FROM / REF / DATE / SUBJECT — editable, matches the PDF exactly */}
-                <div className="space-y-3 text-sm font-bold mb-8">
-                  <div className="flex">
-                    <span className="w-24 shrink-0">TO</span>
-                    <span className="w-4 shrink-0">:</span>
-                    <input value={toField} onChange={(e) => setToField(e.target.value)} className={`${editableLineClasses} uppercase`} />
-                  </div>
-                  <div className="flex">
-                    <span className="w-24 shrink-0">FROM</span>
-                    <span className="w-4 shrink-0">:</span>
-                    <input value={fromField} onChange={(e) => setFromField(e.target.value)} className={`${editableLineClasses} uppercase`} />
-                  </div>
-                  <div className="flex">
-                    <span className="w-24 shrink-0">REF</span>
-                    <span className="w-4 shrink-0">:</span>
-                    <input value={refField} onChange={(e) => setRefField(e.target.value)} placeholder="RHC/AIE/___" className={editableLineClasses} />
-                  </div>
-                  <div className="flex">
-                    <span className="w-24 shrink-0">DATE</span>
-                    <span className="w-4 shrink-0">:</span>
-                    <input value={dateField} onChange={(e) => setDateField(e.target.value)} className={editableLineClasses} />
-                  </div>
-                  <div className="flex border-b-2 border-black pb-3">
-                    <span className="w-24 shrink-0">SUBJECT</span>
-                    <span className="w-4 shrink-0">:</span>
-                    <input
-                      value={subjectField}
-                      onChange={(e) => setSubjectField(e.target.value)}
-                      placeholder="Subject of this memo"
-                      className={`${editableLineClasses} uppercase`}
+                {type === 'memo' ? (
+                  <>
+                    <div className="flex justify-center mb-3">
+                      <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-[78px] w-auto object-contain" />
+                    </div>
+                    <div className="text-center mt-4 mb-2">
+                      <p className="text-[19px] font-bold uppercase leading-snug">
+                        OFFICE OF THE REGISTRAR HIGH COURT<br />INTERNAL MEMO
+                      </p>
+                    </div>
+                    <div className="border-t-[2.5px] border-black mb-2.5" />
+                    <div className="mt-2">
+                      {[
+                        { label: 'TO', value: toField, set: setToField, upper: true },
+                        { label: 'FROM', value: fromField, set: setFromField, upper: true },
+                        { label: 'REF', value: refField, set: setRefField, upper: false, placeholder: 'RHC/AIE/___' },
+                        { label: 'DATE', value: dateField, set: setDateField, upper: false },
+                        { label: 'SUBJECT', value: subjectField, set: setSubjectField, upper: true, placeholder: 'Subject of this memo' },
+                      ].map(({ label, value, set, upper, placeholder }) => (
+                        <div key={label} className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
+                          <span className="w-24 shrink-0 uppercase">{label}</span>
+                          <span className="w-5 shrink-0">:</span>
+                          <input
+                            value={value}
+                            onChange={(e) => set(e.target.value)}
+                            placeholder={placeholder}
+                            className={`${editableLineClasses} ${upper ? 'uppercase' : ''}`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="border-t-[2.5px] border-black mt-3 mb-10" />
+                    <div
+                      ref={editorRef}
+                      contentEditable
+                      suppressContentEditableWarning
+                      data-placeholder="Start typing the body of the memo…"
+                      className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
                     />
-                  </div>
-                </div>
+                    <div className="mt-10">
+                      <input
+                        value={fromField}
+                        onChange={(e) => setFromField(e.target.value)}
+                        className={`${editableLineClasses} block text-[13.5px] font-bold underline uppercase`}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center mb-1">
+                      <div className="flex-shrink-0 mr-4">
+                        <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="w-[70px] h-auto object-contain" />
+                      </div>
+                      <div>
+                        <p className="text-[18px] font-bold leading-tight">THE JUDICIARY</p>
+                        <p className="text-[14px] font-bold uppercase leading-tight mt-0.5">
+                          OFFICE OF THE REGISTRAR HIGH COURT
+                        </p>
+                      </div>
+                    </div>
+                    <div className="border-t-[1.5px] mb-7" style={{ borderColor: GOLD }} />
+                    <div className="flex justify-between text-[13px] font-bold mb-7">
+                      <span className="flex items-baseline gap-1">
+                        Ref:
+                        <input
+                          value={refField}
+                          onChange={(e) => setRefField(e.target.value)}
+                          placeholder="RHC/___"
+                          className={editableLineClasses}
+                        />
+                      </span>
+                      <input
+                        value={dateField}
+                        onChange={(e) => setDateField(e.target.value)}
+                        className={`${editableLineClasses} text-right`}
+                      />
+                    </div>
+                    <div className="min-h-[340px] text-[13px] leading-[1.8] text-justify">
+                      <div className="mb-4">
+                        <textarea
+                          value={toField}
+                          onChange={(e) => setToField(e.target.value)}
+                          placeholder="Recipient address block, e.g.\nThe Registrar,\nHigh Court of Kenya"
+                          rows={3}
+                          className="w-full resize-none bg-transparent border-0 focus:outline-none placeholder:text-stone-300 placeholder:italic"
+                        />
+                      </div>
+                      <div className="mb-4">
+                        <span className="font-bold underline">RE: </span>
+                        <input
+                          value={subjectField}
+                          onChange={(e) => setSubjectField(e.target.value)}
+                          placeholder="Subject of this letter"
+                          className={`${editableLineClasses} font-bold underline`}
+                        />
+                      </div>
+                      <div
+                        ref={editorRef}
+                        contentEditable
+                        suppressContentEditableWarning
+                        data-placeholder="Start typing the body of the letter…"
+                        className="min-h-[220px] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
+                      />
+                    </div>
+                    <div className="mt-12">
+                      <input
+                        value={signatoryName}
+                        onChange={(e) => setSignatoryName(e.target.value)}
+                        placeholder="Signatory name"
+                        className={`${editableLineClasses} block text-[13px] font-bold uppercase`}
+                      />
+                      <input
+                        value={senderTitleField}
+                        onChange={(e) => setSenderTitleField(e.target.value)}
+                        placeholder="Title, e.g. Registrar, High Court"
+                        className={`${editableLineClasses} block text-[13px] font-bold underline uppercase mt-0.5`}
+                      />
+                    </div>
+                    <div className="mt-8 space-y-2 border-t border-stone-300 pt-4">
+                      <div className="flex">
+                        <span className="w-24 shrink-0 font-bold text-xs">CC</span>
+                        <span className="w-4 shrink-0 text-xs">:</span>
+                        <input
+                          value={ccField}
+                          onChange={(e) => setCcField(e.target.value)}
+                          placeholder="Carbon copy recipients"
+                          className={`${editableLineClasses} text-xs`}
+                        />
+                      </div>
+                      <div className="flex">
+                        <span className="w-24 shrink-0 font-bold text-xs">Enclosures</span>
+                        <span className="w-4 shrink-0 text-xs">:</span>
+                        <input
+                          value={enclosuresField}
+                          onChange={(e) => setEnclosuresField(e.target.value)}
+                          placeholder="List enclosures, e.g. 1. Affidavit"
+                          className={`${editableLineClasses} text-xs`}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
 
-                {/* Body — the ONLY part that's a free-form contentEditable area */}
-                <div
-                  ref={editorRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  data-placeholder="Start typing the body of the memo…"
-                  className="min-h-[220px] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
-                />
-
-                {/* Sign-off */}
-                <div className="mt-16 space-y-1">
-                  <input
-                    value={signatoryName}
-                    onChange={(e) => setSignatoryName(e.target.value)}
-                    placeholder="Signatory name"
-                    className={`${editableLineClasses} block text-sm font-bold`}
-                  />
-                  <input
-                    value={fromField}
-                    onChange={(e) => setFromField(e.target.value)}
-                    className={`${editableLineClasses} block text-sm font-bold underline uppercase`}
-                  />
-                </div>
-
-                {/* Footer — pulled from the department's uploaded template, if any */}
                 {(footerImageUrl || footerText) && (
                   <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
                     {footerImageUrl && (
@@ -1068,11 +1133,11 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
           </button>
           <button
             onClick={handleSaveDraft}
-            disabled={saving || loadingTemplate}
+            disabled={isCreating || loadingTemplate}
             className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 transition"
           >
-            {saving && <Spinner />}
-            {saving ? 'Saving…' : 'Save Draft & Continue'}
+            {isCreating && <Spinner />}
+            {isCreating ? 'Saving…' : 'Save Draft & Continue'}
           </button>
         </div>
       </div>

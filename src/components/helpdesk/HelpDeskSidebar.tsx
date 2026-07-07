@@ -117,6 +117,7 @@ const navigationConfig: NavSection[] = [
     items: [
       { to: 'calendar',   label: 'Calendar',    icon: Icon.map },
       { to: 'tasks',    label: 'Task Management',     icon: Icon.users },
+      { to: 'tickets',    label: 'Tickets & Reports',     icon: Icon.users },
     ],
   },
   {
@@ -130,6 +131,7 @@ const navigationConfig: NavSection[] = [
     title: 'Account',
     items: [
       { to: 'Settings', label: 'Settings',    icon: Icon.mail },
+      { to: 'reports', label: 'Reports',    icon: Icon.mail },
     ],
   },
 ];

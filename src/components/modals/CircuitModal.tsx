@@ -60,12 +60,18 @@ import {
   Trash2,
   Image,
   CreditCard,
+  Plane,
 } from 'lucide-react';
 import { generateMemoDocx } from '../../utils/generateMemoDocx';
 import toast, { Toaster } from 'react-hot-toast';
 import { generateMemoPdf } from '../../utils/generateMemoPdf';
 import { generateMemoExcel } from '../../utils/generateMemoExcel';
 import { uploadHelpdeskDocument, type DocumentEntityType, type DocumentFormat } from '../../store/slices/helpdeskDocumentsSlice';
+
+// ─── Ticket imports ──────────────────────────────────────────────────────────
+import { createTicket } from '../../store/slices/ticketSlice';
+import TicketFormModal from '../tickets/TicketFormModal';
+import type { CreateTicketRequest } from '../../types/tickets.types';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -533,6 +539,8 @@ interface DSADetailsFormProps {
   onRemoveRow: (index: number) => void;
   onChange: (index: number, field: keyof Omit<DSADetailInput, 'id'>, value: string | number) => void;
   calculateTotal: (rate: number, days: number) => number;
+  showTicketButton?: boolean;      // only for bench & partHeard
+  onTicketClick?: () => void;
 }
 
 const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
@@ -541,6 +549,8 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
   onRemoveRow,
   onChange,
   calculateTotal,
+  showTicketButton = false,
+  onTicketClick,
 }) => {
   return (
     <div className="space-y-4">
@@ -551,9 +561,16 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
             <h4 className="text-sm font-semibold text-stone-800">DSA Details</h4>
             <span className="text-xs text-stone-400">({dsaDetails.length} members)</span>
           </div>
-          <GoldButton size="sm" onClick={onAddRow} icon={<Plus size={14} />}>
-            Add Member
-          </GoldButton>
+          <div className="flex items-center gap-2">
+            {showTicketButton && (
+              <GoldButton size="sm" onClick={onTicketClick} icon={<Plane size={14} />}>
+                Create Ticket
+              </GoldButton>
+            )}
+            <GoldButton size="sm" onClick={onAddRow} icon={<Plus size={14} />}>
+              Add Member
+            </GoldButton>
+          </div>
         </div>
 
         <datalist id="designation-suggestions">
@@ -760,8 +777,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
       total: calculateTotal(d.dsa_per_day, d.days),
     }));
 
-  // ─── Updated handleDownload with upload functionality ────────────────────
-
   const handleDownload = async (format: DownloadFormat) => {
     setShowDownloadMenu(false);
     setDownloadingFormat(format);
@@ -781,7 +796,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         signatoryName,
       };
 
-      // ── Step 1: Generate the Blob ──────────────────────────────────────────
       let blob: Blob | null = null;
 
       if (format === 'docx') {
@@ -804,7 +818,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         throw new Error('Generator returned no blob');
       }
 
-      // ── Step 2: Upload to the system ──────────────────────────────────────
       const safeRef = (refField || 'memo').replace(/[\\/:*?"<>|]/g, '-');
       const filename = `${safeRef}.${format}`;
 
@@ -828,29 +841,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
       ).unwrap();
 
       toast.success(`${format.toUpperCase()} document saved to the system.`);
-
-      await uploadHelpdeskDocument({
-        blob,
-        filename,
-        ref: refField,
-        subject: subjectField,
-        entity_type: entityTypeMap[mode],
-        format: format as DocumentFormat,
-      });
-
-      toast.success(`${format.toUpperCase()} document saved to the system.`);
-
-      // ── Optional: Also allow local download ──────────────────────────────
-      // Uncomment if you want both behaviors:
-      // const url = URL.createObjectURL(blob);
-      // const link = document.createElement('a');
-      // link.href = url;
-      // link.download = filename;
-      // document.body.appendChild(link);
-      // link.click();
-      // document.body.removeChild(link);
-      // URL.revokeObjectURL(url);
-
     } catch (err) {
       console.error(`Failed to generate/upload ${format} memo:`, err);
       toast.error('Failed to save document. Please try again.');
@@ -923,27 +913,21 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         </div>
       </div>
 
-      {/* ─── Memo Preview - Proper A4 layout with footer at bottom ─── */}
+      {/* ─── Memo Preview ─────────────────────────────────────────────────────── */}
       <div className="border border-stone-300 bg-white shadow-sm font-sans text-black" style={{ minHeight: '297mm' }}>
         <div className="flex flex-col" style={{ minHeight: '297mm' }}>
-          {/* Header - pushed to top */}
           <div className="p-10">
-            {/* Crest */}
             <div className="flex justify-center mb-3">
               <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-20 w-auto object-contain" />
             </div>
 
-            {/* Title block */}
             <div className="text-center mb-6">
-              <p className="text-lg font-bold uppercase leading-snug">
-                OFFICE OF THE REGISTRAR HIGH COURT
-              </p>
+              <p className="text-lg font-bold uppercase leading-snug">OFFICE OF THE REGISTRAR HIGH COURT</p>
               <p className="text-lg font-bold uppercase leading-snug border-b-2 border-black inline-block pb-2 px-1">
                 INTERNAL MEMO
               </p>
             </div>
 
-            {/* TO / FROM / REF / DATE / SUBJECT */}
             <div className="space-y-3 text-sm font-bold mb-8">
               <div className="flex">
                 <span className="w-24 shrink-0">TO</span>
@@ -997,7 +981,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
               </div>
             </div>
 
-            {/* Body */}
             <div className="space-y-4 text-sm">
               <textarea
                 value={bodyText}
@@ -1006,7 +989,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
                 className={`${editableLineClasses} block w-full resize-none leading-relaxed`}
               />
 
-              {/* Table - without Notes column */}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm border-collapse border border-black">
                   <thead>
@@ -1046,9 +1028,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
                   {validDetails.length > 0 && (
                     <tfoot>
                       <tr>
-                        <td colSpan={6} className="border border-black px-2 py-2 text-right font-bold">
-                          GRAND TOTAL
-                        </td>
+                        <td colSpan={6} className="border border-black px-2 py-2 text-right font-bold">GRAND TOTAL</td>
                         <td className="border border-black px-2 py-2 text-right font-bold">
                           {grandTotal.toLocaleString()}
                         </td>
@@ -1060,7 +1040,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
             </div>
           </div>
 
-          {/* Sign-off - pushed to bottom with flex-grow */}
           <div className="flex-1"></div>
           <div className="p-10 pt-0">
             <div className="space-y-1">
@@ -1071,13 +1050,11 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
                 placeholder="Signatory name"
                 className={`${editableLineClasses} block text-sm font-bold`}
               />
-
               {signatureUrl && (
                 <div className="py-1">
                   <img src={signatureUrl} alt="Signature" className="max-h-12 w-auto object-contain" />
                 </div>
               )}
-
               <input
                 type="text"
                 value={fromField}
@@ -1086,7 +1063,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
               />
             </div>
 
-            {/* Footer */}
             <div className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3">
               <img src={FOOTER_EMBLEM_SRC} alt="" className="h-10 w-auto object-contain shrink-0" />
               <div className="text-[10px] leading-tight text-stone-700 text-right">
@@ -1138,10 +1114,12 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
   const signatureLoading = useAppSelector(selectUsersSignatureLoading);
 
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
-
   const [basicInfo, setBasicInfo] = useState<BasicInfoType>(() => getDefaultBasicInfo(mode));
-
   const [dsaDetails, setDsaDetails] = useState<Omit<DSADetailInput, 'id'>[]>(getDefaultDsaDetails);
+
+  // ── Ticket modal state ──────────────────────────────────────────────────
+  const [showTicketModal, setShowTicketModal] = useState(false);
+  const [isSavingTicket, setIsSavingTicket] = useState(false);
 
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
 
@@ -1233,13 +1211,10 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     setDsaDetails(updated);
   };
 
-  const calculateTotal = (dsa_per_day: number, days: number): number => {
-    return dsa_per_day * days;
-  };
+  const calculateTotal = (dsa_per_day: number, days: number): number => dsa_per_day * days;
 
-  const calculateGrandTotal = (): number => {
-    return dsaDetails.reduce((sum, d) => sum + (d.dsa_per_day * d.days), 0);
-  };
+  const calculateGrandTotal = (): number =>
+    dsaDetails.reduce((sum, d) => sum + (d.dsa_per_day * d.days), 0);
 
   const handleSignatureUpload = async (file: File) => {
     try {
@@ -1426,6 +1401,20 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     }
   };
 
+  // ── Ticket creation handler ─────────────────────────────────────────────
+  const handleCreateTicket = async (data: CreateTicketRequest) => {
+    setIsSavingTicket(true);
+    try {
+      await dispatch(createTicket(data)).unwrap();
+      toast.success('Travel ticket created successfully.');
+      setShowTicketModal(false);
+    } catch {
+      toast.error('Failed to create ticket. Please try again.');
+    } finally {
+      setIsSavingTicket(false);
+    }
+  };
+
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
     return d.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -1445,13 +1434,13 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
       otherPayment: 'Other Payment',
     };
     const label = modeMap[mode] || 'Item';
-    if (editingItem) {
-      return `Edit ${label}`;
-    }
-    return `Add New ${label}`;
+    return editingItem ? `Edit ${label}` : `Add New ${label}`;
   };
 
   if (!isOpen) return null;
+
+  // ── Show the ticket button only for Bench and Part-Heard ──────────────
+  const showTicketButton = mode === 'bench' || mode === 'partHeard';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1468,6 +1457,16 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
           success: { iconTheme: { primary: '#1a3d1c', secondary: '#fff' } },
           error: { iconTheme: { primary: '#dc2626', secondary: '#fff' } },
         }}
+      />
+
+      {/* ── Ticket Form Modal ────────────────────────────────────────────── */}
+      <TicketFormModal
+        key="ticket-modal"
+        isOpen={showTicketModal}
+        onClose={() => setShowTicketModal(false)}
+        ticket={null}
+        onSave={handleCreateTicket}
+        isSaving={isSavingTicket}
       />
 
       <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
@@ -1503,18 +1502,12 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
                   <span className="text-xs font-medium">Preview</span>
                 </div>
               </div>
-              <span className="text-xs text-stone-400">
-                Step {currentStep} of 3
-              </span>
+              <span className="text-xs text-stone-400">Step {currentStep} of 3</span>
             </div>
           </div>
 
           {currentStep === 1 && (
-            <BasicInfoForm
-              mode={mode}
-              basicInfo={basicInfo}
-              setBasicInfo={setBasicInfo}
-            />
+            <BasicInfoForm mode={mode} basicInfo={basicInfo} setBasicInfo={setBasicInfo} />
           )}
           {currentStep === 2 && (
             <DSADetailsForm
@@ -1523,6 +1516,8 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
               onRemoveRow={handleRemoveDsaRow}
               onChange={handleDsaChange}
               calculateTotal={calculateTotal}
+              showTicketButton={showTicketButton}
+              onTicketClick={() => setShowTicketModal(true)}
             />
           )}
           {currentStep === 3 && (
@@ -1533,7 +1528,6 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
                 onRemove={handleSignatureRemove}
                 isLoading={signatureLoading}
               />
-
               <MemoPreview
                 mode={mode}
                 basicInfo={basicInfo}
@@ -1558,9 +1552,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
             )}
           </div>
           <div className="flex gap-2">
-            <GhostButton onClick={handleClose}>
-              Cancel
-            </GhostButton>
+            <GhostButton onClick={handleClose}>Cancel</GhostButton>
             {currentStep < 3 ? (
               <GoldButton onClick={handleNextStep} icon={<ArrowRight size={14} />}>
                 Next
