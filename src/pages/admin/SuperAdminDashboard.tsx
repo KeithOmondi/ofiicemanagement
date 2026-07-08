@@ -1,4 +1,5 @@
 // src/pages/SuperAdminDashboard.tsx
+
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -54,6 +55,7 @@ import {
   selectDocuments,
   selectLoading as selectDocumentsLoading,
   selectError as selectDocumentsError,
+  selectPagination as selectDocumentPagination,
 } from '../../store/slices/documentSlice';
 
 // ── Chart.js — register every component we use ────────────────────────────
@@ -611,8 +613,19 @@ const SuperAdminDashboard: React.FC = () => {
   const dsaError    = useAppSelector(selectDsaError);
 
   const documents   = useAppSelector(selectDocuments);
+  const docPagination = useAppSelector(selectDocumentPagination);
   const docsLoading = useAppSelector(selectDocumentsLoading);
   const docsError   = useAppSelector(selectDocumentsError);
+
+  // ── Derived document stats ──────────────────────────────────────────────
+  const totalDocuments = docPagination?.total ?? documents.length;
+  const pendingReview = documents.filter(d => d.status === 'pending_review').length;
+  const marked = documents.filter(d => d.status === 'marked').length;
+  const inProgress = documents.filter(d => d.status === 'in_progress').length;
+  const completed = documents.filter(d => d.status === 'completed').length;
+  const filed = documents.filter(d => d.status === 'filed').length;
+  const draft = documents.filter(d => d.status === 'draft').length;
+  const uploaded = documents.filter(d => d.status === 'uploaded').length;
 
   // ── Fetch ──────────────────────────────────────────────────────────────
   const fetchAll = useCallback(() => {
@@ -624,7 +637,8 @@ const SuperAdminDashboard: React.FC = () => {
     dispatch(fetchInventoryStats());
     dispatch(fetchFinancialStats());
     dispatch(fetchDsaStats());
-    dispatch(fetchDocuments({ limit: 1, page: 1 }));
+    // Fetch a larger set to get meaningful breakdowns
+    dispatch(fetchDocuments({ limit: 100, page: 1 }));
   }, [dispatch]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
@@ -710,7 +724,27 @@ const SuperAdminDashboard: React.FC = () => {
         {/* ── Key metrics ── */}
         <section>
           <p className="text-xs font-medium uppercase tracking-widest text-gray-400 mb-3">Key metrics</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+          {/* 9 tiles: 4 + 4 + 1 */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+
+            <div className="grid grid-cols-1 sm:grid-cols-1 gap-3 mt-3 max-w-[calc(25% - 0.75rem)]">
+            <StatTile
+              icon="ti-file"
+              label="Documents"
+              value={fmt(totalDocuments, docsLoading)}
+              sub={
+                pendingReview > 0 || marked > 0 ? (
+                  <span className="flex items-center gap-2 flex-wrap">
+                    {pendingReview > 0 && <Badge variant="warn">{pendingReview} pending</Badge>}
+                    {marked > 0 && <Badge variant="danger">{marked} marked</Badge>}
+                    {inProgress > 0 && <Badge variant="ok">{inProgress} in progress</Badge>}
+                  </span>
+                ) : (
+                  '0 pending · 0 marked'
+                )
+              }
+            />
+          </div>
             <StatTile
               icon="ti-users"
               label="Users"
@@ -727,7 +761,7 @@ const SuperAdminDashboard: React.FC = () => {
             />
             <StatTile
               icon="ti-building-bank"
-              label="Registry"
+              label="Court Stations"
               value={fmt(stationCounts?.length, registryLoading)}
               sub={`${fmt(totalRegistryFiles, registryLoading)} files`}
             />
@@ -739,6 +773,8 @@ const SuperAdminDashboard: React.FC = () => {
                 ? <Badge variant="warn">{totalUnreadNotices} unread</Badge>
                 : '0 unread'}
             />
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
             <StatTile
               icon="ti-package"
               label="Inventory"
@@ -766,6 +802,7 @@ const SuperAdminDashboard: React.FC = () => {
               sub="unread"
             />
           </div>
+          
         </section>
 
         {/* ── Trends ── */}
@@ -840,8 +877,19 @@ const SuperAdminDashboard: React.FC = () => {
                 <DetailRow label="Active projects" value={fmt(projectStats?.active, tasksLoading)} />
               </div>
               <div className="my-2 border-t border-gray-100" />
+              <p className="text-xs font-medium text-gray-500 mb-1">Documents</p>
               <div className="divide-y divide-gray-50">
-                <DetailRow label="Documents on record"    value={fmt(documents.length,      docsLoading)} />
+                <DetailRow label="Total documents"  value={fmt(totalDocuments, docsLoading)} color="text-blue-600" />
+                <DetailRow label="Pending review"   value={fmt(pendingReview, docsLoading)} color="text-amber-600" />
+                <DetailRow label="Marked"           value={fmt(marked, docsLoading)} color="text-red-600" />
+                <DetailRow label="In progress"      value={fmt(inProgress, docsLoading)} color="text-indigo-600" />
+                <DetailRow label="Completed"        value={fmt(completed, docsLoading)} color="text-green-600" />
+                <DetailRow label="Filed"            value={fmt(filed, docsLoading)} color="text-gray-500" />
+                <DetailRow label="Draft"            value={fmt(draft, docsLoading)} color="text-gray-400" />
+                <DetailRow label="Uploaded"         value={fmt(uploaded, docsLoading)} color="text-blue-400" />
+              </div>
+              <div className="my-2 border-t border-gray-100" />
+              <div className="divide-y divide-gray-50">
                 <DetailRow label="Notices and broadcasts" value={fmt(totalNotices,           noticesLoading)} />
                 <DetailRow label="Unread notices"         value={fmt(totalUnreadNotices,     noticesLoading)} color="text-amber-600" />
               </div>
