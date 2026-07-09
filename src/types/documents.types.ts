@@ -1,10 +1,8 @@
-// src/types/documents.types.ts
-
 // ── Type enums ────────────────────────────────────────────────────────────────
 
 export type DocumentType =
   | 'memo' | 'letter' | 'judgment' | 'ruling'
-  | 'order' | 'correspondence' | 'upload';
+  | 'order' | 'correspondence' | 'upload' | 'ticket';
 
 export type DocumentStatus =
   | 'draft' | 'uploaded' | 'pending_review'
@@ -98,6 +96,12 @@ export interface MarkDocumentInput {
   priority?: RoutePriority;
 }
 
+// ── Update Mark Input (for the new PATCH endpoint) ──────────────────────
+export interface UpdateMarkInput {
+  instructions?: string;
+  bring_up_date?: string | null;
+}
+
 export interface CreateAnnotationInput {
   comment: string;
   is_urgent?: boolean;
@@ -151,6 +155,7 @@ export interface DocumentMark {
   assigned_to: string | null;
   assigned_to_name: string | null;
   instructions: string | null;
+  bring_up_date: string | null;      // ← NEW: ISO date string
   priority: RoutePriority;
   marked_at: Date;
   acknowledged_at: Date | null;

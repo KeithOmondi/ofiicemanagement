@@ -31,6 +31,10 @@ export interface Ticket {
   preferred_flight_time: FlightTimePreference;
   remarks: string | null;
   
+  // Judge & Case Details
+  judge_name: string | null;
+  pj_number: string | null;
+  
   // Additional Travel Info
   travel_class: TravelClass;
   number_of_passengers: number;
@@ -107,6 +111,11 @@ export interface CreateTicketRequest {
   destination: string;
   preferred_flight_time?: FlightTimePreference;
   remarks?: string;
+  
+  // Judge & Case Details
+  judge_name?: string | null;
+  pj_number?: string | null;
+  
   travel_class?: TravelClass;
   number_of_passengers?: number;
   special_requests?: string;
@@ -125,6 +134,11 @@ export interface UpdateTicketRequest {
   destination?: string;
   preferred_flight_time?: FlightTimePreference;
   remarks?: string | null;
+  
+  // Judge & Case Details
+  judge_name?: string | null;
+  pj_number?: string | null;
+  
   travel_class?: TravelClass;
   number_of_passengers?: number;
   special_requests?: string | null;
@@ -143,6 +157,11 @@ export interface TicketFilters {
   date_to?: string;
   departure_from?: string;
   destination?: string;
+  
+  // Judge & Case Filters
+  judge_name?: string;
+  pj_number?: string;
+  
   for_my_action?: boolean;
   page?: number;
   limit?: number;

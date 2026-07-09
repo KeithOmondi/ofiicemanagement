@@ -510,6 +510,28 @@ export const selectTicketsByPriority = createSelector(
   (tickets, priority) => tickets.filter(t => t.priority === priority)
 );
 
+// Selector for tickets by judge name
+export const selectTicketsByJudgeName = createSelector(
+  [
+    selectAllTickets,
+    (_state: { tickets: TicketState }, judgeName: string) => judgeName
+  ],
+  (tickets, judgeName) => tickets.filter(t => 
+    t.judge_name && t.judge_name.toLowerCase().includes(judgeName.toLowerCase())
+  )
+);
+
+// Selector for tickets by PJ number
+export const selectTicketsByPJNumber = createSelector(
+  [
+    selectAllTickets,
+    (_state: { tickets: TicketState }, pjNumber: string) => pjNumber
+  ],
+  (tickets, pjNumber) => tickets.filter(t => 
+    t.pj_number && t.pj_number.toLowerCase().includes(pjNumber.toLowerCase())
+  )
+);
+
 export const selectTicketCounts = createSelector(
   [selectAllTickets],
   (tickets) => ({
@@ -522,6 +544,12 @@ export const selectTicketCounts = createSelector(
     rejected: tickets.filter(t => t.status === 'rejected').length,
     draft: tickets.filter(t => t.status === 'draft').length,
   })
+);
+
+// Selector for tickets with judge information
+export const selectTicketsWithJudgeInfo = createSelector(
+  [selectAllTickets],
+  (tickets) => tickets.filter(t => t.judge_name || t.pj_number)
 );
 
 // Actions

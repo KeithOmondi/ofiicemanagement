@@ -1,11 +1,16 @@
 // src/components/layout/AdminSidebar.tsx
-import React from 'react';
-import { NavLink } from 'react-router-dom';
+import React, { useState } from 'react';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useAppSelector } from '../../store/hook';
 import { isSuperAdmin, hasRole } from '../../store/slices/authSlice';
 import type { UserRole } from '../../store/slices/authSlice';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
+
+interface NavChild {
+  to:     string;
+  label:  string;
+}
 
 interface NavItem {
   to:                  string;
@@ -14,6 +19,7 @@ interface NavItem {
   minRole?:            UserRole;
   badge?:              number;
   icon:                React.ReactNode;
+  children?:           NavChild[];
 }
 
 interface NavSection {
@@ -117,6 +123,17 @@ const Icon = {
   ),
 };
 
+const ChevronIcon: React.FC<{ open: boolean }> = ({ open }) => (
+  <svg
+    className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+  >
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+  </svg>
+);
+
 // ── Nav config ────────────────────────────────────────────────────────────────
 
 const navigationConfig: NavSection[] = [
@@ -155,7 +172,18 @@ const navigationConfig: NavSection[] = [
   {
     title: 'Help Desk',
     items: [
-      { to: '/super-admin/helpdesk',      label: 'Help Desk Portal', icon: Icon.helpdesk },
+      {
+        to:     '/super-admin/helpdesk',
+        label:  'Help Desk Portal',
+        icon:   Icon.helpdesk,
+        // Clicking the row label still navigates to the portal itself;
+        // the chevron toggles this dropdown open to reveal the two
+        // sub-sections.
+        children: [
+          { to: '/super-admin/helpdesk/tickets',    label: 'Tickets' },
+          { to: '/super-admin/helpdesk/conference', label: 'Conference' },
+        ],
+      },
       { to: '/super-admin/team-members',  label: 'Team Members',     icon: Icon.team     },
     ],
   },
@@ -207,38 +235,113 @@ const navigationConfig: NavSection[] = [
 // ── Sidebar link ──────────────────────────────────────────────────────────────
 
 const SidebarLink: React.FC<SidebarLinkProps> = ({ item, onClose }) => {
+  const location = useLocation();
+  const hasChildren = !!item.children?.length;
+  const childActive = hasChildren && item.children!.some((c) => location.pathname.startsWith(c.to));
+
+  // Start expanded if a child route is already active, so refreshing on a
+  // sub-page doesn't hide the fact that it's nested under this item.
+  const [open, setOpen] = useState(childActive);
+
   const base = 'flex items-center justify-between rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200';
 
+  // ── Plain link, no dropdown ──────────────────────────────────────────────
+  if (!hasChildren) {
+    return (
+      <NavLink
+        to={item.to}
+        end
+        onClick={onClose}
+        className={({ isActive }) =>
+          `${base} ${isActive
+            ? 'bg-[#1E4620] text-white shadow-md'
+            : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900 group'
+          }`
+        }
+      >
+        {({ isActive }) => (
+          <>
+            <div className="flex items-center gap-3">
+              <span className={isActive ? 'text-white' : 'text-stone-400 group-hover:text-stone-600 transition-colors'}>
+                {item.icon}
+              </span>
+              <span>{item.label}</span>
+            </div>
+            {item.badge !== undefined && item.badge > 0 && (
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                isActive ? 'bg-white/20 text-white' : 'bg-stone-100 text-stone-600'
+              }`}>
+                {item.badge}
+              </span>
+            )}
+          </>
+        )}
+      </NavLink>
+    );
+  }
+
+  // ── Link + dropdown: the row itself still navigates to `item.to`;
+  // the chevron button is a separate click target that only toggles
+  // the sub-list open/closed. ──────────────────────────────────────────────
   return (
-    <NavLink
-      to={item.to}
-      end
-      onClick={onClose}
-      className={({ isActive }) =>
-        `${base} ${isActive
-          ? 'bg-[#1E4620] text-white shadow-md'
-          : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900 group'
-        }`
-      }
-    >
-      {({ isActive }) => (
-        <>
-          <div className="flex items-center gap-3">
-            <span className={isActive ? 'text-white' : 'text-stone-400 group-hover:text-stone-600 transition-colors'}>
-              {item.icon}
-            </span>
-            <span>{item.label}</span>
-          </div>
-          {item.badge !== undefined && item.badge > 0 && (
-            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-              isActive ? 'bg-white/20 text-white' : 'bg-stone-100 text-stone-600'
-            }`}>
-              {item.badge}
-            </span>
+    <div>
+      <div
+        className={`${base} ${
+          childActive ? 'bg-stone-100 text-stone-900' : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900 group'
+        }`}
+      >
+        <NavLink
+          to={item.to}
+          end
+          onClick={onClose}
+          className="flex min-w-0 flex-1 items-center gap-3"
+        >
+          {({ isActive }) => (
+            <>
+              <span className={isActive ? 'text-[#1E4620]' : 'text-stone-400 group-hover:text-stone-600 transition-colors'}>
+                {item.icon}
+              </span>
+              <span className="truncate">{item.label}</span>
+            </>
           )}
-        </>
+        </NavLink>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen((v) => !v);
+          }}
+          aria-expanded={open}
+          aria-label={open ? `Collapse ${item.label}` : `Expand ${item.label}`}
+          className="ml-2 shrink-0 rounded p-1 text-stone-400 transition-colors hover:bg-stone-200 hover:text-stone-700"
+        >
+          <ChevronIcon open={open} />
+        </button>
+      </div>
+
+      {open && (
+        <div className="ml-4 mt-1 flex flex-col gap-1 border-l border-stone-200 pl-3">
+          {item.children!.map((child) => (
+            <NavLink
+              key={child.to}
+              to={child.to}
+              end
+              onClick={onClose}
+              className={({ isActive }) =>
+                `rounded-lg px-3 py-2 text-sm transition-colors ${
+                  isActive
+                    ? 'bg-[#1E4620]/10 font-semibold text-[#1E4620]'
+                    : 'text-stone-500 hover:bg-stone-100 hover:text-stone-800'
+                }`
+              }
+            >
+              {child.label}
+            </NavLink>
+          ))}
+        </div>
       )}
-    </NavLink>
+    </div>
   );
 };
 

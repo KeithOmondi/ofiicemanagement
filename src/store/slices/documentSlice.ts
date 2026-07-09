@@ -1,5 +1,3 @@
-// src/features/documents/documentSlice.ts
-
 import {
   createSlice,
   createAsyncThunk,
@@ -27,6 +25,7 @@ import type {
   ComposeMemoInput,
   ComposeLetterInput,
   SendToUserInput,
+  //UpdateMarkInput, // new import
 } from "../../types/documents.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -61,6 +60,7 @@ interface DocumentState {
     creatingLetter?: boolean;
     sendingToUser?: string;
     uploading?: boolean;
+    updatingMark?: string; // new
   };
 }
 
@@ -557,6 +557,27 @@ export const deleteAnnotation = createAsyncThunk(
       return rejectWithValue(getErrorMessage(error));
     }
   },
+);
+
+// ── NEW: Update Mark (instructions & bring‑up date) ──────────────────────
+
+export const updateMark = createAsyncThunk(
+  "documents/updateMark",
+  async (
+    { markId, instructions, bring_up_date }: 
+    { markId: string; instructions: string; bring_up_date: string | null },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.patch<{
+        success: boolean;
+        data: DocumentMark;
+      }>(`/documents/marks/${markId}`, { instructions, bring_up_date });
+      return { markId, updatedMark: response.data.data };
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
 );
 
 // ─── Slice ────────────────────────────────────────────────────────────────────
@@ -1086,6 +1107,62 @@ const documentSlice = createSlice({
               (a) => a.id !== annotationId,
             );
         }
+      })
+
+      // ── updateMark (NEW) ──────────────────────────────────────────────────
+      .addCase(updateMark.pending, (state, action) => {
+        state.actionInProgress.updatingMark = action.meta.arg.markId;
+        state.error = null;
+      })
+      .addCase(updateMark.fulfilled, (state, action) => {
+        state.actionInProgress.updatingMark = undefined;
+        const { markId, updatedMark } = action.payload;
+
+        // Update in documents list
+        state.documents = state.documents.map(doc => {
+          if (doc.active_mark?.id === markId) {
+            return {
+              ...doc,
+              active_mark: {
+                ...doc.active_mark,
+                instructions: updatedMark.instructions,
+                bring_up_date: updatedMark.bring_up_date,
+              },
+            };
+          }
+          return doc;
+        });
+
+        // Update in currentDocument if present
+        if (state.currentDocument?.active_mark?.id === markId) {
+          state.currentDocument = {
+            ...state.currentDocument,
+            active_mark: {
+              ...state.currentDocument.active_mark,
+              instructions: updatedMark.instructions,
+              bring_up_date: updatedMark.bring_up_date,
+            },
+          };
+        }
+
+        // Also update in myMarked list if that document appears there
+        state.myMarked = state.myMarked.map(doc => {
+          if (doc.active_mark?.id === markId) {
+            return {
+              ...doc,
+              active_mark: {
+                ...doc.active_mark,
+                instructions: updatedMark.instructions,
+                bring_up_date: updatedMark.bring_up_date,
+              },
+            };
+          }
+          return doc;
+        });
+      })
+      .addCase(updateMark.rejected, (state, action) => {
+        state.actionInProgress.updatingMark = undefined;
+        state.error = action.payload as string;
       });
   },
 });
@@ -1148,6 +1225,9 @@ export const selectIsSendingToUser = (state: { documents: DocumentState }) =>
 
 export const selectIsUploading = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.uploading || false;
+
+export const selectIsUpdatingMark = (state: { documents: DocumentState }, markId: string) =>
+  state.documents.actionInProgress.updatingMark === markId;
 
 export type { DocumentState };
 

@@ -15,6 +15,7 @@ import {
   clearError,
   requestSignOtp,
   fetchResponses,
+  updateMark, // <-- new import for updating mark (assumed to exist)
 } from "../../store/slices/documentSlice";
 import { hasRole } from "../../store/slices/authSlice";
 import {
@@ -88,6 +89,7 @@ const DOC_ICON_COLORS: Record<DocumentType, string> = {
   order: "text-blue-600",
   correspondence: "text-teal-600",
   upload: "text-stone-400",
+  ticket: "text-purple-500",
 };
 
 const DocIcon: React.FC<{ type: DocumentType; className?: string }> = ({
@@ -119,25 +121,31 @@ const formatFileSize = (bytes: number | null): string => {
   return kb < 1024 ? `${Math.round(kb)}KB` : `${(kb / 1024).toFixed(1)}MB`;
 };
 
-// ─── Sticky Note ──────────────────────────────────────────────────────────────
+// ─── Sticky Note (updated with date picker) ────────────────────────────────
+
+// ─── Sticky Note (updated with calendar icon for quick date change) ────────
 
 interface StickyNoteProps {
   authorName: string;
   initialText: string;
+  initialDate?: string | null;
   canEdit: boolean;
-  onSave?: (text: string) => void;
+  onSave?: (text: string, date: string | null) => void;
 }
 
 const StickyNote: React.FC<StickyNoteProps> = ({
   authorName,
   initialText,
+  initialDate = null,
   canEdit,
   onSave,
 }) => {
   const [text, setText] = useState(initialText);
+  const [date, setDate] = useState<string | null>(initialDate);
   const [editing, setEditing] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 24, y: 24 });
+  const [showDatePicker, setShowDatePicker] = useState(false); // new
 
   const dragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -145,7 +153,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      if ((e.target as HTMLElement).closest("textarea,button,a")) return;
+      if ((e.target as HTMLElement).closest("textarea,button,a,input")) return;
       dragging.current = true;
       dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
       e.preventDefault();
@@ -174,12 +182,43 @@ const StickyNote: React.FC<StickyNoteProps> = ({
 
   const handleSave = () => {
     setEditing(false);
-    onSave?.(text);
+    onSave?.(text, date);
   };
 
   const handleCancel = () => {
     setText(initialText);
+    setDate(initialDate);
     setEditing(false);
+  };
+
+  // Quick date change – save the new date without exiting edit mode
+  const handleQuickDateChange = (newDate: string | null) => {
+    setDate(newDate);
+    setShowDatePicker(false);
+    onSave?.(text, newDate);
+  };
+
+  const formatDate = (dateStr: string) => {
+    const d = new Date(dateStr + "T00:00:00");
+    return d.toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  const isOverdue = (dateStr: string) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const d = new Date(dateStr + "T00:00:00");
+    return d < today;
+  };
+
+  const isToday = (dateStr: string) => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const d = new Date(dateStr + "T00:00:00");
+    return d.getTime() === today.getTime();
   };
 
   if (minimized) {
@@ -245,27 +284,49 @@ const StickyNote: React.FC<StickyNoteProps> = ({
           </div>
 
           <div className="flex items-center gap-0.5 flex-shrink-0">
+            {/* ─── NEW: Calendar icon (quick date picker) ─── */}
             {canEdit && !editing && (
-              <button
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={() => setEditing(true)}
-                className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
-                title="Edit note"
-              >
-                <svg
-                  className="h-3 w-3"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth="2"
+              <>
+                <button
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => setShowDatePicker((v) => !v)}
+                  className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
+                  title="Set bring‑up date"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M15.232 5.232l3.536 3.536M9 11l6-6 3 3-6 6H9v-3z"
-                  />
-                </svg>
-              </button>
+                  <svg
+                    className="h-3 w-3"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <rect x="3" y="4" width="18" height="18" rx="2" />
+                    <line x1="16" y1="2" x2="16" y2="6" />
+                    <line x1="8" y1="2" x2="8" y2="6" />
+                    <line x1="3" y1="10" x2="21" y2="10" />
+                  </svg>
+                </button>
+                <button
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => setEditing(true)}
+                  className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
+                  title="Edit note"
+                >
+                  <svg
+                    className="h-3 w-3"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M15.232 5.232l3.536 3.536M9 11l6-6 3 3-6 6H9v-3z"
+                    />
+                  </svg>
+                </button>
+              </>
             )}
             <button
               onMouseDown={(e) => e.stopPropagation()}
@@ -303,8 +364,24 @@ const StickyNote: React.FC<StickyNoteProps> = ({
                 placeholder="Add a note…"
                 style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
               />
+
               <div
-                className="flex justify-end gap-1.5 mt-1.5"
+                className="mt-2 flex items-center gap-2"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <label className="text-[10px] font-medium text-[#7A4E0D]/70 whitespace-nowrap">
+                  📅 Bring‑up date:
+                </label>
+                <input
+                  type="date"
+                  value={date || ""}
+                  onChange={(e) => setDate(e.target.value || null)}
+                  className="flex-1 rounded border border-[#E8A840] bg-white/70 px-2 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-[#E8A840]"
+                />
+              </div>
+
+              <div
+                className="flex justify-end gap-1.5 mt-2"
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 <button
@@ -322,14 +399,59 @@ const StickyNote: React.FC<StickyNoteProps> = ({
               </div>
             </>
           ) : (
-            <p
-              className="text-[11px] text-stone-800 leading-relaxed whitespace-pre-wrap break-words min-h-[48px]"
-              style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
-            >
-              {text || (
-                <span className="italic text-stone-400">No note yet.</span>
+            <>
+              <p
+                className="text-[11px] text-stone-800 leading-relaxed whitespace-pre-wrap break-words min-h-[48px]"
+                style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
+              >
+                {text || (
+                  <span className="italic text-stone-400">No note yet.</span>
+                )}
+              </p>
+
+              {/* Display bring‑up date chip */}
+              {date && (
+                <div
+                  className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium border ${
+                    isToday(date)
+                      ? "bg-amber-100 text-amber-800 border-amber-300"
+                      : isOverdue(date)
+                        ? "bg-red-100 text-red-800 border-red-300"
+                        : "bg-stone-100 text-stone-700 border-stone-200"
+                  }`}
+                >
+                  <span>📅</span>
+                  <span>Bring up: {formatDate(date)}</span>
+                </div>
               )}
-            </p>
+
+              {/* ─── Quick date picker (inline) ─── */}
+              {showDatePicker && canEdit && (
+                <div
+                  className="mt-2 p-2 bg-white rounded border border-[#E8A840] shadow-sm"
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={date || ""}
+                      onChange={(e) => handleQuickDateChange(e.target.value || null)}
+                      className="flex-1 rounded border border-stone-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => setShowDatePicker(false)}
+                      className="text-[10px] text-stone-400 hover:text-stone-600"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <p className="text-[9px] text-stone-400 mt-1">
+                    Select a date and it saves automatically.
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -864,6 +986,7 @@ interface DocumentEditorProps {
   onMark?: () => void;
   onAcknowledge?: () => void;
   onComplete?: () => void;
+  onUpdateMark?: (markId: string, text: string, date: string | null) => void; // <-- new prop
 }
 
 const SAVE_LABEL: Record<SaveState, string> = {
@@ -887,6 +1010,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onMark,
   onAcknowledge,
   onComplete,
+  onUpdateMark, // new prop
 }) => {
   const isComposed = document.type === "memo" || document.type === "letter";
   const isEditable = !!onSave;
@@ -895,11 +1019,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     : "—";
 
   const hasMarkNote = !!document.active_mark?.instructions;
-
   const [showNote, setShowNote] = useState(hasMarkNote);
   const [showResponses, setShowResponses] = useState(false);
 
   const stickyNoteText = document.active_mark?.instructions ?? "";
+  const stickyNoteDate = document.active_mark?.bring_up_date ?? null; // new
   const noteAuthor = document.active_mark
     ? (document.created_by_name ?? currentUserName)
     : currentUserName;
@@ -994,6 +1118,16 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         <p>REGISTRAR, HIGH COURT</p>
       </div>`,
     );
+
+  // ── Sticky note save handler ──────────────────────────────────────────
+  const handleStickyNoteSave = (text: string, date: string | null) => {
+    if (document.active_mark && onUpdateMark) {
+      onUpdateMark(document.active_mark.id, text, date);
+    } else {
+      // Fallback: if no onUpdateMark provided, just log or show a warning
+      console.warn("Cannot save sticky note – no onUpdateMark handler provided");
+    }
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -1094,7 +1228,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
-          {onMark && (
+          {/* Mark button – hidden if document already has a mark */}
+          {onMark && !document.active_mark && (
             <button
               onClick={onMark}
               className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 transition-colors whitespace-nowrap"
@@ -1414,7 +1549,9 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             key={document.id}
             authorName={noteAuthor}
             initialText={stickyNoteText}
+            initialDate={stickyNoteDate}
             canEdit={isSuperAdmin}
+            onSave={handleStickyNoteSave}
           />
         )}
 
@@ -2209,6 +2346,26 @@ const SuperAdminDocuments: React.FC = () => {
     }
   };
 
+  // ─── Handler for updating mark (called from DocumentEditor) ──────────
+  const handleUpdateMark = (markId: string, text: string, date: string | null) => {
+    // Assumes updateMark thunk exists and accepts { markId, instructions, bring_up_date }
+    dispatch(updateMark({ markId, instructions: text, bring_up_date: date }));
+    // Optionally refresh the selected document after save (could also update local state)
+    // We'll rely on the thunk to update the store and then re-fetch if needed.
+    // For immediate UI update, we can optimistically update the selectedDocument.
+    if (selectedDocument && selectedDocument.active_mark) {
+      const updatedMark = {
+        ...selectedDocument.active_mark,
+        instructions: text,
+        bring_up_date: date,
+      };
+      setSelectedDocument({
+        ...selectedDocument,
+        active_mark: updatedMark,
+      });
+    }
+  };
+
   if (!canView) {
     return (
       <div className="flex items-center justify-center min-h-[400px] px-4 text-center">
@@ -2341,13 +2498,14 @@ const SuperAdminDocuments: React.FC = () => {
               )}
             </div>
 
+            {/* ─── Mark button (disabled if selected doc already marked) ─── */}
             <button
               onClick={() => selectedDocument && setShowMarkModal(true)}
-              disabled={!selectedDocument}
+              disabled={!selectedDocument || !!selectedDocument.active_mark}
               className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 sm:px-3 py-1.5 text-xs font-semibold transition-colors ${
-                selectedDocument
-                  ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-                  : "border-stone-200 bg-stone-50 text-stone-400 cursor-not-allowed"
+                !selectedDocument || !!selectedDocument.active_mark
+                  ? "border-stone-200 bg-stone-50 text-stone-400 cursor-not-allowed"
+                  : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
               }`}
             >
               <svg
@@ -2623,7 +2781,8 @@ const SuperAdminDocuments: React.FC = () => {
                   : undefined
               }
               onMark={
-                canAdmin && selectedDocument.status !== "filed"
+                // Only show Mark if we can mark and the doc is NOT marked
+                canAdmin && selectedDocument.status !== "filed" && !selectedDocument.active_mark
                   ? () => setShowMarkModal(true)
                   : undefined
               }
@@ -2639,6 +2798,7 @@ const SuperAdminDocuments: React.FC = () => {
                   ? () => handleComplete(selectedDocument.id)
                   : undefined
               }
+              onUpdateMark={handleUpdateMark} // <-- pass the handler
             />
           ) : (
             <EmptyState

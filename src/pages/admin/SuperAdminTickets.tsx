@@ -1,27 +1,16 @@
-// src/features/tickets/HelpdeskTickets.tsx
+// src/features/tickets/SuperAdminTickets.tsx
+
 import React, { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   fetchTickets,
-  fetchTicketById,
   createTicket,
   updateTicket,
   deleteTicket,
-  submitTicketForApproval,
-  approveTicket,
-  rejectTicket,
-  returnTicket,
-  bookTicket,
-  cancelTicket,
-  completeTicket,
-  addTicketComment,
-  deleteTicketComment,
   setFilters,
   resetFilters,
-  clearSelectedTicket,
   clearError,
   selectAllTickets,
-  selectSelectedTicket,
   selectTicketStatus,
   selectTicketError,
   selectTicketPagination,
@@ -55,25 +44,26 @@ import type {
   TicketFilters,
   CreateTicketRequest,
   UpdateTicketRequest,
-  TicketWithHistory,
   TicketPriority,
   TravelClass,
   FlightTimePreference,
 } from '../../types/tickets.types';
 import {
-  fetchHelpdeskDocuments,
   uploadHelpdeskDocument,
+  fetchHelpdeskDocuments,
   linkHelpdeskDocument,
-  submitForApproval as submitDocumentForApproval,
+  submitForApproval,
   selectAllHelpdeskDocuments,
   selectDocumentsFetchLoading,
+  selectDocumentError,
+  selectUnlinkedHelpdeskDocuments,
   selectDocumentsUploading,
   selectDocumentActionLoading,
-  selectUnlinkedHelpdeskDocuments,
   selectDocumentLinking,
   type DocumentFormat,
   type DocumentEntityType,
-  type DocumentStatus,
+  type HelpdeskDocument,
+  clearDocumentError,
 } from '../../store/slices/helpdeskDocumentsSlice';
 import toast, { Toaster } from 'react-hot-toast';
 import {
@@ -89,18 +79,273 @@ import {
   Image,
   FileText,
   FileSpreadsheet,
-  Send,
+  Eye,
+  File,
   ExternalLink,
+  Stamp,
+  CheckCircle,
+  XCircle,
+  Clock,
+  Send,
+  Edit,
   Paperclip,
 } from 'lucide-react';
 import { generateAirTicketMemoDocx } from '../../utils/generateAirTicketMemoDocx';
 import { generateAirTicketMemoPdf } from '../../utils/generateAirTicketMemoPdf';
 import { generateAirTicketMemoExcel } from '../../utils/generateAirTicketMemoExcel';
+import TicketApprovalModal from './ticket/TicketApprovalModal';
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1781759596/JOB_LOGO_ubls4m.jpg';
 const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
+
+// ── Document Status Badge ───────────────────────────────────────────────────
+
+interface DocumentStatusBadgeProps {
+  status: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
+}
+
+const DocumentStatusBadge: React.FC<DocumentStatusBadgeProps> = ({ status }) => {
+  const configs: Record<string, { label: string; color: string; bg: string }> = {
+    draft: { label: 'Draft', color: 'text-stone-600', bg: 'bg-stone-100' },
+    pending_approval: { label: 'Pending Approval', color: 'text-amber-700', bg: 'bg-amber-50' },
+    approved: { label: 'Approved ✓', color: 'text-emerald-700', bg: 'bg-emerald-50' },
+    rejected: { label: 'Rejected', color: 'text-red-700', bg: 'bg-red-50' },
+    returned: { label: 'Returned', color: 'text-blue-700', bg: 'bg-blue-50' },
+  };
+
+  const config = configs[status] || configs.draft;
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${config.bg} ${config.color}`}>
+      {config.label}
+    </span>
+  );
+};
+
+// ── Document Viewer Modal ──────────────────────────────────────────────────
+
+interface DocumentViewerModalProps {
+  document: HelpdeskDocument;
+  onClose: () => void;
+}
+
+const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({ document, onClose }) => {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+        {/* Header */}
+        <div className="flex items-start justify-between border-b border-stone-100 bg-stone-50 px-6 py-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-base font-semibold text-[#1a3d1c] truncate">
+                {document.subject}
+              </h2>
+              <DocumentStatusBadge status={document.status} />
+            </div>
+            <p className="mt-1 text-xs text-stone-400 font-mono">
+              Ref: {document.ref} • {document.format.toUpperCase()} • {new Date(document.created_at).toLocaleDateString()}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-full p-1.5 text-stone-400 transition hover:bg-stone-200 hover:text-stone-600"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="max-h-[75vh] overflow-y-auto p-6">
+          {/* Document Info */}
+          <div className="grid grid-cols-2 gap-4 rounded-lg border border-stone-200 bg-stone-50 p-4 sm:grid-cols-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Reference</p>
+              <p className="mt-0.5 text-sm font-mono text-stone-800">{document.ref}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Format</p>
+              <p className="mt-0.5 text-sm font-semibold text-stone-800 uppercase">{document.format}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Entity Type</p>
+              <p className="mt-0.5 text-sm capitalize text-stone-800">{document.entity_type}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Uploaded On</p>
+              <p className="mt-0.5 text-sm text-stone-800">
+                {new Date(document.created_at).toLocaleString()}
+              </p>
+            </div>
+            {document.approved_at && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Approved On</p>
+                <p className="mt-0.5 text-sm text-stone-800">
+                  {new Date(document.approved_at).toLocaleString()}
+                </p>
+              </div>
+            )}
+            {document.approved_by_name && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Approved By</p>
+                <p className="mt-0.5 text-sm text-stone-800">{document.approved_by_name}</p>
+              </div>
+            )}
+            {document.e_stamp_status === 'stamped' && (
+              <div className="col-span-full">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">E-Stamp Status</p>
+                <p className="mt-0.5 text-sm font-medium text-emerald-600 flex items-center gap-2">
+                  <Stamp size={16} />
+                  Stamped ✓
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* E-Stamp Preview */}
+          {document.e_stamp_url && (
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Stamp size={20} className="text-emerald-600" />
+                  <h4 className="text-sm font-semibold text-emerald-800">E-Stamp</h4>
+                </div>
+                <div className="flex gap-2">
+                  <a
+                    href={document.e_stamp_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                  >
+                    <Eye size={14} />
+                    View Stamp
+                  </a>
+                  <a
+                    href={document.e_stamp_url}
+                    download={`e-stamp-${document.ref}.png`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                  >
+                    <Download size={14} />
+                    Download
+                  </a>
+                </div>
+              </div>
+              <div className="mt-3 flex items-center gap-4 p-3 bg-white rounded border border-emerald-200">
+                <img
+                  src={document.e_stamp_url}
+                  alt="E-Stamp"
+                  className="max-h-16 w-auto object-contain"
+                />
+                <div className="text-xs text-stone-500">
+                  <p className="font-mono">{document.ref}</p>
+                  <p className="text-emerald-600">✓ Approved on {document.approved_at ? new Date(document.approved_at).toLocaleDateString() : 'N/A'}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Download Stamped Document */}
+          {document.status === 'approved' && document.e_stamp_url && (
+            <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText size={20} className="text-blue-600" />
+                  <h4 className="text-sm font-semibold text-blue-800">Stamped Document</h4>
+                </div>
+                <a
+                  href={document.file_url}
+                  download={`stamped-${document.ref}.${document.format}`}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                >
+                  <Download size={16} />
+                  Download Stamped Document
+                </a>
+              </div>
+              <p className="mt-2 text-xs text-blue-600">
+                This document has been approved and e-stamped. Click to download the final version.
+              </p>
+            </div>
+          )}
+
+          {/* Approval History */}
+          {document.approval_history && document.approval_history.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
+                <Clock size={16} className="text-stone-400" />
+                Approval History
+              </h3>
+              <div className="mt-3 space-y-2">
+                {document.approval_history.map((entry, index) => (
+                  <div
+                    key={entry.id}
+                    className="relative flex items-start gap-3 rounded-lg border border-stone-100 bg-white p-3"
+                  >
+                    {index < document.approval_history.length - 1 && (
+                      <div className="absolute left-5 top-8 h-full w-0.5 bg-stone-200" />
+                    )}
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-stone-100">
+                      {entry.action === 'submitted' && <Send size={14} className="text-amber-600" />}
+                      {entry.action === 'approved' && <CheckCircle size={14} className="text-emerald-600" />}
+                      {entry.action === 'rejected' && <XCircle size={14} className="text-red-600" />}
+                      {entry.action === 'returned' && <ArrowLeft size={14} className="text-blue-600" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <p className="text-sm font-medium text-stone-800">
+                          {entry.action.charAt(0).toUpperCase() + entry.action.slice(1)}
+                        </p>
+                        <span className="text-xs text-stone-400">
+                          {new Date(entry.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-xs text-stone-500">
+                        By: {entry.from_user_name}
+                        {entry.to_user_name && ` → ${entry.to_user_name}`}
+                      </p>
+                      {entry.comments && (
+                        <p className="mt-1 text-xs text-stone-600 bg-stone-50 rounded p-2">
+                          {entry.comments}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 bg-stone-50 px-6 py-3">
+          <div className="flex gap-2">
+            <a
+              href={document.file_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
+            >
+              <ExternalLink size={14} />
+              View Document
+            </a>
+            <a
+              href={document.file_url}
+              download
+              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
+            >
+              <Download size={14} />
+              Download
+            </a>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-stone-300 px-4 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-50"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ── Helper: status badge style ──────────────────────────────────────────────
 
@@ -138,29 +383,6 @@ const priorityColor = (priority: TicketPriority): string => {
     urgent: 'text-red-600',
   };
   return map[priority] || 'text-stone-500';
-};
-
-// ── Helper: document status badge style ─────────────────────────────────────
-//
-// Separate from ticket status — a HelpdeskDocument (the generated memo PDF/
-// docx/xlsx) has its own approval workflow via helpdeskDocumentsSlice, and
-// can be in flight independently of whatever the parent ticket's status is.
-
-const documentStatusColor = (status: DocumentStatus): string => {
-  const map: Record<DocumentStatus, string> = {
-    draft: 'bg-stone-100 text-stone-600 ring-stone-200',
-    pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
-    approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-    rejected: 'bg-red-50 text-red-700 ring-red-200',
-    returned: 'bg-orange-50 text-orange-700 ring-orange-200',
-  };
-  return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
-};
-
-const documentFormatIcon = (format: DocumentFormat) => {
-  if (format === 'xlsx') return <FileSpreadsheet size={16} className="text-emerald-600" />;
-  if (format === 'docx') return <FileText size={16} className="text-blue-600" />;
-  return <FileText size={16} className="text-red-600" />;
 };
 
 // ── Shared UI primitives ─────────────────────────────────────────────────────
@@ -253,42 +475,6 @@ function GoldButton({
       {icon}
       {children}
     </button>
-  );
-}
-
-function ActionPill({
-  children,
-  onClick,
-  tone = 'default',
-}: {
-  children: React.ReactNode;
-  onClick?: () => void;
-  tone?: 'default' | 'success' | 'danger' | 'warning' | 'info' | 'muted';
-}) {
-  const tones: Record<string, string> = {
-    default: 'bg-[#1a3d1c] text-white hover:bg-[#153016]',
-    success: 'bg-emerald-600 text-white hover:bg-emerald-700',
-    danger: 'bg-red-600 text-white hover:bg-red-700',
-    warning: 'bg-amber-500 text-white hover:bg-amber-600',
-    info: 'bg-blue-600 text-white hover:bg-blue-700',
-    muted: 'bg-stone-500 text-white hover:bg-stone-600',
-  };
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${tones[tone]}`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div>
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">{label}</p>
-      <p className="mt-0.5 text-sm text-stone-800">{value}</p>
-    </div>
   );
 }
 
@@ -465,10 +651,8 @@ function JudgeSearchField({
 interface TicketMemoPreviewProps {
   ticketData: TicketFormData;
   referenceNo?: string;
-  ticketId?: string;
   onEdit: () => void;
   signatureUrl?: string | null;
-  onDocumentUploaded?: (documentId: string) => void;
 }
 
 type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
@@ -494,10 +678,8 @@ const flightTimeLabels: Record<FlightTimePreference, string> = {
 const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
   ticketData,
   referenceNo,
-  ticketId,
   onEdit,
   signatureUrl,
-  onDocumentUploaded,
 }) => {
   const currentUser = useAppSelector((state) => state.auth.user);
   const dispatch = useAppDispatch();
@@ -596,25 +778,17 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
       const safeRef = refField.replace(/[\\/:*?"<>|]/g, '-');
       const filename = `${safeRef}.${format}`;
 
-      const uploaded = await dispatch(
+      await dispatch(
         uploadHelpdeskDocument({
           blob,
           filename,
           ref: refField,
           subject: subjectField,
           entity_type: 'ticket' as DocumentEntityType,
-          // Links the generated document back to the ticket it belongs to
-          // (when editing an existing ticket — brand-new tickets don't have
-          // an id yet at this point in the wizard, so this stays undefined
-          // for the create flow). We capture the resulting document's id
-          // below and hand it up to the parent so it can be linked to the
-          // ticket once that ticket actually has an id.
-          entity_id: ticketId,
           format: format as DocumentFormat,
         })
       ).unwrap();
 
-      onDocumentUploaded?.(uploaded.id);
       toast.success(`${format.toUpperCase()} document saved to the system.`);
     } catch (err) {
       console.error(`Failed to generate/upload ${format} memo:`, err);
@@ -864,7 +1038,7 @@ interface TicketFormData {
 interface TicketFormModalProps {
   initialData?: Ticket | null;
   onClose: () => void;
-  onSubmit: (data: UpdateTicketRequest | CreateTicketRequest, pendingDocumentId?: string) => void;
+  onSubmit: (data: UpdateTicketRequest | CreateTicketRequest) => void;
   isSubmitting: boolean;
 }
 
@@ -886,7 +1060,6 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
   const signatureLoading = useAppSelector(selectUsersSignatureLoading);
 
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
-  const [pendingDocumentId, setPendingDocumentId] = useState<string | undefined>();
   const [formData, setFormData] = useState<TicketFormData>(() => ({
     department_id: initialData?.department_id ?? (isDeptHead ? currentUser?.department_id ?? '' : ''),
     date_of_travel: initialData?.date_of_travel ?? '',
@@ -994,9 +1167,6 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
     if (currentStep === 2) setCurrentStep(1);
   };
 
-  // `e` is optional: this is called both as a form onSubmit handler (with an
-  // event, e.g. pressing Enter in a field) and directly from the "Create" /
-  // "Update" button's onClick on step 2, which has no event to pass.
   const handleSubmit = (e?: FormEvent) => {
     e?.preventDefault();
 
@@ -1023,13 +1193,11 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
       assigned_to: formData.assigned_to || undefined,
       is_draft: formData.is_draft,
     };
-    onSubmit(payload, pendingDocumentId);
+    onSubmit(payload);
   };
 
-  // Reset form when modal closes
   const handleClose = () => {
     setCurrentStep(1);
-    setPendingDocumentId(undefined);
     onClose();
   };
 
@@ -1303,10 +1471,8 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
               <TicketMemoPreview
                 ticketData={formData}
                 referenceNo={initialData?.reference_no}
-                ticketId={initialData?.id}
                 onEdit={() => setCurrentStep(1)}
                 signatureUrl={currentUser?.signature_url}
-                onDocumentUploaded={setPendingDocumentId}
               />
             </div>
           )}
@@ -1342,417 +1508,71 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
   );
 };
 
-// ── Ticket Detail Modal ─────────────────────────────────────────────────────
-
-interface TicketDetailModalProps {
-  ticket: TicketWithHistory;
-  onClose: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-  onSubmitForApproval: () => void;
-  onApprove: (comments?: string) => void;
-  onReject: (reason: string) => void;
-  onReturn: (reason: string, instructions?: string) => void;
-  onBook: (bookingRef: string, comments?: string) => void;
-  onCancel: () => void;
-  onComplete: () => void;
-  onAddComment: (comment: string, isInternal: boolean) => void;
-  onDeleteComment: (commentId: string) => void;
-}
-
-const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
-  ticket,
-  onClose,
-  onEdit,
-  onDelete,
-  onSubmitForApproval,
-  onApprove,
-  onReject,
-  onReturn,
-  onBook,
-  onCancel,
-  onComplete,
-  onAddComment,
-  onDeleteComment,
-}) => {
-  const [newComment, setNewComment] = useState('');
-  const dispatch = useAppDispatch();
-
-  // ── Supporting document (the generated memo) ──────────────────────────────
-  //
-  // Fetches whatever HelpdeskDocument(s) are linked to this ticket
-  // (entity_type: 'ticket', entity_id: ticket.id), lets the user attach one
-  // if none exists yet — either by uploading a fresh file from their machine,
-  // or by linking a document that already exists in the system (e.g. one
-  // generated during ticket creation before the ticket had an id, and so
-  // never got its entity_id set) — and lets them send it straight to the
-  // super admin for approval, all from this same modal.
-  const allDocuments = useAppSelector(selectAllHelpdeskDocuments);
-  const documentsLoading = useAppSelector(selectDocumentsFetchLoading);
-  const documentsUploading = useAppSelector(selectDocumentsUploading);
-  const documentActionLoading = useAppSelector(selectDocumentActionLoading);
-  const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
-  const isLinking = useAppSelector(selectDocumentLinking);
-  const documentFileInputRef = useRef<HTMLInputElement>(null);
-  const [showLinkPicker, setShowLinkPicker] = useState(false);
-
-  useEffect(() => {
-    dispatch(fetchHelpdeskDocuments({ entity_type: 'ticket', entity_id: ticket.id }));
-  }, [dispatch, ticket.id]);
-
-  // Only pull the unlinked-documents list when the picker is actually opened,
-  // so we're not fetching it on every ticket detail view.
-  useEffect(() => {
-    if (showLinkPicker) {
-      dispatch(fetchHelpdeskDocuments({ unlinked: true }));
-    }
-  }, [dispatch, showLinkPicker]);
-
-  const linkedDocuments = allDocuments.filter(
-    (d) => d.entity_type === 'ticket' && d.entity_id === ticket.id
-  );
-
-  const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    const format: DocumentFormat | null =
-      ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ext === 'xlsx' ? 'xlsx' : null;
-
-    if (!format) {
-      toast.error('Please upload a PDF, Word (.docx), or Excel (.xlsx) file.');
-      e.target.value = '';
-      return;
-    }
-
-    try {
-      await dispatch(
-        uploadHelpdeskDocument({
-          blob: file,
-          filename: file.name,
-          ref: ticket.reference_no,
-          subject: ticket.title,
-          entity_type: 'ticket',
-          entity_id: ticket.id,
-          format,
-        })
-      ).unwrap();
-      toast.success('Document attached to this ticket.');
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to attach document.');
-    } finally {
-      e.target.value = '';
-    }
-  };
-
-  const handleLinkExisting = async (documentId: string) => {
-    try {
-      await dispatch(
-        linkHelpdeskDocument({ id: documentId, entity_type: 'ticket', entity_id: ticket.id })
-      ).unwrap();
-      toast.success('Document linked to this ticket.');
-      setShowLinkPicker(false);
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to link document.');
-    }
-  };
-
-  const handleSendDocumentForApproval = async (documentId: string) => {
-    try {
-      await dispatch(submitDocumentForApproval({ id: documentId })).unwrap();
-      toast.success('Document sent to the super admin for approval.');
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
-    }
-  };
-
-  const handleAddComment = () => {
-    if (newComment.trim()) {
-      onAddComment(newComment.trim(), false);
-      setNewComment('');
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
-        <div className="flex items-start justify-between border-b border-stone-100 bg-stone-50 px-6 py-4">
-          <div>
-            <p className="font-mono text-xs text-stone-400">{ticket.reference_no}</p>
-            <h2 className="text-base font-semibold text-[#1a3d1c]">{ticket.title}</h2>
-          </div>
-          <button onClick={onClose} className="rounded-full p-1.5 text-stone-400 transition hover:bg-stone-200 hover:text-stone-600">
-            ✕
-          </button>
-        </div>
-
-        <div className="max-h-[75vh] overflow-y-auto px-6 py-5">
-          <div className="grid grid-cols-2 gap-4 rounded-lg border border-stone-200 bg-stone-50 p-4 sm:grid-cols-3">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Status</p>
-              <span
-                className={`mt-1 inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${statusColor(
-                  ticket.status
-                )}`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${statusDot(ticket.status)}`} />
-                {ticket.status.replace('_', ' ')}
-              </span>
-            </div>
-            <DetailRow label="Priority" value={<span className={`font-medium capitalize ${priorityColor(ticket.priority)}`}>{ticket.priority}</span>} />
-            <DetailRow label="Travel Date" value={new Date(ticket.date_of_travel).toLocaleDateString()} />
-            <DetailRow label="Return Date" value={ticket.return_date ? new Date(ticket.return_date).toLocaleDateString() : '—'} />
-            <DetailRow label="Departure" value={ticket.departure_from} />
-            <DetailRow label="Destination" value={ticket.destination} />
-            <DetailRow label="Judge" value={ticket.judge_name || '—'} />
-            <DetailRow label="PJ Number" value={ticket.pj_number || '—'} />
-            <DetailRow label="Class" value={<span className="capitalize">{ticket.travel_class}</span>} />
-            <DetailRow label="Passengers" value={ticket.number_of_passengers} />
-            <DetailRow label="Created by" value={ticket.created_by_name} />
-            <DetailRow label="Assigned to" value={ticket.assigned_to_name || 'Unassigned'} />
-            {ticket.booking_reference && <DetailRow label="Booking Ref" value={ticket.booking_reference} />}
-            {ticket.rejected_reason && <DetailRow label="Rejection Reason" value={ticket.rejected_reason} />}
-          </div>
-
-          <div className="mt-5 flex flex-wrap gap-2">
-            {ticket.status === 'draft' && (
-              <ActionPill tone="warning" onClick={onSubmitForApproval}>Submit for Approval</ActionPill>
-            )}
-            {ticket.status === 'pending_approval' && (
-              <>
-                <ActionPill tone="success" onClick={() => onApprove()}>Approve</ActionPill>
-                <ActionPill tone="danger" onClick={() => onReject(prompt('Rejection reason?') || '')}>Reject</ActionPill>
-                <ActionPill tone="warning" onClick={() => onReturn(prompt('Return reason?') || '', prompt('Instructions?') || undefined)}>
-                  Return
-                </ActionPill>
-              </>
-            )}
-            {ticket.status === 'approved' && (
-              <ActionPill tone="info" onClick={() => onBook(prompt('Booking reference?') || '', prompt('Comments?') || undefined)}>
-                Book
-              </ActionPill>
-            )}
-            {ticket.status === 'booked' && (
-              <ActionPill tone="info" onClick={onComplete}>Complete</ActionPill>
-            )}
-            {(ticket.status === 'draft' || ticket.status === 'approved' || ticket.status === 'booked') && (
-              <ActionPill tone="muted" onClick={onCancel}>Cancel</ActionPill>
-            )}
-            <ActionPill tone="default" onClick={onEdit}>Edit</ActionPill>
-            <ActionPill tone="danger" onClick={onDelete}>Delete</ActionPill>
-          </div>
-
-          {/* ── Supporting Document ─────────────────────────────────────────── */}
-          <div className="mt-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-stone-800">Supporting Document</h3>
-              <div className="flex gap-2">
-                <GhostButton
-                  onClick={() => setShowLinkPicker((v) => !v)}
-                  icon={<Paperclip size={14} />}
-                >
-                  Link Existing
-                </GhostButton>
-                <input
-                  ref={documentFileInputRef}
-                  type="file"
-                  accept=".pdf,.docx,.xlsx"
-                  onChange={handleAttachDocument}
-                  className="hidden"
-                  disabled={documentsUploading}
-                />
-                <GhostButton
-                  onClick={() => documentFileInputRef.current?.click()}
-                  disabled={documentsUploading}
-                  icon={documentsUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                >
-                  {documentsUploading ? 'Uploading…' : 'Attach Document'}
-                </GhostButton>
-              </div>
-            </div>
-
-            {showLinkPicker && (
-              <div className="mt-2 rounded-lg border border-stone-200 bg-white p-2">
-                {unlinkedDocuments.length === 0 ? (
-                  <p className="px-2 py-2 text-xs text-stone-400 italic">No unlinked documents found.</p>
-                ) : (
-                  <ul className="divide-y divide-stone-100">
-                    {unlinkedDocuments.map((doc) => (
-                      <li key={doc.id} className="flex items-center justify-between gap-2 px-2 py-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          {documentFormatIcon(doc.format)}
-                          <span className="truncate text-sm text-stone-700">{doc.subject}</span>
-                          <span className="shrink-0 text-[11px] text-stone-400">{doc.ref}</span>
-                        </div>
-                        <GhostButton
-                          onClick={() => handleLinkExisting(doc.id)}
-                          disabled={isLinking}
-                          icon={isLinking ? <Loader2 size={12} className="animate-spin" /> : undefined}
-                        >
-                          Attach
-                        </GhostButton>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            {documentsLoading && linkedDocuments.length === 0 ? (
-              <p className="mt-2 text-xs text-stone-400 italic">Checking for an attached document…</p>
-            ) : linkedDocuments.length === 0 ? (
-              <p className="mt-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-3 text-xs text-stone-400">
-                No document attached yet. Generate one from the memo step when editing this ticket, link an existing one, or attach a file here.
-              </p>
-            ) : (
-              <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
-                {linkedDocuments.map((doc) => (
-                  <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                    <div className="flex min-w-0 items-center gap-2">
-                      {documentFormatIcon(doc.format)}
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
-                        <div className="mt-0.5 flex items-center gap-2">
-                          <span
-                            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(
-                              doc.status
-                            )}`}
-                          >
-                            {doc.status.replace('_', ' ')}
-                          </span>
-                          <span className="text-[11px] text-stone-400">{doc.ref}</span>
-                        </div>
-                        {doc.status === 'rejected' && doc.rejection_reason && (
-                          <p className="mt-1 text-[11px] text-red-600">Reason: {doc.rejection_reason}</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      
-                       <a href={doc.file_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
-                      >
-                        <ExternalLink size={12} />
-                        View
-                      </a>
-                      {doc.status === 'draft' && (
-                        <GhostButton
-                          onClick={() => handleSendDocumentForApproval(doc.id)}
-                          disabled={!!documentActionLoading[doc.id]?.submitting}
-                          icon={
-                            documentActionLoading[doc.id]?.submitting ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Send size={12} />
-                            )
-                          }
-                        >
-                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
-                        </GhostButton>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {ticket.approval_history && ticket.approval_history.length > 0 && (
-            <div className="mt-6">
-              <h3 className="text-sm font-semibold text-stone-800">Approval History</h3>
-              <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
-                {ticket.approval_history.map((step) => (
-                  <li key={step.id} className="px-3 py-2.5 text-sm">
-                    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                      <span>
-                        <span className="font-medium text-stone-800">{step.action}</span>{' '}
-                        <span className="text-stone-500">by {step.from_user_name}</span>
-                      </span>
-                      <span className="text-[11px] text-stone-400">{new Date(step.created_at).toLocaleString()}</span>
-                    </div>
-                    {step.comments && <p className="mt-1 text-xs text-stone-600">{step.comments}</p>}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <div className="mt-6">
-            <h3 className="text-sm font-semibold text-stone-800">Comments</h3>
-            <div className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
-              {ticket.comments?.map((c) => (
-                <div key={c.id} className="px-3 py-2.5">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <p className="text-xs font-semibold text-stone-700">{c.user_name}</p>
-                    <span className="text-[11px] text-stone-400">{new Date(c.created_at).toLocaleString()}</span>
-                  </div>
-                  <p className="mt-1 text-sm text-stone-800">{c.comment}</p>
-                  <button
-                    onClick={() => onDeleteComment(c.id)}
-                    className="mt-1 text-[11px] font-medium text-red-500 hover:text-red-700"
-                  >
-                    Delete
-                  </button>
-                </div>
-              ))}
-              {(!ticket.comments || ticket.comments.length === 0) && (
-                <p className="px-3 py-3 text-xs text-stone-400 italic">No comments yet.</p>
-              )}
-            </div>
-            <div className="mt-3 flex gap-2">
-              <input
-                type="text"
-                placeholder="Add a comment…"
-                value={newComment}
-                onChange={(e) => setNewComment(e.target.value)}
-                className={`${inputClasses} flex-1`}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
-              />
-              <PrimaryButton onClick={handleAddComment}>Post</PrimaryButton>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // ── Main Component ──────────────────────────────────────────────────────────
 
-const HelpdeskTickets: React.FC = () => {
+const SuperAdminTickets: React.FC = () => {
   const dispatch = useAppDispatch();
 
   // Redux state
   const tickets = useAppSelector(selectAllTickets);
-  const selectedTicket = useAppSelector(selectSelectedTicket);
   const status = useAppSelector(selectTicketStatus);
   const error = useAppSelector(selectTicketError);
   const pagination = useAppSelector(selectTicketPagination);
   const filters = useAppSelector(selectTicketFilters);
   const actionsLoading = useAppSelector(selectTicketActions);
 
+  // Helpdesk documents state
+  const helpdeskDocuments = useAppSelector(selectAllHelpdeskDocuments);
+  const docsLoading = useAppSelector(selectDocumentsFetchLoading);
+  const docError = useAppSelector(selectDocumentError);
+  const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
+  const isUploading = useAppSelector(selectDocumentsUploading);
+  const documentActionLoading = useAppSelector(selectDocumentActionLoading);
+  const isLinking = useAppSelector(selectDocumentLinking);
+
   // Local UI state
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [approvalTicketId, setApprovalTicketId] = useState<string | null>(null);
+  const [expandedTicketId, setExpandedTicketId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
+  const [selectedDocForView, setSelectedDocForView] = useState<HelpdeskDocument | null>(null);
+  const [showDocViewer, setShowDocViewer] = useState(false);
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const documentFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Determine user role for the approval modal
+  const isDeptHead = useAppSelector(selectIsDeptHead);
+  const userRole = isDeptHead ? 'dept_head' : 'staff';
 
   // Fetch tickets when filters change
   useEffect(() => {
     dispatch(fetchTickets(filters));
   }, [dispatch, filters]);
 
-  // Fetch detailed ticket when selectedId changes
+  // Fetch documents when a ticket is expanded
   useEffect(() => {
-    if (selectedId) {
-      dispatch(fetchTicketById(selectedId));
-    } else {
-      dispatch(clearSelectedTicket());
+  if (expandedTicketId) {
+    dispatch(fetchHelpdeskDocuments({ entity_type: 'ticket', entity_id: expandedTicketId }));
+  }
+}, [dispatch, expandedTicketId]);
+
+  // Fetch unlinked documents when link picker is opened
+  useEffect(() => {
+    if (showLinkPicker) {
+      // After adding `unlinked` to the filters type, remove `as any`
+      dispatch(fetchHelpdeskDocuments({ unlinked: true }));
     }
-  }, [dispatch, selectedId]);
+  }, [dispatch, showLinkPicker]);
+
+  // Clear document error on unmount
+  useEffect(() => {
+    return () => {
+      if (docError) {
+        dispatch(clearDocumentError());
+      }
+    };
+  }, [dispatch, docError]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const handleFilterChange = (key: keyof TicketFilters, value: string | undefined) => {
@@ -1786,111 +1606,140 @@ const HelpdeskTickets: React.FC = () => {
     setEditingTicket(null);
   };
 
-  // After a brand-new ticket is created, if a memo was generated during the
-  // wizard (before the ticket had a real id), its HelpdeskDocument was
-  // uploaded with entity_id left undefined. Link it to the freshly-created
-  // ticket now that we have a real id, so it doesn't stay orphaned.
-  const handleCreateSubmit = (data: CreateTicketRequest, pendingDocumentId?: string) => {
-    dispatch(createTicket(data))
-      .unwrap()
-      .then((ticket) => {
-        if (pendingDocumentId) {
-          dispatch(
-            linkHelpdeskDocument({
-              id: pendingDocumentId,
-              entity_type: 'ticket',
-              entity_id: ticket.id,
-            })
-          )
-            .unwrap()
-            .catch(() => {
-              toast.error('Ticket created, but the memo could not be linked. Attach it manually from the ticket.');
-            });
-        }
-        handleCloseCreate();
-      })
-      .catch(() => {
-        // createTicket's rejection already surfaces via ticketSlice's error
-        // state; nothing extra needed here.
-      });
+  const handleCreateSubmit = (data: CreateTicketRequest) => {
+    dispatch(createTicket(data)).then(() => {
+      handleCloseCreate();
+    });
   };
 
   const handleUpdateSubmit = (id: string, data: UpdateTicketRequest) => {
     dispatch(updateTicket({ id, data })).then(() => {
       handleCloseCreate();
-      if (selectedId === id) dispatch(fetchTicketById(id));
+      // If the updated ticket is currently expanded, refresh its documents
+      if (expandedTicketId === id) {
+        dispatch(fetchHelpdeskDocuments({
+          entity_type: 'ticket',
+          entity_id: id,
+        }));
+      }
     });
   };
 
-  const handleViewTicket = (id: string) => {
-    setSelectedId(id);
-    setShowDetailModal(true);
+  const handleOpenApprovalModal = (id: string) => {
+    setApprovalTicketId(id);
+    setShowApprovalModal(true);
   };
 
-  const handleCloseDetail = () => {
-    setShowDetailModal(false);
-    setSelectedId(null);
-    dispatch(clearSelectedTicket());
-  };
-
-  const handleSubmitForApproval = (id: string) => {
-    dispatch(submitTicketForApproval(id)).then(() => {
-      if (selectedId === id) dispatch(fetchTicketById(id));
-    });
-  };
-
-  const handleApprove = (id: string, comments?: string) => {
-    dispatch(approveTicket({ id, comments })).then(() => {
-      if (selectedId === id) dispatch(fetchTicketById(id));
-    });
-  };
-
-  const handleReject = (id: string, reason: string) => {
-    dispatch(rejectTicket({ id, reason })).then(() => {
-      if (selectedId === id) dispatch(fetchTicketById(id));
-    });
-  };
-
-  const handleReturn = (id: string, reason: string, instructions?: string) => {
-    dispatch(returnTicket({ id, reason, instructions })).then(() => {
-      if (selectedId === id) dispatch(fetchTicketById(id));
-    });
-  };
-
-  const handleBook = (id: string, booking_reference: string, comments?: string) => {
-    dispatch(bookTicket({ id, booking_reference, comments })).then(() => {
-      if (selectedId === id) dispatch(fetchTicketById(id));
-    });
-  };
-
-  const handleCancel = (id: string) => {
-    if (window.confirm('Are you sure you want to cancel this ticket?')) {
-      dispatch(cancelTicket(id)).then(() => {
-        if (selectedId === id) dispatch(fetchTicketById(id));
-      });
-    }
-  };
-
-  const handleComplete = (id: string) => {
-    dispatch(completeTicket(id)).then(() => {
-      if (selectedId === id) dispatch(fetchTicketById(id));
-    });
+  const handleCloseApprovalModal = () => {
+    setShowApprovalModal(false);
+    setApprovalTicketId(null);
   };
 
   const handleDelete = (id: string) => {
     if (window.confirm('Are you sure you want to delete this ticket?')) {
       dispatch(deleteTicket(id));
-      if (selectedId === id) handleCloseDetail();
+      if (approvalTicketId === id) {
+        setApprovalTicketId(null);
+      }
+      if (expandedTicketId === id) {
+        setExpandedTicketId(null);
+      }
     }
   };
 
-  const handleAddComment = (id: string, comment: string, isInternal: boolean) => {
-    dispatch(addTicketComment({ id, comment, isInternal }));
+  // ── Document Handlers ─────────────────────────────────────────────────────
+  const handleViewDocument = (doc: HelpdeskDocument) => {
+    setSelectedDocForView(doc);
+    setShowDocViewer(true);
   };
 
-  const handleDeleteComment = (id: string, commentId: string) => {
-    if (window.confirm('Delete this comment?')) {
-      dispatch(deleteTicketComment({ id, commentId }));
+  const handleCloseDocViewer = () => {
+    setShowDocViewer(false);
+    setSelectedDocForView(null);
+  };
+
+  const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    const format: DocumentFormat | null =
+      ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ext === 'xlsx' ? 'xlsx' : null;
+
+    if (!format) {
+      toast.error('Please upload a PDF, Word (.docx), or Excel (.xlsx) file.');
+      e.target.value = '';
+      return;
+    }
+
+    // Find the expanded ticket to get its reference and subject
+    const ticket = tickets.find(t => t.id === expandedTicketId);
+    if (!ticket) {
+      toast.error('Ticket not found.');
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      await dispatch(
+        uploadHelpdeskDocument({
+          blob: file,
+          filename: file.name,
+          ref: ticket.reference_no,
+          subject: ticket.title,
+          entity_type: 'ticket',
+          entity_id: ticket.id,
+          format,
+        })
+      ).unwrap();
+      toast.success('Document attached to this ticket.');
+      // Refresh documents
+      dispatch(fetchHelpdeskDocuments({
+        entity_type: 'ticket',
+        entity_id: ticket.id,
+      }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to attach document.');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleLinkExisting = async (documentId: string) => {
+    if (!expandedTicketId) return;
+    try {
+      await dispatch(
+        linkHelpdeskDocument({
+          id: documentId,
+          entity_type: 'ticket',
+          entity_id: expandedTicketId,
+        })
+      ).unwrap();
+      toast.success('Document linked to this ticket.');
+      setShowLinkPicker(false);
+      // Refresh documents
+      dispatch(fetchHelpdeskDocuments({
+        entity_type: 'ticket',
+        entity_id: expandedTicketId,
+      }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to link document.');
+    }
+  };
+
+  const handleSendDocumentForApproval = async (documentId: string) => {
+    try {
+      await dispatch(submitForApproval({ id: documentId })).unwrap();
+      toast.success('Document sent to the super admin for approval.');
+      // Refresh documents
+      if (expandedTicketId) {
+        dispatch(fetchHelpdeskDocuments({
+          entity_type: 'ticket',
+          entity_id: expandedTicketId,
+        }));
+      }
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
     }
   };
 
@@ -2062,24 +1911,42 @@ const HelpdeskTickets: React.FC = () => {
                       </td>
                       <td className="px-4 py-3 text-sm text-stone-600">{ticket.judge_name || '—'}</td>
                       <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-3">
+                        <div className="flex items-center justify-center gap-2">
+                          {/* Document toggle */}
                           <button
-                            onClick={() => handleViewTicket(ticket.id)}
-                            className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+                            onClick={() => setExpandedTicketId(prev => prev === ticket.id ? null : ticket.id)}
+                            className={`rounded-lg p-1.5 transition ${
+                              expandedTicketId === ticket.id
+                                ? 'bg-stone-100 text-stone-700'
+                                : 'text-stone-400 hover:bg-stone-100 hover:text-stone-600'
+                            }`}
+                            title="View Associated Documents"
                           >
-                            View
+                            <FileText size={16} />
                           </button>
+                          {/* Review/Approval Button */}
+                          <button
+                            onClick={() => handleOpenApprovalModal(ticket.id)}
+                            className="rounded-lg p-1.5 text-amber-600 transition hover:bg-amber-50 hover:text-amber-800"
+                            title="Review & Manage Ticket"
+                          >
+                            <Eye size={16} />
+                          </button>
+                          {/* Edit Button */}
                           <button
                             onClick={() => handleOpenEdit(ticket)}
-                            className="text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                            className="rounded-lg p-1.5 text-blue-600 transition hover:bg-blue-50 hover:text-blue-800"
+                            title="Edit Ticket"
                           >
-                            Edit
+                            <Edit size={16} />
                           </button>
+                          {/* Delete Button */}
                           <button
                             onClick={() => handleDelete(ticket.id)}
-                            className="text-xs font-semibold text-red-600 hover:text-red-800"
+                            className="rounded-lg p-1.5 text-red-400 transition hover:bg-red-50 hover:text-red-600"
+                            title="Delete Ticket"
                           >
-                            Delete
+                            <Trash2 size={16} />
                           </button>
                         </div>
                       </td>
@@ -2126,6 +1993,163 @@ const HelpdeskTickets: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* ── Associated Documents Section ────────────────────────────── */}
+        {expandedTicketId && (
+          <div className="mt-6 rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
+                  <FileText size={16} className="text-[#c9a84c]" />
+                  Supporting Documents
+                </h2>
+                <p className="text-xs text-stone-500">
+                  {helpdeskDocuments.length} document{helpdeskDocuments.length !== 1 ? 's' : ''} attached
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {/* Link Existing Button */}
+                <GhostButton
+                  onClick={() => setShowLinkPicker((v) => !v)}
+                  icon={<Paperclip size={14} />}
+                  disabled={isUploading}
+                >
+                  Link Existing
+                </GhostButton>
+                {/* Attach Document Button */}
+                <input
+                  ref={documentFileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.xlsx"
+                  onChange={handleAttachDocument}
+                  className="hidden"
+                  disabled={isUploading}
+                />
+                <GhostButton
+                  onClick={() => documentFileInputRef.current?.click()}
+                  disabled={isUploading}
+                  icon={isUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                >
+                  {isUploading ? 'Uploading…' : 'Attach Document'}
+                </GhostButton>
+                <button
+                  onClick={() => setExpandedTicketId(null)}
+                  className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-600"
+                  title="Close"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            {docError && (
+              <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
+                Failed to load documents: {docError}
+              </p>
+            )}
+
+            {/* Link Existing Picker */}
+            {showLinkPicker && (
+              <div className="mt-2 rounded-lg border border-stone-200 bg-white p-2">
+                {unlinkedDocuments.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-stone-400 italic">No unlinked documents found.</p>
+                ) : (
+                  <ul className="divide-y divide-stone-100">
+                    {unlinkedDocuments.map((doc) => (
+                      <li key={doc.id} className="flex items-center justify-between gap-2 px-2 py-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <FileText size={14} className="text-stone-400" />
+                          <span className="truncate text-sm text-stone-700">{doc.subject}</span>
+                          <span className="shrink-0 text-[11px] text-stone-400">{doc.ref}</span>
+                        </div>
+                        <GhostButton
+                          onClick={() => handleLinkExisting(doc.id)}
+                          disabled={isLinking}
+                          icon={isLinking ? <Loader2 size={12} className="animate-spin" /> : undefined}
+                        >
+                          Attach
+                        </GhostButton>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {docsLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 size={24} className="animate-spin text-[#c9a84c]" />
+              </div>
+            ) : helpdeskDocuments.length === 0 ? (
+              <div className="rounded-lg border-2 border-dashed border-stone-200 bg-stone-50 p-8 text-center">
+                <File size={32} className="mx-auto text-stone-300" />
+                <p className="mt-2 text-sm text-stone-500">No documents attached to this ticket.</p>
+                <p className="text-xs text-stone-400">Attach a document or generate one from the ticket edit modal.</p>
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                {helpdeskDocuments.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="flex items-center justify-between rounded-lg border border-stone-200 bg-white p-3 transition hover:shadow-sm hover:border-stone-300"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="rounded-lg bg-stone-100 p-1.5">
+                        <FileText size={16} className="text-stone-600" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-stone-800 truncate">{doc.subject}</p>
+                        <div className="flex items-center gap-2 text-xs text-stone-500">
+                          <span className="font-mono">Ref: {doc.ref}</span>
+                          <span className="uppercase">{doc.format}</span>
+                          <DocumentStatusBadge status={doc.status} />
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleViewDocument(doc)}
+                        className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-600"
+                        title="View Document Details"
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <a
+                        href={doc.file_url}
+                        download
+                        className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-600"
+                        title="Download Document"
+                      >
+                        <Download size={16} />
+                      </a>
+                      {doc.status === 'draft' && (
+                        <GhostButton
+                          onClick={() => handleSendDocumentForApproval(doc.id)}
+                          disabled={!!documentActionLoading[doc.id]?.submitting}
+                          icon={
+                            documentActionLoading[doc.id]?.submitting ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Send size={12} />
+                            )
+                          }
+                        >
+                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
+                        </GhostButton>
+                      )}
+                      {doc.e_stamp_status === 'stamped' && (
+                        <span className="ml-1 inline-flex items-center gap-1 text-xs text-emerald-600">
+                          <Stamp size={12} />
+                          Stamped
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Create / Edit Modal ────────────────────────────────────────────── */}
@@ -2134,42 +2158,38 @@ const HelpdeskTickets: React.FC = () => {
           key={editingTicket?.id ?? 'new'}
           initialData={editingTicket}
           onClose={handleCloseCreate}
-          onSubmit={(data, pendingDocumentId) => {
+          onSubmit={(data) => {
             if (editingTicket) {
               handleUpdateSubmit(editingTicket.id, data);
             } else {
-              handleCreateSubmit(data as CreateTicketRequest, pendingDocumentId);
+              handleCreateSubmit(data as CreateTicketRequest);
             }
           }}
           isSubmitting={actionsLoading.submitting || status === 'loading'}
         />
       )}
 
-      {/* ── Detail Modal ───────────────────────────────────────────────────── */}
-      {showDetailModal && selectedTicket && (
-        <TicketDetailModal
-          ticket={selectedTicket}
-          onClose={handleCloseDetail}
-          onEdit={() => {
-            handleCloseDetail();
-            handleOpenEdit(selectedTicket);
+      {/* ── Ticket Approval Modal ──────────────────────────────────────────── */}
+      {showApprovalModal && approvalTicketId && (
+        <TicketApprovalModal
+          ticketId={approvalTicketId}
+          onClose={handleCloseApprovalModal}
+          onRefresh={() => {
+            dispatch(fetchTickets(filters));
           }}
-          onDelete={() => handleDelete(selectedTicket.id)}
-          onSubmitForApproval={() => handleSubmitForApproval(selectedTicket.id)}
-          onApprove={(comments) => handleApprove(selectedTicket.id, comments)}
-          onReject={(reason) => handleReject(selectedTicket.id, reason)}
-          onReturn={(reason, instructions) => handleReturn(selectedTicket.id, reason, instructions)}
-          onBook={(ref, comments) => handleBook(selectedTicket.id, ref, comments)}
-          onCancel={() => handleCancel(selectedTicket.id)}
-          onComplete={() => handleComplete(selectedTicket.id)}
-          onAddComment={(comment, isInternal) =>
-            handleAddComment(selectedTicket.id, comment, isInternal)
-          }
-          onDeleteComment={(commentId) => handleDeleteComment(selectedTicket.id, commentId)}
+          userRole={userRole}
+        />
+      )}
+
+      {/* ── Document Viewer Modal ──────────────────────────────────────────── */}
+      {showDocViewer && selectedDocForView && (
+        <DocumentViewerModal
+          document={selectedDocForView}
+          onClose={handleCloseDocViewer}
         />
       )}
     </div>
   );
 };
 
-export default HelpdeskTickets;
+export default SuperAdminTickets;

@@ -26,7 +26,69 @@ export type Status =
   | "In Progress"
   | "Completed"
   | "Active"
-  | "Resolved";
+  | "Resolved"
+  | "Cancelled";
+
+// ─── Tickets ──────────────────────────────────────────────────────────────────
+
+export interface Ticket {
+  id: string;
+  ticket_number: string;
+  ticket_type: "Bench" | "Part-Heard" | "General";
+  reference_id: string | null;
+  date_of_travel: string | null;
+  return_date: string | null;
+  departure_from: string | null;
+  destination: string | null;
+  preferred_flight_time: string | null;
+  passenger_name: string;
+  passenger_pj_number: string | null;
+  flight_details: string | null;
+  amount: number | null;
+  status: Status;
+  remarks: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateTicketInput {
+  ticket_type: "Bench" | "Part-Heard" | "General";
+  reference_id?: string;
+  date_of_travel?: string;
+  return_date?: string;
+  departure_from?: string;
+  destination?: string;
+  preferred_flight_time?: string;
+  passenger_name: string;
+  passenger_pj_number?: string;
+  flight_details?: string;
+  amount?: number;
+  remarks?: string;
+}
+
+export interface UpdateTicketInput {
+  date_of_travel?: string;
+  return_date?: string;
+  departure_from?: string;
+  destination?: string;
+  preferred_flight_time?: string;
+  passenger_name?: string;
+  passenger_pj_number?: string;
+  flight_details?: string;
+  amount?: number;
+  status?: Status;
+  remarks?: string;
+}
+
+export interface TicketFilters {
+  search?: string;
+  status?: Status;
+  ticket_type?: "Bench" | "Part-Heard" | "General";
+  reference_id?: string;
+  limit?: number;
+  offset?: number;
+}
 
 // ─── Judge Utilities ──────────────────────────────────────────────────────────
 
@@ -133,6 +195,18 @@ export interface ClubMembership {
   updated_at: string;
 }
 
+export interface CreateClubMembershipInput {
+  pj_no?: string;
+  judge_name: string;
+  club_name: string;
+  entry_fee?: number;
+  annual_fee?: number;
+  date_submitted_dass?: string;
+  court?: string;
+  payment_date?: string;
+  remarks?: string;
+}
+
 // ─── DSA Details ─────────────────────────────────────────────────────────────
 
 export interface DSADetail {
@@ -166,9 +240,18 @@ export interface Circuit {
   total_dsa: number;
   status: Status;
   dsa_details?: DSADetail[];
+  tickets?: Ticket[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CreateCircuitInput {
+  name: string;
+  location?: string;
+  start_date: string;
+  end_date: string;
+  dsa_details?: DSADetailInput[];
 }
 
 // ─── Other Payments ──────────────────────────────────────────────────────────
@@ -187,6 +270,14 @@ export interface OtherPayment {
   updated_at: string;
 }
 
+export interface CreateOtherPaymentInput {
+  name: string;
+  description?: string;
+  start_date: string;
+  end_date: string;
+  dsa_details?: DSADetailInput[];
+}
+
 // ─── Special Benches ─────────────────────────────────────────────────────────
 
 export interface SpecialBench {
@@ -198,9 +289,27 @@ export interface SpecialBench {
   total_dsa: number;
   status: Status;
   dsa_details?: DSADetail[];
+  tickets?: Ticket[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CreateSpecialBenchInput {
+  name: string;
+  case_reference?: string;
+  start_date: string;
+  end_date: string;
+  dsa_details?: DSADetailInput[];
+}
+
+export interface UpdateBenchInput {
+  name?: string;
+  case_reference?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: Status;
+  dsa_details?: DSADetailInput[];
 }
 
 // ─── Part-Heards ─────────────────────────────────────────────────────────────
@@ -214,9 +323,27 @@ export interface PartHeard {
   total_dsa: number;
   status: Status;
   dsa_details?: DSADetail[];
+  tickets?: Ticket[];
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CreatePartHeardInput {
+  case_reference: string;
+  approved_by?: string;
+  start_date: string;
+  end_date: string;
+  dsa_details?: DSADetailInput[];
+}
+
+export interface UpdatePartHeardInput {
+  case_reference?: string;
+  approved_by?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: Status;
+  dsa_details?: DSADetailInput[];
 }
 
 // ─── Service Weeks ───────────────────────────────────────────────────────────
@@ -236,6 +363,15 @@ export interface ServiceWeek {
   updated_at: string;
 }
 
+export interface CreateServiceWeekInput {
+  name: string;
+  week_number: string;
+  year: string;
+  start_date: string;
+  end_date: string;
+  dsa_details?: DSADetailInput[];
+}
+
 // ─── Medical Expense Claims ──────────────────────────────────────────────────
 
 export interface MedicalClaim {
@@ -249,6 +385,15 @@ export interface MedicalClaim {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CreateMedicalClaimInput {
+  s_no?: number;
+  officer_name: string;
+  claim_amount: number;
+  date_forwarded_dhr?: string;
+  status?: Status;
+  remarks?: string;
 }
 
 // ─── General Requests ────────────────────────────────────────────────────────
@@ -265,6 +410,16 @@ export interface GeneralRequest {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CreateGeneralRequestInput {
+  s_no?: number;
+  judge_name: string;
+  request: string;
+  date_received?: string;
+  officer_assigned?: string;
+  status?: Status;
+  remarks?: string;
 }
 
 // ─── Visa Support ────────────────────────────────────────────────────────────
@@ -295,6 +450,18 @@ export interface VisaRequest {
   updated_at: string;
 }
 
+export interface CreateVisaRequestInput {
+  s_no?: number;
+  name: string;
+  destination_country: string;
+  date_of_travel?: string;
+  date_of_return?: string;
+  visa_type: VisaType;
+  purpose_of_travel?: string;
+  remarks?: string;
+  notes?: string;
+}
+
 // ─── Protocol Support ────────────────────────────────────────────────────────
 
 export interface ProtocolEvent {
@@ -315,6 +482,18 @@ export interface ProtocolEvent {
   updated_at: string;
 }
 
+export interface CreateProtocolEventInput {
+  s_no?: number;
+  activity: string;
+  period_from?: string;
+  period_to?: string;
+  officers_assigned?: string;
+  remarks?: string;
+  notes?: string;
+  dsa_required?: boolean;
+  dsa_details?: DSADetailInput[];
+}
+
 // ─── Audit & Stats ──────────────────────────────────────────────────────────
 
 export interface HelpDeskAuditEntry {
@@ -333,114 +512,10 @@ export interface HelpDeskStats {
   in_progress: number;
   visa_active: number;
   protocol_pending: number;
+  tickets: number; // Add this line
 }
 
-// ─── Input Types ─────────────────────────────────────────────────────────────
-
-export interface CreateClubMembershipInput {
-  pj_no?: string;
-  judge_name: string;
-  club_name: string;
-  entry_fee?: number;
-  annual_fee?: number;
-  date_submitted_dass?: string;
-  court?: string;
-  payment_date?: string;
-  remarks?: string;
-}
-
-export interface CreateCircuitInput {
-  name: string;
-  location?: string;
-  start_date: string;
-  end_date: string;
-  dsa_details?: DSADetailInput[];
-}
-
-export interface CreateOtherPaymentInput {
-  name: string;
-  description?: string;
-  start_date: string;
-  end_date: string;
-  dsa_details?: DSADetailInput[];
-}
-
-export interface CreateSpecialBenchInput {
-  name: string;
-  case_reference?: string;
-  start_date: string;
-  end_date: string;
-  dsa_details?: DSADetailInput[];
-}
-
-export interface CreatePartHeardInput {
-  case_reference: string;
-  approved_by?: string;
-  start_date: string;
-  end_date: string;
-  dsa_details?: DSADetailInput[];
-}
-
-export interface CreateServiceWeekInput {
-  name: string;
-  week_number: string;
-  year: string;
-  start_date: string;
-  end_date: string;
-  dsa_details?: DSADetailInput[];
-}
-
-export interface CreateMedicalClaimInput {
-  s_no?: number;
-  officer_name: string;
-  claim_amount: number;
-  date_forwarded_dhr?: string;
-  status?: Status;
-  remarks?: string;
-}
-
-export interface CreateGeneralRequestInput {
-  s_no?: number;
-  judge_name: string;
-  request: string;
-  date_received?: string;
-  officer_assigned?: string;
-  status?: Status;
-  remarks?: string;
-}
-
-export interface CreateVisaRequestInput {
-  s_no?: number;
-  name: string;
-  destination_country: string;
-  date_of_travel?: string;
-  date_of_return?: string;
-  visa_type: VisaType;
-  purpose_of_travel?: string;
-  remarks?: string;
-  notes?: string;
-}
-
-export interface CreateProtocolEventInput {
-  s_no?: number;
-  activity: string;
-  period_from?: string;
-  period_to?: string;
-  officers_assigned?: string;
-  remarks?: string;
-  notes?: string;
-  dsa_required?: boolean;
-  dsa_details?: DSADetailInput[];
-}
-
-export interface UpdateStatusInput {
-  status: Status;
-  notes?: string;
-}
-
-export interface UpdateCircuitDSADetailsInput {
-  dsa_details: DSADetailInput[];
-}
+// ─── Filters ────────────────────────────────────────────────────────────────
 
 export interface HelpDeskFilters {
   search?: string;
@@ -450,6 +525,12 @@ export interface HelpDeskFilters {
   end_date?: string;
   limit?: number;
   offset?: number;
+}
+
+export interface UpdateStatusInput {
+  status: Status;
+  notes?: string;
+  remarks?: string;
 }
 
 // ─── Tab Types ──────────────────────────────────────────────────────────────
@@ -465,7 +546,8 @@ export type HelpDeskTab =
   | "medicalClaims"
   | "generalRequests"
   | "visa"
-  | "protocol";
+  | "protocol"
+  | "tickets";
 
 /* ============================================================
    STATE INTERFACE
@@ -484,6 +566,7 @@ interface HelpDeskState {
   generalRequests: GeneralRequest[];
   visaRequests: VisaRequest[];
   protocolEvents: ProtocolEvent[];
+  tickets: Ticket[];
   auditLog: HelpDeskAuditEntry[];
   stats: HelpDeskStats | null;
 
@@ -499,11 +582,13 @@ interface HelpDeskState {
   selectedGeneralRequest: GeneralRequest | null;
   selectedVisaRequest: VisaRequest | null;
   selectedProtocolEvent: ProtocolEvent | null;
+  selectedTicket: Ticket | null;
 
   // UI State
   activeTab: HelpDeskTab;
   filters: HelpDeskFilters;
   utilityFilters: UtilityFilters;
+  ticketFilters: TicketFilters;
   searchQuery: string;
 
   // Pagination
@@ -519,6 +604,7 @@ interface HelpDeskState {
     generalRequests: { total: number; page: number; limit: number };
     visa: { total: number; page: number; limit: number };
     protocol: { total: number; page: number; limit: number };
+    tickets: { total: number; page: number; limit: number };
   };
 
   // Loading States
@@ -534,6 +620,7 @@ interface HelpDeskState {
     generalRequests: boolean;
     visa: boolean;
     protocol: boolean;
+    tickets: boolean;
     audit: boolean;
     stats: boolean;
     mutating: boolean;
@@ -559,6 +646,7 @@ const initialState: HelpDeskState = {
   generalRequests: [],
   visaRequests: [],
   protocolEvents: [],
+  tickets: [],
   auditLog: [],
   stats: null,
 
@@ -573,10 +661,12 @@ const initialState: HelpDeskState = {
   selectedGeneralRequest: null,
   selectedVisaRequest: null,
   selectedProtocolEvent: null,
+  selectedTicket: null,
 
   activeTab: "utilities",
   filters: {},
   utilityFilters: {},
+  ticketFilters: {},
   searchQuery: "",
 
   pagination: {
@@ -591,6 +681,7 @@ const initialState: HelpDeskState = {
     generalRequests: { total: 0, page: 1, limit: 20 },
     visa: { total: 0, page: 1, limit: 20 },
     protocol: { total: 0, page: 1, limit: 20 },
+    tickets: { total: 0, page: 1, limit: 20 },
   },
 
   loading: {
@@ -605,6 +696,7 @@ const initialState: HelpDeskState = {
     generalRequests: false,
     visa: false,
     protocol: false,
+    tickets: false,
     audit: false,
     stats: false,
     mutating: false,
@@ -628,7 +720,7 @@ const getErrorMessage = (error: unknown): string => {
 };
 
 const buildQueryString = (
-  filters: HelpDeskFilters | UtilityFilters,
+  filters: HelpDeskFilters | UtilityFilters | TicketFilters,
 ): string => {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
@@ -661,6 +753,74 @@ export const fetchHelpDeskAudit = createAsyncThunk(
     try {
       const { data } = await axiosClient.get(`/helpdesk/audit?limit=${limit}`);
       return data.data as HelpDeskAuditEntry[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+/* ============================================================
+   THUNKS - TICKETS
+============================================================ */
+
+export const fetchTickets = createAsyncThunk(
+  "helpdesk/fetchTickets",
+  async (filters: TicketFilters = {}, { rejectWithValue }) => {
+    try {
+      const query = buildQueryString(filters);
+      const { data } = await axiosClient.get(`/helpdesk/tickets${query}`);
+      return data.data as Ticket[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchTicketById = createAsyncThunk(
+  "helpdesk/fetchTicketById",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`/helpdesk/tickets/${id}`);
+      return data.data as Ticket;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const createTicket = createAsyncThunk(
+  "helpdesk/createTicket",
+  async (input: CreateTicketInput, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.post("/helpdesk/tickets", input);
+      return data.data as Ticket;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const updateTicket = createAsyncThunk(
+  "helpdesk/updateTicket",
+  async (
+    { id, updates }: { id: string; updates: UpdateTicketInput },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.put(`/helpdesk/tickets/${id}`, updates);
+      return data.data as Ticket;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const deleteTicket = createAsyncThunk(
+  "helpdesk/deleteTicket",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      await axiosClient.delete(`/helpdesk/tickets/${id}`);
+      return id;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
     }
@@ -1064,6 +1224,21 @@ export const createBench = createAsyncThunk(
   },
 );
 
+export const updateBench = createAsyncThunk(
+  "helpdesk/updateBench",
+  async (
+    { id, updates }: { id: string; updates: UpdateBenchInput },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.put(`/helpdesk/benches/${id}`, updates);
+      return data.data as SpecialBench;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
 export const updateBenchStatus = createAsyncThunk(
   "helpdesk/updateBenchStatus",
   async (
@@ -1127,6 +1302,21 @@ export const createPartHeard = createAsyncThunk(
   async (input: CreatePartHeardInput, { rejectWithValue }) => {
     try {
       const { data } = await axiosClient.post("/helpdesk/part-heards", input);
+      return data.data as PartHeard;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const updatePartHeard = createAsyncThunk(
+  "helpdesk/updatePartHeard",
+  async (
+    { id, updates }: { id: string; updates: UpdatePartHeardInput },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.put(`/helpdesk/part-heards/${id}`, updates);
       return data.data as PartHeard;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -1537,14 +1727,19 @@ const helpdeskSlice = createSlice({
     setUtilityFilters(state, action: PayloadAction<Partial<UtilityFilters>>) {
       state.utilityFilters = { ...state.utilityFilters, ...action.payload };
     },
+    setTicketFilters(state, action: PayloadAction<Partial<TicketFilters>>) {
+      state.ticketFilters = { ...state.ticketFilters, ...action.payload };
+    },
     setSearchQuery(state, action: PayloadAction<string>) {
       state.searchQuery = action.payload;
       state.filters.search = action.payload || undefined;
       state.utilityFilters.search = action.payload || undefined;
+      state.ticketFilters.search = action.payload || undefined;
     },
     clearFilters(state) {
       state.filters = {};
       state.utilityFilters = {};
+      state.ticketFilters = {};
       state.searchQuery = "";
     },
 
@@ -1604,6 +1799,9 @@ const helpdeskSlice = createSlice({
       action: PayloadAction<ProtocolEvent | null>,
     ) {
       state.selectedProtocolEvent = action.payload;
+    },
+    setSelectedTicket(state, action: PayloadAction<Ticket | null>) {
+      state.selectedTicket = action.payload;
     },
 
     // ─── Optimistic Updates ─────────────────────────────────────────────
@@ -1745,6 +1943,21 @@ const helpdeskSlice = createSlice({
         if (notes !== undefined) state.selectedProtocolEvent.notes = notes;
       }
     },
+    updateTicketOptimistically(
+      state,
+      action: PayloadAction<{ id: string; status: Status; remarks?: string }>,
+    ) {
+      const { id, status, remarks } = action.payload;
+      const ticket = state.tickets.find((t) => t.id === id);
+      if (ticket) {
+        ticket.status = status;
+        if (remarks !== undefined) ticket.remarks = remarks;
+      }
+      if (state.selectedTicket?.id === id) {
+        state.selectedTicket.status = status;
+        if (remarks !== undefined) state.selectedTicket.remarks = remarks;
+      }
+    },
 
     clearError(state) {
       state.error = null;
@@ -1788,6 +2001,83 @@ const helpdeskSlice = createSlice({
       )
       .addCase(fetchHelpDeskAudit.rejected, (state, action) => {
         state.loading.audit = false;
+        state.error = action.payload as string;
+      });
+
+    /* ──────── TICKETS ──────────────────────────────────────────────────── */
+    builder
+      .addCase(fetchTickets.pending, (state) => {
+        state.loading.tickets = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchTickets.fulfilled,
+        (state, action: PayloadAction<Ticket[]>) => {
+          state.loading.tickets = false;
+          state.tickets = action.payload;
+          state.pagination.tickets.total = action.payload.length;
+        },
+      )
+      .addCase(fetchTickets.rejected, (state, action) => {
+        state.loading.tickets = false;
+        state.error = action.payload as string;
+      })
+      .addCase(createTicket.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        createTicket.fulfilled,
+        (state, action: PayloadAction<Ticket>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          state.tickets = [action.payload, ...state.tickets];
+          if (state.stats) state.stats.total_records += 1;
+        },
+      )
+      .addCase(createTicket.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updateTicket.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateTicket.fulfilled,
+        (state, action: PayloadAction<Ticket>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.tickets.findIndex((t) => t.id === action.payload.id);
+          if (index !== -1) state.tickets[index] = action.payload;
+          if (state.selectedTicket?.id === action.payload.id)
+            state.selectedTicket = action.payload;
+        },
+      )
+      .addCase(updateTicket.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(deleteTicket.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+      })
+      .addCase(
+        deleteTicket.fulfilled,
+        (state, action: PayloadAction<string>) => {
+          state.loading.mutating = false;
+          state.tickets = state.tickets.filter((t) => t.id !== action.payload);
+          if (state.selectedTicket?.id === action.payload)
+            state.selectedTicket = null;
+          if (state.stats) state.stats.total_records -= 1;
+        },
+      )
+      .addCase(deleteTicket.rejected, (state, action) => {
+        state.loading.mutating = false;
         state.error = action.payload as string;
       });
 
@@ -2248,6 +2538,29 @@ const helpdeskSlice = createSlice({
         state.error = action.payload as string;
         state.success = false;
       })
+      .addCase(updateBench.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateBench.fulfilled,
+        (state, action: PayloadAction<SpecialBench>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.benches.findIndex(
+            (b) => b.id === action.payload.id,
+          );
+          if (index !== -1) state.benches[index] = action.payload;
+          if (state.selectedBench?.id === action.payload.id)
+            state.selectedBench = action.payload;
+        },
+      )
+      .addCase(updateBench.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
       .addCase(updateBenchStatus.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
@@ -2323,6 +2636,29 @@ const helpdeskSlice = createSlice({
         },
       )
       .addCase(createPartHeard.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updatePartHeard.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updatePartHeard.fulfilled,
+        (state, action: PayloadAction<PartHeard>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.partHeards.findIndex(
+            (p) => p.id === action.payload.id,
+          );
+          if (index !== -1) state.partHeards[index] = action.payload;
+          if (state.selectedPartHeard?.id === action.payload.id)
+            state.selectedPartHeard = action.payload;
+        },
+      )
+      .addCase(updatePartHeard.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
@@ -2800,6 +3136,7 @@ export const {
   setActiveTab,
   setFilters,
   setUtilityFilters,
+  setTicketFilters,
   setSearchQuery,
   clearFilters,
   setPagination,
@@ -2814,6 +3151,7 @@ export const {
   setSelectedGeneralRequest,
   setSelectedVisaRequest,
   setSelectedProtocolEvent,
+  setSelectedTicket,
   updateUtilityItemOptimistically,
   updateClubOptimistically,
   updateCircuitOptimistically,
@@ -2825,6 +3163,7 @@ export const {
   updateGeneralRequestOptimistically,
   updateVisaOptimistically,
   updateProtocolOptimistically,
+  updateTicketOptimistically,
   clearError,
   clearSuccess,
   resetHelpDeskState,
@@ -2857,6 +3196,8 @@ export const selectAllVisaRequests = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.visaRequests;
 export const selectAllProtocolEvents = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.protocolEvents;
+export const selectAllTickets = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.tickets;
 export const selectHelpDeskAudit = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.auditLog;
 export const selectHelpDeskStats = (state: { helpdesk: HelpDeskState }) =>
@@ -2888,6 +3229,8 @@ export const selectSelectedVisaRequest = (state: { helpdesk: HelpDeskState }) =>
 export const selectSelectedProtocolEvent = (state: {
   helpdesk: HelpDeskState;
 }) => state.helpdesk.selectedProtocolEvent;
+export const selectSelectedTicket = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.selectedTicket;
 
 // ─── Filters & UI ──────────────────────────────────────────────────────────
 export const selectActiveTab = (state: { helpdesk: HelpDeskState }) =>
@@ -2896,6 +3239,8 @@ export const selectHelpDeskFilters = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.filters;
 export const selectUtilityFilters = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.utilityFilters;
+export const selectTicketFilters = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.ticketFilters;
 export const selectHelpDeskSearch = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.searchQuery;
 
@@ -2923,6 +3268,8 @@ export const selectVisaLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.visa;
 export const selectProtocolLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.protocol;
+export const selectTicketsLoading = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.loading.tickets;
 export const selectAuditLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.audit;
 export const selectStatsLoading = (state: { helpdesk: HelpDeskState }) =>
@@ -2964,6 +3311,8 @@ export const selectVisaPagination = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.pagination.visa;
 export const selectProtocolPagination = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.pagination.protocol;
+export const selectTicketsPagination = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.pagination.tickets;
 
 // ─── Derived Selectors ──────────────────────────────────────────────────────
 
@@ -2992,6 +3341,10 @@ export const selectBenchesByStatus =
   (status: Status) => (state: { helpdesk: HelpDeskState }) =>
     state.helpdesk.benches.filter((b) => b.status === status);
 
+export const selectPartHeardsByStatus =
+  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.partHeards.filter((p) => p.status === status);
+
 export const selectMedicalClaimsByStatus =
   (status: Status) => (state: { helpdesk: HelpDeskState }) =>
     state.helpdesk.medicalClaims.filter((c) => c.status === status);
@@ -2999,6 +3352,19 @@ export const selectMedicalClaimsByStatus =
 export const selectGeneralRequestsByStatus =
   (status: Status) => (state: { helpdesk: HelpDeskState }) =>
     state.helpdesk.generalRequests.filter((r) => r.status === status);
+
+export const selectTicketsByStatus =
+  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.tickets.filter((t) => t.status === status);
+
+export const selectTicketsByType =
+  (ticketType: "Bench" | "Part-Heard" | "General") =>
+  (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.tickets.filter((t) => t.ticket_type === ticketType);
+
+export const selectTicketsByReference =
+  (referenceId: string) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.tickets.filter((t) => t.reference_id === referenceId);
 
 // ─── Pending Counts ─────────────────────────────────────────────────────────
 
@@ -3054,6 +3420,13 @@ export const selectPendingProtocolCount = (state: {
   helpdesk: HelpDeskState;
 }) =>
   state.helpdesk.protocolEvents.filter((p) => p.status === "Pending").length;
+
+export const selectPendingTicketsCount = (state: {
+  helpdesk: HelpDeskState;
+}) =>
+  state.helpdesk.tickets.filter(
+    (t) => t.status === "Pending" || t.status === "In Progress",
+  ).length;
 
 // ─── Total DSA ──────────────────────────────────────────────────────────────
 

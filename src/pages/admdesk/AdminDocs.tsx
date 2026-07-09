@@ -84,6 +84,7 @@ const TYPE_BADGE: Record<DocumentType, string> = {
   order: 'bg-amber-100 text-amber-700',
   correspondence: 'bg-green-100 text-green-700',
   upload: 'bg-gray-100 text-gray-700',
+  ticket: "text-purple-500",
 };
 
 const STATUS_BADGE: Record<string, string> = {
@@ -774,7 +775,7 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
   );
 
   const [toField, setToField] = useState('REGISTRAR, HIGH COURT / ORHC AIE HOLDER');
-  const [fromField, setFromField] = useState('HIGH COURT SUPPORT OFFICE -ORHC');
+  const [fromField, setFromField] = useState('HIGH COURT SUPPORT OFFICE');
   const [refField, setRefField] = useState('');
   const [dateField, setDateField] = useState(
     new Intl.DateTimeFormat('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())
@@ -782,6 +783,9 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
   const [subjectField, setSubjectField] = useState('');
   const [signatoryName, setSignatoryName] = useState(currentUser?.full_name ?? '');
   const [senderTitleField, setSenderTitleField] = useState('Registrar, High Court');
+
+  // Memo-specific signatory name, shown above the office-name sign-off line.
+  const [memoSignatoryName, setMemoSignatoryName] = useState('Hon. Clara Otieno-Omondi');
 
   const [ccField, setCcField] = useState('');
   const [enclosuresField, setEnclosuresField] = useState('');
@@ -852,6 +856,22 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
     window.document.execCommand(command, false, value);
   };
 
+  // Derives initials from the logged-in user's full name, e.g.
+  // "Clara Otieno-Omondi" -> "CO". Falls back to an empty string when the
+  // name isn't available yet.
+  const getInitials = (fullName?: string | null): string => {
+    if (!fullName) return '';
+    return fullName
+      .trim()
+      .split(/\s+/)
+      .map((part) => part[0])
+      .filter(Boolean)
+      .join('')
+      .toUpperCase();
+  };
+
+  const memoRhcCode = `RHC/${getInitials(currentUser?.full_name) || '—'}`;
+
   const handleSaveDraft = async () => {
     if (!title.trim()) {
       toast.error('Please give this document a title');
@@ -875,6 +895,10 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
         signatureTitle: fromField.trim(),
         department_id: departmentId ?? undefined,
         reference_no: refField.trim() || undefined,
+        // NOTE: if ComposeMemoInput doesn't yet have fields for the
+        // signatory name / RHC code, extend the type in tickets.types.ts
+        // (or wherever it lives) and add them here so they're persisted —
+        // right now they only render in the on-screen preview.
       };
       result = await dispatch(createMemo(payload));
     } else {
@@ -1005,12 +1029,29 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                       data-placeholder="Start typing the body of the memo…"
                       className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
                     />
+
+                    {/* Signatory name + auto-generated RHC/initials code,
+                        sitting above the existing office-name sign-off line. */}
                     <div className="mt-10">
+                      <input
+                        value={memoSignatoryName}
+                        onChange={(e) => setMemoSignatoryName(e.target.value)}
+                        placeholder="Signatory name"
+                        className={`${editableLineClasses} block text-[13.5px] font-bold uppercase`}
+                      />
+                      
+                    </div>
+
+                    <div className="mt-2">
                       <input
                         value={fromField}
                         onChange={(e) => setFromField(e.target.value)}
                         className={`${editableLineClasses} block text-[13.5px] font-bold underline uppercase`}
                       />
+
+                      <p className="text-[12px] font-semibold text-stone-600 mt-0.5">
+                        {memoRhcCode}
+                      </p>
                     </div>
                   </>
                 ) : (
