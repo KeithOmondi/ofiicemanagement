@@ -187,14 +187,15 @@ const PriorityBadge: React.FC<{ priority: RoutePriority }> = ({ priority }) => (
   </span>
 );
 
-// ─── Sticky Note ──────────────────────────────────────────────────────────────
+// ─── Sticky Note (read‑only, with safe date parsing) ──────────────────────
 
 interface StickyNoteProps {
   authorName: string;
   text: string;
+  bringUpDate?: string | null;   // ISO date string or full timestamp
 }
 
-const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text }) => {
+const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate }) => {
   const [minimized, setMinimized] = useState(false);
   const [pos, setPos] = useState({ x: 24, y: 24 });
   const dragging = useRef(false);
@@ -220,6 +221,43 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text }) => {
       window.removeEventListener('mouseup', onUp);
     };
   }, []);
+
+  // ── Robust date helpers ──────────────────────────────────────────────────
+  const parseDate = (dateStr: string | null | undefined): Date | null => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const formatDate = (dateStr: string): string => {
+    const d = parseDate(dateStr);
+    if (!d) return 'Invalid Date';
+    return d.toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
+  const isOverdue = (dateStr: string): boolean => {
+    const d = parseDate(dateStr);
+    if (!d) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    return d < today;
+  };
+
+  const isToday = (dateStr: string): boolean => {
+    const d = parseDate(dateStr);
+    if (!d) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime() === today.getTime();
+  };
+
+  const showDateChip = bringUpDate && parseDate(bringUpDate) !== null;
 
   if (minimized) {
     return (
@@ -286,6 +324,22 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text }) => {
           >
             {text || <span className="italic text-stone-400">No instructions.</span>}
           </p>
+
+          {/* ─── Bring‑up date chip (only if valid) ─── */}
+          {showDateChip && (
+            <div
+              className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium border ${
+                isToday(bringUpDate!)
+                  ? 'bg-amber-100 text-amber-800 border-amber-300'
+                  : isOverdue(bringUpDate!)
+                    ? 'bg-red-100 text-red-800 border-red-300'
+                    : 'bg-stone-100 text-stone-700 border-stone-200'
+              }`}
+            >
+              <span>📅</span>
+              <span>Bring up: {formatDate(bringUpDate!)}</span>
+            </div>
+          )}
         </div>
 
         <div className="px-2.5 pb-1.5 flex items-center justify-between">
@@ -498,18 +552,9 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
   const fileName = document.original_name || document.title;
   const isComposed = document.type === 'memo' || document.type === 'letter';
 
-  // Trust mime_type first — it's set explicitly by the backend when the PDF
-  // is generated and doesn't depend on the shape of the storage URL. `ext`
-  // (parsed from the URL string) is only a fallback for legacy records or
-  // providers that don't preserve the file extension in the URL — Cloudinary
-  // in particular can return hashed, extension-less URLs for raw uploads.
   const isPdf = document.mime_type === 'application/pdf' || ext === 'pdf';
 
   const renderPreview = () => {
-    // Composed documents (memo/letter): always prefer the generated PDF —
-    // it carries the full letterhead, crest, and field layout. Only fall
-    // back to the raw contentEditable HTML body if no PDF exists at all
-    // (e.g. an older record, or PDF generation failed silently).
     if (isComposed && fileUrl && isPdf) {
       return (
         <iframe
@@ -543,7 +588,6 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
       );
     }
 
-    // Non-composed documents (uploads, judgments, etc.): same mime_type-first check.
     if (isPdf) {
       return (
         <iframe
@@ -733,6 +777,7 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
               key={document.id}
               authorName={document.active_mark.marked_by_name ?? 'Registrar'}
               text={document.active_mark.instructions}
+              bringUpDate={document.active_mark.bring_up_date}   // ✅ fixed: pass the bring‑up date
             />
           )}
           {renderPreview()}
@@ -784,7 +829,6 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
   const [signatoryName, setSignatoryName] = useState(currentUser?.full_name ?? '');
   const [senderTitleField, setSenderTitleField] = useState('Registrar, High Court');
 
-  // Memo-specific signatory name, shown above the office-name sign-off line.
   const [memoSignatoryName, setMemoSignatoryName] = useState('Hon. Clara Otieno-Omondi');
 
   const [ccField, setCcField] = useState('');
@@ -856,9 +900,6 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
     window.document.execCommand(command, false, value);
   };
 
-  // Derives initials from the logged-in user's full name, e.g.
-  // "Clara Otieno-Omondi" -> "CO". Falls back to an empty string when the
-  // name isn't available yet.
   const getInitials = (fullName?: string | null): string => {
     if (!fullName) return '';
     return fullName
@@ -895,10 +936,6 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
         signatureTitle: fromField.trim(),
         department_id: departmentId ?? undefined,
         reference_no: refField.trim() || undefined,
-        // NOTE: if ComposeMemoInput doesn't yet have fields for the
-        // signatory name / RHC code, extend the type in tickets.types.ts
-        // (or wherever it lives) and add them here so they're persisted —
-        // right now they only render in the on-screen preview.
       };
       result = await dispatch(createMemo(payload));
     } else {
@@ -1030,8 +1067,6 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                       className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
                     />
 
-                    {/* Signatory name + auto-generated RHC/initials code,
-                        sitting above the existing office-name sign-off line. */}
                     <div className="mt-10">
                       <input
                         value={memoSignatoryName}
@@ -1039,7 +1074,6 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                         placeholder="Signatory name"
                         className={`${editableLineClasses} block text-[13.5px] font-bold uppercase`}
                       />
-                      
                     </div>
 
                     <div className="mt-2">
@@ -1048,7 +1082,6 @@ const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                         onChange={(e) => setFromField(e.target.value)}
                         className={`${editableLineClasses} block text-[13.5px] font-bold underline uppercase`}
                       />
-
                       <p className="text-[12px] font-semibold text-stone-600 mt-0.5">
                         {memoRhcCode}
                       </p>

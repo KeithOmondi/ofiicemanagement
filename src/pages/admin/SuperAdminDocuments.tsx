@@ -140,12 +140,20 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   canEdit,
   onSave,
 }) => {
+  // ── Normalize date to YYYY-MM-DD ──────────────────────────────────────────
+  const normalizeDate = (dateStr: string | null | undefined): string | null => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString().split("T")[0]; // YYYY-MM-DD
+  };
+
   const [text, setText] = useState(initialText);
-  const [date, setDate] = useState<string | null>(initialDate);
+  const [date, setDate] = useState<string | null>(normalizeDate(initialDate));
   const [editing, setEditing] = useState(false);
   const [minimized, setMinimized] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 24, y: 24 });
-  const [showDatePicker, setShowDatePicker] = useState(false); // new
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const dragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -187,7 +195,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({
 
   const handleCancel = () => {
     setText(initialText);
-    setDate(initialDate);
+    setDate(normalizeDate(initialDate));
     setEditing(false);
   };
 
@@ -198,8 +206,16 @@ const StickyNote: React.FC<StickyNoteProps> = ({
     onSave?.(text, newDate);
   };
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr + "T00:00:00");
+  // ── Safe date formatting and comparisons ──────────────────────────────────
+  const parseDate = (dateStr: string | null | undefined): Date | null => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const formatDate = (dateStr: string): string => {
+    const d = parseDate(dateStr);
+    if (!d) return "Invalid Date";
     return d.toLocaleDateString("en-GB", {
       day: "numeric",
       month: "short",
@@ -207,19 +223,28 @@ const StickyNote: React.FC<StickyNoteProps> = ({
     });
   };
 
-  const isOverdue = (dateStr: string) => {
+  const isOverdue = (dateStr: string): boolean => {
+    const d = parseDate(dateStr);
+    if (!d) return false;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const d = new Date(dateStr + "T00:00:00");
+    d.setHours(0, 0, 0, 0);
     return d < today;
   };
 
-  const isToday = (dateStr: string) => {
+  const isToday = (dateStr: string): boolean => {
+    const d = parseDate(dateStr);
+    if (!d) return false;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const d = new Date(dateStr + "T00:00:00");
+    d.setHours(0, 0, 0, 0);
     return d.getTime() === today.getTime();
   };
+
+  // Show only if date is valid
+  const showDateChip = date && parseDate(date) !== null;
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   if (minimized) {
     return (
@@ -284,7 +309,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({
           </div>
 
           <div className="flex items-center gap-0.5 flex-shrink-0">
-            {/* ─── NEW: Calendar icon (quick date picker) ─── */}
             {canEdit && !editing && (
               <>
                 <button
@@ -409,23 +433,23 @@ const StickyNote: React.FC<StickyNoteProps> = ({
                 )}
               </p>
 
-              {/* Display bring‑up date chip */}
-              {date && (
+              {/* ─── Date chip (only if valid) ─── */}
+              {showDateChip && (
                 <div
                   className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium border ${
-                    isToday(date)
+                    isToday(date!)
                       ? "bg-amber-100 text-amber-800 border-amber-300"
-                      : isOverdue(date)
+                      : isOverdue(date!)
                         ? "bg-red-100 text-red-800 border-red-300"
                         : "bg-stone-100 text-stone-700 border-stone-200"
                   }`}
                 >
                   <span>📅</span>
-                  <span>Bring up: {formatDate(date)}</span>
+                  <span>Bring up: {formatDate(date!)}</span>
                 </div>
               )}
 
-              {/* ─── Quick date picker (inline) ─── */}
+              {/* ─── Quick date picker ─── */}
               {showDatePicker && canEdit && (
                 <div
                   className="mt-2 p-2 bg-white rounded border border-[#E8A840] shadow-sm"
@@ -472,6 +496,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({
     </div>
   );
 };
+
 
 // ─── Empty State ──────────────────────────────────────────────────────────────
 
