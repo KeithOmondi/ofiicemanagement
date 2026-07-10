@@ -8,13 +8,8 @@ import {
   selectUsersError,
   selectUsersListLoading,
 } from '../../store/slices/userSlice';
-import {
-  fetchTaskStats,
-  selectTaskStats,
-  selectProjectStats,
-  selectStatsLoading,
-  selectTasksError,
-} from '../../store/slices/tasksSlice';
+// ── REMOVED tasksSlice imports ─────────────────────────────
+// import { fetchTaskStats, selectTaskStats, selectProjectStats, selectStatsLoading, selectTasksError } from '../../store/slices/tasksSlice';
 import {
   fetchStationCounts,
   selectStationCounts,
@@ -95,11 +90,7 @@ Chart.register(
 
 type Range = '7d' | '30d' | '3m';
 
-interface TrendPoint {
-  label: string;
-  created: number;
-  completed: number;
-}
+
 
 interface FinPoint {
   label: string;
@@ -128,23 +119,14 @@ const fmtKes = (value: number | undefined | null, loading: boolean): string => {
 };
 
 // ── Mock trend data ────────────────────────────────────────────────────────
-// Replace with real thunks (fetchTaskTrend, fetchFinancialTrend, etc.) when available.
+// Replace with real thunks (fetchFinancialTrend, fetchDsaTrend, etc.) when available.
 
 const MOCK_TRENDS: Record<
   Range,
-  { labels: string[]; tasks: TrendPoint[]; fin: FinPoint[]; dsa: DsaPoint[] }
+  { labels: string[]; fin: FinPoint[]; dsa: DsaPoint[] }
 > = {
   '7d': {
     labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-    tasks: [
-      { label: 'Mon', created: 3,  completed: 2 },
-      { label: 'Tue', created: 5,  completed: 4 },
-      { label: 'Wed', created: 2,  completed: 3 },
-      { label: 'Thu', created: 8,  completed: 6 },
-      { label: 'Fri', created: 4,  completed: 5 },
-      { label: 'Sat', created: 1,  completed: 2 },
-      { label: 'Sun', created: 6,  completed: 4 },
-    ],
     fin: [
       { label: 'Mon', allocated: 120000, paid: 100000 },
       { label: 'Tue', allocated:  80000, paid:  60000 },
@@ -166,12 +148,6 @@ const MOCK_TRENDS: Record<
   },
   '30d': {
     labels: ['W1', 'W2', 'W3', 'W4'],
-    tasks: [
-      { label: 'W1', created: 18, completed: 14 },
-      { label: 'W2', created: 24, completed: 20 },
-      { label: 'W3', created: 15, completed: 18 },
-      { label: 'W4', created: 30, completed: 25 },
-    ],
     fin: [
       { label: 'W1', allocated: 520000, paid: 480000 },
       { label: 'W2', allocated: 680000, paid: 610000 },
@@ -187,11 +163,6 @@ const MOCK_TRENDS: Record<
   },
   '3m': {
     labels: ['January', 'February', 'March'],
-    tasks: [
-      { label: 'January',  created: 64, completed: 58 },
-      { label: 'February', created: 52, completed: 48 },
-      { label: 'March',    created: 78, completed: 70 },
-    ],
     fin: [
       { label: 'January',  allocated: 2100000, paid: 1900000 },
       { label: 'February', allocated: 1800000, paid: 1650000 },
@@ -249,8 +220,6 @@ function useChart(
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    // Destroy via ref, then also via Chart.js internal registry —
-    // handles React 18 Strict Mode's double-invoke of effects.
     instanceRef.current?.destroy();
     Chart.getChart(canvas)?.destroy();
 
@@ -374,56 +343,6 @@ const Badge: React.FC<{ children: React.ReactNode; variant: 'warn' | 'danger' | 
 };
 
 // ── Chart components ───────────────────────────────────────────────────────
-
-const TasksChart: React.FC<{ range: Range }> = ({ range }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const data = MOCK_TRENDS[range];
-
-  useChart(
-    canvasRef,
-    () => ({
-      type: 'line',
-      data: {
-        labels: data.labels,
-        datasets: [
-          {
-            label: 'Created',
-            data: data.tasks.map((d) => d.created),
-            borderColor: CHART_COLORS.blue,
-            backgroundColor: 'rgba(42,120,214,0.08)',
-            pointBackgroundColor: CHART_COLORS.blue,
-            borderWidth: 2,
-            tension: 0.35,
-            fill: true,
-          },
-          {
-            label: 'Completed',
-            data: data.tasks.map((d) => d.completed),
-            borderColor: CHART_COLORS.green,
-            backgroundColor: 'rgba(27,175,122,0.08)',
-            pointBackgroundColor: CHART_COLORS.green,
-            borderWidth: 2,
-            tension: 0.35,
-            fill: true,
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: baseScales,
-      },
-    }),
-    [range],
-  );
-
-  return (
-    <div className="relative h-40">
-      <canvas ref={canvasRef} role="img" aria-label="Task activity over time" />
-    </div>
-  );
-};
 
 const FinancialChart: React.FC<{ range: Range }> = ({ range }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -584,10 +503,7 @@ const SuperAdminDashboard: React.FC = () => {
   const usersLoading    = useAppSelector(selectUsersListLoading);
   const usersError      = useAppSelector(selectUsersError);
 
-  const taskStats       = useAppSelector(selectTaskStats);
-  const projectStats    = useAppSelector(selectProjectStats);
-  const tasksLoading    = useAppSelector(selectStatsLoading);
-  const tasksError      = useAppSelector(selectTasksError);
+  // ── REMOVED tasks selectors ──────────────────────────────────────────
 
   const stationCounts   = useAppSelector(selectStationCounts);
   const registryLoading = useAppSelector(selectStationCountsLoading);
@@ -627,17 +543,22 @@ const SuperAdminDashboard: React.FC = () => {
   const draft = documents.filter(d => d.status === 'draft').length;
   const uploaded = documents.filter(d => d.status === 'uploaded').length;
 
+  // ── Derived notice stats ──────────────────────────────────────────────
+  const totalNotices =
+    (noticesStats?.total_broadcasts ?? 0) + (noticesStats?.total_notices ?? 0);
+  const totalUnreadNotices =
+    (noticesStats?.unread_broadcasts ?? 0) + (noticesStats?.unread_notices ?? 0);
+
   // ── Fetch ──────────────────────────────────────────────────────────────
   const fetchAll = useCallback(() => {
     dispatch(fetchUserStats());
-    dispatch(fetchTaskStats());
+    // ── REMOVED dispatch(fetchTaskStats()) ─────────────────────────────
     dispatch(fetchStationCounts());
     dispatch(fetchNoticesStats());
     dispatch(fetchMessagesUnread());
     dispatch(fetchInventoryStats());
     dispatch(fetchFinancialStats());
     dispatch(fetchDsaStats());
-    // Fetch a larger set to get meaningful breakdowns
     dispatch(fetchDocuments({ limit: 100, page: 1 }));
   }, [dispatch]);
 
@@ -645,17 +566,8 @@ const SuperAdminDashboard: React.FC = () => {
 
   // ── Derived values ─────────────────────────────────────────────────────
   const anyError =
-    usersError || tasksError || registryError || noticesError ||
+    usersError || registryError || noticesError ||
     messagesError || inventoryError || financialError || dsaError || docsError;
-
-  const totalTasks =
-    (taskStats?.todo ?? 0) + (taskStats?.in_progress ?? 0) + (taskStats?.done ?? 0);
-
-  const totalNotices =
-    (noticesStats?.total_broadcasts ?? 0) + (noticesStats?.total_notices ?? 0);
-
-  const totalUnreadNotices =
-    (noticesStats?.unread_broadcasts ?? 0) + (noticesStats?.unread_notices ?? 0);
 
   const totalRegistryFiles =
     stationCounts?.reduce((acc, s) => acc + s.file_count, 0) ?? 0;
@@ -681,7 +593,6 @@ const SuperAdminDashboard: React.FC = () => {
           <p className="text-xs text-gray-400 mt-0.5">Super admin · ORHC Office Management</p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Range toggle */}
           <div className="flex border border-gray-200 rounded-lg overflow-hidden text-xs font-medium">
             {(['7d', '30d', '3m'] as Range[]).map((r) => (
               <button
@@ -724,10 +635,8 @@ const SuperAdminDashboard: React.FC = () => {
         {/* ── Key metrics ── */}
         <section>
           <p className="text-xs font-medium uppercase tracking-widest text-gray-400 mb-3">Key metrics</p>
-          {/* 9 tiles: 4 + 4 + 1 */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-
-            <div className="grid grid-cols-1 sm:grid-cols-1 gap-3 mt-3 max-w-[calc(25% - 0.75rem)]">
+          {/* First row: Documents, Users, Stations (3 tiles) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <StatTile
               icon="ti-file"
               label="Documents"
@@ -744,7 +653,6 @@ const SuperAdminDashboard: React.FC = () => {
                 )
               }
             />
-          </div>
             <StatTile
               icon="ti-users"
               label="Users"
@@ -752,19 +660,14 @@ const SuperAdminDashboard: React.FC = () => {
               sub={`${fmt(userStats?.activeUsers, usersLoading)} active · ${userStats?.byRole?.length ?? 0} roles`}
             />
             <StatTile
-              icon="ti-checklist"
-              label="Tasks"
-              value={fmt(totalTasks, tasksLoading)}
-              sub={taskStats?.overdue
-                ? <Badge variant="danger">{taskStats.overdue} overdue</Badge>
-                : '0 overdue'}
-            />
-            <StatTile
               icon="ti-building-bank"
               label="Court Stations"
               value={fmt(stationCounts?.length, registryLoading)}
               sub={`${fmt(totalRegistryFiles, registryLoading)} files`}
             />
+          </div>
+          {/* Second row: Notices, Inventory, Allocated, DSA payable, Messages (5 tiles) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mt-3">
             <StatTile
               icon="ti-speakerphone"
               label="Notices"
@@ -773,8 +676,6 @@ const SuperAdminDashboard: React.FC = () => {
                 ? <Badge variant="warn">{totalUnreadNotices} unread</Badge>
                 : '0 unread'}
             />
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3">
             <StatTile
               icon="ti-package"
               label="Inventory"
@@ -802,7 +703,6 @@ const SuperAdminDashboard: React.FC = () => {
               sub="unread"
             />
           </div>
-          
         </section>
 
         {/* ── Trends ── */}
@@ -810,17 +710,8 @@ const SuperAdminDashboard: React.FC = () => {
           <p className="text-xs font-medium uppercase tracking-widest text-gray-400 mb-3">
             Trends · {RANGE_LABELS[range]}
           </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <ChartCard
-              title="Task activity"
-              sub={`Created vs completed · ${RANGE_LABELS[range]}`}
-              legend={[
-                { color: CHART_COLORS.blue,  label: 'Created' },
-                { color: CHART_COLORS.green, label: 'Completed' },
-              ]}
-            >
-              <TasksChart range={range} />
-            </ChartCard>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* ── REMOVED TasksChart ────────────────────────────────────── */}
 
             <ChartCard
               title="Financial flow"
@@ -863,21 +754,8 @@ const SuperAdminDashboard: React.FC = () => {
           <p className="text-xs font-medium uppercase tracking-widest text-gray-400 mb-3">Module detail</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
-            {/* Tasks and projects */}
-            <ModuleCard icon="ti-checklist" title="Tasks and projects">
-              <div className="divide-y divide-gray-50">
-                <DetailRow label="To do"       value={fmt(taskStats?.todo,        tasksLoading)} />
-                <DetailRow label="In progress" value={fmt(taskStats?.in_progress, tasksLoading)} />
-                <DetailRow label="Done"        value={fmt(taskStats?.done,        tasksLoading)} color="text-green-600" />
-                <DetailRow label="Overdue"     value={fmt(taskStats?.overdue,     tasksLoading)} color="text-red-600" />
-              </div>
-              <div className="my-2 border-t border-gray-100" />
-              <div className="divide-y divide-gray-50">
-                <DetailRow label="Total projects"  value={fmt(projectStats?.total,  tasksLoading)} />
-                <DetailRow label="Active projects" value={fmt(projectStats?.active, tasksLoading)} />
-              </div>
-              <div className="my-2 border-t border-gray-100" />
-              <p className="text-xs font-medium text-gray-500 mb-1">Documents</p>
+            {/* ── NEW: Documents and notices card ────────────────────────── */}
+            <ModuleCard icon="ti-file" title="Documents and notices">
               <div className="divide-y divide-gray-50">
                 <DetailRow label="Total documents"  value={fmt(totalDocuments, docsLoading)} color="text-blue-600" />
                 <DetailRow label="Pending review"   value={fmt(pendingReview, docsLoading)} color="text-amber-600" />
@@ -895,7 +773,7 @@ const SuperAdminDashboard: React.FC = () => {
               </div>
             </ModuleCard>
 
-            {/* Financial and DSA */}
+            {/* ── Financial and DSA card (unchanged) ────────────────────── */}
             <ModuleCard icon="ti-cash" title="Financial and DSA">
               <div className="divide-y divide-gray-50">
                 <DetailRow label="Total allocated"   value={fmtKes(financialStats?.total_allocated,  financialLoading)} />
@@ -921,7 +799,7 @@ const SuperAdminDashboard: React.FC = () => {
               </div>
             </ModuleCard>
 
-            {/* Registry stations */}
+            {/* ── Registry stations card (unchanged) ────────────────────── */}
             <ModuleCard icon="ti-building-bank" title="Registry stations">
               <div className="divide-y divide-gray-50 mb-3">
                 <DetailRow label="Total stations"   value={fmt(stationCounts?.length, registryLoading)} />

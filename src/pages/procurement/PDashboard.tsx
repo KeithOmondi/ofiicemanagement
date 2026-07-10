@@ -1,4 +1,5 @@
 // src/pages/PDashboard.tsx
+
 import { useEffect } from 'react';
 import { 
   LayoutDashboard, 
@@ -8,8 +9,6 @@ import {
   AlertCircle,
   Calendar,
   Bell,
-  ListTodo,
-  Users,
   ShoppingCart,
   DollarSign,
   ArrowUpRight,
@@ -25,12 +24,13 @@ import {
   selectApprovedProcurement,
   selectInventoryStatsLoading,
 } from '../../store/slices/inventorySlice';
-import {
-  fetchTaskStats,
-  selectTaskStats,
-  selectProjectStats,
-  selectStatsLoading,
-} from '../../store/slices/tasksSlice';
+// ── REMOVED tasksSlice imports ─────────────────────────────
+// import {
+//   fetchTaskStats,
+//   selectTaskStats,
+//   selectProjectStats,
+//   selectStatsLoading,
+// } from '../../store/slices/tasksSlice';
 import {
   fetchNoticesStats,
   fetchUnreadCount,
@@ -128,8 +128,6 @@ const ActivityItem = ({ icon: Icon, iconColor, title, description, time }: Activ
 
 const PDashboard = () => {
   const dispatch = useAppDispatch();
-  // Remove the unused 'loading' state variable
-  // const [loading, setLoading] = useState(true);
 
   // ── Inventory Selectors ──────────────────────────────────────────────────
   const stats = useAppSelector(selectInventoryStats);
@@ -137,10 +135,7 @@ const PDashboard = () => {
   const approvedProcurement = useAppSelector(selectApprovedProcurement);
   const inventoryStatsLoading = useAppSelector(selectInventoryStatsLoading);
 
-  // ── Tasks Selectors ──────────────────────────────────────────────────────
-  const taskStats = useAppSelector(selectTaskStats);
-  const projectStats = useAppSelector(selectProjectStats);
-  const tasksStatsLoading = useAppSelector(selectStatsLoading);
+  // ── REMOVED tasks selectors ────────────────────────────────────────────
 
   // ── Notices Selectors ──────────────────────────────────────────────────
   const noticesStats = useAppSelector(selectNoticesStats);
@@ -158,7 +153,7 @@ const PDashboard = () => {
         dispatch(fetchInventoryStats()),
         dispatch(fetchAllProcurementRequests()),
         dispatch(fetchApprovedProcurement()),
-        dispatch(fetchTaskStats()),
+        // ── REMOVED dispatch(fetchTaskStats()) ───────────────────────
         dispatch(fetchNoticesStats()),
         dispatch(fetchUnreadCount()),
         dispatch(fetchUpcomingEvents(5)),
@@ -178,15 +173,9 @@ const PDashboard = () => {
     0
   );
 
-  const totalTasks = taskStats
-    ? taskStats.todo + taskStats.in_progress + taskStats.done
-    : 0;
+  // ── REMOVED task-related derived data ──────────────────────────────────
 
-  const taskCompletionRate = totalTasks > 0 && taskStats
-    ? Math.round((taskStats.done / totalTasks) * 100)
-    : 0;
-
-  // ── Activity Feed (combine recent activity from different modules) ──
+  // ── Activity Feed (combine recent activity from procurement and calendar) ──
   const activities = [
     ...(procurementRequests.slice(0, 2).map((r: ProcurementRequest) => ({
       icon: r.status === 'Pending' ? Clock : r.status === 'Approved' ? CheckCircle : AlertCircle,
@@ -205,6 +194,9 @@ const PDashboard = () => {
     }))),
   ];
 
+  // ── Compute total unread (broadcasts + notices) ──────────────────────
+  const totalUnread = (unreadCount?.broadcasts ?? 0) + (unreadCount?.notices ?? 0);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* ─── Header ──────────────────────────────────────────────────────── */}
@@ -215,7 +207,7 @@ const PDashboard = () => {
             <div>
               <h1 className="text-xl font-bold text-gray-900">Dashboard</h1>
               <p className="text-sm text-gray-500">
-                Overview of your procurement, tasks, notices, and calendar
+                Overview of procurement, notices, and calendar
               </p>
             </div>
           </div>
@@ -224,7 +216,7 @@ const PDashboard = () => {
 
       <div className="max-w-7xl mx-auto p-6 space-y-6">
         {/* ─── Stats Grid ────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <StatCard
             title="Inventory Items"
             value={stats?.total_items ?? 0}
@@ -248,34 +240,8 @@ const PDashboard = () => {
             loading={inventoryStatsLoading}
           />
           <StatCard
-            title="Total Tasks"
-            value={totalTasks}
-            icon={ListTodo}
-            color="purple"
-            loading={tasksStatsLoading}
-            trend={{ value: taskCompletionRate, direction: 'up' }}
-          />
-        </div>
-
-        {/* ─── Second Row ────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            title="Task Completion"
-            value={`${taskCompletionRate}%`}
-            icon={CheckCircle}
-            color="teal"
-            loading={tasksStatsLoading}
-          />
-          <StatCard
-            title="Projects"
-            value={projectStats?.total ?? 0}
-            icon={Users}
-            color="indigo"
-            loading={tasksStatsLoading}
-          />
-          <StatCard
             title="Unread Notices"
-            value={unreadCount?.notices ?? 0}
+            value={totalUnread}
             icon={Bell}
             color="red"
             loading={noticesStatsLoading}
@@ -357,51 +323,14 @@ const PDashboard = () => {
                 </div>
                 <div className="flex justify-between text-sm border-t border-gray-100 pt-3">
                   <span className="text-gray-500">Unread</span>
-                  <span className="font-bold text-red-600">
-                    {(unreadCount?.broadcasts ?? 0) + (unreadCount?.notices ?? 0)}
-                  </span>
+                  <span className="font-bold text-red-600">{totalUnread}</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* ─── Tasks Overview ────────────────────────────────────────────── */}
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-            <h2 className="font-semibold text-gray-900">Task Overview</h2>
-            <div className="flex items-center gap-4 text-xs">
-              <span className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-gray-300"></span>
-                <span className="text-gray-500">Todo: {taskStats?.todo ?? 0}</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-blue-500"></span>
-                <span className="text-gray-500">In Progress: {taskStats?.in_progress ?? 0}</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-green-500"></span>
-                <span className="text-gray-500">Done: {taskStats?.done ?? 0}</span>
-              </span>
-            </div>
-          </div>
-          <div className="p-5">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="text-center p-4 bg-gray-50 rounded-lg">
-                <p className="text-2xl font-bold text-gray-700">{taskStats?.todo ?? 0}</p>
-                <p className="text-xs text-gray-500 mt-1">Todo</p>
-              </div>
-              <div className="text-center p-4 bg-blue-50 rounded-lg">
-                <p className="text-2xl font-bold text-blue-600">{taskStats?.in_progress ?? 0}</p>
-                <p className="text-xs text-gray-500 mt-1">In Progress</p>
-              </div>
-              <div className="text-center p-4 bg-green-50 rounded-lg">
-                <p className="text-2xl font-bold text-green-600">{taskStats?.done ?? 0}</p>
-                <p className="text-xs text-gray-500 mt-1">Done</p>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* ─── REMOVED Task Overview section ────────────────────────────── */}
 
         {/* ─── Upcoming Events ────────────────────────────────────────────── */}
         {upcomingEvents.length > 0 && (

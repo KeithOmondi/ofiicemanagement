@@ -8,10 +8,7 @@ import {
   Inbox,
   Bell,
   Package,
-  ListTodo,
   ArrowRight,
-  TrendingUp,
-  AlertTriangle,
 } from 'lucide-react';
 
 // ── Slice imports ─────────────────────────────────────────────────────────────
@@ -20,13 +17,14 @@ import {
   selectMyMarked,
   selectLoading as selectDocLoading,
 } from '../../store/slices/documentSlice';
-import {
-  fetchTaskStats,
-  fetchStandaloneTasks,
-  selectTaskStats,
-  selectStandaloneTasks,
-  selectTasksLoading,
-} from '../../store/slices/tasksSlice';
+// ── REMOVED tasksSlice imports ──────────────────────────────────────────────
+// import {
+//   fetchTaskStats,
+//   fetchStandaloneTasks,
+//   selectTaskStats,
+//   selectStandaloneTasks,
+//   selectTasksLoading,
+// } from '../../store/slices/tasksSlice';
 import {
   fetchUnreadCount as fetchMessagesUnread,
   selectUnreadCount as selectMessagesUnread,
@@ -52,7 +50,6 @@ import {
 import { selectCurrentUser } from '../../store/slices/userSlice';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-import type { Task } from '../../store/slices/tasksSlice';
 import type { Document } from '../../types/documents.types';
 import type { CalendarEvent } from '../../types/calendar.types';
 
@@ -65,13 +62,6 @@ const timeGreeting = (): string => {
   return 'Good evening';
 };
 
-const priorityClasses: Record<string, string> = {
-  urgent: 'bg-red-50 text-red-700 border border-red-200',
-  high:   'bg-orange-50 text-orange-700 border border-orange-200',
-  medium: 'bg-amber-50 text-amber-700 border border-amber-200',
-  low:    'bg-blue-50 text-blue-700 border border-blue-200',
-};
-
 const statusClasses: Record<string, string> = {
   pending_review: 'bg-yellow-100 text-yellow-800',
   in_progress:    'bg-blue-100 text-blue-800',
@@ -79,11 +69,7 @@ const statusClasses: Record<string, string> = {
   draft:          'bg-stone-100 text-stone-600',
 };
 
-const fmt = (dateStr: string) =>
-  new Date(dateStr).toLocaleDateString('en-KE', {
-    day: '2-digit',
-    month: 'short',
-  });
+
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -156,29 +142,26 @@ const StaffDashboard = () => {
   // ── Selectors ─────────────────────────────────────────────────────────────
   const currentUser    = useAppSelector(selectCurrentUser);
   const myMarked       = useAppSelector(selectMyMarked) as Document[];
-  const taskStats      = useAppSelector(selectTaskStats);
-  const standaloneTasks = useAppSelector(selectStandaloneTasks) as Task[];
+  // ── REMOVED taskStats, standaloneTasks, tasksLoading ──────────────────
   const unreadMessages = useAppSelector(selectMessagesUnread);
   const unreadNotices  = useAppSelector(selectNoticesUnread);
   const upcomingEvents = useAppSelector(selectUpcomingEvents) as CalendarEvent[];
   const inventoryStats = useAppSelector(selectInventoryStats);
 
   const docLoading      = useAppSelector(selectDocLoading);
-  const tasksLoading    = useAppSelector(selectTasksLoading);
+  // ── REMOVED tasksLoading ──────────────────────────────────────────────
   const messagesLoading = useAppSelector(selectMessagesLoading);
   const noticesLoading  = useAppSelector(selectNoticesLoading);
   const calendarLoading = useAppSelector(selectCalendarUpcomingLoading);
   const statsLoading    = useAppSelector(selectInventoryStatsLoading);
 
   const isLoading =
-    docLoading || tasksLoading || messagesLoading ||
-    noticesLoading || calendarLoading || statsLoading;
+    docLoading || messagesLoading || noticesLoading || calendarLoading || statsLoading;
 
   // ── Data fetch ────────────────────────────────────────────────────────────
   useEffect(() => {
     dispatch(fetchMyMarked());
-    dispatch(fetchTaskStats());
-    dispatch(fetchStandaloneTasks());
+    // ── REMOVED dispatch(fetchTaskStats()) and fetchStandaloneTasks() ───
     dispatch(fetchMessagesUnread());
     dispatch(fetchNoticesUnread());
     dispatch(fetchUpcomingEvents(5));
@@ -189,10 +172,7 @@ const StaffDashboard = () => {
   const firstName       = currentUser?.full_name?.split(' ')[0] ?? 'there';
   const totalUnread     = (unreadNotices?.broadcasts ?? 0) + (unreadNotices?.notices ?? 0);
   const pendingDocs     = myMarked?.filter(d => d.status === 'pending_review') ?? [];
-  const activeTasks     = standaloneTasks?.filter(t => t.status !== 'done') ?? [];
-  const overdueTasks    = standaloneTasks?.filter(
-    t => t.status !== 'done' && t.due_date && new Date(t.due_date) < new Date()
-  ) ?? [];
+  // ── REMOVED activeTasks, overdueTasks ──────────────────────────────────
 
   // ── Loading skeleton ──────────────────────────────────────────────────────
   if (isLoading) {
@@ -225,20 +205,11 @@ const StaffDashboard = () => {
             </p>
           </div>
 
-          {/* Overdue alert pill */}
-          {overdueTasks.length > 0 && (
-            <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
-              <AlertTriangle size={15} className="shrink-0" />
-              <span>
-                <span className="font-semibold">{overdueTasks.length}</span>{' '}
-                overdue {overdueTasks.length === 1 ? 'task' : 'tasks'}
-              </span>
-            </div>
-          )}
+          {/* ── REMOVED overdue alert pill ────────────────────────────────── */}
         </div>
 
         {/* ── Stat cards ─────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
             icon={FileText}
             label="Documents"
@@ -248,15 +219,7 @@ const StaffDashboard = () => {
             textAccent="text-stone-900"
             to="/documents"
           />
-          <StatCard
-            icon={ListTodo}
-            label="Tasks"
-            value={(taskStats?.todo ?? 0) + (taskStats?.in_progress ?? 0)}
-            subtext={`${taskStats?.done ?? 0} completed`}
-            accent="bg-[#1a3d1c]/10 text-[#1a3d1c]"
-            textAccent="text-stone-900"
-            to="/tasks"
-          />
+          {/* ── REMOVED Tasks StatCard ──────────────────────────────────── */}
           <StatCard
             icon={Inbox}
             label="Messages"
@@ -289,7 +252,7 @@ const StaffDashboard = () => {
         {/* ── Main grid ──────────────────────────────────────────────────── */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
 
-          {/* Left: Documents + Tasks */}
+          {/* Left: Documents only (was Documents + Tasks) */}
           <div className="space-y-6 lg:col-span-2">
 
             {/* Documents */}
@@ -323,43 +286,7 @@ const StaffDashboard = () => {
               )}
             </Panel>
 
-            {/* Tasks */}
-            <Panel title="Your Tasks" icon={ListTodo} viewAllLink="/tasks">
-              {activeTasks.length === 0 ? (
-                <Empty message="No pending tasks. Great job! 🎉" />
-              ) : (
-                <div className="divide-y divide-stone-100">
-                  {activeTasks.slice(0, 4).map(task => {
-                    const isOverdue =
-                      task.due_date && new Date(task.due_date) < new Date();
-                    return (
-                      <Link
-                        key={task.id}
-                        to={`/tasks/${task.id}`}
-                        className="group flex items-center justify-between py-3 hover:bg-stone-50 -mx-5 px-5 transition-colors"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-stone-900">{task.title}</p>
-                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-stone-500">
-                            <span className={`rounded-full px-2 py-0.5 ${priorityClasses[task.priority] ?? priorityClasses.low}`}>
-                              {task.priority}
-                            </span>
-                            <span className="capitalize">{task.status.replace('_', ' ')}</span>
-                            {task.due_date && (
-                              <span className={`flex items-center gap-1 ${isOverdue ? 'text-red-500 font-medium' : ''}`}>
-                                <Clock size={11} />
-                                {fmt(task.due_date)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <ArrowRight size={14} className="ml-3 shrink-0 text-stone-300 group-hover:text-[#c9a84c] transition-colors" />
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </Panel>
+            {/* ── REMOVED Tasks Panel ────────────────────────────────────── */}
           </div>
 
           {/* Right: Inventory + Events */}
@@ -448,35 +375,7 @@ const StaffDashboard = () => {
               )}
             </Panel>
 
-            {/* Task progress mini-card */}
-            {taskStats && (
-              <Panel title="Task Progress" icon={TrendingUp}>
-                {(() => {
-                  const total = (taskStats.todo ?? 0) + (taskStats.in_progress ?? 0) + (taskStats.done ?? 0);
-                  const pct   = total > 0 ? Math.round((taskStats.done / total) * 100) : 0;
-                  return (
-                    <div className="space-y-3">
-                      <div className="flex items-end justify-between">
-                        <span className="text-2xl font-bold text-stone-900">{pct}%</span>
-                        <span className="text-xs text-stone-400">{taskStats.done}/{total} done</span>
-                      </div>
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-stone-100">
-                        <div
-                          className="h-full rounded-full bg-[#1a3d1c] transition-all duration-500"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                      {taskStats.overdue > 0 && (
-                        <p className="flex items-center gap-1.5 text-xs text-red-600">
-                          <AlertTriangle size={11} />
-                          {taskStats.overdue} overdue
-                        </p>
-                      )}
-                    </div>
-                  );
-                })()}
-              </Panel>
-            )}
+            {/* ── REMOVED Task Progress mini-card ────────────────────────── */}
           </div>
         </div>
       </div>
