@@ -63,11 +63,11 @@ axiosClient.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-        const response = await axios.post(
-          `${axiosClient.defaults.baseURL}/auth/refresh-token`,
-          {},
-          { withCredentials: true }
-        );
+       const response = await axios.post(
+  `${axiosClient.defaults.baseURL}/auth/refresh-token`,
+  {},
+  { withCredentials: true, timeout: 10000 } // ← add this
+);
 
         const { accessToken } = response.data;
 

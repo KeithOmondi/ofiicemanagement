@@ -62,6 +62,7 @@ import HelpdeskDocs from '../pages/helpdesk/HelpdeskDocs';
 import HelpdeskReport from '../pages/helpdesk/HelpdeskReport';
 import HelpdeskTickets from '../pages/helpdesk/HelpdeskTickets';
 import AdminFolders from '../pages/admdesk/AdminFolders';
+import AdminBringUp from '../pages/admdesk/AdminBringUp';
 
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
@@ -231,6 +232,7 @@ if (deskKey === 'helpdesk') {
         <Route path="settings" element={<AdminSettings />} />
         <Route path="registry" element={<AdminRegistry />} />
         <Route path="orhc-folders" element={<AdminFolders />} />
+        <Route path="bring-up" element={<AdminBringUp />} />
       </Route>
       <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
     </Routes>

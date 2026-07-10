@@ -1,4 +1,4 @@
-// src/pages/dept-head/AdminDocs.tsx
+ // src/pages/dept-head/AdminDocs.tsx
 
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { toast, Toaster } from 'react-hot-toast';
@@ -1920,10 +1920,7 @@ const AdminDocs = () => {
     }
   };
 
-  const handleRemoveClick = (doc: DocType) => {
-    setRemoveTarget(doc);
-    setShowRemoveModal(true);
-  };
+  
 
   const handleRemoveSubmit = async (note?: string) => {
     if (!removeTarget) return;
@@ -2024,10 +2021,18 @@ const AdminDocs = () => {
     setFinalizeTarget(doc);
   };
 
+  // ── Visible documents for this list ─────────────────────────────────────
+  // A document that has been redirected to a folder is treated as already
+  // handled — it belongs to the folder now, not the working list — so it's
+  // excluded here regardless of assignment/ownership. It still lives in the
+  // data (folder_id stays set) and shows up wherever folder contents are
+  // rendered; this list just stops surfacing it.
   const filteredDocuments = useMemo(() => {
     if (!currentUser) return documents;
 
     return documents.filter(doc => {
+      if (doc.folder_id) return false; // already redirected — lives in its folder now
+
       if (doc.assigned_to === currentUser.id) return true;
       if (doc.is_draft && doc.created_by === currentUser.id) return true;
       if (doc.created_by === currentUser.id && !doc.is_draft) return true;
@@ -2074,21 +2079,18 @@ const AdminDocs = () => {
         />
       )}
 
-      {/* Redirect Modal */}
-     // In AdminDocs.tsx, update the loading prop for RedirectModal
-
-{showRedirectModal && redirectTarget && (
-  <RedirectModal
-    document={redirectTarget}
-    folders={folders}
-    loading={redirecting || foldersLoading.fetch}  // ✅ Use foldersLoading.fetch instead of foldersLoading
-    onClose={() => {
-      setShowRedirectModal(false);
-      setRedirectTarget(null);
-    }}
-    onRedirect={handleRedirectSubmit}
-  />
-)}
+      {showRedirectModal && redirectTarget && (
+        <RedirectModal
+          document={redirectTarget}
+          folders={folders}
+          loading={redirecting || foldersLoading.fetch}
+          onClose={() => {
+            setShowRedirectModal(false);
+            setRedirectTarget(null);
+          }}
+          onRedirect={handleRedirectSubmit}
+        />
+      )}
 
       {/* Remove from Folder Modal */}
       {showRemoveModal && removeTarget && (
@@ -2229,15 +2231,6 @@ const AdminDocs = () => {
                       <tr key={doc.id} className="border-b border-slate-50 hover:bg-slate-50/60 transition">
                         <td className="px-4 py-3 font-medium text-slate-900 truncate max-w-[200px]" title={doc.title}>
                           {doc.title}
-                          {doc.folder_id && (
-                            <span className="ml-2 inline-flex items-center text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
-                              <svg className="w-3 h-3 mr-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                  d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                              </svg>
-                              Folder
-                            </span>
-                          )}
                         </td>
 
                         <td className="px-4 py-3">
@@ -2370,24 +2363,6 @@ const AdminDocs = () => {
                                   d="M12 12l3 3m0 0l-3-3m3 3V9" />
                               </svg>
                             </button>
-
-                            {/* Remove from Folder Button */}
-                            {doc.folder_id && (
-                              <button
-                                onClick={() => handleRemoveClick(doc)}
-                                title="Remove from folder"
-                                className="p-1.5 text-red-400 hover:text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                    d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                    d="M12 12l3 3m0 0l-3-3m3 3V9" />
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                    d="M9 15l6-6" />
-                                </svg>
-                              </button>
-                            )}
 
                             <button
                               disabled={deletingId === doc.id}

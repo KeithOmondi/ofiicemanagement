@@ -124,6 +124,7 @@ export interface DocumentFilters {
   limit?: number;
   sort_by?: 'created_at' | 'updated_at' | 'title' | 'status';
   sort_order?: 'ASC' | 'DESC';
+  has_bring_up_date?: boolean;
 }
 
 // ── Draft / Flow input types ────────────────────────────────────────────────
