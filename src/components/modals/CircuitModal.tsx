@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   createCircuit,
@@ -69,6 +69,12 @@ import {
   type DocumentEntityType,
   type DocumentFormat,
 } from '../../store/slices/helpdeskDocumentsSlice';
+// ─── Judges imports ──────────────────────────────────────────────────────────
+import {
+  fetchJudges,
+  selectAllJudges,
+  selectJudgesLoading,
+} from '../../store/slices/JudgesSlice';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -519,7 +525,7 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({ mode, basicInfo, setBasic
           <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-3">
             <p className="text-xs text-amber-700 flex items-center gap-2">
               <span className="text-lg">ℹ️</span>
-              DSA details can be added in the next step.
+              DSA details can be added in the next step. Days will be automatically calculated from the date range.
             </p>
           </div>
         </div>
@@ -528,14 +534,18 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({ mode, basicInfo, setBasic
   );
 };
 
-// ─── Step 2: DSA Details Form ─────────────────────────────────────────────
+// ─── Step 2: DSA Details Form (with judges integration) ──────────────────
 
 interface DSADetailsFormProps {
   dsaDetails: Omit<DSADetailInput, 'id'>[];
   onAddRow: () => void;
   onRemoveRow: (index: number) => void;
   onChange: (index: number, field: keyof Omit<DSADetailInput, 'id'>, value: string | number) => void;
+  onJudgeSelect: (index: number, judgeId: string) => void;
   calculateTotal: (rate: number, days: number) => number;
+  judges: { id: string; name: string; pj_number: string; daily_dsa_rate: number }[];
+  judgesLoading: boolean;
+  daysFromDates: number; // computed days from start/end dates
 }
 
 const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
@@ -543,7 +553,11 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
   onAddRow,
   onRemoveRow,
   onChange,
+  onJudgeSelect,
   calculateTotal,
+  judges,
+  judgesLoading,
+  daysFromDates,
 }) => {
   return (
     <div className="space-y-4">
@@ -553,6 +567,11 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
             <Users size={16} className="text-[#c9a84c]" />
             <h4 className="text-sm font-semibold text-stone-800">DSA Details</h4>
             <span className="text-xs text-stone-400">({dsaDetails.length} members)</span>
+            {daysFromDates > 0 && (
+              <span className="ml-2 text-xs bg-[#c9a84c]/20 text-[#1a3d1c] px-2 py-0.5 rounded-full">
+                {daysFromDates} days (from date range)
+              </span>
+            )}
           </div>
           <GoldButton size="sm" onClick={onAddRow} icon={<Plus size={14} />}>
             Add Member
@@ -569,7 +588,7 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-stone-200 text-left text-[10px] uppercase text-stone-500">
-                <th className="pb-2 pr-2 font-semibold">Name</th>
+                <th className="pb-2 pr-2 font-semibold">Judge Name</th>
                 <th className="pb-2 pr-2 font-semibold">PJ Number</th>
                 <th className="pb-2 pr-2 font-semibold">Designation</th>
                 <th className="pb-2 pr-2 font-semibold text-right">Rate (KES)</th>
@@ -579,68 +598,81 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
               </tr>
             </thead>
             <tbody>
-              {dsaDetails.map((detail, index) => (
-                <tr key={index} className="border-b border-stone-100">
-                  <td className="py-2 pr-2">
-                    <input
-                      type="text"
-                      value={detail.judge_name}
-                      onChange={(e) => onChange(index, 'judge_name', e.target.value)}
-                      placeholder="Full name"
-                      className="w-full rounded border border-stone-200 px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none"
-                    />
-                  </td>
-                  <td className="py-2 pr-2">
-                    <input
-                      type="text"
-                      value={detail.pj_number}
-                      onChange={(e) => onChange(index, 'pj_number', e.target.value)}
-                      placeholder="PJ-XXX"
-                      className="w-full rounded border border-stone-200 px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none"
-                    />
-                  </td>
-                  <td className="py-2 pr-2">
-                    <input
-                      type="text"
-                      list="designation-suggestions"
-                      value={detail.designation || ''}
-                      onChange={(e) => onChange(index, 'designation', e.target.value)}
-                      placeholder="e.g. Judge"
-                      className="w-full rounded border border-stone-200 px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none"
-                    />
-                  </td>
-                  <td className="py-2 pr-2">
-                    <input
-                      type="number"
-                      value={detail.dsa_per_day || ''}
-                      onChange={(e) => onChange(index, 'dsa_per_day', parseFloat(e.target.value) || 0)}
-                      placeholder="0"
-                      className="w-24 rounded border border-stone-200 px-2 py-1 text-right text-xs focus:border-[#1a3d1c] focus:outline-none"
-                    />
-                  </td>
-                  <td className="py-2 pr-2">
-                    <input
-                      type="number"
-                      value={detail.days || ''}
-                      onChange={(e) => onChange(index, 'days', parseInt(e.target.value) || 0)}
-                      placeholder="0"
-                      className="w-16 rounded border border-stone-200 px-2 py-1 text-right text-xs focus:border-[#1a3d1c] focus:outline-none"
-                    />
-                  </td>
-                  <td className="py-2 pr-2 text-right font-medium text-emerald-700">
-                    {calculateTotal(detail.dsa_per_day, detail.days).toLocaleString()}
-                  </td>
-                  <td className="py-2 text-center">
-                    <button
-                      onClick={() => onRemoveRow(index)}
-                      disabled={dsaDetails.length <= 1}
-                      className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                      <X size={14} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {dsaDetails.map((detail, index) => {
+                const selectedJudgeId =
+                  judges.find((j) => j.name === detail.judge_name)?.id ?? '';
+
+                return (
+                  <tr key={index} className="border-b border-stone-100">
+                    <td className="py-2 pr-2">
+                      <select
+                        value={selectedJudgeId}
+                        onChange={(e) => onJudgeSelect(index, e.target.value)}
+                        className="w-full rounded border border-stone-200 bg-white px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none disabled:bg-stone-100 disabled:text-stone-400"
+                        disabled={judgesLoading}
+                      >
+                        <option value="">
+                          {judgesLoading ? 'Loading judges…' : 'Select judge...'}
+                        </option>
+                        {judges.map((j) => (
+                          <option key={j.id} value={j.id}>
+                            {j.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="py-2 pr-2">
+                      <input
+                        type="text"
+                        value={detail.pj_number}
+                        readOnly
+                        placeholder="Auto-filled"
+                        className="w-full rounded border border-stone-200 bg-stone-100 px-2 py-1 text-xs text-stone-500 cursor-not-allowed"
+                      />
+                    </td>
+                    <td className="py-2 pr-2">
+                      <input
+                        type="text"
+                        list="designation-suggestions"
+                        value={detail.designation || ''}
+                        onChange={(e) => onChange(index, 'designation', e.target.value)}
+                        placeholder="e.g. Judge"
+                        className="w-full rounded border border-stone-200 px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none"
+                      />
+                    </td>
+                    <td className="py-2 pr-2">
+                      <input
+                        type="number"
+                        value={detail.dsa_per_day || ''}
+                        readOnly
+                        placeholder="Auto-filled"
+                        className="w-24 rounded border border-stone-200 bg-stone-100 px-2 py-1 text-right text-xs text-stone-500 cursor-not-allowed"
+                      />
+                    </td>
+                    <td className="py-2 pr-2">
+                      <input
+                        type="number"
+                        value={detail.days || ''}
+                        onChange={(e) => onChange(index, 'days', parseInt(e.target.value) || 0)}
+                        placeholder="0"
+                        className="w-16 rounded border border-stone-200 px-2 py-1 text-right text-xs focus:border-[#1a3d1c] focus:outline-none"
+                      />
+                    </td>
+                    <td className="py-2 pr-2 text-right font-medium text-emerald-700">
+                      {calculateTotal(detail.dsa_per_day, detail.days).toLocaleString()}
+                    </td>
+                    <td className="py-2 text-center">
+                      <button
+                        onClick={() => onRemoveRow(index)}
+                        disabled={dsaDetails.length <= 1}
+                        className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-stone-200 bg-stone-100">
@@ -672,7 +704,7 @@ interface MemoPreviewProps {
   onEdit: () => void;
   onEditDsa: () => void;
   signatureUrl?: string | null;
-  onDocumentUploaded?: (documentId: string) => void; // NEW
+  onDocumentUploaded?: (documentId: string) => void;
 }
 
 type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
@@ -765,8 +797,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
       total: calculateTotal(d.dsa_per_day, d.days),
     }));
 
-  // ─── Updated handleDownload with upload + callback ──────────────────────
-
   const handleDownload = async (format: DownloadFormat) => {
     setShowDownloadMenu(false);
     setDownloadingFormat(format);
@@ -819,7 +849,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         otherPayment: 'otherPayment',
       };
 
-      // Upload the document
       const result = await dispatch(
         uploadHelpdeskDocument({
           blob,
@@ -831,7 +860,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         })
       ).unwrap();
 
-      // ✅ Notify parent that a document was uploaded (capture its ID)
       onDocumentUploaded?.(result.id);
 
       toast.success(`${format.toUpperCase()} document saved to the system.`);
@@ -908,7 +936,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         </div>
       </div>
 
-      {/* ─── Memo Preview - Proper A4 layout ──────────────────────────────── */}
+      {/* Memo Preview - Proper A4 layout */}
       <div className="border border-stone-300 bg-white shadow-sm font-sans text-black" style={{ minHeight: '297mm' }}>
         <div className="flex flex-col" style={{ minHeight: '297mm' }}>
           <div className="p-10">
@@ -1112,6 +1140,11 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
   const mutating = useAppSelector((state) => state.helpdesk.loading.mutating);
   const currentUser = useAppSelector(selectCurrentUser);
   const signatureLoading = useAppSelector(selectUsersSignatureLoading);
+  const judgesFetchedRef = useRef(false);
+
+  // Judges state
+  const judges = useAppSelector(selectAllJudges);
+  const judgesLoading = useAppSelector(selectJudgesLoading);
 
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
@@ -1119,11 +1152,52 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
 
   const [dsaDetails, setDsaDetails] = useState<Omit<DSADetailInput, 'id'>[]>(getDefaultDsaDetails);
 
-  // ── Track pending document ID for linking after creation ──────────────
   const [pendingDocumentId, setPendingDocumentId] = useState<string | undefined>();
 
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
 
+  // ── Fetch judges when modal opens ──────────────────────────────────────
+  useEffect(() => {
+    if (isOpen && !judgesFetchedRef.current && !judgesLoading) {
+      judgesFetchedRef.current = true;
+      dispatch(fetchJudges({ is_active: true, limit: 100 }));
+    }
+  }, [isOpen, judgesLoading, dispatch]);
+
+  // ── Compute days from date range ───────────────────────────────────────
+  const computeDays = (start: string, end: string): number => {
+    if (!start || !end) return 0;
+    const s = new Date(start);
+    const e = new Date(end);
+    if (isNaN(s.getTime()) || isNaN(e.getTime())) return 0;
+    const diffTime = e.getTime() - s.getTime();
+    if (diffTime < 0) return 0;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // inclusive
+    return diffDays;
+  };
+
+  const daysFromDates = computeDays(basicInfo.start_date, basicInfo.end_date);
+
+  // ── Update basicInfo and, in the same event, sync DSA row days ─────────
+  // NOTE: previously this was done via a useEffect watching daysFromDates,
+  // which caused a cascading render (setState-in-effect). Instead we
+  // derive the new day count synchronously inside the same handler that
+  // changes the dates, so basicInfo and dsaDetails update together in one
+  // user-triggered event rather than a follow-up render.
+  const handleBasicInfoChange = (info: BasicInfoType) => {
+    setBasicInfo(info);
+    const newDays = computeDays(info.start_date, info.end_date);
+    if (newDays > 0) {
+      setDsaDetails((prev) =>
+        prev.map((row) => ({
+          ...row,
+          days: newDays,
+        }))
+      );
+    }
+  };
+
+  // ── Reset / load editing item ──────────────────────────────────────────
   if (isOpen !== prevIsOpen) {
     setPrevIsOpen(isOpen);
 
@@ -1200,18 +1274,48 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
   };
 
   const handleAddDsaRow = () => {
-    setDsaDetails([...dsaDetails, { judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: 0, notes: '' }]);
+    setDsaDetails((prev) => [
+      ...prev,
+      { judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: daysFromDates, notes: '' },
+    ]);
   };
 
   const handleRemoveDsaRow = (index: number) => {
-    if (dsaDetails.length <= 1) return;
-    setDsaDetails(dsaDetails.filter((_, i) => i !== index));
+    setDsaDetails((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
   };
 
+  // ── Field-level DSA change (designation, days, etc.) ────────────────────
+  // Uses the functional setState form so each call reads the *actual*
+  // latest state rather than a stale `dsaDetails` closure. This matters
+  // whenever multiple state updates happen in quick succession within the
+  // same event (see handleJudgeSelect below for why that used to break).
   const handleDsaChange = (index: number, field: keyof Omit<DSADetailInput, 'id'>, value: string | number) => {
-    const updated = [...dsaDetails];
-    updated[index] = { ...updated[index], [field]: value };
-    setDsaDetails(updated);
+    setDsaDetails((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  // ── Judge selection: derives judge_name, pj_number, and dsa_per_day ─────
+  // together in a single setDsaDetails call. Previously this fired three
+  // separate onChange() calls in a row, each of which internally did
+  // `[...dsaDetails]` off the *same* stale closure — so only the last of
+  // the three writes actually stuck (last-write-wins), which is why the
+  // judge name and PJ number never appeared even though the rate did.
+  // Bundling the update into one functional setState call fixes that.
+  const handleJudgeSelect = (index: number, judgeId: string) => {
+    const judge = judges.find((j) => j.id === judgeId);
+    setDsaDetails((prev) => {
+      const updated = [...prev];
+      updated[index] = {
+        ...updated[index],
+        judge_name: judge?.name ?? '',
+        pj_number: judge?.pj_number ?? '',
+        dsa_per_day: judge?.daily_dsa_rate ?? 0,
+      };
+      return updated;
+    });
   };
 
   const calculateTotal = (dsa_per_day: number, days: number): number => {
@@ -1387,7 +1491,6 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
         createdId = result?.id;
       }
 
-      // ── Link pending document if it exists ──────────────────────────────
       if (pendingDocumentId && createdId) {
         try {
           await dispatch(
@@ -1403,7 +1506,6 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
         }
       }
 
-      // ── Refresh lists ────────────────────────────────────────────────────
       switch (mode) {
         case 'circuit':
           await dispatch(fetchCircuits({}));
@@ -1520,7 +1622,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
             <BasicInfoForm
               mode={mode}
               basicInfo={basicInfo}
-              setBasicInfo={setBasicInfo}
+              setBasicInfo={handleBasicInfoChange}
             />
           )}
           {currentStep === 2 && (
@@ -1529,7 +1631,11 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
               onAddRow={handleAddDsaRow}
               onRemoveRow={handleRemoveDsaRow}
               onChange={handleDsaChange}
+              onJudgeSelect={handleJudgeSelect}
               calculateTotal={calculateTotal}
+              judges={judges}
+              judgesLoading={judgesLoading}
+              daysFromDates={daysFromDates}
             />
           )}
           {currentStep === 3 && (
