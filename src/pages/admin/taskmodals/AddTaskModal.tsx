@@ -1,255 +1,181 @@
-import React from "react";
-import type { MemberCode, Priority, Project, Member } from "./taskTypes";
-
-// We need fmtDate helper – you can import it or pass it as a prop.
-// For simplicity, we'll re-define it or import from a utils file.
-
-const fmtDate = (dateStr: string): string => {
-  if (!dateStr) return "—";
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-KE", {
-    day: "numeric",
-    month: "short",
-    year: "2-digit",
-  });
-};
+import React, { useState } from "react";
+import { useAppDispatch } from "../../../store/hook";
+import type { Priority, Project } from "../../../types/tasks.types";
+import { createTask } from "../../../store/slices/tasksSlice";
 
 interface AddTaskModalProps {
   show: boolean;
   onClose: () => void;
-  onSave: () => void;
-  project: Project | null;
-  newTask: {
-    title: string;
-    desc: string;
-    assignee: MemberCode | "GROUP" | "";
-    priority: Priority;
-    startDate: string;
-    deadline: string;
-  };
-  setNewTask: React.Dispatch<React.SetStateAction<{
-    title: string;
-    desc: string;
-    assignee: MemberCode | "GROUP" | "";
-    priority: Priority;
-    startDate: string;
-    deadline: string;
-  }>>;
-  membersList: Record<MemberCode, Member>; // pass MEMBERS
+  project: Project | null; // full project object from parent
 }
 
-const AddTaskModal: React.FC<AddTaskModalProps> = ({
-  show,
-  onClose,
-  onSave,
-  project,
-  newTask,
-  setNewTask,
-  membersList,
-}) => {
+const AddTaskModal: React.FC<AddTaskModalProps> = ({ show, onClose, project }) => {
+  const dispatch = useAppDispatch();
+
+  // State initialised from the project prop (re‑initialised on remount via key)
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [assignee, setAssignee] = useState<string | "GROUP">("");
+  const [priority, setPriority] = useState<Priority>("normal");
+  const [startDate, setStartDate] = useState("");
+  const [deadline, setDeadline] = useState(project?.deadline || "");
+  const [loading, setLoading] = useState(false);
+
   if (!show || !project) return null;
+
+  const handleSubmit = async () => {
+    if (!title.trim()) {
+      alert("Task title is required");
+      return;
+    }
+    if (!deadline) {
+      alert("Task deadline is required");
+      return;
+    }
+    if (!assignee) {
+      alert("Please select an assignee");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await dispatch(
+        createTask({
+          title: title.trim(),
+          description: description.trim() || null,
+          priority,
+          deadline,
+          start_date: startDate || null,
+          project_id: project.id,
+          assignee,
+        })
+      ).unwrap();
+
+      // Reset and close
+      setTitle("");
+      setDescription("");
+      setAssignee("");
+      setPriority("normal");
+      setStartDate("");
+      setDeadline("");
+      onClose();
+    } catch (error) {
+      let message = "Failed to create task";
+      if (typeof error === "string") {
+        message = error;
+      } else if (
+        error &&
+        typeof error === "object" &&
+        "message" in error &&
+        typeof (error as { message: string }).message === "string"
+      ) {
+        message = (error as { message: string }).message;
+      }
+      alert(message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fmtDate = (dateStr: string): string => {
+    if (!dateStr) return "—";
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("en-KE", {
+      day: "numeric",
+      month: "short",
+      year: "2-digit",
+    });
+  };
 
   return (
     <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.5)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 1000,
-        backdropFilter: "blur(4px)",
+      className="fixed inset-0 w-screen h-screen bg-black/60 flex items-center justify-center z-[9999] backdrop-blur-sm transition-opacity p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
       }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
-        style={{
-          background: "var(--white)",
-          borderRadius: "12px",
-          width: "90%",
-          maxWidth: "560px",
-          maxHeight: "90vh",
-          overflowY: "auto",
-          boxShadow: "0 12px 48px rgba(26,61,0,0.18)",
-          animation: "modalIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)",
-        }}
+        className="bg-white rounded-xl w-full max-w-[560px] max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-[modalIn_0.25s_cubic-bezier(0.34,1.56,0.64,1)] text-slate-800"
       >
-        <div
-          className="modal-header"
-          style={{
-            padding: "20px 24px",
-            borderBottom: "1px solid var(--cream-dark)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <h3 style={{ fontFamily: "'Playfair Display', serif", fontSize: "18px", margin: 0 }}>
-            ➕ Add Task to Project
+        {/* Header */}
+        <div className="modal-header p-5 border-b border-gray-200 flex justify-between items-center bg-white shrink-0">
+          <h3 className="font-serif text-lg font-bold text-slate-900 flex items-center gap-2">
+            <span>➕</span> Add Task to Project
           </h3>
           <button
-            className="modal-close"
+            className="modal-close bg-transparent border-none text-xl font-light cursor-pointer text-slate-400 hover:text-slate-600 p-1 rounded-md transition-colors"
             onClick={onClose}
-            style={{ background: "none", border: "none", fontSize: "20px", cursor: "pointer", color: "var(--slate)" }}
           >
             ✕
           </button>
         </div>
-        <div className="modal-body" style={{ padding: "24px" }}>
-          <div
-            style={{
-              background: "var(--navy)",
-              color: "white",
-              padding: "12px 16px",
-              borderRadius: "8px",
-              marginBottom: "16px",
-              fontSize: "13px",
-            }}
-          >
-            📂 <strong>{project.title}</strong> &nbsp;·&nbsp; Project deadline:{" "}
-            <strong style={{ color: "var(--gold-light)" }}>{fmtDate(project.deadline)}</strong>
+
+        {/* Body */}
+        <div className="modal-body p-6 overflow-y-auto space-y-4 bg-white flex-1 custom-scrollbar">
+          {/* Project Details Banner */}
+          <div className="bg-slate-900 text-white p-3 px-4 rounded-lg text-xs md:text-sm flex flex-wrap gap-2 items-center justify-between">
+            <span className="font-medium truncate max-w-[280px]">📂 {project.title}</span>
+            <span className="text-slate-300">
+              Project deadline: <strong className="text-amber-400 font-semibold">{fmtDate(project.deadline)}</strong>
+            </span>
           </div>
-          <div className="form-group" style={{ marginBottom: "16px" }}>
-            <label
-              className="form-label"
-              style={{
-                fontSize: "12px",
-                fontWeight: 600,
-                color: "var(--slate)",
-                letterSpacing: "0.04em",
-                display: "block",
-                marginBottom: "6px",
-                textTransform: "uppercase",
-              }}
-            >
-              Task Title
+
+          {/* Task Title */}
+          <div className="form-group">
+            <label className="block text-xs font-bold text-slate-500 tracking-wider uppercase mb-1.5">
+              Task Title <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
-              className="form-control"
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                border: "1.5px solid var(--cream-dark)",
-                borderRadius: "8px",
-                fontFamily: "'DM Sans', sans-serif",
-                fontSize: "13.5px",
-                color: "var(--navy)",
-                background: "var(--white)",
-                outline: "none",
-              }}
+              className="form-control w-full p-2.5 px-3.5 border-1.5 border-gray-300 rounded-lg text-[14px] text-slate-900 bg-white placeholder-slate-400 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all"
               placeholder="e.g. Collect data from Criminal Division"
-              value={newTask.title}
-              onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
             />
           </div>
-          <div className="form-group" style={{ marginBottom: "16px" }}>
-            <label
-              className="form-label"
-              style={{
-                fontSize: "12px",
-                fontWeight: 600,
-                color: "var(--slate)",
-                letterSpacing: "0.04em",
-                display: "block",
-                marginBottom: "6px",
-                textTransform: "uppercase",
-              }}
-            >
+
+          {/* Description */}
+          <div className="form-group">
+            <label className="block text-xs font-bold text-slate-500 tracking-wider uppercase mb-1.5">
               Description
             </label>
             <textarea
-              className="form-control"
-              style={{
-                width: "100%",
-                padding: "10px 14px",
-                border: "1.5px solid var(--cream-dark)",
-                borderRadius: "8px",
-                fontFamily: "'DM Sans', sans-serif",
-                fontSize: "13.5px",
-                color: "var(--navy)",
-                background: "var(--white)",
-                outline: "none",
-                minHeight: "70px",
-                resize: "vertical",
-              }}
+              className="form-control w-full p-2.5 px-3.5 border-1.5 border-gray-300 rounded-lg text-[14px] text-slate-900 bg-white placeholder-slate-400 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all min-h-[80px] resize-y"
               placeholder="What needs to be done for this task?"
-              value={newTask.desc}
-              onChange={(e) => setNewTask({ ...newTask, desc: e.target.value })}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
             />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <div className="form-group" style={{ marginBottom: "16px" }}>
-              <label
-                className="form-label"
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  color: "var(--slate)",
-                  letterSpacing: "0.04em",
-                  display: "block",
-                  marginBottom: "6px",
-                  textTransform: "uppercase",
-                }}
-              >
-                Assign To
+
+          {/* Grid Layout: Assignee and Priority */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="form-group">
+              <label className="block text-xs font-bold text-slate-500 tracking-wider uppercase mb-1.5">
+                Assign To <span className="text-red-500">*</span>
               </label>
               <select
-                className="form-control"
-                style={{
-                  width: "100%",
-                  padding: "10px 14px",
-                  border: "1.5px solid var(--cream-dark)",
-                  borderRadius: "8px",
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: "13.5px",
-                  color: "var(--navy)",
-                  background: "var(--white)",
-                  outline: "none",
-                }}
-                value={newTask.assignee}
-                onChange={(e) => setNewTask({ ...newTask, assignee: e.target.value as MemberCode | "GROUP" })}
+                className="form-control w-full p-2.5 px-3.5 border-1.5 border-gray-300 rounded-lg text-[14px] text-slate-900 bg-white outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all cursor-pointer"
+                value={assignee}
+                onChange={(e) => setAssignee(e.target.value)}
               >
                 <option value="">-- Select Member --</option>
-                {project.members.map((code) => (
-                  <option key={code} value={code}>
-                    {membersList[code].name}
+                {project.members.map((memberId) => (
+                  <option key={memberId} value={memberId}>
+                    {memberId}
                   </option>
                 ))}
                 <option value="GROUP">Whole Project Group</option>
               </select>
             </div>
-            <div className="form-group" style={{ marginBottom: "16px" }}>
-              <label
-                className="form-label"
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  color: "var(--slate)",
-                  letterSpacing: "0.04em",
-                  display: "block",
-                  marginBottom: "6px",
-                  textTransform: "uppercase",
-                }}
-              >
+
+            <div className="form-group">
+              <label className="block text-xs font-bold text-slate-500 tracking-wider uppercase mb-1.5">
                 Priority
               </label>
               <select
-                className="form-control"
-                style={{
-                  width: "100%",
-                  padding: "10px 14px",
-                  border: "1.5px solid var(--cream-dark)",
-                  borderRadius: "8px",
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: "13.5px",
-                  color: "var(--navy)",
-                  background: "var(--white)",
-                  outline: "none",
-                }}
-                value={newTask.priority}
-                onChange={(e) => setNewTask({ ...newTask, priority: e.target.value as Priority })}
+                className="form-control w-full p-2.5 px-3.5 border-1.5 border-gray-300 rounded-lg text-[14px] text-slate-900 bg-white outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all cursor-pointer"
+                value={priority}
+                onChange={(e) => setPriority(e.target.value as Priority)}
               >
                 <option value="normal">Normal</option>
                 <option value="high">High</option>
@@ -258,117 +184,55 @@ const AddTaskModal: React.FC<AddTaskModalProps> = ({
               </select>
             </div>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-            <div className="form-group" style={{ marginBottom: "16px" }}>
-              <label
-                className="form-label"
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  color: "var(--slate)",
-                  letterSpacing: "0.04em",
-                  display: "block",
-                  marginBottom: "6px",
-                  textTransform: "uppercase",
-                }}
-              >
+
+          {/* Grid Layout: Start Date and Deadline */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="form-group">
+              <label className="block text-xs font-bold text-slate-500 tracking-wider uppercase mb-1.5">
                 Start Date
               </label>
               <input
                 type="date"
-                className="form-control"
-                style={{
-                  width: "100%",
-                  padding: "10px 14px",
-                  border: "1.5px solid var(--cream-dark)",
-                  borderRadius: "8px",
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: "13.5px",
-                  color: "var(--navy)",
-                  background: "var(--white)",
-                  outline: "none",
-                }}
-                value={newTask.startDate}
-                onChange={(e) => setNewTask({ ...newTask, startDate: e.target.value })}
+                className="form-control w-full p-2.5 px-3.5 border-1.5 border-gray-300 rounded-lg text-[14px] text-slate-900 bg-white outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
               />
             </div>
-            <div className="form-group" style={{ marginBottom: "16px" }}>
-              <label
-                className="form-label"
-                style={{
-                  fontSize: "12px",
-                  fontWeight: 600,
-                  color: "var(--slate)",
-                  letterSpacing: "0.04em",
-                  display: "block",
-                  marginBottom: "6px",
-                  textTransform: "uppercase",
-                }}
-              >
-                Task Deadline <span style={{ color: "var(--red)" }}>*</span>
+
+            <div className="form-group">
+              <label className="block text-xs font-bold text-slate-500 tracking-wider uppercase mb-1.5">
+                Task Deadline <span className="text-red-500">*</span>
               </label>
               <input
                 type="date"
-                className="form-control"
-                style={{
-                  width: "100%",
-                  padding: "10px 14px",
-                  border: "1.5px solid var(--cream-dark)",
-                  borderRadius: "8px",
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: "13.5px",
-                  color: "var(--navy)",
-                  background: "var(--white)",
-                  outline: "none",
-                }}
-                value={newTask.deadline}
-                onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
+                className="form-control w-full p-2.5 px-3.5 border-1.5 border-gray-300 rounded-lg text-[14px] text-slate-900 bg-white outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all"
+                value={deadline}
+                onChange={(e) => setDeadline(e.target.value)}
               />
             </div>
           </div>
         </div>
-        <div
-          className="modal-footer"
-          style={{
-            padding: "16px 24px",
-            borderTop: "1px solid var(--cream-dark)",
-            display: "flex",
-            gap: "10px",
-            justifyContent: "flex-end",
-          }}
-        >
+
+        {/* Footer */}
+        <div className="modal-footer p-4 px-6 border-t border-gray-200 flex gap-3 justify-end bg-slate-50 shrink-0">
           <button
-            className="btn btn-outline"
+            type="button"
+            className="btn btn-outline p-2 px-5 rounded-lg border-1.5 border-gray-300 bg-white text-slate-700 font-medium text-sm hover:bg-gray-50 hover:text-slate-900 active:bg-gray-100 transition-all cursor-pointer"
             onClick={onClose}
-            style={{
-              padding: "9px 18px",
-              borderRadius: "8px",
-              border: "1.5px solid var(--cream-dark)",
-              background: "transparent",
-              fontFamily: "'DM Sans', sans-serif",
-              fontSize: "13px",
-              fontWeight: 500,
-              cursor: "pointer",
-            }}
           >
             Cancel
           </button>
           <button
-            className="btn btn-gold"
-            onClick={onSave}
-            style={{
-              padding: "9px 18px",
-              borderRadius: "8px",
-              border: "none",
-              fontFamily: "'DM Sans', sans-serif",
-              fontSize: "13px",
-              fontWeight: 600,
-              background: "var(--gold)",
-              color: "var(--navy)",
-              cursor: "pointer",
-            }}
+            type="button"
+            className={`btn p-2 px-5 rounded-lg font-semibold text-sm transition-all shadow-sm ${
+              loading 
+                ? "bg-slate-300 text-slate-500 cursor-not-allowed" 
+                : "bg-amber-500 hover:bg-amber-600 text-slate-950 active:scale-[0.98] cursor-pointer"
+            }`}
+            onClick={handleSubmit}
+            disabled={loading}
           >
-            Add Task
+            {loading ? "Adding..." : "Add Task"}
           </button>
         </div>
       </div>

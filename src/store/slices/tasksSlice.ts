@@ -1,269 +1,151 @@
-// src/store/slices/tasksSlice.ts
 import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
+import type {
+  Project,
+  Task,
+  Subtask,
+  TaskNote,
+  Reminder,
+  CreateProjectInput,
+  UpdateProjectInput,
+  CreateTaskInput,
+  UpdateTaskInput,
+  CreateSubtaskInput,
+  UpdateSubtaskInput,
+  CreateTaskNoteInput,
+  CreateReminderInput,
+  TaskFilters,
+} from '../../types/tasks.types';
 import axiosClient from '../../api/api';
-import type { AxiosError } from 'axios';
+import axios from 'axios';
 
-/* ============================================================
-   TYPES
-============================================================ */
-
-export interface ProjectMember {
-  id: string;
-  project_id: string;
-  user_id: string;
-  user_name?: string;
-  role: string | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Project {
-  id: string;
-  name: string;
-  description: string | null;
-  status: 'active' | 'completed' | 'archived';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  deadline: string;
-  progress: number;
-  created_by: string;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-  task_count?: number;
-  completed_tasks?: number;
-  members?: ProjectMember[];
-}
-
-// Updated Task interface to match new backend
-export interface Task {
-  id: string;
-  project_id: string | null;
-  project_name?: string;
-  title: string;
-  description: string | null;
-  status: 'pending' | 'completed';                     // changed
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  assignee_id: string | null;
-  assignee_name?: string;
-  due_date: string;
-  start_date: string | null;
-  remind_at: string | null;                            // new
-  reminder_sent: boolean;                              // new
-  completed_at: string | null;
-  is_active: boolean;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-  is_overdue?: boolean;                                // computed
-}
-
-export interface TaskAttachment {
-  id: string;
-  task_id: string;
-  file_name: string;
-  file_url: string;
-  uploaded_by: string;
-  uploader_name?: string;
-  created_at: string;
-}
-
-// Updated TaskStats to match new backend
-export interface TaskStats {
-  total: number;
-  pending: number;
-  completed: number;
-  overdue: number;
-}
-
-export interface ProjectStats {
-  total: number;
-  active: number;
-  completed: number;
-  archived: number;
-}
-
-export interface CreateProjectInput {
-  name: string;
-  description?: string;
-  priority?: 'low' | 'medium' | 'high' | 'urgent';
-  deadline: string;
-  member_ids?: string[];
-}
-
-export interface UpdateProjectInput {
-  name?: string;
-  description?: string;
-  status?: 'active' | 'completed' | 'archived';
-  priority?: 'low' | 'medium' | 'high' | 'urgent';
-  deadline?: string;
-  is_active?: boolean;
-}
-
-export interface CreateTaskInput {
-  project_id?: string;
-  title: string;
-  description?: string;
-  priority?: 'low' | 'medium' | 'high' | 'urgent';
-  assignee_id?: string;
-  due_date: string;
-  start_date?: string;
-  remind_at?: string;                                 // new
-}
-
-export interface UpdateTaskInput {
-  title?: string;
-  description?: string;
-  status?: 'pending' | 'completed';                  // changed
-  priority?: 'low' | 'medium' | 'high' | 'urgent';
-  assignee_id?: string | null;
-  due_date?: string;
-  start_date?: string | null;
-  remind_at?: string | null;                         // new
-  is_active?: boolean;
-}
-
-export interface AddProjectMemberInput {
-  user_id: string;
-  role?: string;
-}
-
-export interface AddAttachmentInput {
-  file_name: string;
-  file_url: string;
-}
-
+// ─── State type ──────────────────────────────────────────────
 interface TasksState {
   projects: Project[];
-  selectedProject: Project | null;
-  tasks: Task[];
   standaloneTasks: Task[];
   selectedTask: Task | null;
-  projectMembers: ProjectMember[];
-  attachments: Record<string, TaskAttachment[]>;      // keyed by taskId
-  stats: {
-    tasks: TaskStats | null;
-    projects: ProjectStats | null;
-  };
-  loading: {
-    projects: boolean;
-    project: boolean;
-    tasks: boolean;
-    standaloneTasks: boolean;
-    task: boolean;
-    members: boolean;
-    stats: boolean;
-    attachments: boolean;
-    mutating: boolean;
-  };
+  selectedTaskDetails: {
+    subtasks: Subtask[];
+    notes: TaskNote[];
+    reminders: Reminder[];
+  } | null;
+  loading: boolean;
   error: string | null;
-  success: boolean;
+  filters: TaskFilters;
 }
-
-/* ============================================================
-   INITIAL STATE
-============================================================ */
 
 const initialState: TasksState = {
   projects: [],
-  selectedProject: null,
-  tasks: [],
   standaloneTasks: [],
   selectedTask: null,
-  projectMembers: [],
-  attachments: {},
-  stats: {
-    tasks: null,
-    projects: null,
-  },
-  loading: {
-    projects: false,
-    project: false,
-    tasks: false,
-    standaloneTasks: false,
-    task: false,
-    members: false,
-    stats: false,
-    attachments: false,
-    mutating: false,
-  },
+  selectedTaskDetails: null,
+  loading: false,
   error: null,
-  success: false,
+  filters: {},
 };
 
-/* ============================================================
-   HELPERS
-============================================================ */
+// ─── Helper to extract error message ───────────────────────
+const extractErrorMessage = (error: unknown): string => {
+  console.log('🔍 [extractErrorMessage] Processing error:', error);
 
-const extractError = (error: unknown): string => {
-  const axiosError = error as AxiosError<{ message?: string }>;
-  return axiosError.response?.data?.message ?? axiosError.message ?? 'An unexpected error occurred';
-};
+  if (axios.isAxiosError(error)) {
+    console.log('🔍 [extractErrorMessage] Axios error detected');
+    const status = error.response?.status;
+    const responseData = error.response?.data;
+    
+    console.log(`🔍 [extractErrorMessage] Status: ${status}`);
+    console.log('🔍 [extractErrorMessage] Response data:', responseData);
 
-/* ============================================================
-   THUNKS - STATS
-============================================================ */
-
-export const fetchTaskStats = createAsyncThunk(
-  'tasks/fetchStats',
-  async (_, { rejectWithValue }) => {
-    try {
-      const { data } = await axiosClient.get('/tasks/stats');
-      return data.data as { tasks: TaskStats; projects: ProjectStats };
-    } catch (err) {
-      return rejectWithValue(extractError(err));
+    if (responseData) {
+      if (typeof responseData === 'string') {
+        return responseData;
+      }
+      if (typeof responseData === 'object') {
+        if ('message' in responseData && typeof responseData.message === 'string') {
+          return responseData.message;
+        }
+        if ('error' in responseData && typeof responseData.error === 'string') {
+          return responseData.error;
+        }
+        if ('detail' in responseData && typeof responseData.detail === 'string') {
+          return responseData.detail;
+        }
+        if ('errors' in responseData) {
+          const errors = responseData.errors;
+          if (Array.isArray(errors)) {
+            return errors.map((e: unknown) => typeof e === 'string' ? e : JSON.stringify(e)).join(', ');
+          }
+          if (typeof errors === 'object') {
+            return JSON.stringify(errors);
+          }
+        }
+        try {
+          return JSON.stringify(responseData);
+        } catch {
+          return 'Unknown server error';
+        }
+      }
     }
+    return error.message || `Request failed with status ${status || 'unknown'}`;
   }
-);
 
-/* ============================================================
-   THUNKS - PROJECTS
-============================================================ */
+  if (error instanceof Error) {
+    console.log('🔍 [extractErrorMessage] Error instance detected');
+    return error.message;
+  }
 
+  if (typeof error === 'string') {
+    console.log('🔍 [extractErrorMessage] String error detected');
+    return error;
+  }
+
+  console.log('🔍 [extractErrorMessage] Unknown error type');
+  return 'An unexpected error occurred';
+};
+
+// ─── Thunks ──────────────────────────────────────────────────
+
+// ── Projects ──
 export const fetchProjects = createAsyncThunk(
   'tasks/fetchProjects',
   async (_, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.get('/tasks/projects');
-      return data.data as Project[];
-    } catch (err) {
-      return rejectWithValue(extractError(err));
-    }
-  }
-);
-
-export const fetchProjectById = createAsyncThunk(
-  'tasks/fetchProjectById',
-  async (id: string, { rejectWithValue }) => {
-    try {
-      const { data } = await axiosClient.get(`/tasks/projects/${id}`);
-      return data.data as Project;
-    } catch (err) {
-      return rejectWithValue(extractError(err));
+      console.log('📤 [fetchProjects] Fetching all projects...');
+      const response = await axiosClient.get('/tasks/projects');
+      console.log('✅ [fetchProjects] Projects fetched:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [fetchProjects] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
     }
   }
 );
 
 export const createProject = createAsyncThunk(
   'tasks/createProject',
-  async (input: CreateProjectInput, { rejectWithValue }) => {
+  async (data: CreateProjectInput, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.post('/tasks/projects', input);
-      return data.data as Project;
-    } catch (err) {
-      return rejectWithValue(extractError(err));
+      console.log('📤 [createProject] Creating project:', data);
+      const response = await axiosClient.post('/tasks/projects', data);
+      console.log('✅ [createProject] Project created:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [createProject] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
     }
   }
 );
 
 export const updateProject = createAsyncThunk(
   'tasks/updateProject',
-  async ({ id, input }: { id: string; input: UpdateProjectInput }, { rejectWithValue }) => {
+  async ({ id, data }: { id: string; data: UpdateProjectInput }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.put(`/tasks/projects/${id}`, input);
-      return data.data as Project;
-    } catch (err) {
-      return rejectWithValue(extractError(err));
+      console.log(`📤 [updateProject] Updating project ${id}:`, data);
+      const response = await axiosClient.put(`/tasks/projects/${id}`, data);
+      console.log('✅ [updateProject] Project updated:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [updateProject] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
     }
   }
 );
@@ -272,127 +154,89 @@ export const deleteProject = createAsyncThunk(
   'tasks/deleteProject',
   async (id: string, { rejectWithValue }) => {
     try {
+      console.log(`📤 [deleteProject] Deleting project ${id}...`);
       await axiosClient.delete(`/tasks/projects/${id}`);
+      console.log('✅ [deleteProject] Project deleted');
       return id;
-    } catch (err) {
-      return rejectWithValue(extractError(err));
+    } catch (error) {
+      console.error('❌ [deleteProject] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
     }
   }
 );
 
-/* ============================================================
-   THUNKS - PROJECT MEMBERS
-============================================================ */
-
-export const fetchProjectMembers = createAsyncThunk(
-  'tasks/fetchProjectMembers',
-  async (projectId: string, { rejectWithValue }) => {
-    try {
-      const { data } = await axiosClient.get(`/tasks/projects/${projectId}/members`);
-      return { projectId, members: data.data as ProjectMember[] };
-    } catch (err) {
-      return rejectWithValue(extractError(err));
-    }
-  }
-);
-
-export const addProjectMember = createAsyncThunk(
-  'tasks/addProjectMember',
-  async ({ projectId, input }: { projectId: string; input: AddProjectMemberInput }, { rejectWithValue }) => {
-    try {
-      const { data } = await axiosClient.post(`/tasks/projects/${projectId}/members`, input);
-      return data.data as ProjectMember;
-    } catch (err) {
-      return rejectWithValue(extractError(err));
-    }
-  }
-);
-
-export const removeProjectMember = createAsyncThunk(
-  'tasks/removeProjectMember',
-  async ({ projectId, memberId }: { projectId: string; memberId: string }, { rejectWithValue }) => {
-    try {
-      await axiosClient.delete(`/tasks/projects/${projectId}/members/${memberId}`);
-      return { projectId, memberId };
-    } catch (err) {
-      return rejectWithValue(extractError(err));
-    }
-  }
-);
-
-/* ============================================================
-   THUNKS - TASKS
-============================================================ */
-
-export const fetchTasks = createAsyncThunk(
-  'tasks/fetchTasks',
-  async (projectId: string | undefined, { rejectWithValue }) => {
-    try {
-      const url = projectId ? `/tasks?projectId=${projectId}` : '/tasks';
-      const response = await axiosClient.get(url);
-      console.log('🔍 [fetchTasks] raw response:', response.data);
-      // Assume response.data might be { data: [...] } or just [...]
-      const tasks = Array.isArray(response.data) 
-        ? response.data 
-        : Array.isArray(response.data?.data) 
-          ? response.data.data 
-          : [];
-      return tasks as Task[];
-    } catch (err) {
-      return rejectWithValue(extractError(err));
-    }
-  }
-);
-
-export const fetchStandaloneTasks = createAsyncThunk(
-  'tasks/fetchStandaloneTasks',
-  async (_, { rejectWithValue }) => {
-    try {
-      // ✅ correct: /tasks/standalone
-      const { data } = await axiosClient.get('/tasks/standalone');
-      return data.data as Task[];
-    } catch (err) {
-      return rejectWithValue(extractError(err));
-    }
-  }
-);
-
-
-export const fetchTaskById = createAsyncThunk(
-  'tasks/fetchTaskById',
+export const getProject = createAsyncThunk(
+  'tasks/getProject',
   async (id: string, { rejectWithValue }) => {
     try {
-      // ✅ correct: /tasks/:id
-      const { data } = await axiosClient.get(`/tasks/${id}`);
-      return data.data as Task;
-    } catch (err) {
-      return rejectWithValue(extractError(err));
+      console.log(`📤 [getProject] Fetching project ${id}...`);
+      const response = await axiosClient.get(`/tasks/projects/${id}`);
+      console.log('✅ [getProject] Project fetched:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [getProject] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
+    }
+  }
+);
+
+// ── Tasks ──
+export const fetchTasks = createAsyncThunk(
+  'tasks/fetchTasks',
+  async (filters: TaskFilters = {}, { rejectWithValue }) => {
+    try {
+      console.log('📤 [fetchTasks] Fetching tasks with filters:', filters);
+      const response = await axiosClient.get('/tasks/tasks', { params: filters });
+      console.log('✅ [fetchTasks] Tasks fetched:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [fetchTasks] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
     }
   }
 );
 
 export const createTask = createAsyncThunk(
   'tasks/createTask',
-  async (input: CreateTaskInput, { rejectWithValue }) => {
+  async (data: CreateTaskInput, { rejectWithValue }) => {
     try {
-      // ✅ correct: POST /tasks
-      const { data } = await axiosClient.post('/tasks', input);
-      return data.data as Task;
-    } catch (err) {
-      return rejectWithValue(extractError(err));
+      console.log('📤 [createTask] Creating task with data:', JSON.stringify(data, null, 2));
+      
+      // ✅ Ensure dates are in the correct format for the backend
+      const payload = {
+        ...data,
+        deadline: data.deadline ? new Date(data.deadline).toISOString() : null,
+        start_date: data.start_date ? new Date(data.start_date).toISOString() : null,
+      };
+      
+      console.log('📤 [createTask] Formatted payload:', JSON.stringify(payload, null, 2));
+      
+      const response = await axiosClient.post('/tasks/tasks', payload);
+      console.log('✅ [createTask] Task created:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [createTask] Failed:', error);
+      if (axios.isAxiosError(error)) {
+        console.error('❌ [createTask] Response status:', error.response?.status);
+        console.error('❌ [createTask] Response data:', JSON.stringify(error.response?.data, null, 2));
+        console.error('❌ [createTask] Request config:', error.config);
+      }
+      return rejectWithValue(extractErrorMessage(error));
     }
   }
 );
 
 export const updateTask = createAsyncThunk(
   'tasks/updateTask',
-  async ({ id, input }: { id: string; input: UpdateTaskInput }, { rejectWithValue }) => {
+  async ({ id, data }: { id: string; data: UpdateTaskInput }, { rejectWithValue }) => {
     try {
-      // ✅ correct: PUT /tasks/:id
-      const { data } = await axiosClient.put(`/tasks/${id}`, input);
-      return data.data as Task;
-    } catch (err) {
-      return rejectWithValue(extractError(err));
+      console.log(`📤 [updateTask] Updating task ${id}:`, data);
+      const response = await axiosClient.put(`/tasks/tasks/${id}`, data);
+      console.log('✅ [updateTask] Task updated:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [updateTask] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
     }
   }
 );
@@ -401,530 +245,463 @@ export const deleteTask = createAsyncThunk(
   'tasks/deleteTask',
   async (id: string, { rejectWithValue }) => {
     try {
-      // ✅ correct: DELETE /tasks/:id
-      await axiosClient.delete(`/tasks/${id}`);
+      console.log(`📤 [deleteTask] Deleting task ${id}...`);
+      await axiosClient.delete(`/tasks/tasks/${id}`);
+      console.log('✅ [deleteTask] Task deleted');
       return id;
-    } catch (err) {
-      return rejectWithValue(extractError(err));
+    } catch (error) {
+      console.error('❌ [deleteTask] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
     }
   }
 );
 
-/* ============================================================
-   THUNKS - ATTACHMENTS
-============================================================ */
+export const fetchFullTask = createAsyncThunk(
+  'tasks/fetchFullTask',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      console.log(`📤 [fetchFullTask] Fetching full task ${id}...`);
+      const response = await axiosClient.get(`/tasks/tasks/${id}`);
+      console.log('✅ [fetchFullTask] Full task fetched:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [fetchFullTask] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
+    }
+  }
+);
 
-export const fetchAttachments = createAsyncThunk(
-  'tasks/fetchAttachments',
+// ── Subtasks ──
+export const createSubtask = createAsyncThunk(
+  'tasks/createSubtask',
+  async (data: CreateSubtaskInput, { rejectWithValue }) => {
+    try {
+      console.log('📤 [createSubtask] Creating subtask:', data);
+      const response = await axiosClient.post('/tasks/subtasks', data);
+      console.log('✅ [createSubtask] Subtask created:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [createSubtask] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
+    }
+  }
+);
+
+export const listSubtasks = createAsyncThunk(
+  'tasks/listSubtasks',
   async (taskId: string, { rejectWithValue }) => {
     try {
-      // ✅ correct: GET /tasks/:id/attachments
-      const { data } = await axiosClient.get(`/tasks/${taskId}/attachments`);
-      return { taskId, attachments: data.data as TaskAttachment[] };
-    } catch (err) {
-      return rejectWithValue(extractError(err));
+      console.log(`📤 [listSubtasks] Fetching subtasks for task ${taskId}...`);
+      const response = await axiosClient.get(`/tasks/subtasks/task/${taskId}`);
+      console.log('✅ [listSubtasks] Subtasks fetched:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [listSubtasks] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
     }
   }
 );
 
-export const addAttachment = createAsyncThunk(
-  'tasks/addAttachment',
-  async ({ taskId, input }: { taskId: string; input: AddAttachmentInput }, { rejectWithValue }) => {
+export const updateSubtask = createAsyncThunk(
+  'tasks/updateSubtask',
+  async ({ id, data }: { id: string; data: UpdateSubtaskInput }, { rejectWithValue }) => {
     try {
-      // ✅ correct: POST /tasks/:id/attachments
-      const { data } = await axiosClient.post(`/tasks/${taskId}/attachments`, input);
-      return data.data as TaskAttachment;
-    } catch (err) {
-      return rejectWithValue(extractError(err));
+      console.log(`📤 [updateSubtask] Updating subtask ${id}:`, data);
+      const response = await axiosClient.put(`/tasks/subtasks/${id}`, data);
+      console.log('✅ [updateSubtask] Subtask updated:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [updateSubtask] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
     }
   }
 );
 
-
-export const deleteAttachment = createAsyncThunk(
-  'tasks/deleteAttachment',
-  async (attachmentId: string, { rejectWithValue }) => {
+export const deleteSubtask = createAsyncThunk(
+  'tasks/deleteSubtask',
+  async (id: string, { rejectWithValue }) => {
     try {
-      await axiosClient.delete(`/tasks/attachments/${attachmentId}`);
-      return attachmentId;
-    } catch (err) {
-      return rejectWithValue(extractError(err));
+      console.log(`📤 [deleteSubtask] Deleting subtask ${id}...`);
+      await axiosClient.delete(`/tasks/subtasks/${id}`);
+      console.log('✅ [deleteSubtask] Subtask deleted');
+      return id;
+    } catch (error) {
+      console.error('❌ [deleteSubtask] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
     }
   }
 );
 
-/* ============================================================
-   SLICE
-============================================================ */
+// ── Task Notes ──
+export const createTaskNote = createAsyncThunk(
+  'tasks/createTaskNote',
+  async (data: CreateTaskNoteInput, { rejectWithValue }) => {
+    try {
+      console.log('📤 [createTaskNote] Creating task note:', data);
+      const response = await axiosClient.post('/tasks/task-notes', data);
+      console.log('✅ [createTaskNote] Task note created:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [createTaskNote] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
+    }
+  }
+);
 
+export const listTaskNotes = createAsyncThunk(
+  'tasks/listTaskNotes',
+  async (taskId: string, { rejectWithValue }) => {
+    try {
+      console.log(`📤 [listTaskNotes] Fetching notes for task ${taskId}...`);
+      const response = await axiosClient.get(`/tasks/task-notes/task/${taskId}`);
+      console.log('✅ [listTaskNotes] Notes fetched:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [listTaskNotes] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
+    }
+  }
+);
+
+export const deleteTaskNote = createAsyncThunk(
+  'tasks/deleteTaskNote',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      console.log(`📤 [deleteTaskNote] Deleting task note ${id}...`);
+      await axiosClient.delete(`/tasks/task-notes/${id}`);
+      console.log('✅ [deleteTaskNote] Task note deleted');
+      return id;
+    } catch (error) {
+      console.error('❌ [deleteTaskNote] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
+    }
+  }
+);
+
+// ── Reminders ──
+export const createReminder = createAsyncThunk(
+  'tasks/createReminder',
+  async (data: CreateReminderInput, { rejectWithValue }) => {
+    try {
+      console.log('📤 [createReminder] Creating reminder:', data);
+      const response = await axiosClient.post('/tasks/reminders', data);
+      console.log('✅ [createReminder] Reminder created:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [createReminder] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
+    }
+  }
+);
+
+export const listReminders = createAsyncThunk(
+  'tasks/listReminders',
+  async (taskId: string, { rejectWithValue }) => {
+    try {
+      console.log(`📤 [listReminders] Fetching reminders for task ${taskId}...`);
+      const response = await axiosClient.get(`/tasks/reminders/task/${taskId}`);
+      console.log('✅ [listReminders] Reminders fetched:', response.data);
+      return response.data.data;
+    } catch (error) {
+      console.error('❌ [listReminders] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
+    }
+  }
+);
+
+export const deleteReminder = createAsyncThunk(
+  'tasks/deleteReminder',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      console.log(`📤 [deleteReminder] Deleting reminder ${id}...`);
+      await axiosClient.delete(`/tasks/reminders/${id}`);
+      console.log('✅ [deleteReminder] Reminder deleted');
+      return id;
+    } catch (error) {
+      console.error('❌ [deleteReminder] Failed:', error);
+      return rejectWithValue(extractErrorMessage(error));
+    }
+  }
+);
+
+// ─── Slice ──────────────────────────────────────────────────
 const tasksSlice = createSlice({
   name: 'tasks',
   initialState,
   reducers: {
-    setSelectedProject(state, action: PayloadAction<Project | null>) {
-      state.selectedProject = action.payload;
-      state.error = null;
+    setFilters: (state, action: PayloadAction<TaskFilters>) => {
+      state.filters = action.payload;
     },
-    setSelectedTask(state, action: PayloadAction<Task | null>) {
-      state.selectedTask = action.payload;
-      state.error = null;
+    clearSelectedTask: (state) => {
+      state.selectedTask = null;
+      state.selectedTaskDetails = null;
     },
-    clearError(state) {
-      state.error = null;
-    },
-    clearSuccess(state) {
-      state.success = false;
-    },
-    resetTasksState: () => initialState,
-    // Optimistic status update (pending/completed)
-    updateTaskStatusLocally(state, action: PayloadAction<{ taskId: string; status: Task['status'] }>) {
-      const { taskId, status } = action.payload;
-
-      const updateTask = (task: Task) => {
-        task.status = status;
-        if (status === 'completed') {
-          task.completed_at = new Date().toISOString();
-        } else {
-          task.completed_at = null;
+    toggleTaskDone: (state, action: PayloadAction<{ taskId: string; projectId: string | null }>) => {
+      const { taskId, projectId } = action.payload;
+      const findAndToggle = (tasks: Task[]) => {
+        const task = tasks.find(t => t.id === taskId);
+        if (task) {
+          task.status = task.status === 'done' ? 'todo' : 'done';
+          task.progress = task.status === 'done' ? 100 : 0;
+          return true;
         }
+        return false;
       };
-
-      const taskInTasks = state.tasks.find(t => t.id === taskId);
-      if (taskInTasks) updateTask(taskInTasks);
-
-      const taskInStandalone = state.standaloneTasks.find(t => t.id === taskId);
-      if (taskInStandalone) updateTask(taskInStandalone);
-
+      if (projectId) {
+        const project = state.projects.find(p => p.id === projectId);
+        if (project) {
+          findAndToggle(project.tasks);
+        }
+      } else {
+        findAndToggle(state.standaloneTasks);
+      }
       if (state.selectedTask?.id === taskId) {
-        updateTask(state.selectedTask);
+        state.selectedTask.status = state.selectedTask.status === 'done' ? 'todo' : 'done';
+        state.selectedTask.progress = state.selectedTask.status === 'done' ? 100 : 0;
+      }
+    },
+    setTaskDetails: (state, action: PayloadAction<{
+      subtasks?: Subtask[];
+      notes?: TaskNote[];
+      reminders?: Reminder[];
+    }>) => {
+      if (state.selectedTaskDetails) {
+        if (action.payload.subtasks) {
+          state.selectedTaskDetails.subtasks = action.payload.subtasks;
+        }
+        if (action.payload.notes) {
+          state.selectedTaskDetails.notes = action.payload.notes;
+        }
+        if (action.payload.reminders) {
+          state.selectedTaskDetails.reminders = action.payload.reminders;
+        }
       }
     },
   },
   extraReducers: (builder) => {
-
-    /* ---------- FETCH STATS ---------- */
     builder
-      .addCase(fetchTaskStats.pending, (state) => {
-        state.loading.stats = true;
-        state.error = null;
-      })
-      .addCase(fetchTaskStats.fulfilled, (state, action: PayloadAction<{ tasks: TaskStats; projects: ProjectStats }>) => {
-        state.loading.stats = false;
-        state.stats.tasks = action.payload.tasks;
-        state.stats.projects = action.payload.projects;
-      })
-      .addCase(fetchTaskStats.rejected, (state, action) => {
-        state.loading.stats = false;
-        state.error = action.payload as string;
-      });
-
-    /* ---------- FETCH PROJECTS ---------- */
-    builder
+      // ── Projects ──
       .addCase(fetchProjects.pending, (state) => {
-        state.loading.projects = true;
+        state.loading = true;
         state.error = null;
       })
-      .addCase(fetchProjects.fulfilled, (state, action: PayloadAction<Project[]>) => {
-        state.loading.projects = false;
+      .addCase(fetchProjects.fulfilled, (state, action) => {
+        state.loading = false;
         state.projects = action.payload;
+        state.standaloneTasks = action.payload.flatMap((p: Project) =>
+          p.tasks.filter((t: Task) => t.project_id === null)
+        );
       })
       .addCase(fetchProjects.rejected, (state, action) => {
-        state.loading.projects = false;
+        state.loading = false;
         state.error = action.payload as string;
-      });
-
-    /* ---------- FETCH PROJECT BY ID ---------- */
-    builder
-      .addCase(fetchProjectById.pending, (state) => {
-        state.loading.project = true;
-        state.error = null;
       })
-      .addCase(fetchProjectById.fulfilled, (state, action: PayloadAction<Project>) => {
-        state.loading.project = false;
-        state.selectedProject = action.payload;
-        const index = state.projects.findIndex(p => p.id === action.payload.id);
+      .addCase(getProject.fulfilled, (state, action) => {
+        const project = action.payload;
+        const index = state.projects.findIndex(p => p.id === project.id);
         if (index !== -1) {
-          state.projects[index] = action.payload;
+          state.projects[index] = project;
+        } else {
+          state.projects.push(project);
         }
       })
-      .addCase(fetchProjectById.rejected, (state, action) => {
-        state.loading.project = false;
-        state.error = action.payload as string;
-      });
-
-    /* ---------- CREATE PROJECT ---------- */
-    builder
-      .addCase(createProject.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(createProject.fulfilled, (state, action: PayloadAction<Project>) => {
-        state.loading.mutating = false;
-        state.success = true;
-        state.projects = [action.payload, ...state.projects];
-        state.selectedProject = action.payload;
-        if (state.stats.projects) {
-          state.stats.projects.total += 1;
-          state.stats.projects.active += 1;
-        }
+      .addCase(createProject.fulfilled, (state, action) => {
+        state.projects.push(action.payload);
       })
       .addCase(createProject.rejected, (state, action) => {
-        state.loading.mutating = false;
         state.error = action.payload as string;
-        state.success = false;
-      });
-
-    /* ---------- UPDATE PROJECT ---------- */
-    builder
-      .addCase(updateProject.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
       })
-      .addCase(updateProject.fulfilled, (state, action: PayloadAction<Project>) => {
-        state.loading.mutating = false;
-        state.success = true;
+      .addCase(updateProject.fulfilled, (state, action) => {
         const index = state.projects.findIndex(p => p.id === action.payload.id);
         if (index !== -1) {
           state.projects[index] = action.payload;
         }
-        if (state.selectedProject?.id === action.payload.id) {
-          state.selectedProject = action.payload;
-        }
       })
-      .addCase(updateProject.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      });
-
-    /* ---------- DELETE PROJECT ---------- */
-    builder
-      .addCase(deleteProject.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-      })
-      .addCase(deleteProject.fulfilled, (state, action: PayloadAction<string>) => {
-        state.loading.mutating = false;
+      .addCase(deleteProject.fulfilled, (state, action) => {
         state.projects = state.projects.filter(p => p.id !== action.payload);
-        if (state.selectedProject?.id === action.payload) {
-          state.selectedProject = null;
-        }
-        state.tasks = state.tasks.filter(t => t.project_id !== action.payload);
       })
-      .addCase(deleteProject.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-      });
-
-    /* ---------- FETCH PROJECT MEMBERS ---------- */
-    builder
-      .addCase(fetchProjectMembers.pending, (state) => {
-        state.loading.members = true;
-        state.error = null;
-      })
-      .addCase(fetchProjectMembers.fulfilled, (state, action: PayloadAction<{ projectId: string; members: ProjectMember[] }>) => {
-        state.loading.members = false;
-        state.projectMembers = action.payload.members;
-        if (state.selectedProject?.id === action.payload.projectId) {
-          state.selectedProject.members = action.payload.members;
-        }
-      })
-      .addCase(fetchProjectMembers.rejected, (state, action) => {
-        state.loading.members = false;
-        state.error = action.payload as string;
-      });
-
-    /* ---------- ADD PROJECT MEMBER ---------- */
-    builder
-      .addCase(addProjectMember.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(addProjectMember.fulfilled, (state, action: PayloadAction<ProjectMember>) => {
-        state.loading.mutating = false;
-        state.success = true;
-        state.projectMembers = [...state.projectMembers, action.payload];
-        if (state.selectedProject) {
-          state.selectedProject.members = [...(state.selectedProject.members || []), action.payload];
-        }
-      })
-      .addCase(addProjectMember.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      });
-
-    /* ---------- REMOVE PROJECT MEMBER ---------- */
-    builder
-      .addCase(removeProjectMember.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-      })
-      .addCase(removeProjectMember.fulfilled, (state, action: PayloadAction<{ projectId: string; memberId: string }>) => {
-        state.loading.mutating = false;
-        state.projectMembers = state.projectMembers.filter(m => m.id !== action.payload.memberId);
-        if (state.selectedProject) {
-          state.selectedProject.members = state.selectedProject.members?.filter(m => m.id !== action.payload.memberId);
-        }
-      })
-      .addCase(removeProjectMember.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-      });
-
-    /* ---------- FETCH TASKS ---------- */
-    builder
+      
+      // ── Tasks ──
       .addCase(fetchTasks.pending, (state) => {
-        state.loading.tasks = true;
+        state.loading = true;
         state.error = null;
       })
-      .addCase(fetchTasks.fulfilled, (state, action: PayloadAction<Task[]>) => {
-  state.loading.tasks = false;
-  state.tasks = action.payload || [];   // ensure array
-})
-      .addCase(fetchTasks.rejected, (state, action) => {
-        state.loading.tasks = false;
-        state.error = action.payload as string;
-      });
-
-    /* ---------- FETCH STANDALONE TASKS ---------- */
-    builder
-      .addCase(fetchStandaloneTasks.pending, (state) => {
-        state.loading.standaloneTasks = true;
-        state.error = null;
-      })
-      .addCase(fetchStandaloneTasks.fulfilled, (state, action: PayloadAction<Task[]>) => {
-        state.loading.standaloneTasks = false;
-        state.standaloneTasks = action.payload;
-      })
-      .addCase(fetchStandaloneTasks.rejected, (state, action) => {
-        state.loading.standaloneTasks = false;
-        state.error = action.payload as string;
-      });
-
-    /* ---------- FETCH TASK BY ID ---------- */
-    builder
-      .addCase(fetchTaskById.pending, (state) => {
-        state.loading.task = true;
-        state.error = null;
-      })
-      .addCase(fetchTaskById.fulfilled, (state, action: PayloadAction<Task>) => {
-        state.loading.task = false;
-        state.selectedTask = action.payload;
-      })
-      .addCase(fetchTaskById.rejected, (state, action) => {
-        state.loading.task = false;
-        state.error = action.payload as string;
-      });
-
-    /* ---------- CREATE TASK ---------- */
-    builder
-      .addCase(createTask.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(createTask.fulfilled, (state, action: PayloadAction<Task>) => {
-        state.loading.mutating = false;
-        state.success = true;
-
-        if (action.payload.project_id) {
-          state.tasks = [action.payload, ...state.tasks];
-          const projectIndex = state.projects.findIndex(p => p.id === action.payload.project_id);
-          if (projectIndex !== -1) {
-            state.projects[projectIndex].task_count = (state.projects[projectIndex].task_count || 0) + 1;
+      .addCase(fetchTasks.fulfilled, (state, action) => {
+        state.loading = false;
+        const tasks = action.payload;
+        const projectTasks = tasks.filter((t: Task) => t.project_id !== null);
+        const standalone = tasks.filter((t: Task) => t.project_id === null);
+        state.standaloneTasks = standalone;
+        projectTasks.forEach((task: Task) => {
+          const project = state.projects.find(p => p.id === task.project_id);
+          if (project) {
+            const existing = project.tasks.find(t => t.id === task.id);
+            if (existing) {
+              Object.assign(existing, task);
+            } else {
+              project.tasks.push(task);
+            }
           }
-          if (state.selectedProject?.id === action.payload.project_id) {
-            state.selectedProject.task_count = (state.selectedProject.task_count || 0) + 1;
+        });
+      })
+      .addCase(fetchTasks.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+      .addCase(createTask.fulfilled, (state, action) => {
+        const task = action.payload;
+        console.log('📦 [createTask] Adding task to state:', task);
+        if (task.project_id) {
+          const project = state.projects.find(p => p.id === task.project_id);
+          if (project) {
+            project.tasks.push(task);
+          } else {
+            console.warn('⚠️ [createTask] Project not found for task:', task);
           }
         } else {
-          state.standaloneTasks = [action.payload, ...state.standaloneTasks];
+          state.standaloneTasks.push(task);
         }
       })
       .addCase(createTask.rejected, (state, action) => {
-        state.loading.mutating = false;
         state.error = action.payload as string;
-        state.success = false;
-      });
-
-    /* ---------- UPDATE TASK ---------- */
-    builder
-      .addCase(updateTask.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
+        console.error('❌ [createTask] State error set:', state.error);
       })
-      .addCase(updateTask.fulfilled, (state, action: PayloadAction<Task>) => {
-        state.loading.mutating = false;
-        state.success = true;
-
-        const taskIndex = state.tasks.findIndex(t => t.id === action.payload.id);
-        if (taskIndex !== -1) {
-          state.tasks[taskIndex] = action.payload;
-        }
-
-        const standaloneIndex = state.standaloneTasks.findIndex(t => t.id === action.payload.id);
-        if (standaloneIndex !== -1) {
-          state.standaloneTasks[standaloneIndex] = action.payload;
-        }
-
-        if (state.selectedTask?.id === action.payload.id) {
-          state.selectedTask = action.payload;
-        }
-      })
-      .addCase(updateTask.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      });
-
-    /* ---------- DELETE TASK ---------- */
-    builder
-      .addCase(deleteTask.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-      })
-      .addCase(deleteTask.fulfilled, (state, action: PayloadAction<string>) => {
-        state.loading.mutating = false;
-
-        const removed = state.tasks.find(t => t.id === action.payload);
-        state.tasks = state.tasks.filter(t => t.id !== action.payload);
-        state.standaloneTasks = state.standaloneTasks.filter(t => t.id !== action.payload);
-
-        if (removed?.project_id) {
-          const projectIndex = state.projects.findIndex(p => p.id === removed.project_id);
-          if (projectIndex !== -1) {
-            state.projects[projectIndex].task_count = Math.max(0, (state.projects[projectIndex].task_count || 0) - 1);
-          }
-          if (state.selectedProject?.id === removed.project_id) {
-            state.selectedProject.task_count = Math.max(0, (state.selectedProject.task_count || 0) - 1);
-          }
-        }
-
-        if (state.selectedTask?.id === action.payload) {
-          state.selectedTask = null;
-        }
-        // Also remove any cached attachments for this task
-        delete state.attachments[action.payload];
-      })
-      .addCase(deleteTask.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-      });
-
-    /* ---------- FETCH ATTACHMENTS ---------- */
-    builder
-      .addCase(fetchAttachments.pending, (state) => {
-        state.loading.attachments = true;
-        state.error = null;
-      })
-      .addCase(fetchAttachments.fulfilled, (state, action: PayloadAction<{ taskId: string; attachments: TaskAttachment[] }>) => {
-        state.loading.attachments = false;
-        state.attachments[action.payload.taskId] = action.payload.attachments;
-      })
-      .addCase(fetchAttachments.rejected, (state, action) => {
-        state.loading.attachments = false;
-        state.error = action.payload as string;
-      });
-
-    /* ---------- ADD ATTACHMENT ---------- */
-    builder
-      .addCase(addAttachment.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(addAttachment.fulfilled, (state, action: PayloadAction<TaskAttachment>) => {
-        state.loading.mutating = false;
-        state.success = true;
-        const taskId = action.payload.task_id;
-        if (state.attachments[taskId]) {
-          state.attachments[taskId] = [action.payload, ...state.attachments[taskId]];
-        } else {
-          state.attachments[taskId] = [action.payload];
-        }
-      })
-      .addCase(addAttachment.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      });
-
-    /* ---------- DELETE ATTACHMENT ---------- */
-    builder
-      .addCase(deleteAttachment.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-      })
-      .addCase(deleteAttachment.fulfilled, (state, action: PayloadAction<string>) => {
-        state.loading.mutating = false;
-        // Remove from all task attachment lists
-        Object.keys(state.attachments).forEach(taskId => {
-          state.attachments[taskId] = state.attachments[taskId].filter(a => a.id !== action.payload);
+      .addCase(updateTask.fulfilled, (state, action) => {
+        const task = action.payload;
+        state.projects.forEach(p => {
+          const idx = p.tasks.findIndex(t => t.id === task.id);
+          if (idx !== -1) p.tasks[idx] = task;
         });
+        const idx = state.standaloneTasks.findIndex(t => t.id === task.id);
+        if (idx !== -1) state.standaloneTasks[idx] = task;
+        if (state.selectedTask?.id === task.id) {
+          state.selectedTask = task;
+        }
       })
-      .addCase(deleteAttachment.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
+      .addCase(deleteTask.fulfilled, (state, action) => {
+        const id = action.payload;
+        state.projects.forEach(p => {
+          p.tasks = p.tasks.filter(t => t.id !== id);
+        });
+        state.standaloneTasks = state.standaloneTasks.filter(t => t.id !== id);
+        if (state.selectedTask?.id === id) {
+          state.selectedTask = null;
+          state.selectedTaskDetails = null;
+        }
+      })
+      .addCase(fetchFullTask.fulfilled, (state, action) => {
+        const { task, subtasks, notes, reminders } = action.payload;
+        state.selectedTask = task;
+        state.selectedTaskDetails = { subtasks, notes, reminders };
+      })
+      
+      // ── Subtasks ──
+      .addCase(listSubtasks.fulfilled, (state, action) => {
+        if (state.selectedTaskDetails) {
+          state.selectedTaskDetails.subtasks = action.payload;
+        }
+      })
+      .addCase(createSubtask.fulfilled, (state, action) => {
+        if (state.selectedTaskDetails) {
+          state.selectedTaskDetails.subtasks.push(action.payload);
+        }
+      })
+      .addCase(updateSubtask.fulfilled, (state, action) => {
+        if (state.selectedTaskDetails) {
+          const idx = state.selectedTaskDetails.subtasks.findIndex(s => s.id === action.payload.id);
+          if (idx !== -1) state.selectedTaskDetails.subtasks[idx] = action.payload;
+        }
+      })
+      .addCase(deleteSubtask.fulfilled, (state, action) => {
+        if (state.selectedTaskDetails) {
+          state.selectedTaskDetails.subtasks = state.selectedTaskDetails.subtasks.filter(
+            s => s.id !== action.payload
+          );
+        }
+      })
+      
+      // ── Task Notes ──
+      .addCase(listTaskNotes.fulfilled, (state, action) => {
+        if (state.selectedTaskDetails) {
+          state.selectedTaskDetails.notes = action.payload;
+        }
+      })
+      .addCase(createTaskNote.fulfilled, (state, action) => {
+        if (state.selectedTaskDetails) {
+          state.selectedTaskDetails.notes.push(action.payload);
+        }
+      })
+      .addCase(deleteTaskNote.fulfilled, (state, action) => {
+        if (state.selectedTaskDetails) {
+          state.selectedTaskDetails.notes = state.selectedTaskDetails.notes.filter(
+            n => n.id !== action.payload
+          );
+        }
+      })
+      
+      // ── Reminders ──
+      .addCase(listReminders.fulfilled, (state, action) => {
+        if (state.selectedTaskDetails) {
+          state.selectedTaskDetails.reminders = action.payload;
+        }
+      })
+      .addCase(createReminder.fulfilled, (state, action) => {
+        if (state.selectedTaskDetails) {
+          state.selectedTaskDetails.reminders.push(action.payload);
+        }
+      })
+      .addCase(deleteReminder.fulfilled, (state, action) => {
+        if (state.selectedTaskDetails) {
+          state.selectedTaskDetails.reminders = state.selectedTaskDetails.reminders.filter(
+            r => r.id !== action.payload
+          );
+        }
       });
   },
 });
 
-/* ============================================================
-   ACTIONS
-============================================================ */
+// ─── Actions ─────────────────────────────────────────────────
+export const { setFilters, clearSelectedTask, toggleTaskDone, setTaskDetails } = tasksSlice.actions;
 
-export const {
-  setSelectedProject,
-  setSelectedTask,
-  clearError,
-  clearSuccess,
-  resetTasksState,
-  updateTaskStatusLocally,
-} = tasksSlice.actions;
-
-/* ============================================================
-   SELECTORS
-============================================================ */
-
-export const selectProjects = (state: { tasks: TasksState }) => state.tasks.projects;
-export const selectSelectedProject = (state: { tasks: TasksState }) => state.tasks.selectedProject;
-export const selectTasks = (state: { tasks: TasksState }) => state.tasks.tasks;
+// ─── Selectors ──────────────────────────────────────────────
+export const selectAllProjects = (state: { tasks: TasksState }) => state.tasks.projects;
 export const selectStandaloneTasks = (state: { tasks: TasksState }) => state.tasks.standaloneTasks;
 export const selectSelectedTask = (state: { tasks: TasksState }) => state.tasks.selectedTask;
-export const selectProjectMembers = (state: { tasks: TasksState }) => state.tasks.projectMembers;
-export const selectTaskStats = (state: { tasks: TasksState }) => state.tasks.stats.tasks;
-export const selectProjectStats = (state: { tasks: TasksState }) => state.tasks.stats.projects;
-export const selectAttachments = (taskId: string) => (state: { tasks: TasksState }) =>
-  state.tasks.attachments[taskId] || [];
+export const selectSelectedTaskDetails = (state: { tasks: TasksState }) => state.tasks.selectedTaskDetails;
+export const selectTasksLoading = (state: { tasks: TasksState }) => state.tasks.loading;
 export const selectTasksError = (state: { tasks: TasksState }) => state.tasks.error;
-export const selectTasksSuccess = (state: { tasks: TasksState }) => state.tasks.success;
+export const selectFilters = (state: { tasks: TasksState }) => state.tasks.filters;
 
-export const selectProjectsLoading = (state: { tasks: TasksState }) => state.tasks.loading.projects;
-export const selectProjectLoading = (state: { tasks: TasksState }) => state.tasks.loading.project;
-export const selectTasksLoading = (state: { tasks: TasksState }) => state.tasks.loading.tasks;
-export const selectStandaloneTasksLoading = (state: { tasks: TasksState }) => state.tasks.loading.standaloneTasks;
-export const selectTaskLoading = (state: { tasks: TasksState }) => state.tasks.loading.task;
-export const selectMembersLoading = (state: { tasks: TasksState }) => state.tasks.loading.members;
-export const selectStatsLoading = (state: { tasks: TasksState }) => state.tasks.loading.stats;
-export const selectAttachmentsLoading = (state: { tasks: TasksState }) => state.tasks.loading.attachments;
-export const selectTasksMutating = (state: { tasks: TasksState }) => state.tasks.loading.mutating;
-
-// Derived selectors (updated for new statuses)
-export const selectProjectTasks = (projectId: string) => (state: { tasks: TasksState }) =>
-  state.tasks.tasks.filter(t => t.project_id === projectId);
-
-export const selectTaskStatsForProject = (projectId: string) => (state: { tasks: TasksState }) => {
-  const projectTasks = state.tasks.tasks.filter(t => t.project_id === projectId);
-  return {
-    pending: projectTasks.filter(t => t.status === 'pending').length,
-    completed: projectTasks.filter(t => t.status === 'completed').length,
-    total: projectTasks.length,
-  };
+export const selectStats = (state: { tasks: TasksState }) => {
+  const allTasks = [
+    ...state.tasks.projects.flatMap(p => p.tasks),
+    ...state.tasks.standaloneTasks,
+  ];
+  let todo = 0,
+    inprogress = 0,
+    overdue = 0,
+    done = 0;
+  allTasks.forEach(t => {
+    if (t.status === 'done') done++;
+    else if (t.status === 'overdue') overdue++;
+    else if (t.status === 'inprogress') inprogress++;
+    else todo++;
+  });
+  return { todo, inprogress, overdue, done };
 };
-export const selectAttachmentsMap = (state: { tasks: TasksState }) => state.tasks.attachments;
+
+export const selectFilteredTasks = (state: { tasks: TasksState }) => {
+  const { filters, projects, standaloneTasks } = state.tasks;
+  const allTasks = [
+    ...projects.flatMap(p => p.tasks.map(t => ({ ...t, projectTitle: p.title, projectId: p.id }))),
+    ...standaloneTasks.map(t => ({ ...t, projectTitle: 'Standalone', projectId: null })),
+  ];
+  return allTasks.filter(t => {
+    if (filters.assignee && t.assignee !== filters.assignee) return false;
+    if (filters.status && t.status !== filters.status) return false;
+    if (filters.project_id && t.projectId !== filters.project_id) return false;
+    return true;
+  });
+};
 
 export default tasksSlice.reducer;
