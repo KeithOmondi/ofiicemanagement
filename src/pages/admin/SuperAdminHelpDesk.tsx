@@ -1,5 +1,5 @@
-// src/features/helpdesk/components/Helpdesk.tsx
-import React, { useState, useEffect } from 'react';
+// src/features/helpdesk/SuperAdminHelpdesk.tsx
+import React, { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   // Actions
@@ -74,6 +74,31 @@ import {
   type JudgeUtility,
   type UtilityStatus,
 } from '../../store/slices/helpdeskSlice';
+
+// ─── Helpdesk Documents imports ───────────────────────────────────────────────
+import {
+  fetchHelpdeskDocuments,
+  uploadHelpdeskDocument,
+  linkHelpdeskDocument,
+  submitForApproval,
+  approveDocument,
+  returnDocument,
+  selectAllHelpdeskDocuments,
+  selectDocumentsUploading,
+  selectDocumentActionLoading,
+  selectDocumentLinking,
+  selectUnlinkedHelpdeskDocuments,
+  type DocumentFormat,
+  type DocumentStatus,
+  type HelpdeskDocument,
+} from '../../store/slices/helpdeskDocumentsSlice';
+
+// ─── User & Stamping ─────────────────────────────────────────────────────────
+import {
+  selectCurrentUser,
+  fetchCurrentUser,
+} from '../../store/slices/userSlice';
+
 import {
   BarChart3,
   Clock3,
@@ -99,9 +124,16 @@ import {
   Edit,
   X,
   Eye,
-  User,
   CreditCard,
   Stethoscope,
+  Paperclip,
+  Upload,
+  ExternalLink,
+  Send,
+  Download,
+  ArrowLeft,
+  Clock,
+  User,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
 import UtilitiesModal, { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
@@ -109,6 +141,8 @@ import { ProtocolModal } from '../../components/modals/ProtocolModal';
 import { VisaModal } from '../../components/modals/VisaModal';
 import { RequestModal } from '../../components/modals/RequestModal';
 import ClubModal from '../../components/Layout/ClubModal';
+import { toast } from 'react-hot-toast';
+import { stampPdfFromUrl } from '../../utils/pdfStamp';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -178,6 +212,43 @@ const getStatusIcon = (status: string): React.ReactNode => {
 
 const getStatusOptions = (): Status[] => {
   return ['Pending', 'Signed', 'Rejected', 'In Progress', 'Completed', 'Active', 'Resolved'];
+};
+
+// ─── Document helpers ─────────────────────────────────────────────────────────
+
+const documentStatusColor = (status: DocumentStatus): string => {
+  const map: Record<DocumentStatus, string> = {
+    draft: 'bg-stone-100 text-stone-600 ring-stone-200',
+    pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
+    approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+    rejected: 'bg-red-50 text-red-700 ring-red-200',
+    returned: 'bg-orange-50 text-orange-700 ring-orange-200',
+  };
+  return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+};
+
+const documentFormatIcon = (format: DocumentFormat) => {
+  if (format === 'xlsx') return <FileSpreadsheet size={16} className="text-emerald-600" />;
+  if (format === 'docx') return <FileText size={16} className="text-blue-600" />;
+  return <FileText size={16} className="text-red-600" />;
+};
+
+// ─── Document Status Badge ───────────────────────────────────────────────────
+
+const DocumentStatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => {
+  const configs: Record<string, { label: string; color: string; bg: string }> = {
+    draft: { label: 'Draft', color: 'text-stone-600', bg: 'bg-stone-100' },
+    pending_approval: { label: 'Pending Approval', color: 'text-amber-700', bg: 'bg-amber-50' },
+    approved: { label: 'Approved ✓', color: 'text-emerald-700', bg: 'bg-emerald-50' },
+    rejected: { label: 'Rejected', color: 'text-red-700', bg: 'bg-red-50' },
+    returned: { label: 'Returned', color: 'text-blue-700', bg: 'bg-blue-50' },
+  };
+  const config = configs[status] || configs.draft;
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${config.bg} ${config.color}`}>
+      {config.label}
+    </span>
+  );
 };
 
 // ─── UI Components ────────────────────────────────────────────────────────────
@@ -300,6 +371,48 @@ function GoldOutlineButton({
       onClick={onClick}
       disabled={disabled}
       className="inline-flex items-center gap-2 rounded-md bg-[#c9a84c] px-3 py-1.5 text-xs font-semibold text-[#1a3d1c] hover:bg-[#b8973f] disabled:opacity-50 disabled:cursor-not-allowed"
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+// ─── GoldButton – top‑level component ─────────────────────────────────────────
+
+function GoldButton({
+  children,
+  icon,
+  type = 'button',
+  disabled,
+  onClick,
+  variant = 'default',
+  size = 'default',
+}: {
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+  type?: 'button' | 'submit';
+  disabled?: boolean;
+  onClick?: () => void;
+  variant?: 'default' | 'danger' | 'success' | 'outline';
+  size?: 'sm' | 'default';
+}) {
+  const styles = {
+    default: 'bg-[#c9a84c] text-[#1a3d1c] hover:bg-[#b8973f]',
+    danger: 'bg-red-600 text-white hover:bg-red-700',
+    success: 'bg-emerald-600 text-white hover:bg-emerald-700',
+    outline: 'border border-[#c9a84c] text-[#1a3d1c] hover:bg-[#c9a84c]/10',
+  };
+  const sizes = {
+    sm: 'px-3 py-1.5 text-xs',
+    default: 'px-4 py-2 text-sm',
+  };
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition ${styles[variant]} ${sizes[size]} disabled:opacity-50 disabled:cursor-not-allowed`}
     >
       {icon}
       {children}
@@ -517,6 +630,1790 @@ function TableWithActions<T extends { id: string }>({
   );
 }
 
+// ─── Document Viewer Modal ──────────────────────────────────────────────────
+
+interface DocumentViewerModalProps {
+  document: HelpdeskDocument;
+  entityId: string;
+  entityType: 'circuit' | 'bench' | 'partHeard' | 'serviceWeek' | 'otherPayment';
+  onClose: () => void;
+  onActionComplete: () => void;
+}
+
+const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
+  document,
+  entityId,
+  entityType,
+  onClose,
+  onActionComplete,
+}) => {
+  const dispatch = useAppDispatch();
+  const currentUser = useAppSelector(selectCurrentUser);
+  const actionsLoading = useAppSelector((state) => state.helpdesk.loading.mutating);
+
+  const [isStamping, setIsStamping] = useState(false);
+  const [showReturnForm, setShowReturnForm] = useState(false);
+  const [returnReason, setReturnReason] = useState('');
+
+  const canDecide = document.status === 'pending_approval';
+
+  useEffect(() => {
+    if (!currentUser) {
+      dispatch(fetchCurrentUser());
+    }
+  }, [dispatch, currentUser]);
+
+  const handleApproveAndStamp = async () => {
+    setIsStamping(true);
+    try {
+      let signatureImageBytes: ArrayBuffer | undefined;
+      if (currentUser?.signature_url) {
+        try {
+          const sigRes = await fetch(currentUser.signature_url);
+          if (sigRes.ok) {
+            signatureImageBytes = await sigRes.arrayBuffer();
+          }
+        } catch (sigErr) {
+          console.warn('Signature fetch failed:', sigErr);
+        }
+      }
+
+      const stampedBlob = await stampPdfFromUrl(document.file_url, {
+        issuer: 'REGISTRAR HIGH COURT',
+        approverName: currentUser?.full_name,
+        signatureImageBytes,
+      });
+
+      const safeRef = document.ref.replace(/[\\/:*?"<>|]/g, '-');
+
+      // Upload stamped version as a new linked document
+      await dispatch(
+        uploadHelpdeskDocument({
+          blob: stampedBlob,
+          filename: `stamped-${safeRef}.pdf`,
+          ref: document.ref,
+          subject: document.subject,
+          entity_type: entityType,
+          entity_id: entityId,
+          format: 'pdf',
+        })
+      ).unwrap();
+
+      // Also approve the original document (so it shows as approved)
+      await dispatch(approveDocument({ id: document.id, comments: 'Document reviewed, stamped, and approved.' })).unwrap();
+
+      toast.success('Document stamped and approved.');
+      onActionComplete();
+    } catch (err) {
+      console.error('Approve & stamp failed:', err);
+      toast.error(typeof err === 'string' ? err : 'Failed to approve and stamp the document.');
+    } finally {
+      setIsStamping(false);
+    }
+  };
+
+  const handleReturn = async () => {
+    if (!returnReason.trim()) {
+      toast.error('Please provide a reason for returning this document.');
+      return;
+    }
+    try {
+      await dispatch(returnDocument({
+        id: document.id,
+        comments: returnReason.trim(),
+      })).unwrap();
+      toast.success('Document returned to the requester.');
+      onActionComplete();
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to return the document.');
+    }
+  };
+
+  const handleDeliverToRequester = async () => {
+    try {
+      toast.success('Stamped document sent back to the requester.');
+      onActionComplete();
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to send the document to the requester.');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+        {/* Header */}
+        <div className="flex items-start justify-between border-b border-stone-100 bg-stone-50 px-6 py-4">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-base font-semibold text-[#1a3d1c] truncate">
+                {document.subject}
+              </h2>
+              <DocumentStatusBadge status={document.status} />
+            </div>
+            <p className="mt-1 text-xs text-stone-400 font-mono">
+              Ref: {document.ref} • {document.format.toUpperCase()} • {new Date(document.created_at).toLocaleDateString()}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-full p-1.5 text-stone-400 transition hover:bg-stone-200 hover:text-stone-600"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="max-h-[75vh] overflow-y-auto p-6">
+          {/* Document Info */}
+          <div className="grid grid-cols-2 gap-4 rounded-lg border border-stone-200 bg-stone-50 p-4 sm:grid-cols-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Reference</p>
+              <p className="mt-0.5 text-sm font-mono text-stone-800">{document.ref}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Format</p>
+              <p className="mt-0.5 text-sm font-semibold text-stone-800 uppercase">{document.format}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Entity Type</p>
+              <p className="mt-0.5 text-sm capitalize text-stone-800">{document.entity_type}</p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Uploaded On</p>
+              <p className="mt-0.5 text-sm text-stone-800">
+                {new Date(document.created_at).toLocaleString()}
+              </p>
+            </div>
+            {document.approved_at && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Approved On</p>
+                <p className="mt-0.5 text-sm text-stone-800">
+                  {new Date(document.approved_at).toLocaleString()}
+                </p>
+              </div>
+            )}
+            {document.approved_by_name && (
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Approved By</p>
+                <p className="mt-0.5 text-sm text-stone-800">{document.approved_by_name}</p>
+              </div>
+            )}
+            {document.e_stamp_status === 'stamped' && (
+              <div className="col-span-full">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">E-Stamp Status</p>
+                <p className="mt-0.5 text-sm font-medium text-emerald-600 flex items-center gap-2">
+                  <Stamp size={16} />
+                  Stamped ✓
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* E-Stamp Preview */}
+          {document.e_stamp_url && (
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Stamp size={20} className="text-emerald-600" />
+                  <h4 className="text-sm font-semibold text-emerald-800">E-Stamp</h4>
+                </div>
+                <div className="flex gap-2">
+                  <a
+                    href={document.e_stamp_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                  >
+                    <Eye size={14} />
+                    View Stamp
+                  </a>
+                  <a
+                    href={document.e_stamp_url}
+                    download={`e-stamp-${document.ref}.png`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                  >
+                    <Download size={14} />
+                    Download
+                  </a>
+                </div>
+              </div>
+              <div className="mt-3 flex items-center gap-4 p-3 bg-white rounded border border-emerald-200">
+                <img
+                  src={document.e_stamp_url}
+                  alt="E-Stamp"
+                  className="max-h-16 w-auto object-contain"
+                />
+                <div className="text-xs text-stone-500">
+                  <p className="font-mono">{document.ref}</p>
+                  <p className="text-emerald-600">✓ Approved on {document.approved_at ? new Date(document.approved_at).toLocaleDateString() : 'N/A'}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Download Stamped Document */}
+          {document.status === 'approved' && document.e_stamp_url && (
+            <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText size={20} className="text-blue-600" />
+                  <h4 className="text-sm font-semibold text-blue-800">Stamped Document</h4>
+                </div>
+                <div className="flex gap-2">
+                  <a
+                    href={document.file_url}
+                    download={`stamped-${document.ref}.${document.format}`}
+                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                  >
+                    <Download size={16} />
+                    Download Stamped Document
+                  </a>
+                  <GoldButton
+                    variant="success"
+                    onClick={handleDeliverToRequester}
+                    disabled={actionsLoading}
+                    icon={actionsLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                  >
+                    {actionsLoading ? 'Sending…' : 'Send to Requester'}
+                  </GoldButton>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-blue-600">
+                This document has been approved and e-stamped. Send it back to the requester, or download it directly.
+              </p>
+            </div>
+          )}
+
+          {/* Approve / Return actions */}
+          {canDecide && (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <h4 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
+                <Clock size={16} />
+                Pending Your Decision
+              </h4>
+              <p className="mt-1 text-xs text-amber-700">
+                Approving will burn a blue registrar stamp into the PDF, upload the stamped version,
+                and mark the document approved. Returning sends the document back to the requester unstamped.
+              </p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <GoldButton
+                  variant="success"
+                  onClick={handleApproveAndStamp}
+                  disabled={isStamping || actionsLoading || showReturnForm}
+                  icon={
+                    isStamping || actionsLoading ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Stamp size={14} />
+                    )
+                  }
+                >
+                  {isStamping || actionsLoading ? 'Stamping…' : 'Approve & Stamp'}
+                </GoldButton>
+                <GoldButton
+                  variant="outline"
+                  onClick={() => setShowReturnForm((v) => !v)}
+                  disabled={isStamping || actionsLoading}
+                  icon={<ArrowLeft size={14} />}
+                >
+                  Return
+                </GoldButton>
+              </div>
+
+              {showReturnForm && (
+                <div className="mt-3 space-y-2">
+                  <textarea
+                    value={returnReason}
+                    onChange={(e) => setReturnReason(e.target.value)}
+                    placeholder="Reason for returning this document to the requester…"
+                    rows={3}
+                    className="w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] resize-none"
+                  />
+                  <div className="flex gap-2">
+                    <GoldButton
+                      variant="danger"
+                      size="sm"
+                      onClick={handleReturn}
+                      disabled={actionsLoading}
+                      icon={actionsLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                    >
+                      {actionsLoading ? 'Returning…' : 'Confirm Return'}
+                    </GoldButton>
+                    <GhostButton onClick={() => setShowReturnForm(false)} disabled={actionsLoading}>
+                      Cancel
+                    </GhostButton>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Approval History */}
+          {document.approval_history && document.approval_history.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
+                <Clock size={16} className="text-stone-400" />
+                Approval History
+              </h3>
+              <div className="mt-3 space-y-2">
+                {document.approval_history.map((entry, index) => (
+                  <div
+                    key={entry.id}
+                    className="relative flex items-start gap-3 rounded-lg border border-stone-100 bg-white p-3"
+                  >
+                    {index < document.approval_history.length - 1 && (
+                      <div className="absolute left-5 top-8 h-full w-0.5 bg-stone-200" />
+                    )}
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-stone-100">
+                      {entry.action === 'submitted' && <Send size={14} className="text-amber-600" />}
+                      {entry.action === 'approved' && <CheckCircle size={14} className="text-emerald-600" />}
+                      {entry.action === 'rejected' && <XCircle size={14} className="text-red-600" />}
+                      {entry.action === 'returned' && <ArrowLeft size={14} className="text-blue-600" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <p className="text-sm font-medium text-stone-800">
+                          {entry.action.charAt(0).toUpperCase() + entry.action.slice(1)}
+                        </p>
+                        <span className="text-xs text-stone-400">
+                          {new Date(entry.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-xs text-stone-500">
+                        By: {entry.from_user_name}
+                        {entry.to_user_name && ` → ${entry.to_user_name}`}
+                      </p>
+                      {entry.comments && (
+                        <p className="mt-1 text-xs text-stone-600 bg-stone-50 rounded p-2">
+                          {entry.comments}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 bg-stone-50 px-6 py-3">
+          <div className="flex gap-2">
+            <a
+              href={document.file_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
+            >
+              <ExternalLink size={14} />
+              View Document
+            </a>
+            <a
+              href={document.file_url}
+              download
+              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
+            >
+              <Download size={14} />
+              Download
+            </a>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-stone-300 px-4 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-50"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Generic DSA Tab ─────────────────────────────────────────────────────────
+
+interface DSATabProps<T> {
+  title: string;
+  icon: React.ReactNode;
+  data: T[];
+  loading: boolean;
+  mutating: boolean;
+  columns: { key: string; label: string; align?: 'left' | 'right' | 'center' }[];
+  renderRow: (item: T) => React.ReactNode;
+  onAdd: () => void;
+  onEdit: (item: T) => void;
+  onDelete: (id: string) => void;
+  onView?: (item: T) => void;
+}
+
+function DSATab<T extends { id: string }>({
+  title,
+  icon,
+  data,
+  loading,
+  mutating,
+  columns,
+  renderRow,
+  onAdd,
+  onEdit,
+  onDelete,
+  onView,
+}: DSATabProps<T>) {
+  return (
+    <Panel
+      title={title}
+      icon={icon}
+      action={
+        <div className="flex gap-2">
+          <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
+          <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={onAdd}>
+            Add {title.slice(0, -1)}
+          </GoldOutlineButton>
+        </div>
+      }
+    >
+      <TableWithActions
+        data={data}
+        loading={loading}
+        columns={columns}
+        renderRow={renderRow}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        mutating={mutating}
+        onView={onView}
+      />
+    </Panel>
+  );
+}
+
+// ─── Circuits Tab ────────────────────────────────────────────────────────────
+
+function CircuitsTab() {
+  const dispatch = useAppDispatch();
+  const data = useAppSelector(selectAllCircuits);
+  const loading = useAppSelector((state) => state.helpdesk.loading.circuits);
+  const mutating = useAppSelector(selectHelpDeskMutating);
+
+  const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<Circuit | null>(null);
+  const [selectedItem, setSelectedItem] = useState<Circuit | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: Circuit) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
+  const handleView = (item: Circuit) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
+  };
+
+  const handleStatusChange = async (id: string, status: Status) => {
+    await dispatch(updateCircuitStatus({ id, status }));
+    await dispatch(fetchCircuits({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deleteCircuit(deleteTarget));
+    await dispatch(fetchCircuits({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
+  return (
+    <>
+      <DSATab
+        title="Circuits"
+        icon={<MapPin className="h-4 w-4" />}
+        data={data}
+        loading={loading}
+        mutating={mutating}
+        columns={[
+          { key: 'name', label: 'Circuit' },
+          { key: 'start_date', label: 'Start' },
+          { key: 'end_date', label: 'End' },
+          { key: 'total_dsa', label: 'Total DSA', align: 'right' },
+          { key: 'status', label: 'Status', align: 'center' },
+        ]}
+        renderRow={(item: Circuit) => (
+          <>
+            <td className="px-3 py-2">
+              <button
+                onClick={() => handleView(item)}
+                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+              >
+                {item.name}
+              </button>
+              {item.location && (
+                <span className="ml-2 text-xs text-stone-400">({item.location})</span>
+              )}
+            </td>
+            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+            <td className="px-3 py-2 text-center">
+              <StatusDropdown
+                status={item.status}
+                onStatusChange={(s) => handleStatusChange(item.id, s)}
+                disabled={mutating}
+              />
+            </td>
+          </>
+        )}
+        onAdd={handleAdd}
+        onEdit={handleEdit}
+        onDelete={(id) => setDeleteTarget(id)}
+        onView={handleView}
+      />
+
+      <CircuitModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        mode="circuit"
+        editingItem={editingItem}
+      />
+
+      {showDetailModal && selectedItem && (
+        <CircuitDetailModal
+          item={selectedItem}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+        />
+      )}
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Circuit?"
+          message="This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Circuit Detail Modal (with document approval) ─────────────────────────
+
+interface CircuitDetailModalProps {
+  item: Circuit;
+  onClose: () => void;
+  onEdit: () => void;
+  onStatusChange: (id: string, status: Status) => void;
+  mutating: boolean;
+}
+
+function CircuitDetailModal({ item, onClose, onEdit, onStatusChange, mutating }: CircuitDetailModalProps) {
+  const dispatch = useAppDispatch();
+  const allDocs = useAppSelector(selectAllHelpdeskDocuments);
+  const docs = allDocs.filter(
+    (d) => d.entity_type === 'circuit' && d.entity_id === item.id
+  );
+  const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
+  const documentsUploading = useAppSelector(selectDocumentsUploading);
+  const documentActionLoading = useAppSelector(selectDocumentActionLoading);
+  const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
+  const isLinking = useAppSelector(selectDocumentLinking);
+
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [selectedDocForView, setSelectedDocForView] = useState<HelpdeskDocument | null>(null);
+  const [showDocViewer, setShowDocViewer] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
+  }, [dispatch, item.id]);
+
+  useEffect(() => {
+    if (showLinkPicker) {
+      dispatch(fetchHelpdeskDocuments({ unlinked: true }));
+    }
+  }, [dispatch, showLinkPicker]);
+
+  const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    const format: DocumentFormat | null =
+      ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ext === 'xlsx' ? 'xlsx' : null;
+    if (!format) {
+      toast.error('Please upload a PDF, Word (.docx), or Excel (.xlsx) file.');
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      await dispatch(
+        uploadHelpdeskDocument({
+          blob: file,
+          filename: file.name,
+          ref: `CIRC/${item.id.slice(0, 8)}`,
+          subject: `Memo for ${item.name}`,
+          entity_type: 'circuit',
+          entity_id: item.id,
+          format,
+        })
+      ).unwrap();
+      toast.success('Document attached to this circuit.');
+      dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to attach document.');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleLinkExisting = async (docId: string) => {
+    try {
+      await dispatch(linkHelpdeskDocument({ id: docId, entity_type: 'circuit', entity_id: item.id })).unwrap();
+      toast.success('Document linked to this circuit.');
+      setShowLinkPicker(false);
+      dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to link document.');
+    }
+  };
+
+  const handleSendForApproval = async (docId: string) => {
+    try {
+      await dispatch(submitForApproval({ id: docId })).unwrap();
+      toast.success('Document sent to the super admin for approval.');
+      dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to submit for approval.');
+    }
+  };
+
+  const handleViewDocument = (doc: HelpdeskDocument) => {
+    setSelectedDocForView(doc);
+    setShowDocViewer(true);
+  };
+
+  const handleCloseDocViewer = () => {
+    setShowDocViewer(false);
+    setSelectedDocForView(null);
+  };
+
+  const handleActionComplete = () => {
+    handleCloseDocViewer();
+    dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
+          <div>
+            <h3 className="text-lg font-semibold text-[#1a3d1c]">{item.name}</h3>
+            {item.location && (
+              <p className="text-sm text-stone-500 flex items-center gap-1">
+                <MapPin size={14} />
+                {item.location}
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="max-h-[65vh] overflow-y-auto p-6">
+          <div className="mb-6 grid grid-cols-2 gap-4 rounded-lg bg-stone-50 p-4">
+            <div>
+              <p className="text-xs text-stone-400">Status</p>
+              <div className="mt-1">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => onStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-stone-400">Total DSA</p>
+              <p className="text-lg font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-stone-400">Period</p>
+              <p className="text-sm font-medium text-stone-800">
+                {formatDate(item.start_date)} — {formatDate(item.end_date)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-stone-400">Members</p>
+              <p className="text-sm font-medium text-stone-800">
+                {item.dsa_details?.length || 0} judges
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <h4 className="mb-3 text-sm font-semibold text-stone-800 flex items-center gap-2">
+              <Users size={16} className="text-[#c9a84c]" />
+              DSA Details
+              <span className="text-xs font-normal text-stone-400">
+                ({item.dsa_details?.length || 0} members)
+              </span>
+            </h4>
+
+            {!item.dsa_details || item.dsa_details.length === 0 ? (
+              <div className="rounded-lg border border-stone-200 bg-stone-50 p-8 text-center">
+                <p className="text-sm text-stone-400">No DSA details available.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-stone-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-stone-200 bg-stone-50">
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">#</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Particulars</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">PJ Number</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Designation</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Rate (KES)</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Days</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Total (KES)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {item.dsa_details.map((detail, index) => (
+                      <tr key={detail.id} className="hover:bg-stone-50 transition-colors">
+                        <td className="px-4 py-2 text-center text-stone-400">{index + 1}</td>
+                        <td className="px-4 py-2 font-medium text-stone-800">{detail.judge_name}</td>
+                        <td className="px-4 py-2 text-stone-600">{detail.pj_number}</td>
+                        <td className="px-4 py-2 text-stone-600">{detail.designation || '—'}</td>
+                        <td className="px-4 py-2 text-right text-stone-600">
+                          {detail.dsa_per_day.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2 text-right text-stone-600">{detail.days}</td>
+                        <td className="px-4 py-2 text-right font-medium text-emerald-700">
+                          {detail.total.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-stone-200 bg-stone-50">
+                      <td colSpan={6} className="px-4 py-3 text-right font-bold text-stone-800">
+                        Grand Total
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-emerald-700">
+                        {formatCurrency(item.total_dsa)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* ─── Document Section ─────────────────────────────────────────────── */}
+          <div className="mt-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-stone-800">Supporting Document</h3>
+              <div className="flex gap-2">
+                <GhostButton
+                  onClick={() => setShowLinkPicker((v) => !v)}
+                  icon={<Paperclip size={14} />}
+                >
+                  Link Existing
+                </GhostButton>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.xlsx"
+                  onChange={handleAttachDocument}
+                  className="hidden"
+                  disabled={documentsUploading}
+                />
+                <GhostButton
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={documentsUploading}
+                  icon={documentsUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                >
+                  {documentsUploading ? 'Uploading…' : 'Attach Document'}
+                </GhostButton>
+              </div>
+            </div>
+
+            {showLinkPicker && (
+              <div className="mt-2 rounded-lg border border-stone-200 bg-white p-2">
+                {unlinkedDocuments.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-stone-400 italic">No unlinked documents found.</p>
+                ) : (
+                  <ul className="divide-y divide-stone-100">
+                    {unlinkedDocuments.map((doc) => (
+                      <li key={doc.id} className="flex items-center justify-between gap-2 px-2 py-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {documentFormatIcon(doc.format)}
+                          <span className="truncate text-sm text-stone-700">{doc.subject}</span>
+                          <span className="shrink-0 text-[11px] text-stone-400">{doc.ref}</span>
+                        </div>
+                        <GhostButton
+                          onClick={() => handleLinkExisting(doc.id)}
+                          disabled={isLinking}
+                          icon={isLinking ? <Loader2 size={12} className="animate-spin" /> : undefined}
+                        >
+                          Attach
+                        </GhostButton>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {documentsLoading && docs.length === 0 ? (
+              <p className="mt-2 text-xs text-stone-400 italic">Checking for an attached document…</p>
+            ) : docs.length === 0 ? (
+              <p className="mt-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-3 text-xs text-stone-400">
+                No document attached yet. Generate one from the memo step when editing this circuit, link an existing one, or attach a file here.
+              </p>
+            ) : (
+              <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
+                {docs.map((doc) => (
+                  <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {documentFormatIcon(doc.format)}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
+                        <div className="mt-0.5 flex items-center gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
+                          >
+                            {doc.status.replace('_', ' ')}
+                          </span>
+                          <span className="text-[11px] text-stone-400">{doc.ref}</span>
+                        </div>
+                        {doc.status === 'rejected' && doc.rejection_reason && (
+                          <p className="mt-1 text-[11px] text-red-600">Reason: {doc.rejection_reason}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        onClick={() => handleViewDocument(doc)}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                      >
+                        <Eye size={14} />
+                        View
+                      </button>
+                      <a
+                        href={doc.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
+                      >
+                        <ExternalLink size={12} />
+                        Open
+                      </a>
+                      {doc.status === 'draft' && (
+                        <GhostButton
+                          onClick={() => handleSendForApproval(doc.id)}
+                          disabled={!!documentActionLoading[doc.id]?.submitting}
+                          icon={
+                            documentActionLoading[doc.id]?.submitting ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Send size={12} />
+                            )
+                          }
+                        >
+                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
+                        </GhostButton>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="mt-6 border-t border-stone-100 pt-4">
+            <div className="grid grid-cols-2 gap-2 text-xs text-stone-400">
+              <div>
+                <span className="font-medium">Created:</span>{' '}
+                {new Date(item.created_at).toLocaleString()}
+              </div>
+              <div>
+                <span className="font-medium">Updated:</span>{' '}
+                {new Date(item.updated_at).toLocaleString()}
+              </div>
+              <div className="col-span-2">
+                <span className="font-medium">ID:</span> {item.id}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">
+          <GhostButton onClick={onClose}>Close</GhostButton>
+          <GoldOutlineButton icon={<Edit size={14} />} onClick={onEdit}>
+            Edit Circuit
+          </GoldOutlineButton>
+        </div>
+      </div>
+
+      {/* Document Viewer Modal */}
+      {showDocViewer && selectedDocForView && (
+        <DocumentViewerModal
+          document={selectedDocForView}
+          entityId={item.id}
+          entityType="circuit"
+          onClose={handleCloseDocViewer}
+          onActionComplete={handleActionComplete}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Other Payments Tab ──────────────────────────────────────────────────────
+
+function OtherPaymentsTab() {
+  // ... (identical to previous, omitted for brevity)
+  // We'll keep the same pattern as before – it doesn't need document approval yet.
+  // But for completeness, we include a placeholder that reuses the same structure.
+  const dispatch = useAppDispatch();
+  const data = useAppSelector(selectAllOtherPayments);
+  const loading = useAppSelector((state) => state.helpdesk.loading.otherPayments);
+  const mutating = useAppSelector(selectHelpDeskMutating);
+
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<OtherPayment | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: OtherPayment) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
+  const handleStatusChange = async (id: string, status: Status) => {
+    await dispatch(updateOtherPaymentStatus({ id, status }));
+    await dispatch(fetchOtherPayments({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deleteOtherPayment(deleteTarget));
+    await dispatch(fetchOtherPayments({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
+  return (
+    <>
+      <DSATab
+        title="Other Payments"
+        icon={<CreditCard className="h-4 w-4" />}
+        data={data}
+        loading={loading}
+        mutating={mutating}
+        columns={[
+          { key: 'name', label: 'Payment' },
+          { key: 'description', label: 'Description' },
+          { key: 'start_date', label: 'Start' },
+          { key: 'end_date', label: 'End' },
+          { key: 'total_dsa', label: 'Total DSA', align: 'right' },
+          { key: 'status', label: 'Status', align: 'center' },
+        ]}
+        renderRow={(item: OtherPayment) => (
+          <>
+            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
+            <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.description || '—'}</td>
+            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+            <td className="px-3 py-2 text-center">
+              <StatusDropdown
+                status={item.status}
+                onStatusChange={(s) => handleStatusChange(item.id, s)}
+                disabled={mutating}
+              />
+            </td>
+          </>
+        )}
+        onAdd={handleAdd}
+        onEdit={handleEdit}
+        onDelete={(id) => setDeleteTarget(id)}
+      />
+
+      <CircuitModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        mode="otherPayment"
+        editingItem={editingItem}
+      />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Other Payment?"
+          message="This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Benches Tab ────────────────────────────────────────────────────────────
+
+function BenchesTab() {
+  // ... (similar to OtherPaymentsTab, but for benches)
+  const dispatch = useAppDispatch();
+  const data = useAppSelector(selectAllBenches);
+  const loading = useAppSelector((state) => state.helpdesk.loading.benches);
+  const mutating = useAppSelector(selectHelpDeskMutating);
+
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<SpecialBench | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: SpecialBench) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
+  const handleStatusChange = async (id: string, status: Status) => {
+    await dispatch(updateBenchStatus({ id, status }));
+    await dispatch(fetchBenches({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deleteBench(deleteTarget));
+    await dispatch(fetchBenches({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
+  return (
+    <>
+      <DSATab
+        title="Special Benches"
+        icon={<Gavel className="h-4 w-4" />}
+        data={data}
+        loading={loading}
+        mutating={mutating}
+        columns={[
+          { key: 'name', label: 'Bench / Case' },
+          { key: 'start_date', label: 'Start' },
+          { key: 'end_date', label: 'End' },
+          { key: 'total_dsa', label: 'Total DSA', align: 'right' },
+          { key: 'status', label: 'Status', align: 'center' },
+        ]}
+        renderRow={(item: SpecialBench) => (
+          <>
+            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
+            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+            <td className="px-3 py-2 text-center">
+              <StatusDropdown
+                status={item.status}
+                onStatusChange={(s) => handleStatusChange(item.id, s)}
+                disabled={mutating}
+              />
+            </td>
+          </>
+        )}
+        onAdd={handleAdd}
+        onEdit={handleEdit}
+        onDelete={(id) => setDeleteTarget(id)}
+      />
+
+      <CircuitModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        mode="bench"
+        editingItem={editingItem}
+      />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Bench?"
+          message="This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Part-Heards Tab ─────────────────────────────────────────────────────────
+
+function PartHeardTab() {
+  // ... (similar to above)
+  const dispatch = useAppDispatch();
+  const data = useAppSelector(selectAllPartHeards);
+  const loading = useAppSelector((state) => state.helpdesk.loading.partHeards);
+  const mutating = useAppSelector(selectHelpDeskMutating);
+
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<PartHeard | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: PartHeard) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
+  const handleStatusChange = async (id: string, status: Status) => {
+    await dispatch(updatePartHeardStatus({ id, status }));
+    await dispatch(fetchPartHeards({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deletePartHeard(deleteTarget));
+    await dispatch(fetchPartHeards({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
+  return (
+    <>
+      <DSATab
+        title="Part-Heards"
+        icon={<FileCheck className="h-4 w-4" />}
+        data={data}
+        loading={loading}
+        mutating={mutating}
+        columns={[
+          { key: 'case_reference', label: 'Reference' },
+          { key: 'approved_by', label: 'Approved By' },
+          { key: 'start_date', label: 'Start' },
+          { key: 'end_date', label: 'End' },
+          { key: 'total_dsa', label: 'Total DSA', align: 'right' },
+          { key: 'status', label: 'Status', align: 'center' },
+        ]}
+        renderRow={(item: PartHeard) => (
+          <>
+            <td className="px-3 py-2 font-medium text-stone-800">{item.case_reference}</td>
+            <td className="px-3 py-2 text-stone-600">{item.approved_by || '—'}</td>
+            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+            <td className="px-3 py-2 text-center">
+              <StatusDropdown
+                status={item.status}
+                onStatusChange={(s) => handleStatusChange(item.id, s)}
+                disabled={mutating}
+              />
+            </td>
+          </>
+        )}
+        onAdd={handleAdd}
+        onEdit={handleEdit}
+        onDelete={(id) => setDeleteTarget(id)}
+      />
+
+      <CircuitModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        mode="partHeard"
+        editingItem={editingItem}
+      />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Part-Heard?"
+          message="This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Service Week Tab ────────────────────────────────────────────────────────
+
+function ServiceWeekTab() {
+  // ... (similar)
+  const dispatch = useAppDispatch();
+  const data = useAppSelector(selectAllServiceWeeks);
+  const loading = useAppSelector((state) => state.helpdesk.loading.serviceWeeks);
+  const mutating = useAppSelector(selectHelpDeskMutating);
+
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<ServiceWeek | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: ServiceWeek) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
+  const handleStatusChange = async (id: string, status: Status) => {
+    await dispatch(updateServiceWeekStatus({ id, status }));
+    await dispatch(fetchServiceWeeks({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deleteServiceWeek(deleteTarget));
+    await dispatch(fetchServiceWeeks({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
+  return (
+    <>
+      <DSATab
+        title="Service Week / RRI"
+        icon={<Calendar className="h-4 w-4" />}
+        data={data}
+        loading={loading}
+        mutating={mutating}
+        columns={[
+          { key: 'name', label: 'Week Name' },
+          { key: 'week_number', label: 'Week #' },
+          { key: 'year', label: 'Year' },
+          { key: 'total_dsa', label: 'Total DSA', align: 'right' },
+          { key: 'status', label: 'Status', align: 'center' },
+        ]}
+        renderRow={(item: ServiceWeek) => (
+          <>
+            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
+            <td className="px-3 py-2 text-stone-600">{item.week_number}</td>
+            <td className="px-3 py-2 text-stone-600">{item.year}</td>
+            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+            <td className="px-3 py-2 text-center">
+              <StatusDropdown
+                status={item.status}
+                onStatusChange={(s) => handleStatusChange(item.id, s)}
+                disabled={mutating}
+              />
+            </td>
+          </>
+        )}
+        onAdd={handleAdd}
+        onEdit={handleEdit}
+        onDelete={(id) => setDeleteTarget(id)}
+      />
+
+      <CircuitModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        mode="serviceWeek"
+        editingItem={editingItem}
+      />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Service Week?"
+          message="This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Medical Claims Tab ──────────────────────────────────────────────────────
+
+function MedicalClaimsTab() {
+  // ... (similar)
+  const dispatch = useAppDispatch();
+  const data = useAppSelector(selectAllMedicalClaims);
+  const loading = useAppSelector((state) => state.helpdesk.loading.medicalClaims);
+  const mutating = useAppSelector(selectHelpDeskMutating);
+
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<MedicalClaim | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: MedicalClaim) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
+  const handleStatusChange = async (id: string, status: Status) => {
+    await dispatch(updateMedicalClaimStatus({ id, status }));
+    await dispatch(fetchMedicalClaims({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deleteMedicalClaim(deleteTarget));
+    await dispatch(fetchMedicalClaims({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
+  return (
+    <>
+      <Panel
+        title="Medical Expense Claims"
+        icon={<Stethoscope className="h-4 w-4" />}
+        action={
+          <div className="flex gap-2">
+            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
+            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
+              Add Claim
+            </GoldOutlineButton>
+          </div>
+        }
+      >
+        <TableWithActions
+          data={data}
+          loading={loading}
+          columns={[
+            { key: 's_no', label: 'S/No.' },
+            { key: 'officer_name', label: "Officer's Name" },
+            { key: 'claim_amount', label: 'Claim Amount', align: 'right' },
+            { key: 'date_forwarded_dhr', label: 'Date Forwarded to DHR' },
+            { key: 'status', label: 'Status', align: 'center' },
+            { key: 'remarks', label: 'Remarks' },
+          ]}
+          renderRow={(item: MedicalClaim) => (
+            <>
+              <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
+              <td className="px-3 py-2 font-medium text-stone-800">{item.officer_name}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.claim_amount)}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.date_forwarded_dhr)}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.remarks || '—'}</td>
+            </>
+          )}
+          onEdit={handleEdit}
+          onDelete={(id) => setDeleteTarget(id)}
+          mutating={mutating}
+        />
+      </Panel>
+
+      <RequestModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        mode="medical"
+        editingItem={editingItem}
+      />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Medical Claim?"
+          message="This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── General Requests Tab ────────────────────────────────────────────────────
+
+function GeneralRequestsTab() {
+  // ... (similar)
+  const dispatch = useAppDispatch();
+  const data = useAppSelector(selectAllGeneralRequests);
+  const loading = useAppSelector((state) => state.helpdesk.loading.generalRequests);
+  const mutating = useAppSelector(selectHelpDeskMutating);
+
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<GeneralRequest | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: GeneralRequest) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
+  const handleStatusChange = async (id: string, status: Status) => {
+    await dispatch(updateGeneralRequestStatus({ id, status }));
+    await dispatch(fetchGeneralRequests({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deleteGeneralRequest(deleteTarget));
+    await dispatch(fetchGeneralRequests({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
+  return (
+    <>
+      <Panel
+        title="General Requests"
+        icon={<FileText className="h-4 w-4" />}
+        action={
+          <div className="flex gap-2">
+            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
+            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
+              Add Request
+            </GoldOutlineButton>
+          </div>
+        }
+      >
+        <TableWithActions
+          data={data}
+          loading={loading}
+          columns={[
+            { key: 's_no', label: 'S/No.' },
+            { key: 'judge_name', label: "Judge's Name" },
+            { key: 'request', label: 'Request' },
+            { key: 'date_received', label: 'Date Received' },
+            { key: 'officer_assigned', label: 'Officer Assigned' },
+            { key: 'status', label: 'Status', align: 'center' },
+            { key: 'remarks', label: 'Remarks' },
+          ]}
+          renderRow={(item: GeneralRequest) => (
+            <>
+              <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
+              <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
+              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.request}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
+              <td className="px-3 py-2 text-stone-600">{item.officer_assigned || '—'}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.remarks || '—'}</td>
+            </>
+          )}
+          onEdit={handleEdit}
+          onDelete={(id) => setDeleteTarget(id)}
+          mutating={mutating}
+        />
+      </Panel>
+
+      <RequestModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        mode="general"
+        editingItem={editingItem}
+      />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete General Request?"
+          message="This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Visa Tab ─────────────────────────────────────────────────────────────────
+
+function VisaTab() {
+  // ... (similar)
+  const dispatch = useAppDispatch();
+  const data = useAppSelector(selectAllVisaRequests);
+  const loading = useAppSelector((state) => state.helpdesk.loading.visa);
+  const mutating = useAppSelector(selectHelpDeskMutating);
+
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<VisaRequest | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: VisaRequest) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
+  const handleStatusChange = async (id: string, status: Status) => {
+    await dispatch(updateVisaStatus({ id, status }));
+    await dispatch(fetchVisaRequests({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deleteVisaRequest(deleteTarget));
+    await dispatch(fetchVisaRequests({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
+  return (
+    <>
+      <Panel
+        title="Visa Support"
+        icon={<Plane className="h-4 w-4" />}
+        action={
+          <div className="flex gap-2">
+            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
+            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
+              Add Visa Request
+            </GoldOutlineButton>
+          </div>
+        }
+      >
+        <TableWithActions
+          data={data}
+          loading={loading}
+          columns={[
+            { key: 's_no', label: 'S/No.' },
+            { key: 'name', label: 'Name' },
+            { key: 'destination_country', label: 'Destination' },
+            { key: 'date_of_travel', label: 'Travel Date' },
+            { key: 'date_of_return', label: 'Return Date' },
+            { key: 'visa_type', label: 'Visa Type' },
+            { key: 'purpose_of_travel', label: 'Purpose' },
+            { key: 'remarks', label: 'Remarks' },
+            { key: 'status', label: 'Status', align: 'center' },
+          ]}
+          renderRow={(item: VisaRequest) => (
+            <>
+              <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
+              <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
+              <td className="px-3 py-2 text-stone-600">{item.destination_country}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.date_of_travel)}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.date_of_return)}</td>
+              <td className="px-3 py-2 text-stone-600">{item.visa_type}</td>
+              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.purpose_of_travel || '—'}</td>
+              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.remarks || '—'}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+            </>
+          )}
+          onEdit={handleEdit}
+          onDelete={(id) => setDeleteTarget(id)}
+          mutating={mutating}
+        />
+      </Panel>
+
+      <VisaModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        editingItem={editingItem}
+      />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Visa Request?"
+          message="This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Protocol Tab ─────────────────────────────────────────────────────────────
+
+function ProtocolTab() {
+  // ... (similar)
+  const dispatch = useAppDispatch();
+  const data = useAppSelector(selectAllProtocolEvents);
+  const loading = useAppSelector((state) => state.helpdesk.loading.protocol);
+  const mutating = useAppSelector(selectHelpDeskMutating);
+
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<ProtocolEvent | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: ProtocolEvent) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
+  const handleStatusChange = async (id: string, status: Status) => {
+    await dispatch(updateProtocolStatus({ id, status }));
+    await dispatch(fetchProtocolEvents({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deleteProtocolEvent(deleteTarget));
+    await dispatch(fetchProtocolEvents({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
+  return (
+    <>
+      <Panel
+        title="Protocol Support"
+        icon={<Calendar className="h-4 w-4" />}
+        action={
+          <div className="flex gap-2">
+            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
+            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
+              Add Protocol Event
+            </GoldOutlineButton>
+          </div>
+        }
+      >
+        <TableWithActions
+          data={data}
+          loading={loading}
+          columns={[
+            { key: 's_no', label: 'S/No.' },
+            { key: 'activity', label: 'Activity' },
+            { key: 'period_from', label: 'Period From' },
+            { key: 'period_to', label: 'Period To' },
+            { key: 'officers_assigned', label: 'Officers Assigned' },
+            { key: 'remarks', label: 'Remarks' },
+            { key: 'dsa_required', label: 'DSA', align: 'center' },
+            { key: 'total_dsa', label: 'Total DSA', align: 'right' },
+            { key: 'status', label: 'Status', align: 'center' },
+          ]}
+          renderRow={(item: ProtocolEvent) => (
+            <>
+              <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
+              <td className="px-3 py-2 font-medium text-stone-800">{item.activity}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.period_from)}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.period_to)}</td>
+              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.officers_assigned || '—'}</td>
+              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.remarks || '—'}</td>
+              <td className="px-3 py-2 text-center text-stone-600">{item.dsa_required ? 'Yes' : 'No'}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+            </>
+          )}
+          onEdit={handleEdit}
+          onDelete={(id) => setDeleteTarget(id)}
+          mutating={mutating}
+          onView={(item) => {
+            console.log('View protocol:', item);
+          }}
+        />
+      </Panel>
+
+      <ProtocolModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        editingItem={editingItem}
+      />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Protocol Event?"
+          message="This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+    </>
+  );
+}
+
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
 
 function OverviewTab() {
@@ -596,6 +2493,7 @@ function UtilitiesTab({
 }: {
   onViewJudge?: (judgeName: string) => void;
 }) {
+  // ... (existing, unchanged)
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllUtilities);
   const loading = useAppSelector((state) => state.helpdesk.loading.utilities);
@@ -809,6 +2707,7 @@ function UtilityStatusDropdown({
 // ─── Club Tab ─────────────────────────────────────────────────────────────────
 
 function ClubTab() {
+  // ... (unchanged)
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllClubMemberships);
   const loading = useAppSelector((state) => state.helpdesk.loading.club);
@@ -920,1158 +2819,6 @@ function ClubTab() {
         />
       )}
     </>
-  );
-}
-
-// ─── Generic DSA Tab ─────────────────────────────────────────────────────────
-
-interface DSATabProps<T> {
-  title: string;
-  icon: React.ReactNode;
-  data: T[];
-  loading: boolean;
-  mutating: boolean;
-  columns: { key: string; label: string; align?: 'left' | 'right' | 'center' }[];
-  renderRow: (item: T) => React.ReactNode;
-  onAdd: () => void;
-  onEdit: (item: T) => void;
-  onDelete: (id: string) => void;
-  onView?: (item: T) => void;
-}
-
-function DSATab<T extends { id: string }>({
-  title,
-  icon,
-  data,
-  loading,
-  mutating,
-  columns,
-  renderRow,
-  onAdd,
-  onEdit,
-  onDelete,
-  onView,
-}: DSATabProps<T>) {
-  return (
-    <Panel
-      title={title}
-      icon={icon}
-      action={
-        <div className="flex gap-2">
-          <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
-          <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={onAdd}>
-            Add {title.slice(0, -1)}
-          </GoldOutlineButton>
-        </div>
-      }
-    >
-      <TableWithActions
-        data={data}
-        loading={loading}
-        columns={columns}
-        renderRow={renderRow}
-        onEdit={onEdit}
-        onDelete={onDelete}
-        mutating={mutating}
-        onView={onView}
-      />
-    </Panel>
-  );
-}
-
-// ─── Circuits Tab ────────────────────────────────────────────────────────────
-
-function CircuitsTab() {
-  const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllCircuits);
-  const loading = useAppSelector((state) => state.helpdesk.loading.circuits);
-  const mutating = useAppSelector(selectHelpDeskMutating);
-
-  const [showModal, setShowModal] = useState(false);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [editingItem, setEditingItem] = useState<Circuit | null>(null);
-  const [selectedItem, setSelectedItem] = useState<Circuit | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-
-  const handleAdd = () => {
-    setEditingItem(null);
-    setShowModal(true);
-  };
-
-  const handleEdit = (item: Circuit) => {
-    setEditingItem(item);
-    setShowModal(true);
-  };
-
-  const handleView = (item: Circuit) => {
-    setSelectedItem(item);
-    setShowDetailModal(true);
-  };
-
-  const handleStatusChange = async (id: string, status: Status) => {
-    await dispatch(updateCircuitStatus({ id, status }));
-    await dispatch(fetchCircuits({}));
-    await dispatch(fetchHelpDeskStats());
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    await dispatch(deleteCircuit(deleteTarget));
-    await dispatch(fetchCircuits({}));
-    await dispatch(fetchHelpDeskStats());
-    setDeleteTarget(null);
-  };
-
-  return (
-    <>
-      <DSATab
-        title="Circuits"
-        icon={<MapPin className="h-4 w-4" />}
-        data={data}
-        loading={loading}
-        mutating={mutating}
-        columns={[
-          { key: 'name', label: 'Circuit' },
-          { key: 'start_date', label: 'Start' },
-          { key: 'end_date', label: 'End' },
-          { key: 'total_dsa', label: 'Total DSA', align: 'right' },
-          { key: 'status', label: 'Status', align: 'center' },
-        ]}
-        renderRow={(item: Circuit) => (
-          <>
-            <td className="px-3 py-2">
-              <button
-                onClick={() => handleView(item)}
-                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-              >
-                {item.name}
-              </button>
-              {item.location && (
-                <span className="ml-2 text-xs text-stone-400">({item.location})</span>
-              )}
-            </td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
-        onAdd={handleAdd}
-        onEdit={handleEdit}
-        onDelete={(id) => setDeleteTarget(id)}
-        onView={handleView}
-      />
-
-      <CircuitModal
-        isOpen={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setEditingItem(null);
-        }}
-        mode="circuit"
-        editingItem={editingItem}
-      />
-
-      {showDetailModal && selectedItem && (
-        <CircuitDetailModal
-          item={selectedItem}
-          onClose={() => setShowDetailModal(false)}
-          onEdit={() => {
-            setShowDetailModal(false);
-            handleEdit(selectedItem);
-          }}
-          onStatusChange={handleStatusChange}
-          mutating={mutating}
-        />
-      )}
-
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete Circuit?"
-          message="This action cannot be undone."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          loading={mutating}
-        />
-      )}
-    </>
-  );
-}
-
-// ─── Other Payments Tab ──────────────────────────────────────────────────────
-
-function OtherPaymentsTab() {
-  const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllOtherPayments);
-  const loading = useAppSelector((state) => state.helpdesk.loading.otherPayments);
-  const mutating = useAppSelector(selectHelpDeskMutating);
-
-  const [showModal, setShowModal] = useState(false);
-  const [editingItem, setEditingItem] = useState<OtherPayment | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-
-  const handleAdd = () => {
-    setEditingItem(null);
-    setShowModal(true);
-  };
-
-  const handleEdit = (item: OtherPayment) => {
-    setEditingItem(item);
-    setShowModal(true);
-  };
-
-  const handleStatusChange = async (id: string, status: Status) => {
-    await dispatch(updateOtherPaymentStatus({ id, status }));
-    await dispatch(fetchOtherPayments({}));
-    await dispatch(fetchHelpDeskStats());
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    await dispatch(deleteOtherPayment(deleteTarget));
-    await dispatch(fetchOtherPayments({}));
-    await dispatch(fetchHelpDeskStats());
-    setDeleteTarget(null);
-  };
-
-  return (
-    <>
-      <DSATab
-        title="Other Payments"
-        icon={<CreditCard className="h-4 w-4" />}
-        data={data}
-        loading={loading}
-        mutating={mutating}
-        columns={[
-          { key: 'name', label: 'Payment' },
-          { key: 'description', label: 'Description' },
-          { key: 'start_date', label: 'Start' },
-          { key: 'end_date', label: 'End' },
-          { key: 'total_dsa', label: 'Total DSA', align: 'right' },
-          { key: 'status', label: 'Status', align: 'center' },
-        ]}
-        renderRow={(item: OtherPayment) => (
-          <>
-            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
-            <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.description || '—'}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
-        onAdd={handleAdd}
-        onEdit={handleEdit}
-        onDelete={(id) => setDeleteTarget(id)}
-      />
-
-      <CircuitModal
-        isOpen={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setEditingItem(null);
-        }}
-        mode="otherPayment"
-        editingItem={editingItem}
-      />
-
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete Other Payment?"
-          message="This action cannot be undone."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          loading={mutating}
-        />
-      )}
-    </>
-  );
-}
-
-// ─── Benches Tab ────────────────────────────────────────────────────────────
-
-function BenchesTab() {
-  const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllBenches);
-  const loading = useAppSelector((state) => state.helpdesk.loading.benches);
-  const mutating = useAppSelector(selectHelpDeskMutating);
-
-  const [showModal, setShowModal] = useState(false);
-  const [editingItem, setEditingItem] = useState<SpecialBench | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-
-  const handleAdd = () => {
-    setEditingItem(null);
-    setShowModal(true);
-  };
-
-  const handleEdit = (item: SpecialBench) => {
-    setEditingItem(item);
-    setShowModal(true);
-  };
-
-  const handleStatusChange = async (id: string, status: Status) => {
-    await dispatch(updateBenchStatus({ id, status }));
-    await dispatch(fetchBenches({}));
-    await dispatch(fetchHelpDeskStats());
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    await dispatch(deleteBench(deleteTarget));
-    await dispatch(fetchBenches({}));
-    await dispatch(fetchHelpDeskStats());
-    setDeleteTarget(null);
-  };
-
-  return (
-    <>
-      <DSATab
-        title="Special Benches"
-        icon={<Gavel className="h-4 w-4" />}
-        data={data}
-        loading={loading}
-        mutating={mutating}
-        columns={[
-          { key: 'name', label: 'Bench / Case' },
-          { key: 'start_date', label: 'Start' },
-          { key: 'end_date', label: 'End' },
-          { key: 'total_dsa', label: 'Total DSA', align: 'right' },
-          { key: 'status', label: 'Status', align: 'center' },
-        ]}
-        renderRow={(item: SpecialBench) => (
-          <>
-            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
-        onAdd={handleAdd}
-        onEdit={handleEdit}
-        onDelete={(id) => setDeleteTarget(id)}
-      />
-
-      <CircuitModal
-        isOpen={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setEditingItem(null);
-        }}
-        mode="bench"
-        editingItem={editingItem}
-      />
-
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete Bench?"
-          message="This action cannot be undone."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          loading={mutating}
-        />
-      )}
-    </>
-  );
-}
-
-// ─── Part-Heards Tab ─────────────────────────────────────────────────────────
-
-function PartHeardTab() {
-  const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllPartHeards);
-  const loading = useAppSelector((state) => state.helpdesk.loading.partHeards);
-  const mutating = useAppSelector(selectHelpDeskMutating);
-
-  const [showModal, setShowModal] = useState(false);
-  const [editingItem, setEditingItem] = useState<PartHeard | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-
-  const handleAdd = () => {
-    setEditingItem(null);
-    setShowModal(true);
-  };
-
-  const handleEdit = (item: PartHeard) => {
-    setEditingItem(item);
-    setShowModal(true);
-  };
-
-  const handleStatusChange = async (id: string, status: Status) => {
-    await dispatch(updatePartHeardStatus({ id, status }));
-    await dispatch(fetchPartHeards({}));
-    await dispatch(fetchHelpDeskStats());
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    await dispatch(deletePartHeard(deleteTarget));
-    await dispatch(fetchPartHeards({}));
-    await dispatch(fetchHelpDeskStats());
-    setDeleteTarget(null);
-  };
-
-  return (
-    <>
-      <DSATab
-        title="Part-Heards"
-        icon={<FileCheck className="h-4 w-4" />}
-        data={data}
-        loading={loading}
-        mutating={mutating}
-        columns={[
-          { key: 'case_reference', label: 'Reference' },
-          { key: 'approved_by', label: 'Approved By' },
-          { key: 'start_date', label: 'Start' },
-          { key: 'end_date', label: 'End' },
-          { key: 'total_dsa', label: 'Total DSA', align: 'right' },
-          { key: 'status', label: 'Status', align: 'center' },
-        ]}
-        renderRow={(item: PartHeard) => (
-          <>
-            <td className="px-3 py-2 font-medium text-stone-800">{item.case_reference}</td>
-            <td className="px-3 py-2 text-stone-600">{item.approved_by || '—'}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
-        onAdd={handleAdd}
-        onEdit={handleEdit}
-        onDelete={(id) => setDeleteTarget(id)}
-      />
-
-      <CircuitModal
-        isOpen={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setEditingItem(null);
-        }}
-        mode="partHeard"
-        editingItem={editingItem}
-      />
-
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete Part-Heard?"
-          message="This action cannot be undone."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          loading={mutating}
-        />
-      )}
-    </>
-  );
-}
-
-// ─── Service Week Tab ────────────────────────────────────────────────────────
-
-function ServiceWeekTab() {
-  const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllServiceWeeks);
-  const loading = useAppSelector((state) => state.helpdesk.loading.serviceWeeks);
-  const mutating = useAppSelector(selectHelpDeskMutating);
-
-  const [showModal, setShowModal] = useState(false);
-  const [editingItem, setEditingItem] = useState<ServiceWeek | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-
-  const handleAdd = () => {
-    setEditingItem(null);
-    setShowModal(true);
-  };
-
-  const handleEdit = (item: ServiceWeek) => {
-    setEditingItem(item);
-    setShowModal(true);
-  };
-
-  const handleStatusChange = async (id: string, status: Status) => {
-    await dispatch(updateServiceWeekStatus({ id, status }));
-    await dispatch(fetchServiceWeeks({}));
-    await dispatch(fetchHelpDeskStats());
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    await dispatch(deleteServiceWeek(deleteTarget));
-    await dispatch(fetchServiceWeeks({}));
-    await dispatch(fetchHelpDeskStats());
-    setDeleteTarget(null);
-  };
-
-  return (
-    <>
-      <DSATab
-        title="Service Week / RRI"
-        icon={<Calendar className="h-4 w-4" />}
-        data={data}
-        loading={loading}
-        mutating={mutating}
-        columns={[
-          { key: 'name', label: 'Week Name' },
-          { key: 'week_number', label: 'Week #' },
-          { key: 'year', label: 'Year' },
-          { key: 'total_dsa', label: 'Total DSA', align: 'right' },
-          { key: 'status', label: 'Status', align: 'center' },
-        ]}
-        renderRow={(item: ServiceWeek) => (
-          <>
-            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
-            <td className="px-3 py-2 text-stone-600">{item.week_number}</td>
-            <td className="px-3 py-2 text-stone-600">{item.year}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
-        onAdd={handleAdd}
-        onEdit={handleEdit}
-        onDelete={(id) => setDeleteTarget(id)}
-      />
-
-      <CircuitModal
-        isOpen={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setEditingItem(null);
-        }}
-        mode="serviceWeek"
-        editingItem={editingItem}
-      />
-
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete Service Week?"
-          message="This action cannot be undone."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          loading={mutating}
-        />
-      )}
-    </>
-  );
-}
-
-// ─── Medical Claims Tab ──────────────────────────────────────────────────────
-
-function MedicalClaimsTab() {
-  const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllMedicalClaims);
-  const loading = useAppSelector((state) => state.helpdesk.loading.medicalClaims);
-  const mutating = useAppSelector(selectHelpDeskMutating);
-
-  const [showModal, setShowModal] = useState(false);
-  const [editingItem, setEditingItem] = useState<MedicalClaim | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-
-  const handleAdd = () => {
-    setEditingItem(null);
-    setShowModal(true);
-  };
-
-  const handleEdit = (item: MedicalClaim) => {
-    setEditingItem(item);
-    setShowModal(true);
-  };
-
-  const handleStatusChange = async (id: string, status: Status) => {
-    await dispatch(updateMedicalClaimStatus({ id, status }));
-    await dispatch(fetchMedicalClaims({}));
-    await dispatch(fetchHelpDeskStats());
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    await dispatch(deleteMedicalClaim(deleteTarget));
-    await dispatch(fetchMedicalClaims({}));
-    await dispatch(fetchHelpDeskStats());
-    setDeleteTarget(null);
-  };
-
-  return (
-    <>
-      <Panel
-        title="Medical Expense Claims"
-        icon={<Stethoscope className="h-4 w-4" />}
-        action={
-          <div className="flex gap-2">
-            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
-            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
-              Add Claim
-            </GoldOutlineButton>
-          </div>
-        }
-      >
-        <TableWithActions
-          data={data}
-          loading={loading}
-          columns={[
-            { key: 's_no', label: 'S/No.' },
-            { key: 'officer_name', label: "Officer's Name" },
-            { key: 'claim_amount', label: 'Claim Amount', align: 'right' },
-            { key: 'date_forwarded_dhr', label: 'Date Forwarded to DHR' },
-            { key: 'status', label: 'Status', align: 'center' },
-            { key: 'remarks', label: 'Remarks' },
-          ]}
-          renderRow={(item: MedicalClaim) => (
-            <>
-              <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.officer_name}</td>
-              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.claim_amount)}</td>
-              <td className="px-3 py-2 text-stone-600">{formatDate(item.date_forwarded_dhr)}</td>
-              <td className="px-3 py-2 text-center">
-                <StatusDropdown
-                  status={item.status}
-                  onStatusChange={(s) => handleStatusChange(item.id, s)}
-                  disabled={mutating}
-                />
-              </td>
-              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.remarks || '—'}</td>
-            </>
-          )}
-          onEdit={handleEdit}
-          onDelete={(id) => setDeleteTarget(id)}
-          mutating={mutating}
-        />
-      </Panel>
-
-      <RequestModal
-        isOpen={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setEditingItem(null);
-        }}
-        mode="medical"
-        editingItem={editingItem}
-      />
-
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete Medical Claim?"
-          message="This action cannot be undone."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          loading={mutating}
-        />
-      )}
-    </>
-  );
-}
-
-// ─── General Requests Tab ────────────────────────────────────────────────────
-
-function GeneralRequestsTab() {
-  const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllGeneralRequests);
-  const loading = useAppSelector((state) => state.helpdesk.loading.generalRequests);
-  const mutating = useAppSelector(selectHelpDeskMutating);
-
-  const [showModal, setShowModal] = useState(false);
-  const [editingItem, setEditingItem] = useState<GeneralRequest | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-
-  const handleAdd = () => {
-    setEditingItem(null);
-    setShowModal(true);
-  };
-
-  const handleEdit = (item: GeneralRequest) => {
-    setEditingItem(item);
-    setShowModal(true);
-  };
-
-  const handleStatusChange = async (id: string, status: Status) => {
-    await dispatch(updateGeneralRequestStatus({ id, status }));
-    await dispatch(fetchGeneralRequests({}));
-    await dispatch(fetchHelpDeskStats());
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    await dispatch(deleteGeneralRequest(deleteTarget));
-    await dispatch(fetchGeneralRequests({}));
-    await dispatch(fetchHelpDeskStats());
-    setDeleteTarget(null);
-  };
-
-  return (
-    <>
-      <Panel
-        title="General Requests"
-        icon={<FileText className="h-4 w-4" />}
-        action={
-          <div className="flex gap-2">
-            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
-            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
-              Add Request
-            </GoldOutlineButton>
-          </div>
-        }
-      >
-        <TableWithActions
-          data={data}
-          loading={loading}
-          columns={[
-            { key: 's_no', label: 'S/No.' },
-            { key: 'judge_name', label: "Judge's Name" },
-            { key: 'request', label: 'Request' },
-            { key: 'date_received', label: 'Date Received' },
-            { key: 'officer_assigned', label: 'Officer Assigned' },
-            { key: 'status', label: 'Status', align: 'center' },
-            { key: 'remarks', label: 'Remarks' },
-          ]}
-          renderRow={(item: GeneralRequest) => (
-            <>
-              <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
-              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.request}</td>
-              <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
-              <td className="px-3 py-2 text-stone-600">{item.officer_assigned || '—'}</td>
-              <td className="px-3 py-2 text-center">
-                <StatusDropdown
-                  status={item.status}
-                  onStatusChange={(s) => handleStatusChange(item.id, s)}
-                  disabled={mutating}
-                />
-              </td>
-              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.remarks || '—'}</td>
-            </>
-          )}
-          onEdit={handleEdit}
-          onDelete={(id) => setDeleteTarget(id)}
-          mutating={mutating}
-        />
-      </Panel>
-
-      <RequestModal
-        isOpen={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setEditingItem(null);
-        }}
-        mode="general"
-        editingItem={editingItem}
-      />
-
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete General Request?"
-          message="This action cannot be undone."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          loading={mutating}
-        />
-      )}
-    </>
-  );
-}
-
-// ─── Visa Tab (updated) ──────────────────────────────────────────────────────
-
-function VisaTab() {
-  const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllVisaRequests);
-  const loading = useAppSelector((state) => state.helpdesk.loading.visa);
-  const mutating = useAppSelector(selectHelpDeskMutating);
-
-  const [showModal, setShowModal] = useState(false);
-  const [editingItem, setEditingItem] = useState<VisaRequest | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-
-  const handleAdd = () => {
-    setEditingItem(null);
-    setShowModal(true);
-  };
-
-  const handleEdit = (item: VisaRequest) => {
-    setEditingItem(item);
-    setShowModal(true);
-  };
-
-  const handleStatusChange = async (id: string, status: Status) => {
-    await dispatch(updateVisaStatus({ id, status }));
-    await dispatch(fetchVisaRequests({}));
-    await dispatch(fetchHelpDeskStats());
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    await dispatch(deleteVisaRequest(deleteTarget));
-    await dispatch(fetchVisaRequests({}));
-    await dispatch(fetchHelpDeskStats());
-    setDeleteTarget(null);
-  };
-
-  return (
-    <>
-      <Panel
-        title="Visa Support"
-        icon={<Plane className="h-4 w-4" />}
-        action={
-          <div className="flex gap-2">
-            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
-            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
-              Add Visa Request
-            </GoldOutlineButton>
-          </div>
-        }
-      >
-        <TableWithActions
-          data={data}
-          loading={loading}
-          columns={[
-            { key: 's_no', label: 'S/No.' },
-            { key: 'name', label: 'Name' },
-            { key: 'destination_country', label: 'Destination' },
-            { key: 'date_of_travel', label: 'Travel Date' },
-            { key: 'date_of_return', label: 'Return Date' },
-            { key: 'visa_type', label: 'Visa Type' },
-            { key: 'purpose_of_travel', label: 'Purpose' },
-            { key: 'remarks', label: 'Remarks' },
-            { key: 'status', label: 'Status', align: 'center' },
-          ]}
-          renderRow={(item: VisaRequest) => (
-            <>
-              <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
-              <td className="px-3 py-2 text-stone-600">{item.destination_country}</td>
-              <td className="px-3 py-2 text-stone-600">{formatDate(item.date_of_travel)}</td>
-              <td className="px-3 py-2 text-stone-600">{formatDate(item.date_of_return)}</td>
-              <td className="px-3 py-2 text-stone-600">{item.visa_type}</td>
-              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.purpose_of_travel || '—'}</td>
-              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.remarks || '—'}</td>
-              <td className="px-3 py-2 text-center">
-                <StatusDropdown
-                  status={item.status}
-                  onStatusChange={(s) => handleStatusChange(item.id, s)}
-                  disabled={mutating}
-                />
-              </td>
-            </>
-          )}
-          onEdit={handleEdit}
-          onDelete={(id) => setDeleteTarget(id)}
-          mutating={mutating}
-        />
-      </Panel>
-
-      <VisaModal
-        isOpen={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setEditingItem(null);
-        }}
-        editingItem={editingItem}
-      />
-
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete Visa Request?"
-          message="This action cannot be undone."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          loading={mutating}
-        />
-      )}
-    </>
-  );
-}
-
-// ─── Protocol Tab (updated) ─────────────────────────────────────────────────
-
-function ProtocolTab() {
-  const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllProtocolEvents);
-  const loading = useAppSelector((state) => state.helpdesk.loading.protocol);
-  const mutating = useAppSelector(selectHelpDeskMutating);
-
-  const [showModal, setShowModal] = useState(false);
-  const [editingItem, setEditingItem] = useState<ProtocolEvent | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-
-  const handleAdd = () => {
-    setEditingItem(null);
-    setShowModal(true);
-  };
-
-  const handleEdit = (item: ProtocolEvent) => {
-    setEditingItem(item);
-    setShowModal(true);
-  };
-
-  const handleStatusChange = async (id: string, status: Status) => {
-    await dispatch(updateProtocolStatus({ id, status }));
-    await dispatch(fetchProtocolEvents({}));
-    await dispatch(fetchHelpDeskStats());
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    await dispatch(deleteProtocolEvent(deleteTarget));
-    await dispatch(fetchProtocolEvents({}));
-    await dispatch(fetchHelpDeskStats());
-    setDeleteTarget(null);
-  };
-
-  return (
-    <>
-      <Panel
-        title="Protocol Support"
-        icon={<Calendar className="h-4 w-4" />}
-        action={
-          <div className="flex gap-2">
-            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
-            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
-              Add Protocol Event
-            </GoldOutlineButton>
-          </div>
-        }
-      >
-        <TableWithActions
-          data={data}
-          loading={loading}
-          columns={[
-            { key: 's_no', label: 'S/No.' },
-            { key: 'activity', label: 'Activity' },
-            { key: 'period_from', label: 'Period From' },
-            { key: 'period_to', label: 'Period To' },
-            { key: 'officers_assigned', label: 'Officers Assigned' },
-            { key: 'remarks', label: 'Remarks' },
-            { key: 'dsa_required', label: 'DSA', align: 'center' },
-            { key: 'total_dsa', label: 'Total DSA', align: 'right' },
-            { key: 'status', label: 'Status', align: 'center' },
-          ]}
-          renderRow={(item: ProtocolEvent) => (
-            <>
-              <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.activity}</td>
-              <td className="px-3 py-2 text-stone-600">{formatDate(item.period_from)}</td>
-              <td className="px-3 py-2 text-stone-600">{formatDate(item.period_to)}</td>
-              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.officers_assigned || '—'}</td>
-              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.remarks || '—'}</td>
-              <td className="px-3 py-2 text-center text-stone-600">{item.dsa_required ? 'Yes' : 'No'}</td>
-              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-              <td className="px-3 py-2 text-center">
-                <StatusDropdown
-                  status={item.status}
-                  onStatusChange={(s) => handleStatusChange(item.id, s)}
-                  disabled={mutating}
-                />
-              </td>
-            </>
-          )}
-          onEdit={handleEdit}
-          onDelete={(id) => setDeleteTarget(id)}
-          mutating={mutating}
-          onView={(item) => {
-            // View protocol details - could open a detail modal
-            console.log('View protocol:', item);
-          }}
-        />
-      </Panel>
-
-      <ProtocolModal
-        isOpen={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setEditingItem(null);
-        }}
-        editingItem={editingItem}
-      />
-
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete Protocol Event?"
-          message="This action cannot be undone."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          loading={mutating}
-        />
-      )}
-    </>
-  );
-}
-
-// ─── Circuit Detail Modal ────────────────────────────────────────────────────
-
-interface CircuitDetailModalProps {
-  item: Circuit;
-  onClose: () => void;
-  onEdit: () => void;
-  onStatusChange: (id: string, status: Status) => void;
-  mutating: boolean;
-}
-
-function CircuitDetailModal({ item, onClose, onEdit, onStatusChange, mutating }: CircuitDetailModalProps) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
-          <div>
-            <h3 className="text-lg font-semibold text-[#1a3d1c]">{item.name}</h3>
-            {item.location && (
-              <p className="text-sm text-stone-500 flex items-center gap-1">
-                <MapPin size={14} />
-                {item.location}
-              </p>
-            )}
-          </div>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="max-h-[65vh] overflow-y-auto p-6">
-          <div className="mb-6 grid grid-cols-2 gap-4 rounded-lg bg-stone-50 p-4">
-            <div>
-              <p className="text-xs text-stone-400">Status</p>
-              <div className="mt-1">
-                <StatusDropdown
-                  status={item.status}
-                  onStatusChange={(s) => {
-                    onStatusChange(item.id, s);
-                  }}
-                  disabled={mutating}
-                />
-              </div>
-            </div>
-            <div>
-              <p className="text-xs text-stone-400">Total DSA</p>
-              <p className="text-lg font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-stone-400">Period</p>
-              <p className="text-sm font-medium text-stone-800">
-                {formatDate(item.start_date)} — {formatDate(item.end_date)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-stone-400">Members</p>
-              <p className="text-sm font-medium text-stone-800">
-                {item.dsa_details?.length || 0} judges
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <h4 className="mb-3 text-sm font-semibold text-stone-800 flex items-center gap-2">
-              <Users size={16} className="text-[#c9a84c]" />
-              DSA Details
-              <span className="text-xs font-normal text-stone-400">
-                ({item.dsa_details?.length || 0} members)
-              </span>
-            </h4>
-
-            {!item.dsa_details || item.dsa_details.length === 0 ? (
-              <div className="rounded-lg border border-stone-200 bg-stone-50 p-8 text-center">
-                <p className="text-sm text-stone-400">No DSA details available.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-lg border border-stone-200">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-stone-200 bg-stone-50">
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">#</th>
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Particulars</th>
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">PJ Number</th>
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Designation</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Rate (KES)</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Days</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Total (KES)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100">
-                    {item.dsa_details.map((detail, index) => (
-                      <tr key={detail.id} className="hover:bg-stone-50 transition-colors">
-                        <td className="px-4 py-2 text-center text-stone-400">{index + 1}</td>
-                        <td className="px-4 py-2 font-medium text-stone-800">{detail.judge_name}</td>
-                        <td className="px-4 py-2 text-stone-600">{detail.pj_number}</td>
-                        <td className="px-4 py-2 text-stone-600">{detail.designation || '—'}</td>
-                        <td className="px-4 py-2 text-right text-stone-600">
-                          {detail.dsa_per_day.toLocaleString()}
-                        </td>
-                        <td className="px-4 py-2 text-right text-stone-600">{detail.days}</td>
-                        <td className="px-4 py-2 text-right font-medium text-emerald-700">
-                          {detail.total.toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-stone-200 bg-stone-50">
-                      <td colSpan={6} className="px-4 py-3 text-right font-bold text-stone-800">
-                        Grand Total
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold text-emerald-700">
-                        {formatCurrency(item.total_dsa)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-6 border-t border-stone-100 pt-4">
-            <div className="grid grid-cols-2 gap-2 text-xs text-stone-400">
-              <div>
-                <span className="font-medium">Created:</span>{' '}
-                {new Date(item.created_at).toLocaleString()}
-              </div>
-              <div>
-                <span className="font-medium">Updated:</span>{' '}
-                {new Date(item.updated_at).toLocaleString()}
-              </div>
-              <div className="col-span-2">
-                <span className="font-medium">ID:</span> {item.id}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">
-          <GhostButton onClick={onClose}>Close</GhostButton>
-          <GoldOutlineButton
-            icon={<Edit size={14} />}
-            onClick={onEdit}
-          >
-            Edit Circuit
-          </GoldOutlineButton>
-        </div>
-      </div>
-    </div>
   );
 }
 

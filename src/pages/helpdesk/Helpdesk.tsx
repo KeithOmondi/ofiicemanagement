@@ -1,5 +1,4 @@
-// src/features/helpdesk/components/Helpdesk.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   // Actions
@@ -74,6 +73,22 @@ import {
   type JudgeUtility,
   type UtilityStatus,
 } from '../../store/slices/helpdeskSlice';
+
+// ─── Helpdesk Documents imports ───────────────────────────────────────────────
+import {
+  fetchHelpdeskDocuments,
+  uploadHelpdeskDocument,
+  linkHelpdeskDocument,
+  submitForApproval,
+  selectAllHelpdeskDocuments,
+  selectDocumentsUploading,
+  selectDocumentActionLoading,
+  selectDocumentLinking,
+  selectUnlinkedHelpdeskDocuments,
+  type DocumentFormat,
+  type DocumentStatus,
+} from '../../store/slices/helpdeskDocumentsSlice';
+
 import {
   BarChart3,
   Clock3,
@@ -102,6 +117,10 @@ import {
   User,
   CreditCard,
   Stethoscope,
+  Paperclip,
+  Upload,
+  ExternalLink,
+  Send,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
 import UtilitiesModal, { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
@@ -109,6 +128,7 @@ import { ProtocolModal } from '../../components/modals/ProtocolModal';
 import { VisaModal } from '../../components/modals/VisaModal';
 import { RequestModal } from '../../components/modals/RequestModal';
 import ClubModal from '../../components/Layout/ClubModal';
+import { toast } from 'react-hot-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -178,6 +198,25 @@ const getStatusIcon = (status: string): React.ReactNode => {
 
 const getStatusOptions = (): Status[] => {
   return ['Pending', 'Signed', 'Rejected', 'In Progress', 'Completed', 'Active', 'Resolved'];
+};
+
+// ─── Document helpers ─────────────────────────────────────────────────────────
+
+const documentStatusColor = (status: DocumentStatus): string => {
+  const map: Record<DocumentStatus, string> = {
+    draft: 'bg-stone-100 text-stone-600 ring-stone-200',
+    pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
+    approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+    rejected: 'bg-red-50 text-red-700 ring-red-200',
+    returned: 'bg-orange-50 text-orange-700 ring-orange-200',
+  };
+  return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+};
+
+const documentFormatIcon = (format: DocumentFormat) => {
+  if (format === 'xlsx') return <FileSpreadsheet size={16} className="text-emerald-600" />;
+  if (format === 'docx') return <FileText size={16} className="text-blue-600" />;
+  return <FileText size={16} className="text-red-600" />;
 };
 
 // ─── UI Components ────────────────────────────────────────────────────────────
@@ -1104,6 +1143,351 @@ function CircuitsTab() {
   );
 }
 
+// ─── Circuit Detail Modal (with document support) ─────────────────────────────
+
+interface CircuitDetailModalProps {
+  item: Circuit;
+  onClose: () => void;
+  onEdit: () => void;
+  onStatusChange: (id: string, status: Status) => void;
+  mutating: boolean;
+}
+
+function CircuitDetailModal({ item, onClose, onEdit, onStatusChange, mutating }: CircuitDetailModalProps) {
+  const dispatch = useAppDispatch();
+  const allDocs = useAppSelector(selectAllHelpdeskDocuments);
+  const docs = allDocs.filter(
+    (d) => d.entity_type === 'circuit' && d.entity_id === item.id
+  );
+  const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
+  const documentsUploading = useAppSelector(selectDocumentsUploading);
+  const documentActionLoading = useAppSelector(selectDocumentActionLoading);
+  const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
+  const isLinking = useAppSelector(selectDocumentLinking);
+
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Current user role – adjust from your auth store
+  const currentUserRole: 'dept_head' | 'super_admin' | 'staff' = 'dept_head';
+
+  useEffect(() => {
+    dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
+  }, [dispatch, item.id]);
+
+  useEffect(() => {
+    if (showLinkPicker) {
+      dispatch(fetchHelpdeskDocuments({ unlinked: true }));
+    }
+  }, [dispatch, showLinkPicker]);
+
+  const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    const format: DocumentFormat | null =
+      ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ext === 'xlsx' ? 'xlsx' : null;
+    if (!format) {
+      toast.error('Please upload a PDF, Word (.docx), or Excel (.xlsx) file.');
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      await dispatch(
+        uploadHelpdeskDocument({
+          blob: file,
+          filename: file.name,
+          ref: `CIRC/${item.id.slice(0, 8)}`,
+          subject: `Memo for ${item.name}`,
+          entity_type: 'circuit',
+          entity_id: item.id,
+          format,
+        })
+      ).unwrap();
+      toast.success('Document attached to this circuit.');
+      dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to attach document.');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleLinkExisting = async (docId: string) => {
+    try {
+      await dispatch(linkHelpdeskDocument({ id: docId, entity_type: 'circuit', entity_id: item.id })).unwrap();
+      toast.success('Document linked to this circuit.');
+      setShowLinkPicker(false);
+      dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to link document.');
+    }
+  };
+
+  const handleSendForApproval = async (docId: string) => {
+    try {
+      await dispatch(submitForApproval({ id: docId })).unwrap();
+      toast.success('Document sent to the super admin for approval.');
+      dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to submit for approval.');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
+          <div>
+            <h3 className="text-lg font-semibold text-[#1a3d1c]">{item.name}</h3>
+            {item.location && (
+              <p className="text-sm text-stone-500 flex items-center gap-1">
+                <MapPin size={14} />
+                {item.location}
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="max-h-[65vh] overflow-y-auto p-6">
+          {/* ─── Basic Info ──────────────────────────────────────────────── */}
+          <div className="mb-6 grid grid-cols-2 gap-4 rounded-lg bg-stone-50 p-4">
+            <div>
+              <p className="text-xs text-stone-400">Status</p>
+              <div className="mt-1">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => onStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-stone-400">Total DSA</p>
+              <p className="text-lg font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-stone-400">Period</p>
+              <p className="text-sm font-medium text-stone-800">
+                {formatDate(item.start_date)} — {formatDate(item.end_date)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-stone-400">Members</p>
+              <p className="text-sm font-medium text-stone-800">
+                {item.dsa_details?.length || 0} judges
+              </p>
+            </div>
+          </div>
+
+          {/* ─── DSA Details ────────────────────────────────────────────── */}
+          <div>
+            <h4 className="mb-3 text-sm font-semibold text-stone-800 flex items-center gap-2">
+              <Users size={16} className="text-[#c9a84c]" />
+              DSA Details
+              <span className="text-xs font-normal text-stone-400">
+                ({item.dsa_details?.length || 0} members)
+              </span>
+            </h4>
+
+            {!item.dsa_details || item.dsa_details.length === 0 ? (
+              <div className="rounded-lg border border-stone-200 bg-stone-50 p-8 text-center">
+                <p className="text-sm text-stone-400">No DSA details available.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-lg border border-stone-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-stone-200 bg-stone-50">
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">#</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Particulars</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">PJ Number</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Designation</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Rate (KES)</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Days</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Total (KES)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-stone-100">
+                    {item.dsa_details.map((detail, index) => (
+                      <tr key={detail.id} className="hover:bg-stone-50 transition-colors">
+                        <td className="px-4 py-2 text-center text-stone-400">{index + 1}</td>
+                        <td className="px-4 py-2 font-medium text-stone-800">{detail.judge_name}</td>
+                        <td className="px-4 py-2 text-stone-600">{detail.pj_number}</td>
+                        <td className="px-4 py-2 text-stone-600">{detail.designation || '—'}</td>
+                        <td className="px-4 py-2 text-right text-stone-600">
+                          {detail.dsa_per_day.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2 text-right text-stone-600">{detail.days}</td>
+                        <td className="px-4 py-2 text-right font-medium text-emerald-700">
+                          {detail.total.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-stone-200 bg-stone-50">
+                      <td colSpan={6} className="px-4 py-3 text-right font-bold text-stone-800">
+                        Grand Total
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-emerald-700">
+                        {formatCurrency(item.total_dsa)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* ─── Document Section ─────────────────────────────────────────────── */}
+          <div className="mt-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-stone-800">Supporting Document</h3>
+              <div className="flex gap-2">
+                <GhostButton
+                  onClick={() => setShowLinkPicker((v) => !v)}
+                  icon={<Paperclip size={14} />}
+                >
+                  Link Existing
+                </GhostButton>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.xlsx"
+                  onChange={handleAttachDocument}
+                  className="hidden"
+                  disabled={documentsUploading}
+                />
+                <GhostButton
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={documentsUploading}
+                  icon={documentsUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                >
+                  {documentsUploading ? 'Uploading…' : 'Attach Document'}
+                </GhostButton>
+              </div>
+            </div>
+
+            {showLinkPicker && (
+              <div className="mt-2 rounded-lg border border-stone-200 bg-white p-2">
+                {unlinkedDocuments.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-stone-400 italic">No unlinked documents found.</p>
+                ) : (
+                  <ul className="divide-y divide-stone-100">
+                    {unlinkedDocuments.map((doc) => (
+                      <li key={doc.id} className="flex items-center justify-between gap-2 px-2 py-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {documentFormatIcon(doc.format)}
+                          <span className="truncate text-sm text-stone-700">{doc.subject}</span>
+                          <span className="shrink-0 text-[11px] text-stone-400">{doc.ref}</span>
+                        </div>
+                        <GhostButton
+                          onClick={() => handleLinkExisting(doc.id)}
+                          disabled={isLinking}
+                          icon={isLinking ? <Loader2 size={12} className="animate-spin" /> : undefined}
+                        >
+                          Attach
+                        </GhostButton>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {documentsLoading && docs.length === 0 ? (
+              <p className="mt-2 text-xs text-stone-400 italic">Checking for an attached document…</p>
+            ) : docs.length === 0 ? (
+              <p className="mt-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-3 text-xs text-stone-400">
+                No document attached yet. Generate one from the memo step when editing this circuit, link an existing one, or attach a file here.
+              </p>
+            ) : (
+              <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
+                {docs.map((doc) => (
+                  <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {documentFormatIcon(doc.format)}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
+                        <div className="mt-0.5 flex items-center gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
+                          >
+                            {doc.status.replace('_', ' ')}
+                          </span>
+                          <span className="text-[11px] text-stone-400">{doc.ref}</span>
+                        </div>
+                        {doc.status === 'rejected' && doc.rejection_reason && (
+                          <p className="mt-1 text-[11px] text-red-600">Reason: {doc.rejection_reason}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <a
+                        href={doc.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
+                      >
+                        <ExternalLink size={12} />
+                        View
+                      </a>
+                      {doc.status === 'draft' && currentUserRole === 'dept_head' && (
+                        <GhostButton
+                          onClick={() => handleSendForApproval(doc.id)}
+                          disabled={!!documentActionLoading[doc.id]?.submitting}
+                          icon={
+                            documentActionLoading[doc.id]?.submitting ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Send size={12} />
+                            )
+                          }
+                        >
+                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
+                        </GhostButton>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="mt-6 border-t border-stone-100 pt-4">
+            <div className="grid grid-cols-2 gap-2 text-xs text-stone-400">
+              <div>
+                <span className="font-medium">Created:</span>{' '}
+                {new Date(item.created_at).toLocaleString()}
+              </div>
+              <div>
+                <span className="font-medium">Updated:</span>{' '}
+                {new Date(item.updated_at).toLocaleString()}
+              </div>
+              <div className="col-span-2">
+                <span className="font-medium">ID:</span> {item.id}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">
+          <GhostButton onClick={onClose}>Close</GhostButton>
+          <GoldOutlineButton icon={<Edit size={14} />} onClick={onEdit}>
+            Edit Circuit
+          </GoldOutlineButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Other Payments Tab ──────────────────────────────────────────────────────
 
 function OtherPaymentsTab() {
@@ -1698,7 +2082,7 @@ function GeneralRequestsTab() {
   );
 }
 
-// ─── Visa Tab (updated) ──────────────────────────────────────────────────────
+// ─── Visa Tab ─────────────────────────────────────────────────────────────────
 
 function VisaTab() {
   const dispatch = useAppDispatch();
@@ -1809,7 +2193,7 @@ function VisaTab() {
   );
 }
 
-// ─── Protocol Tab (updated) ─────────────────────────────────────────────────
+// ─── Protocol Tab ─────────────────────────────────────────────────────────────
 
 function ProtocolTab() {
   const dispatch = useAppDispatch();
@@ -1896,7 +2280,6 @@ function ProtocolTab() {
           onDelete={(id) => setDeleteTarget(id)}
           mutating={mutating}
           onView={(item) => {
-            // View protocol details - could open a detail modal
             console.log('View protocol:', item);
           }}
         />
@@ -1921,157 +2304,6 @@ function ProtocolTab() {
         />
       )}
     </>
-  );
-}
-
-// ─── Circuit Detail Modal ────────────────────────────────────────────────────
-
-interface CircuitDetailModalProps {
-  item: Circuit;
-  onClose: () => void;
-  onEdit: () => void;
-  onStatusChange: (id: string, status: Status) => void;
-  mutating: boolean;
-}
-
-function CircuitDetailModal({ item, onClose, onEdit, onStatusChange, mutating }: CircuitDetailModalProps) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
-          <div>
-            <h3 className="text-lg font-semibold text-[#1a3d1c]">{item.name}</h3>
-            {item.location && (
-              <p className="text-sm text-stone-500 flex items-center gap-1">
-                <MapPin size={14} />
-                {item.location}
-              </p>
-            )}
-          </div>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="max-h-[65vh] overflow-y-auto p-6">
-          <div className="mb-6 grid grid-cols-2 gap-4 rounded-lg bg-stone-50 p-4">
-            <div>
-              <p className="text-xs text-stone-400">Status</p>
-              <div className="mt-1">
-                <StatusDropdown
-                  status={item.status}
-                  onStatusChange={(s) => {
-                    onStatusChange(item.id, s);
-                  }}
-                  disabled={mutating}
-                />
-              </div>
-            </div>
-            <div>
-              <p className="text-xs text-stone-400">Total DSA</p>
-              <p className="text-lg font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-stone-400">Period</p>
-              <p className="text-sm font-medium text-stone-800">
-                {formatDate(item.start_date)} — {formatDate(item.end_date)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-stone-400">Members</p>
-              <p className="text-sm font-medium text-stone-800">
-                {item.dsa_details?.length || 0} judges
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <h4 className="mb-3 text-sm font-semibold text-stone-800 flex items-center gap-2">
-              <Users size={16} className="text-[#c9a84c]" />
-              DSA Details
-              <span className="text-xs font-normal text-stone-400">
-                ({item.dsa_details?.length || 0} members)
-              </span>
-            </h4>
-
-            {!item.dsa_details || item.dsa_details.length === 0 ? (
-              <div className="rounded-lg border border-stone-200 bg-stone-50 p-8 text-center">
-                <p className="text-sm text-stone-400">No DSA details available.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-lg border border-stone-200">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-stone-200 bg-stone-50">
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">#</th>
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Particulars</th>
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">PJ Number</th>
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Designation</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Rate (KES)</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Days</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Total (KES)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100">
-                    {item.dsa_details.map((detail, index) => (
-                      <tr key={detail.id} className="hover:bg-stone-50 transition-colors">
-                        <td className="px-4 py-2 text-center text-stone-400">{index + 1}</td>
-                        <td className="px-4 py-2 font-medium text-stone-800">{detail.judge_name}</td>
-                        <td className="px-4 py-2 text-stone-600">{detail.pj_number}</td>
-                        <td className="px-4 py-2 text-stone-600">{detail.designation || '—'}</td>
-                        <td className="px-4 py-2 text-right text-stone-600">
-                          {detail.dsa_per_day.toLocaleString()}
-                        </td>
-                        <td className="px-4 py-2 text-right text-stone-600">{detail.days}</td>
-                        <td className="px-4 py-2 text-right font-medium text-emerald-700">
-                          {detail.total.toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-stone-200 bg-stone-50">
-                      <td colSpan={6} className="px-4 py-3 text-right font-bold text-stone-800">
-                        Grand Total
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold text-emerald-700">
-                        {formatCurrency(item.total_dsa)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            )}
-          </div>
-
-          <div className="mt-6 border-t border-stone-100 pt-4">
-            <div className="grid grid-cols-2 gap-2 text-xs text-stone-400">
-              <div>
-                <span className="font-medium">Created:</span>{' '}
-                {new Date(item.created_at).toLocaleString()}
-              </div>
-              <div>
-                <span className="font-medium">Updated:</span>{' '}
-                {new Date(item.updated_at).toLocaleString()}
-              </div>
-              <div className="col-span-2">
-                <span className="font-medium">ID:</span> {item.id}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">
-          <GhostButton onClick={onClose}>Close</GhostButton>
-          <GoldOutlineButton
-            icon={<Edit size={14} />}
-            onClick={onEdit}
-          >
-            Edit Circuit
-          </GoldOutlineButton>
-        </div>
-      </div>
-    </div>
   );
 }
 

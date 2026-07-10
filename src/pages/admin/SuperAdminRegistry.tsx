@@ -6,9 +6,6 @@ import {
   routeFile,
   fetchStationCounts,
   fetchRegistryEntries,
-  receiveFile,
-  markFiled,
-  returnFile,
   selectStationCounts,
   selectStationCountsLoading,
   selectRegistryMutating,
@@ -17,99 +14,66 @@ import {
 } from '../../store/slices/registrySlice';
 import { fetchDocuments, clearError as clearDocumentError } from '../../store/slices/documentSlice';
 import type { RootState } from '../../store/store';
-import type { RegistryPriority, RegistryStatus, RegistryEntry } from '../../types/registry.types';
+import type { RegistryPriority, RegistryEntry } from '../../types/registry.types';
 import type { StationType } from '../../store/slices/stationsSlice';
 import type { Document as DocType } from '../../types/documents.types';
 
 // ─── Selectors ────────────────────────────────────────────────────────────────
-
-const selectAllDocuments  = (state: RootState): DocType[] => state.documents.documents;
-const selectDocLoading    = (state: RootState): boolean   => state.documents.loading;
+const selectAllDocuments = (state: RootState): DocType[] => state.documents.documents;
+const selectDocLoading = (state: RootState): boolean => state.documents.loading;
 const selectDocumentError = (state: RootState): string | null => state.documents.error;
 
 // ─── Display maps ─────────────────────────────────────────────────────────────
-
 const STATION_TYPE_LABELS: Record<StationType, string> = {
-  high_court:         'High Court Station',
-  magistrate_court:   'Magistrate Court',
-  environment_court:  'Environment & Land Court',
-  kadhis_court:       "Kadhi's Court",
-  sub_registry:       'Sub-Registry Station',
+  high_court: 'High Court Station',
+  magistrate_court: 'Magistrate Court',
+  environment_court: 'Environment & Land Court',
+  kadhis_court: "Kadhi's Court",
+  sub_registry: 'Sub-Registry Station',
 };
 
 const STATION_TYPE_ICONS: Record<StationType, string> = {
-  high_court:        '🏛',
-  magistrate_court:  '⚖️',
-  environment_court: '🌳',
-  kadhis_court:      '🕌',
-  sub_registry:      '📁',
+  high_court: '🏛',
+  magistrate_court: '🏛',
+  environment_court: '🏛',
+  kadhis_court: '🏛',
+  sub_registry: '📁',
 };
 
 const PRIORITY_OPTIONS: { value: RegistryPriority; label: string }[] = [
-  { value: 'normal',                label: 'Normal' },
-  { value: 'urgent',                 label: 'Urgent' },
-  { value: 'confidential',           label: 'Confidential' },
-  { value: 'for_information_only',   label: 'For Information Only' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'urgent', label: 'Urgent' },
+  { value: 'confidential', label: 'Confidential' },
+  { value: 'for_information_only', label: 'For Information Only' },
 ];
-
-const STATUS_OPTIONS: { value: RegistryStatus; label: string }[] = [
-  { value: 'in_transit', label: 'In Transit' },
-  { value: 'received',   label: 'Received' },
-  { value: 'filed',      label: 'Filed' },
-  { value: 'returned',   label: 'Returned' },
-];
-
-const STATUS_COLORS: Record<RegistryStatus, string> = {
-  in_transit: 'text-yellow-600 bg-yellow-50 border-yellow-200',
-  received:   'text-blue-600 bg-blue-50 border-blue-200',
-  filed:      'text-green-600 bg-green-50 border-green-200',
-  returned:   'text-red-600 bg-red-50 border-red-200',
-};
-
-const STATUS_ICONS: Record<RegistryStatus, string> = {
-  in_transit: '🚚',
-  received:   '✅',
-  filed:      '📄',
-  returned:   '↩️',
-};
-
-const STATUS_LABELS: Record<RegistryStatus, string> = {
-  in_transit: 'In Transit',
-  received:   'Received',
-  filed:      'Filed',
-  returned:   'Returned',
-};
 
 const SuperAdminRegistry = () => {
   const dispatch = useAppDispatch();
 
   // ── Registry ─────────────────────────────────────────────────────────────────
-  const stations         = useAppSelector(selectStationCounts);
-  const countsLoading    = useAppSelector(selectStationCountsLoading);
-  const mutating         = useAppSelector(selectRegistryMutating);
-  const registryError    = useAppSelector(selectRegistryError);
+  const stations = useAppSelector(selectStationCounts);
+  const countsLoading = useAppSelector(selectStationCountsLoading);
+  const mutating = useAppSelector(selectRegistryMutating);
+  const registryError = useAppSelector(selectRegistryError);
 
   // ── Documents ────────────────────────────────────────────────────────────────
-  const documents     = useAppSelector(selectAllDocuments);
-  const docsLoading    = useAppSelector(selectDocLoading);
-  const docError       = useAppSelector(selectDocumentError);
+  const documents = useAppSelector(selectAllDocuments);
+  const docsLoading = useAppSelector(selectDocLoading);
+  const docError = useAppSelector(selectDocumentError);
 
   // ── Form state ───────────────────────────────────────────────────────────────
-  const [selectedDoc,   setSelectedDoc]   = useState('');
-  const [routeTo,       setRouteTo]       = useState('');
-  const [priority,      setPriority]      = useState<RegistryPriority>('normal');
-  const [note,          setNote]          = useState('');
+  const [selectedDoc, setSelectedDoc] = useState('');
+  const [routeTo, setRouteTo] = useState('');
+  const [priority, setPriority] = useState<RegistryPriority>('normal');
+  const [note, setNote] = useState('');
   const [activeStation, setActiveStation] = useState<string | null>(null);
-  const [collapsed,     setCollapsed]     = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   // ── Modal state ─────────────────────────────────────────────────────────────
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedStationForModal, setSelectedStationForModal] = useState<string | null>(null);
   const [stationEntries, setStationEntries] = useState<RegistryEntry[]>([]);
   const [modalLoading, setModalLoading] = useState(false);
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
-  const [newStatus, setNewStatus] = useState<RegistryStatus>('received');
-  const [statusChangeNote, setStatusChangeNote] = useState('');
 
   // ── Initial data load ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -148,7 +112,7 @@ const SuperAdminRegistry = () => {
       await dispatch(
         routeFile({
           document_id: selectedDoc,
-          station_id:  routeTo,
+          station_id: routeTo,
           priority,
           note: note.trim() || undefined,
         })
@@ -169,12 +133,11 @@ const SuperAdminRegistry = () => {
   const handleStationClick = async (stationId: string) => {
     setActiveStation(stationId);
     setRouteTo(stationId);
-    
-    // Open modal and fetch entries for this station
+
     setSelectedStationForModal(stationId);
     setIsModalOpen(true);
     setModalLoading(true);
-    
+
     try {
       const result = await dispatch(fetchRegistryEntries({
         station_id: stationId,
@@ -182,7 +145,7 @@ const SuperAdminRegistry = () => {
         sort_by: 'routed_at',
         sort_order: 'DESC'
       })).unwrap();
-      
+
       setStationEntries(result.data);
     } catch {
       toast.error('Failed to load station entries');
@@ -192,76 +155,32 @@ const SuperAdminRegistry = () => {
     }
   };
 
-  // ── Handle status change ─────────────────────────────────────────────────────
-  const handleStatusChange = async () => {
-    if (!selectedEntryId || !newStatus) {
-      toast.error('Please select an entry and a status');
-      return;
-    }
-
-    try {
-      let result;
-      switch (newStatus) {
-        case 'received':
-          result = await dispatch(receiveFile(selectedEntryId)).unwrap();
-          toast.success('File marked as received');
-          break;
-        case 'filed':
-          result = await dispatch(markFiled(selectedEntryId)).unwrap();
-          toast.success('File marked as filed');
-          break;
-        case 'returned':
-          result = await dispatch(returnFile({ 
-            id: selectedEntryId, 
-            input: { note: statusChangeNote || undefined }
-          })).unwrap();
-          toast.success('File returned to registry');
-          break;
-        case 'in_transit':
-          toast.error('Cannot manually set status to "In Transit"');
-          return;
-        default:
-          toast.error('Invalid status');
-          return;
-      }
-
-      // Update the entry in the local list
-      setStationEntries(prev => 
-        prev.map(entry => 
-          entry.id === selectedEntryId ? result : entry
-        )
-      );
-
-      // Reset selection
-      setSelectedEntryId(null);
-      setNewStatus('received');
-      setStatusChangeNote('');
-      
-      // Refresh counts
-      refreshCounts();
-    } catch {
-      toast.error('Failed to update status');
-    }
-  };
-
   // ── Close modal ──────────────────────────────────────────────────────────────
   const closeModal = () => {
     setIsModalOpen(false);
     setSelectedStationForModal(null);
     setStationEntries([]);
-    setSelectedEntryId(null);
-    setNewStatus('received');
-    setStatusChangeNote('');
     setModalLoading(false);
   };
 
   const routableDocuments = documents.filter((d) => d.status !== 'filed');
 
-  // ── Get station name for modal ──────────────────────────────────────────────
   const getStationName = (stationId: string | null) => {
     if (!stationId) return '';
     const station = stations.find(s => s.id === stationId);
     return station?.name || 'Unknown Station';
+  };
+
+  // ✅ FIX: formatDate now accepts Date or string
+  const formatDate = (date: Date | string): string => {
+    const d = typeof date === 'string' ? new Date(date) : date;
+    return d.toLocaleString('en-KE', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
   };
 
   return (
@@ -287,8 +206,8 @@ const SuperAdminRegistry = () => {
                   {docsLoading
                     ? 'Loading documents…'
                     : routableDocuments.length === 0
-                    ? 'No documents available'
-                    : 'Choose Document'}
+                      ? 'No documents available'
+                      : 'Choose Document'}
                 </option>
                 {routableDocuments.map((doc) => (
                   <option key={doc.id} value={doc.id}>
@@ -395,9 +314,8 @@ const SuperAdminRegistry = () => {
                 key={station.id}
                 onClick={() => handleStationClick(station.id)}
                 disabled={!station.is_active}
-                className={`flex flex-col items-center py-6 px-4 text-center bg-white hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed ${
-                  activeStation === station.id ? 'ring-2 ring-inset ring-amber-400 bg-amber-50/30' : ''
-                }`}
+                className={`flex flex-col items-center py-6 px-4 text-center bg-white hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed ${activeStation === station.id ? 'ring-2 ring-inset ring-amber-400 bg-amber-50/30' : ''
+                  }`}
               >
                 <span
                   className="text-3xl mb-2"
@@ -412,14 +330,14 @@ const SuperAdminRegistry = () => {
                 </span>
                 <span className="text-xl font-medium text-slate-800">{station.file_count}</span>
                 <span className="text-[11px] text-slate-400">files on record</span>
-                <span className="text-[10px] text-amber-600 mt-2">Click to manage</span>
+                <span className="text-[10px] text-amber-600 mt-2">Click to view files</span>
               </button>
             ))}
           </div>
         )
       )}
 
-      {/* ── Status Change Modal ─────────────────────────────────────────────────── */}
+      {/* ── Modal: View Station Files ─────────────────────────────────────────── */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
@@ -430,7 +348,7 @@ const SuperAdminRegistry = () => {
                   {getStationName(selectedStationForModal)}
                 </h3>
                 <p className="text-sm text-slate-500">
-                  Manage registry entries for this station
+                  Documents and files routed to this station
                 </p>
               </div>
               <button
@@ -454,140 +372,85 @@ const SuperAdminRegistry = () => {
                 </div>
               ) : stationEntries.length === 0 ? (
                 <div className="py-16 text-center text-sm text-slate-400">
-                  No registry entries found for this station.
+                  No documents or files have been routed to this station yet.
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-1 gap-3">
-                    {stationEntries.map((entry) => (
-                      <div
-                        key={entry.id}
-                        className={`p-4 rounded-lg border-2 transition ${
-                          selectedEntryId === entry.id
-                            ? 'border-amber-400 bg-amber-50'
-                            : 'border-slate-200 hover:border-slate-300 bg-white'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-sm font-medium text-slate-900 truncate">
-                                {entry.document_title}
+                  {stationEntries.map((entry) => (
+                    <div
+                      key={entry.id}
+                      className="p-4 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-sm font-medium text-slate-900 truncate">
+                              {entry.document_title}
+                            </span>
+                            {entry.document_ref_no && (
+                              <span className="text-xs text-slate-500 font-mono bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                                #{entry.document_ref_no}
                               </span>
-                              {entry.document_ref_no && (
-                                <span className="text-xs text-slate-500 font-mono">
-                                  #{entry.document_ref_no}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2 text-xs">
-                              <span className={`px-2 py-0.5 rounded-full border ${STATUS_COLORS[entry.status]}`}>
-                                {STATUS_ICONS[entry.status]} {STATUS_LABELS[entry.status]}
-                              </span>
-                              <span className="text-slate-400">·</span>
-                              <span className="text-slate-500">
-                                Priority: <span className="font-medium capitalize">{entry.priority.replace(/_/g, ' ')}</span>
-                              </span>
-                              {entry.routed_by_name && (
-                                <>
-                                  <span className="text-slate-400">·</span>
-                                  <span className="text-slate-500">
-                                    Routed by: <span className="font-medium">{entry.routed_by_name}</span>
-                                  </span>
-                                </>
-                              )}
-                              <span className="text-slate-400">·</span>
-                              <span className="text-slate-500">
-                                {new Date(entry.routed_at).toLocaleDateString()}
-                              </span>
-                              {entry.received_at && (
-                                <>
-                                  <span className="text-slate-400">·</span>
-                                  <span className="text-green-600">
-                                    Received: {new Date(entry.received_at).toLocaleDateString()}
-                                  </span>
-                                </>
-                              )}
-                            </div>
-                            {entry.note && (
-                              <p className="text-xs text-slate-500 mt-1 italic">{entry.note}</p>
                             )}
                           </div>
-                          <button
-                            onClick={() => {
-                              setSelectedEntryId(entry.id);
-                              // Pre-select the next logical status based on current
-                              if (entry.status === 'in_transit') setNewStatus('received');
-                              else if (entry.status === 'received') setNewStatus('filed');
-                              else setNewStatus('received');
-                            }}
-                            className={`text-xs px-3 py-1 rounded transition ${
-                              selectedEntryId === entry.id
-                                ? 'bg-amber-500 text-white'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                          >
-                            {selectedEntryId === entry.id ? 'Selected' : 'Select'}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
 
-                  {/* Status Change Controls */}
-                  {selectedEntryId && (
-                    <div className="mt-6 p-4 bg-slate-50 rounded-lg border border-slate-200">
-                      <h4 className="text-sm font-medium text-slate-700 mb-3">
-                        Change Status for Selected Entry
-                      </h4>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div>
-                          <label className="text-xs text-slate-500 block mb-1">New Status</label>
-                          <select
-                            value={newStatus}
-                            onChange={(e) => setNewStatus(e.target.value as RegistryStatus)}
-                            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-                          >
-                            {STATUS_OPTIONS
-                              .filter(opt => opt.value !== 'in_transit')
-                              .map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                          </select>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                            <div className="flex items-center gap-1">
+                              <span className="text-slate-400">Priority:</span>
+                              <span className="font-medium capitalize">
+                                {entry.priority.replace(/_/g, ' ')}
+                              </span>
+                              {entry.priority === 'urgent' && (
+                                <span className="ml-1 text-red-500">🔴</span>
+                              )}
+                              {entry.priority === 'confidential' && (
+                                <span className="ml-1 text-amber-500">🔒</span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1">
+                              <span className="text-slate-400">Status:</span>
+                              <span className="font-medium capitalize">
+                                {entry.status.replace(/_/g, ' ')}
+                              </span>
+                            </div>
+
+                            {entry.routed_by_name && (
+                              <div className="flex items-center gap-1">
+                                <span className="text-slate-400">Routed by:</span>
+                                <span className="font-medium">{entry.routed_by_name}</span>
+                              </div>
+                            )}
+
+                            <div className="flex items-center gap-1">
+                              <span className="text-slate-400">Routed:</span>
+                              <span className="font-medium">{formatDate(entry.routed_at)}</span>
+                            </div>
+
+                            {/* ✅ received_at – converted to string */}
+                            {entry.received_at && (
+                              <div className="flex items-center gap-1">
+                                <span className="text-slate-400">Received:</span>
+                                <span className="font-medium text-green-600">
+                                  {formatDate(entry.received_at)}
+                                </span>
+                              </div>
+                            )}
+
+                            {/* ❌ filed_at removed – does not exist on RegistryEntry */}
+                          </div>
+
+                          {entry.note && (
+                            <div className="mt-2 p-2 bg-slate-50 rounded border border-slate-100">
+                              <span className="text-xs text-slate-500 italic">
+                                📝 {entry.note}
+                              </span>
+                            </div>
+                          )}
                         </div>
-                        <div className="md:col-span-2">
-                          <label className="text-xs text-slate-500 block mb-1">Note (optional)</label>
-                          <input
-                            type="text"
-                            value={statusChangeNote}
-                            onChange={(e) => setStatusChangeNote(e.target.value)}
-                            placeholder="Add a note about this status change..."
-                            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-                          />
-                        </div>
-                      </div>
-                      <div className="flex gap-3 mt-3">
-                        <button
-                          onClick={handleStatusChange}
-                          className="px-4 py-2 text-sm font-medium text-white rounded-md bg-amber-600 hover:bg-amber-700 transition"
-                        >
-                          Apply Status Change
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSelectedEntryId(null);
-                            setNewStatus('received');
-                            setStatusChangeNote('');
-                          }}
-                          className="px-4 py-2 text-sm font-medium text-slate-600 rounded-md border border-slate-200 hover:bg-slate-50 transition"
-                        >
-                          Cancel Selection
-                        </button>
                       </div>
                     </div>
-                  )}
+                  ))}
                 </div>
               )}
             </div>
@@ -596,7 +459,7 @@ const SuperAdminRegistry = () => {
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-500">
-                  {stationEntries.length} entries found
+                  {stationEntries.length} document{stationEntries.length !== 1 ? 's' : ''} found
                 </span>
                 <button
                   onClick={closeModal}

@@ -1,5 +1,3 @@
-// src/components/modals/CircuitModal.tsx
-
 import React, { useState, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -65,7 +63,12 @@ import { generateMemoDocx } from '../../utils/generateMemoDocx';
 import toast, { Toaster } from 'react-hot-toast';
 import { generateMemoPdf } from '../../utils/generateMemoPdf';
 import { generateMemoExcel } from '../../utils/generateMemoExcel';
-import { uploadHelpdeskDocument, type DocumentEntityType, type DocumentFormat } from '../../store/slices/helpdeskDocumentsSlice';
+import {
+  uploadHelpdeskDocument,
+  linkHelpdeskDocument,
+  type DocumentEntityType,
+  type DocumentFormat,
+} from '../../store/slices/helpdeskDocumentsSlice';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -669,6 +672,7 @@ interface MemoPreviewProps {
   onEdit: () => void;
   onEditDsa: () => void;
   signatureUrl?: string | null;
+  onDocumentUploaded?: (documentId: string) => void; // NEW
 }
 
 type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
@@ -683,6 +687,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   onEdit,
   onEditDsa,
   signatureUrl,
+  onDocumentUploaded,
 }) => {
   const getSubject = () => {
     switch (mode) {
@@ -760,7 +765,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
       total: calculateTotal(d.dsa_per_day, d.days),
     }));
 
-  // ─── Updated handleDownload with upload functionality ────────────────────
+  // ─── Updated handleDownload with upload + callback ──────────────────────
 
   const handleDownload = async (format: DownloadFormat) => {
     setShowDownloadMenu(false);
@@ -781,7 +786,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         signatoryName,
       };
 
-      // ── Step 1: Generate the Blob ──────────────────────────────────────────
       let blob: Blob | null = null;
 
       if (format === 'docx') {
@@ -804,7 +808,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         throw new Error('Generator returned no blob');
       }
 
-      // ── Step 2: Upload to the system ──────────────────────────────────────
       const safeRef = (refField || 'memo').replace(/[\\/:*?"<>|]/g, '-');
       const filename = `${safeRef}.${format}`;
 
@@ -816,7 +819,8 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         otherPayment: 'otherPayment',
       };
 
-      await dispatch(
+      // Upload the document
+      const result = await dispatch(
         uploadHelpdeskDocument({
           blob,
           filename,
@@ -827,29 +831,10 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         })
       ).unwrap();
 
-      toast.success(`${format.toUpperCase()} document saved to the system.`);
-
-      await uploadHelpdeskDocument({
-        blob,
-        filename,
-        ref: refField,
-        subject: subjectField,
-        entity_type: entityTypeMap[mode],
-        format: format as DocumentFormat,
-      });
+      // ✅ Notify parent that a document was uploaded (capture its ID)
+      onDocumentUploaded?.(result.id);
 
       toast.success(`${format.toUpperCase()} document saved to the system.`);
-
-      // ── Optional: Also allow local download ──────────────────────────────
-      // Uncomment if you want both behaviors:
-      // const url = URL.createObjectURL(blob);
-      // const link = document.createElement('a');
-      // link.href = url;
-      // link.download = filename;
-      // document.body.appendChild(link);
-      // link.click();
-      // document.body.removeChild(link);
-      // URL.revokeObjectURL(url);
 
     } catch (err) {
       console.error(`Failed to generate/upload ${format} memo:`, err);
@@ -923,17 +908,13 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         </div>
       </div>
 
-      {/* ─── Memo Preview - Proper A4 layout with footer at bottom ─── */}
+      {/* ─── Memo Preview - Proper A4 layout ──────────────────────────────── */}
       <div className="border border-stone-300 bg-white shadow-sm font-sans text-black" style={{ minHeight: '297mm' }}>
         <div className="flex flex-col" style={{ minHeight: '297mm' }}>
-          {/* Header - pushed to top */}
           <div className="p-10">
-            {/* Crest */}
             <div className="flex justify-center mb-3">
               <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-20 w-auto object-contain" />
             </div>
-
-            {/* Title block */}
             <div className="text-center mb-6">
               <p className="text-lg font-bold uppercase leading-snug">
                 OFFICE OF THE REGISTRAR HIGH COURT
@@ -943,7 +924,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
               </p>
             </div>
 
-            {/* TO / FROM / REF / DATE / SUBJECT */}
             <div className="space-y-3 text-sm font-bold mb-8">
               <div className="flex">
                 <span className="w-24 shrink-0">TO</span>
@@ -997,7 +977,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
               </div>
             </div>
 
-            {/* Body */}
             <div className="space-y-4 text-sm">
               <textarea
                 value={bodyText}
@@ -1006,7 +985,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
                 className={`${editableLineClasses} block w-full resize-none leading-relaxed`}
               />
 
-              {/* Table - without Notes column */}
               <div className="overflow-x-auto">
                 <table className="w-full text-sm border-collapse border border-black">
                   <thead>
@@ -1060,7 +1038,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
             </div>
           </div>
 
-          {/* Sign-off - pushed to bottom with flex-grow */}
           <div className="flex-1"></div>
           <div className="p-10 pt-0">
             <div className="space-y-1">
@@ -1086,7 +1063,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
               />
             </div>
 
-            {/* Footer */}
             <div className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3">
               <img src={FOOTER_EMBLEM_SRC} alt="" className="h-10 w-auto object-contain shrink-0" />
               <div className="text-[10px] leading-tight text-stone-700 text-right">
@@ -1142,6 +1118,9 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
   const [basicInfo, setBasicInfo] = useState<BasicInfoType>(() => getDefaultBasicInfo(mode));
 
   const [dsaDetails, setDsaDetails] = useState<Omit<DSADetailInput, 'id'>[]>(getDefaultDsaDetails);
+
+  // ── Track pending document ID for linking after creation ──────────────
+  const [pendingDocumentId, setPendingDocumentId] = useState<string | undefined>();
 
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
 
@@ -1209,6 +1188,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
         setDsaDetails(getDefaultDsaDetails());
         setCurrentStep(1);
       }
+      setPendingDocumentId(undefined);
     }
   }
 
@@ -1216,6 +1196,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     setBasicInfo(getDefaultBasicInfo(mode));
     setDsaDetails(getDefaultDsaDetails());
     setCurrentStep(1);
+    setPendingDocumentId(undefined);
   };
 
   const handleAddDsaRow = () => {
@@ -1258,6 +1239,10 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to remove signature.');
     }
+  };
+
+  const handleMemoUploaded = (docId: string) => {
+    setPendingDocumentId(docId);
   };
 
   const handleNextStep = () => {
@@ -1311,6 +1296,8 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
           notes: undefined,
         }));
 
+      let createdId: string | undefined;
+
       if (editingItem) {
         const statusUpdate = { id: editingItem.id, status: 'Pending' as Status };
         switch (mode) {
@@ -1333,7 +1320,9 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
             throw new Error('Invalid mode');
         }
         toast.success(`${getModalTitle()} updated successfully.`);
+        createdId = editingItem.id;
       } else {
+        let result;
         switch (mode) {
           case 'circuit': {
             const input: CreateCircuitInput = {
@@ -1343,7 +1332,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
               end_date: basicInfo.end_date,
               dsa_details: dsaData,
             };
-            await dispatch(createCircuit(input)).unwrap();
+            result = await dispatch(createCircuit(input)).unwrap();
             break;
           }
           case 'bench': {
@@ -1354,7 +1343,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
               end_date: basicInfo.end_date,
               dsa_details: dsaData,
             };
-            await dispatch(createBench(input)).unwrap();
+            result = await dispatch(createBench(input)).unwrap();
             break;
           }
           case 'partHeard': {
@@ -1365,7 +1354,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
               end_date: basicInfo.end_date,
               dsa_details: dsaData,
             };
-            await dispatch(createPartHeard(input)).unwrap();
+            result = await dispatch(createPartHeard(input)).unwrap();
             break;
           }
           case 'serviceWeek': {
@@ -1377,7 +1366,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
               end_date: basicInfo.end_date,
               dsa_details: dsaData,
             };
-            await dispatch(createServiceWeek(input)).unwrap();
+            result = await dispatch(createServiceWeek(input)).unwrap();
             break;
           }
           case 'otherPayment': {
@@ -1388,15 +1377,33 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
               end_date: basicInfo.end_date,
               dsa_details: dsaData,
             };
-            await dispatch(createOtherPayment(input)).unwrap();
+            result = await dispatch(createOtherPayment(input)).unwrap();
             break;
           }
           default:
             throw new Error('Invalid mode');
         }
         toast.success(`${getModalTitle()} created successfully.`);
+        createdId = result?.id;
       }
 
+      // ── Link pending document if it exists ──────────────────────────────
+      if (pendingDocumentId && createdId) {
+        try {
+          await dispatch(
+            linkHelpdeskDocument({
+              id: pendingDocumentId,
+              entity_type: mode as DocumentEntityType,
+              entity_id: createdId,
+            })
+          ).unwrap();
+          toast.success('Memo linked to the record.');
+        } catch {
+          toast.error('Record created, but failed to link the memo. You can attach it manually later.');
+        }
+      }
+
+      // ── Refresh lists ────────────────────────────────────────────────────
       switch (mode) {
         case 'circuit':
           await dispatch(fetchCircuits({}));
@@ -1544,6 +1551,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
                 onEdit={() => setCurrentStep(1)}
                 onEditDsa={() => setCurrentStep(2)}
                 signatureUrl={currentUser?.signature_url}
+                onDocumentUploaded={handleMemoUploaded}
               />
             </div>
           )}
