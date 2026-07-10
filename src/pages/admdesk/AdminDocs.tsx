@@ -2027,19 +2027,23 @@ const AdminDocs = () => {
   // excluded here regardless of assignment/ownership. It still lives in the
   // data (folder_id stays set) and shows up wherever folder contents are
   // rendered; this list just stops surfacing it.
-  const filteredDocuments = useMemo(() => {
-    if (!currentUser) return documents;
+  // A document that has been redirected to a folder is treated as already
+// handled — it belongs to the folder now, not the working list — so it's
+// excluded here regardless of assignment/ownership. Drafts stay private
+// to their creator until finalized (marked/sent), since an unfinished
+// draft isn't meant to be visible to the rest of the department yet.
+// Everything else — any non-draft document in this dept head's own
+// department — is now visible to the whole department, not just whoever
+// created or was assigned it.
+const filteredDocuments = useMemo(() => {
+  if (!currentUser) return documents;
 
-    return documents.filter(doc => {
-      if (doc.folder_id) return false; // already redirected — lives in its folder now
-
-      if (doc.assigned_to === currentUser.id) return true;
-      if (doc.is_draft && doc.created_by === currentUser.id) return true;
-      if (doc.created_by === currentUser.id && !doc.is_draft) return true;
-      if ((doc.type === 'memo' || doc.type === 'letter') && doc.status === 'pending_review' && doc.assigned_to === currentUser.id) return true;
-      return false;
-    });
-  }, [documents, currentUser]);
+  return documents.filter(doc => {
+    if (doc.folder_id) return false; // already redirected — lives in its folder now
+    if (doc.is_draft) return doc.created_by === currentUser.id; // drafts stay private until finalized
+    return true; // non-draft, department-scoped docs are visible department-wide
+  });
+}, [documents, currentUser]);
 
   return (
     <div className="min-h-screen bg-slate-50">
