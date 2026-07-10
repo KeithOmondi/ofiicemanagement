@@ -23,6 +23,8 @@ import templatesReducer from "./slices/templatesSlice"
 import helpdeskDocumentsReducer from './slices/helpdeskDocumentsSlice';
 import ticketsReducer from "./slices/ticketSlice"
 import judgesReducer from "./slices/JudgesSlice"
+import rhcFoldersReducer from "./slices/rhcFoldersSlice"
+import eStampReducer from "./slices/eStampSlice"
 
 export const store = configureStore({
   reducer: {
@@ -47,7 +49,9 @@ export const store = configureStore({
     templates: templatesReducer,
     helpdeskDocuments: helpdeskDocumentsReducer,
     tickets: ticketsReducer,
-    judges: judgesReducer
+    judges: judgesReducer,
+    rhcFolders: rhcFoldersReducer,
+    eStamp: eStampReducer
   },
 });
 

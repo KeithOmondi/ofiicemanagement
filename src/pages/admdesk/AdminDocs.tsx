@@ -13,6 +13,8 @@ import {
   respondToDocument,
   createMemo,
   createLetter,
+  redirectDocumentToFolder,
+  removeDocumentFromFolder,
 } from '../../store/slices/documentSlice';
 import { selectCurrentUser, fetchCurrentUser } from '../../store/slices/userSlice';
 import {
@@ -28,6 +30,12 @@ import {
   clearError as clearRegistryError,
 } from '../../store/slices/registrySlice';
 import { fetchActiveTemplate, fetchAllTemplates } from '../../store/slices/templatesSlice';
+import {
+  fetchRHCFolders,
+  selectAllRHCFolders,
+  selectRHCFoldersLoading,
+  type RHCFolder,
+} from '../../store/slices/rhcFoldersSlice';
 import { GLOBAL_KEY, type TemplateType } from '../../types/templates.types';
 import type {
   CreateUploadDocumentInput,
@@ -187,12 +195,206 @@ const PriorityBadge: React.FC<{ priority: RoutePriority }> = ({ priority }) => (
   </span>
 );
 
-// ─── Sticky Note (read‑only, with safe date parsing) ──────────────────────
+// ─── Redirect Modal ──────────────────────────────────────────────────────────
+
+interface RedirectModalProps {
+  document: DocType;
+  folders: RHCFolder[];
+  loading: boolean;
+  onClose: () => void;
+  onRedirect: (folderId: string, note?: string) => void;
+}
+
+const RedirectModal: React.FC<RedirectModalProps> = ({
+  document,
+  folders,
+  loading,
+  onClose,
+  onRedirect,
+}) => {
+  const [selectedFolderId, setSelectedFolderId] = useState('');
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFolderId) {
+      setError('Please select a folder');
+      return;
+    }
+    onRedirect(selectedFolderId, note || undefined);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-xl bg-white shadow-2xl border border-slate-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Redirect to Folder</h2>
+            <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[260px]">{document.title}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="px-6 py-5 space-y-4">
+            <div>
+              <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+                Select Folder *
+              </label>
+              <select
+                value={selectedFolderId}
+                onChange={(e) => { setSelectedFolderId(e.target.value); setError(null); }}
+                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={loading}
+              >
+                <option value="">Select a folder...</option>
+                {folders.map((folder) => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.ref_no} - {folder.name}
+                  </option>
+                ))}
+              </select>
+              {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+                Note (Optional)
+              </label>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={3}
+                placeholder="Add a note about this redirection..."
+                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              />
+            </div>
+
+            {document.folder_id && (
+              <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2">
+                <p className="text-xs text-amber-700">
+                  ⚠️ This document is already in a folder. Redirecting will move it to the new folder.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-xl">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading || !selectedFolderId}
+              className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 transition"
+            >
+              {loading && <Spinner />}
+              {loading ? 'Redirecting...' : 'Redirect to Folder'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ─── Remove from Folder Modal ────────────────────────────────────────────────
+
+interface RemoveFromFolderModalProps {
+  document: DocType;
+  loading: boolean;
+  onClose: () => void;
+  onRemove: (note?: string) => void;
+}
+
+const RemoveFromFolderModal: React.FC<RemoveFromFolderModalProps> = ({
+  document,
+  loading,
+  onClose,
+  onRemove,
+}) => {
+  const [note, setNote] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onRemove(note || undefined);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-xl bg-white shadow-2xl border border-slate-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Remove from Folder</h2>
+            <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[260px]">{document.title}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="px-6 py-5 space-y-4">
+            <div className="rounded-md bg-yellow-50 border border-yellow-200 px-3 py-2">
+              <p className="text-xs text-yellow-700">
+                ⚠️ This document will be removed from its current folder and will appear in the main document list.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">
+                Note (Optional)
+              </label>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={3}
+                placeholder="Add a note about removing this document from the folder..."
+                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-xl">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-60 transition"
+            >
+              {loading && <Spinner />}
+              {loading ? 'Removing...' : 'Remove from Folder'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ─── Sticky Note ──────────────────────────────────────────────────────────────
 
 interface StickyNoteProps {
   authorName: string;
   text: string;
-  bringUpDate?: string | null;   // ISO date string or full timestamp
+  bringUpDate?: string | null;
 }
 
 const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate }) => {
@@ -222,14 +424,13 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate }
     };
   }, []);
 
-  // ── Robust date helpers ──────────────────────────────────────────────────
   const parseDate = (dateStr: string | null | undefined): Date | null => {
     if (!dateStr) return null;
     const d = new Date(dateStr);
     return isNaN(d.getTime()) ? null : d;
   };
 
-  const formatDate = (dateStr: string): string => {
+  const formatDateDisplay = (dateStr: string): string => {
     const d = parseDate(dateStr);
     if (!d) return 'Invalid Date';
     return d.toLocaleDateString('en-GB', {
@@ -325,7 +526,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate }
             {text || <span className="italic text-stone-400">No instructions.</span>}
           </p>
 
-          {/* ─── Bring‑up date chip (only if valid) ─── */}
           {showDateChip && (
             <div
               className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium border ${
@@ -337,7 +537,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate }
               }`}
             >
               <span>📅</span>
-              <span>Bring up: {formatDate(bringUpDate!)}</span>
+              <span>Bring up: {formatDateDisplay(bringUpDate!)}</span>
             </div>
           )}
         </div>
@@ -777,7 +977,7 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
               key={document.id}
               authorName={document.active_mark.marked_by_name ?? 'Registrar'}
               text={document.active_mark.instructions}
-              bringUpDate={document.active_mark.bring_up_date}   // ✅ fixed: pass the bring‑up date
+              bringUpDate={document.active_mark.bring_up_date}
             />
           )}
           {renderPreview()}
@@ -1593,6 +1793,10 @@ const AdminDocs = () => {
   const registryLoading = useAppSelector(selectRegistryListLoading);
   const registryError = useAppSelector(selectRegistryError);
 
+  // Folder state
+  const folders = useAppSelector(selectAllRHCFolders);
+  const foldersLoading = useAppSelector(selectRHCFoldersLoading);
+
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [page, setPage] = useState(1);
@@ -1602,6 +1806,16 @@ const AdminDocs = () => {
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('');
 
   const [composerType, setComposerType] = useState<TemplateType | null>(null);
+
+  // Redirect modal state
+  const [showRedirectModal, setShowRedirectModal] = useState(false);
+  const [redirectTarget, setRedirectTarget] = useState<DocType | null>(null);
+  const [redirecting, setRedirecting] = useState(false);
+
+  // Remove from folder modal state
+  const [showRemoveModal, setShowRemoveModal] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<DocType | null>(null);
+  const [removing, setRemoving] = useState(false);
 
   const searchRef = useRef('');
   const typeFilterRef = useRef<DocumentType | ''>('');
@@ -1618,6 +1832,11 @@ const AdminDocs = () => {
   useEffect(() => {
     console.log('[AdminDocs] Fetching all templates...');
     dispatch(fetchAllTemplates());
+  }, [dispatch]);
+
+  useEffect(() => {
+    console.log('[AdminDocs] Fetching folders...');
+    dispatch(fetchRHCFolders({ status: 'active', include_sub_folders: true }));
   }, [dispatch]);
 
   const departmentId = currentUser?.department_id ?? null;
@@ -1673,6 +1892,59 @@ const AdminDocs = () => {
     });
     return map;
   }, [registryEntries]);
+
+  // ── Folder Handlers ─────────────────────────────────────────────────────
+
+  const handleRedirectClick = (doc: DocType) => {
+    setRedirectTarget(doc);
+    setShowRedirectModal(true);
+  };
+
+  const handleRedirectSubmit = async (folderId: string, note?: string) => {
+    if (!redirectTarget) return;
+    setRedirecting(true);
+    try {
+      await dispatch(redirectDocumentToFolder({
+        id: redirectTarget.id,
+        folder_id: folderId,
+        note,
+      })).unwrap();
+      toast.success('Document redirected to folder successfully');
+      setShowRedirectModal(false);
+      setRedirectTarget(null);
+      await triggerFetch(page);
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to redirect document');
+    } finally {
+      setRedirecting(false);
+    }
+  };
+
+  const handleRemoveClick = (doc: DocType) => {
+    setRemoveTarget(doc);
+    setShowRemoveModal(true);
+  };
+
+  const handleRemoveSubmit = async (note?: string) => {
+    if (!removeTarget) return;
+    setRemoving(true);
+    try {
+      await dispatch(removeDocumentFromFolder({
+        id: removeTarget.id,
+        note,
+      })).unwrap();
+      toast.success('Document removed from folder successfully');
+      setShowRemoveModal(false);
+      setRemoveTarget(null);
+      await triggerFetch(page);
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to remove document from folder');
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  // ── Other Handlers ─────────────────────────────────────────────────────
 
   const handleSearchChange = (value: string) => {
     console.log(`[AdminDocs] Search changed: "${value}"`);
@@ -1802,6 +2074,35 @@ const AdminDocs = () => {
         />
       )}
 
+      {/* Redirect Modal */}
+     // In AdminDocs.tsx, update the loading prop for RedirectModal
+
+{showRedirectModal && redirectTarget && (
+  <RedirectModal
+    document={redirectTarget}
+    folders={folders}
+    loading={redirecting || foldersLoading.fetch}  // ✅ Use foldersLoading.fetch instead of foldersLoading
+    onClose={() => {
+      setShowRedirectModal(false);
+      setRedirectTarget(null);
+    }}
+    onRedirect={handleRedirectSubmit}
+  />
+)}
+
+      {/* Remove from Folder Modal */}
+      {showRemoveModal && removeTarget && (
+        <RemoveFromFolderModal
+          document={removeTarget}
+          loading={removing}
+          onClose={() => {
+            setShowRemoveModal(false);
+            setRemoveTarget(null);
+          }}
+          onRemove={handleRemoveSubmit}
+        />
+      )}
+
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>
@@ -1928,6 +2229,15 @@ const AdminDocs = () => {
                       <tr key={doc.id} className="border-b border-slate-50 hover:bg-slate-50/60 transition">
                         <td className="px-4 py-3 font-medium text-slate-900 truncate max-w-[200px]" title={doc.title}>
                           {doc.title}
+                          {doc.folder_id && (
+                            <span className="ml-2 inline-flex items-center text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                              <svg className="w-3 h-3 mr-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                  d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                              </svg>
+                              Folder
+                            </span>
+                          )}
                         </td>
 
                         <td className="px-4 py-3">
@@ -2046,6 +2356,38 @@ const AdminDocs = () => {
                                   d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                               </svg>
                             </button>
+
+                            {/* Redirect to Folder Button */}
+                            <button
+                              onClick={() => handleRedirectClick(doc)}
+                              title="Redirect to folder"
+                              className="p-1.5 text-blue-400 hover:text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                  d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                  d="M12 12l3 3m0 0l-3-3m3 3V9" />
+                              </svg>
+                            </button>
+
+                            {/* Remove from Folder Button */}
+                            {doc.folder_id && (
+                              <button
+                                onClick={() => handleRemoveClick(doc)}
+                                title="Remove from folder"
+                                className="p-1.5 text-red-400 hover:text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                    d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                    d="M12 12l3 3m0 0l-3-3m3 3V9" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                    d="M9 15l6-6" />
+                                </svg>
+                              </button>
+                            )}
 
                             <button
                               disabled={deletingId === doc.id}

@@ -1,3 +1,5 @@
+// src/store/slices/documentSlice.ts
+
 import {
   createSlice,
   createAsyncThunk,
@@ -25,7 +27,7 @@ import type {
   ComposeMemoInput,
   ComposeLetterInput,
   SendToUserInput,
-  //UpdateMarkInput, // new import
+  //UpdateMarkInput,
 } from "../../types/documents.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -45,7 +47,7 @@ interface DocumentState {
     limit: number;
     totalPages: number;
   } | null;
-  latestDocumentsRequestId: string | null; // for stale response guarding
+  latestDocumentsRequestId: string | null;
   actionInProgress: {
     signing?: string;
     sending?: string;
@@ -60,7 +62,9 @@ interface DocumentState {
     creatingLetter?: boolean;
     sendingToUser?: string;
     uploading?: boolean;
-    updatingMark?: string; // new
+    updatingMark?: string;
+    redirectingToFolder?: string;
+    removingFromFolder?: string;
   };
 }
 
@@ -559,7 +563,7 @@ export const deleteAnnotation = createAsyncThunk(
   },
 );
 
-// ── NEW: Update Mark (instructions & bring‑up date) ──────────────────────
+// ── Update Mark (instructions & bring‑up date) ──────────────────────────────
 
 export const updateMark = createAsyncThunk(
   "documents/updateMark",
@@ -574,6 +578,73 @@ export const updateMark = createAsyncThunk(
         data: DocumentMark;
       }>(`/documents/marks/${markId}`, { instructions, bring_up_date });
       return { markId, updatedMark: response.data.data };
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════
+//  NEW: Folder Operations
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── Redirect Document to Folder ────────────────────────────────────────────
+
+export const redirectDocumentToFolder = createAsyncThunk(
+  "documents/redirectDocumentToFolder",
+  async (
+    { id, folder_id, note }: { id: string; folder_id: string; note?: string },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/redirect-to-folder`, { folder_id, note });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Remove Document from Folder ────────────────────────────────────────────
+
+export const removeDocumentFromFolder = createAsyncThunk(
+  "documents/removeDocumentFromFolder",
+  async (
+    { id, note }: { id: string; note?: string },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.delete<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/remove-from-folder`, { data: { note } });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Fetch Documents by Folder ──────────────────────────────────────────────
+
+export const fetchDocumentsByFolder = createAsyncThunk(
+  "documents/fetchDocumentsByFolder",
+  async (
+    { folderId, page, limit, search, type, status }: 
+    { folderId: string; page?: number; limit?: number; search?: string; type?: string; status?: string },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: DocumentPaginationResponse;
+      }>(`/documents/folder/${folderId}`, {
+        params: { page, limit, search, type, status }
+      });
+      return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
@@ -1109,7 +1180,7 @@ const documentSlice = createSlice({
         }
       })
 
-      // ── updateMark (NEW) ──────────────────────────────────────────────────
+      // ── updateMark ────────────────────────────────────────────────────────
       .addCase(updateMark.pending, (state, action) => {
         state.actionInProgress.updatingMark = action.meta.arg.markId;
         state.error = null;
@@ -1118,7 +1189,6 @@ const documentSlice = createSlice({
         state.actionInProgress.updatingMark = undefined;
         const { markId, updatedMark } = action.payload;
 
-        // Update in documents list
         state.documents = state.documents.map(doc => {
           if (doc.active_mark?.id === markId) {
             return {
@@ -1133,7 +1203,6 @@ const documentSlice = createSlice({
           return doc;
         });
 
-        // Update in currentDocument if present
         if (state.currentDocument?.active_mark?.id === markId) {
           state.currentDocument = {
             ...state.currentDocument,
@@ -1145,7 +1214,6 @@ const documentSlice = createSlice({
           };
         }
 
-        // Also update in myMarked list if that document appears there
         state.myMarked = state.myMarked.map(doc => {
           if (doc.active_mark?.id === markId) {
             return {
@@ -1162,6 +1230,90 @@ const documentSlice = createSlice({
       })
       .addCase(updateMark.rejected, (state, action) => {
         state.actionInProgress.updatingMark = undefined;
+        state.error = action.payload as string;
+      })
+
+      // ── redirectDocumentToFolder ──────────────────────────────────────────
+      .addCase(redirectDocumentToFolder.pending, (state, action) => {
+        state.actionInProgress.redirectingToFolder = action.meta.arg.id;
+        state.error = null;
+      })
+      .addCase(
+        redirectDocumentToFolder.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.redirectingToFolder = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+          // Update in myMarked as well
+          const myIndex = state.myMarked.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+        },
+      )
+      .addCase(redirectDocumentToFolder.rejected, (state, action) => {
+        state.actionInProgress.redirectingToFolder = undefined;
+        state.error = action.payload as string;
+      })
+
+      // ── removeDocumentFromFolder ──────────────────────────────────────────
+      .addCase(removeDocumentFromFolder.pending, (state, action) => {
+        state.actionInProgress.removingFromFolder = action.meta.arg.id;
+        state.error = null;
+      })
+      .addCase(
+        removeDocumentFromFolder.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.removingFromFolder = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+          const myIndex = state.myMarked.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+        },
+      )
+      .addCase(removeDocumentFromFolder.rejected, (state, action) => {
+        state.actionInProgress.removingFromFolder = undefined;
+        state.error = action.payload as string;
+      })
+
+      // ── fetchDocumentsByFolder ─────────────────────────────────────────────
+      .addCase(fetchDocumentsByFolder.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchDocumentsByFolder.fulfilled,
+        (state, action: PayloadAction<DocumentPaginationResponse>) => {
+          state.loading = false;
+          state.documents = action.payload.data;
+          state.pagination = {
+            total: action.payload.total,
+            page: action.payload.page,
+            limit: action.payload.limit,
+            totalPages: action.payload.totalPages,
+          };
+        },
+      )
+      .addCase(fetchDocumentsByFolder.rejected, (state, action) => {
+        state.loading = false;
         state.error = action.payload as string;
       });
   },
@@ -1228,6 +1380,12 @@ export const selectIsUploading = (state: { documents: DocumentState }) =>
 
 export const selectIsUpdatingMark = (state: { documents: DocumentState }, markId: string) =>
   state.documents.actionInProgress.updatingMark === markId;
+
+export const selectIsRedirectingToFolder = (state: { documents: DocumentState }, documentId: string) =>
+  state.documents.actionInProgress.redirectingToFolder === documentId;
+
+export const selectIsRemovingFromFolder = (state: { documents: DocumentState }, documentId: string) =>
+  state.documents.actionInProgress.removingFromFolder === documentId;
 
 export type { DocumentState };
 

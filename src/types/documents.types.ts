@@ -1,3 +1,5 @@
+// src/types/documents.types.ts
+
 // ── Type enums ────────────────────────────────────────────────────────────────
 
 export type DocumentType =
@@ -115,6 +117,7 @@ export interface DocumentFilters {
   status?: DocumentStatus;
   assigned_to?: string;
   department_id?: string;
+  folder_id?: string;           // ✅ NEW: Filter by folder
   for_my_action?: boolean;
   visible_in_summary?: boolean;
   page?: number;
@@ -141,6 +144,26 @@ export interface RespondToDocumentInput {
   note: string;
 }
 
+// ── Folder Operation Input types ───────────────────────────────────────────
+
+export interface RedirectToFolderInput {
+  folder_id: string;
+  note?: string;
+}
+
+export interface RemoveFromFolderInput {
+  note?: string;
+}
+
+export interface FolderDocumentFilters {
+  folder_id: string;
+  page?: number;
+  limit?: number;
+  search?: string;
+  type?: DocumentType;
+  status?: DocumentStatus;
+}
+
 // ── Entity types ──────────────────────────────────────────────────────────────
 
 // ── Document Mark (to Department) ──────────────────────────────────────────
@@ -155,7 +178,7 @@ export interface DocumentMark {
   assigned_to: string | null;
   assigned_to_name: string | null;
   instructions: string | null;
-  bring_up_date: string | null;      // ← NEW: ISO date string
+  bring_up_date: string | null;
   priority: RoutePriority;
   marked_at: Date;
   acknowledged_at: Date | null;
@@ -229,6 +252,8 @@ export interface Document {
   created_by_name: string;
   department_id: string | null;
   department_name: string | null;
+  folder_id: string | null;           // ✅ NEW: Reference to RHC folder
+  folder_name: string | null;         // ✅ NEW: Name of the folder
   is_signed: boolean;
   signed_by: string | null;
   signed_by_name: string | null;

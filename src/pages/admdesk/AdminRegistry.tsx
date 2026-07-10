@@ -39,9 +39,9 @@ const STATION_TYPE_LABELS: Record<StationType, string> = {
 
 const STATION_TYPE_ICONS: Record<StationType, string> = {
   high_court:        '🏛',
-  magistrate_court:  '⚖️',
-  environment_court: '🌳',
-  kadhis_court:      '🕌',
+  magistrate_court:  '🏛',
+  environment_court: '🏛',
+  kadhis_court:      '🏛',
   sub_registry:      '📁',
 };
 

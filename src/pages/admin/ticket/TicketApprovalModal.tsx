@@ -1,4 +1,14 @@
 // src/components/tickets/TicketApprovalModal.tsx
+//
+// CHANGES IN THIS VERSION:
+// 1. `DocumentViewer` now has Approve / Return buttons.
+// 2. Clicking Approve stamps the PDF client-side (rotated "APPROVED" stamp,
+//    centered horizontally, aligned with the signatory's vertical position)
+//    BEFORE the approval request is sent — see src/utils/pdfStamp.ts.
+// 3. `handleApproveDocument` / `handleReturnDocument` are wired to placeholder
+//    API calls (clearly marked TODO) since the exact helpdesk-documents
+//    approve/return endpoint wasn't available to me. Swap in your real thunk
+//    or fetch call there — the UI/stamping logic above it needs no changes.
 
 import React, { useEffect, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../../../store/hook';
@@ -24,6 +34,7 @@ import {
   selectDocumentsFetchLoading,
   type HelpdeskDocument,
 } from '../../../store/slices/helpdeskDocumentsSlice';
+import { stampPdfFromUrl } from '../../../utils/pdfStamp';
 import {
   X,
   Loader2,
@@ -50,6 +61,9 @@ interface TicketApprovalModalProps {
   onClose: () => void;
   onRefresh?: () => void;
   userRole: 'dept_head' | 'super_admin' | 'staff';
+  /** Used as the printed name on the stamp. Fall back to a generic label if not provided. */
+  currentUserName?: string;
+  currentUserTitle?: string;
 }
 
 // ── Status Badge ───────────────────────────────────────────────────────────
@@ -97,9 +111,90 @@ const DocumentStatusBadge: React.FC<{ status: 'draft' | 'pending_approval' | 'ap
 interface DocumentViewerProps {
   document: HelpdeskDocument;
   onClose: () => void;
+  /** Called with the stamped PDF blob once the user confirms Approve. */
+  onApprove?: (doc: HelpdeskDocument, stampedFile: Blob) => Promise<void>;
+  onReturn?: (doc: HelpdeskDocument, reason: string) => Promise<void>;
+  currentUserName?: string;
+  currentUserTitle?: string;
 }
 
-const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, onClose }) => {
+const DocumentViewer: React.FC<DocumentViewerProps> = ({
+  document,
+  onClose,
+  onApprove,
+  onReturn,
+  currentUserName,
+  currentUserTitle,
+}) => {
+  const [isStamping, setIsStamping] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [isReturning, setIsReturning] = useState(false);
+  const [showReturnInput, setShowReturnInput] = useState(false);
+  const [returnReason, setReturnReason] = useState('');
+  const [stampPreviewUrl, setStampPreviewUrl] = useState<string | null>(null);
+
+  const canReview = document.status === 'pending_approval';
+  const busy = isStamping || isApproving || isReturning;
+
+  const handleApproveClick = async () => {
+    if (!onApprove) {
+      toast.error('Approve action is not wired up yet for documents.');
+      return;
+    }
+    if (document.format.toLowerCase() !== 'pdf') {
+      toast.error('Stamping is only supported for PDF documents right now.');
+      return;
+    }
+    if (!window.confirm('Approve this document? A stamp will be embedded before it is saved.')) return;
+
+    setIsStamping(true);
+    try {
+      const stampedBlob = await stampPdfFromUrl(document.file_url, {
+        approverName: currentUserName ?? 'Authorized Signatory',
+        approverTitle: currentUserTitle,
+        label: 'APPROVED',
+      });
+
+      // Optional: let the user see the stamp before it's sent off
+      const previewUrl = URL.createObjectURL(stampedBlob);
+      setStampPreviewUrl(previewUrl);
+
+      setIsStamping(false);
+      setIsApproving(true);
+      await onApprove(document, stampedBlob);
+      toast.success('Document stamped and approved');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to stamp/approve the document');
+    } finally {
+      setIsStamping(false);
+      setIsApproving(false);
+    }
+  };
+
+  const handleReturnClick = async () => {
+    if (!onReturn) {
+      toast.error('Return action is not wired up yet for documents.');
+      return;
+    }
+    if (!returnReason.trim()) {
+      toast.error('Please provide a reason for returning this document');
+      return;
+    }
+    setIsReturning(true);
+    try {
+      await onReturn(document, returnReason.trim());
+      toast.success('Document returned');
+      setShowReturnInput(false);
+      setReturnReason('');
+    } catch (err) {
+      console.error(err);
+      toast.error('Failed to return the document');
+    } finally {
+      setIsReturning(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
       <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-xl bg-white shadow-2xl">
@@ -134,6 +229,87 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ document, onClose }) =>
               </div>
             )}
           </div>
+
+          {/* Review Actions — Approve / Return */}
+          {canReview && (
+            <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
+              <p className="text-xs text-stone-500 mb-3">
+                Approving will embed a tilted "APPROVED" stamp into the document, centered
+                on the page and aligned with the signatory, before saving.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={handleApproveClick}
+                  disabled={busy}
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {isStamping ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" /> Stamping…
+                    </>
+                  ) : isApproving ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" /> Approving…
+                    </>
+                  ) : (
+                    <>
+                      <Stamp size={16} /> Approve &amp; Stamp
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowReturnInput((v) => !v)}
+                  disabled={busy}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  <ArrowLeft size={16} />
+                  Return
+                </button>
+              </div>
+
+              {showReturnInput && (
+                <div className="mt-3">
+                  <textarea
+                    value={returnReason}
+                    onChange={(e) => setReturnReason(e.target.value)}
+                    placeholder="Reason for returning this document..."
+                    rows={3}
+                    className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    autoFocus
+                  />
+                  <div className="mt-2 flex justify-end gap-2">
+                    <button
+                      onClick={() => { setShowReturnInput(false); setReturnReason(''); }}
+                      className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleReturnClick}
+                      disabled={isReturning || !returnReason.trim()}
+                      className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {isReturning ? <Loader2 size={14} className="animate-spin" /> : 'Confirm Return'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {stampPreviewUrl && (
+                <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-2">
+                  <p className="text-[10px] font-semibold uppercase text-emerald-700 mb-1">Stamped preview</p>
+                  <a
+                    href={stampPreviewUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-emerald-700 underline hover:text-emerald-800"
+                  >
+                    Open stamped PDF in new tab
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* E-Stamp */}
           {document.e_stamp_url && (
@@ -201,6 +377,8 @@ export const TicketApprovalModal: React.FC<TicketApprovalModalProps> = ({
   onClose,
   onRefresh,
   userRole,
+  currentUserName,
+  currentUserTitle,
 }) => {
   const dispatch = useAppDispatch();
   const ticket = useAppSelector(selectSelectedTicket);
@@ -259,6 +437,7 @@ export const TicketApprovalModal: React.FC<TicketApprovalModalProps> = ({
       toast.success('Ticket approved');
       onRefresh?.();
       dispatch(fetchTicketById(ticket.id));
+      dispatch(fetchHelpdeskDocuments({ entity_type: 'ticket', entity_id: ticket.id })); // NEW
     } catch {
       toast.error('Failed to approve ticket');
     } finally {
@@ -280,6 +459,7 @@ export const TicketApprovalModal: React.FC<TicketApprovalModalProps> = ({
       setRejectReason('');
       onRefresh?.();
       dispatch(fetchTicketById(ticket.id));
+      dispatch(fetchHelpdeskDocuments({ entity_type: 'ticket', entity_id: ticket.id })); // NEW
     } catch {
       toast.error('Failed to reject ticket');
     } finally {
@@ -301,6 +481,7 @@ export const TicketApprovalModal: React.FC<TicketApprovalModalProps> = ({
       setReturnComments('');
       onRefresh?.();
       dispatch(fetchTicketById(ticket.id));
+      dispatch(fetchHelpdeskDocuments({ entity_type: 'ticket', entity_id: ticket.id })); // NEW
     } catch {
       toast.error('Failed to return ticket');
     } finally {
@@ -385,6 +566,46 @@ export const TicketApprovalModal: React.FC<TicketApprovalModalProps> = ({
   const handleViewDocument = (doc: HelpdeskDocument) => {
     setSelectedDocForView(doc);
     setShowDocViewer(true);
+  };
+
+  // ── Document-level Approve / Return ──────────────────────────────────────
+  //
+  // TODO: These two functions are the integration point. Replace the fetch()
+  // calls below with whatever your backend actually expects — e.g. a thunk
+  // from helpdeskDocumentsSlice such as `approveHelpdeskDocument({ id, file })`
+  // and `returnHelpdeskDocument({ id, reason })`, following the same pattern
+  // as ticketSlice's thunks. The stamping itself (above, in DocumentViewer)
+  // does not need to change regardless of how you wire the upload.
+
+  const handleApproveDocument = async (doc: HelpdeskDocument, stampedFile: Blob) => {
+    const formData = new FormData();
+    formData.append('file', stampedFile, `stamped-${doc.ref}.pdf`);
+    formData.append('approver_name', currentUserName ?? '');
+
+    const res = await fetch(`/api/helpdesk-documents/${doc.id}/approve`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      throw new Error(`Approve request failed (${res.status})`);
+    }
+
+    dispatch(fetchHelpdeskDocuments({ entity_type: 'ticket', entity_id: ticketId }));
+    onRefresh?.();
+  };
+
+  const handleReturnDocument = async (doc: HelpdeskDocument, reason: string) => {
+    const res = await fetch(`/api/helpdesk-documents/${doc.id}/return`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) {
+      throw new Error(`Return request failed (${res.status})`);
+    }
+
+    dispatch(fetchHelpdeskDocuments({ entity_type: 'ticket', entity_id: ticketId }));
+    onRefresh?.();
   };
 
   // ── Render Helpers ───────────────────────────────────────────────────────
@@ -846,6 +1067,10 @@ export const TicketApprovalModal: React.FC<TicketApprovalModalProps> = ({
         <DocumentViewer
           document={selectedDocForView}
           onClose={() => { setShowDocViewer(false); setSelectedDocForView(null); }}
+          onApprove={handleApproveDocument}
+          onReturn={handleReturnDocument}
+          currentUserName={currentUserName}
+          currentUserTitle={currentUserTitle}
         />
       )}
     </>

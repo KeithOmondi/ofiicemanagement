@@ -16,6 +16,8 @@ import {
   selectTicketPagination,
   selectTicketFilters,
   selectTicketActions,
+  approveTicket,
+  returnTicket,
 } from '../../store/slices/ticketSlice';
 import {
   fetchJudges,
@@ -36,6 +38,7 @@ import {
   selectUsersSignatureLoading,
   uploadSignature,
   deleteSignature,
+  fetchCurrentUser,
 } from '../../store/slices/userSlice';
 import type { Judge } from '../../types/judges.types';
 import type {
@@ -93,6 +96,7 @@ import {
 import { generateAirTicketMemoDocx } from '../../utils/generateAirTicketMemoDocx';
 import { generateAirTicketMemoPdf } from '../../utils/generateAirTicketMemoPdf';
 import { generateAirTicketMemoExcel } from '../../utils/generateAirTicketMemoExcel';
+import { stampPdfFromUrl } from '../../utils/pdfStamp';
 import TicketApprovalModal from './ticket/TicketApprovalModal';
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -127,10 +131,116 @@ const DocumentStatusBadge: React.FC<DocumentStatusBadgeProps> = ({ status }) => 
 
 interface DocumentViewerModalProps {
   document: HelpdeskDocument;
+  ticketId: string;
   onClose: () => void;
+  onActionComplete: () => void; // refresh ticket list + document list, then close
 }
 
-const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({ document, onClose }) => {
+const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
+  document,
+  ticketId,
+  onClose,
+  onActionComplete,
+}) => {
+  const dispatch = useAppDispatch();
+  const currentUser = useAppSelector(selectCurrentUser); // userSlice — has signature_url
+  const actionsLoading = useAppSelector(selectTicketActions);
+
+  const [isStamping, setIsStamping] = useState(false);
+  const [showReturnForm, setShowReturnForm] = useState(false);
+  const [returnReason, setReturnReason] = useState('');
+
+  const canDecide = document.status === 'pending_approval';
+
+  // Populate userSlice's currentUser if it hasn't been fetched yet in this
+  // session — nothing else in the app currently guarantees this happens
+  // before a document is approved.
+  useEffect(() => {
+    if (!currentUser) {
+      dispatch(fetchCurrentUser());
+    }
+  }, [dispatch, currentUser]);
+
+  const handleApproveAndStamp = async () => {
+    setIsStamping(true);
+    try {
+      // Grab the approver's signature image, if they have one, to embed on the stamp.
+      let signatureImageBytes: ArrayBuffer | undefined;
+      if (currentUser?.signature_url) {
+        try {
+          const sigRes = await fetch(currentUser.signature_url);
+          if (sigRes.ok) {
+            signatureImageBytes = await sigRes.arrayBuffer();
+          } else {
+            console.warn('Signature fetch returned non-OK status:', sigRes.status);
+          }
+        } catch (sigErr) {
+          console.error('Signature fetch failed:', sigErr);
+        }
+      }
+
+      const stampedBlob = await stampPdfFromUrl(document.file_url, {
+        issuer: 'REGISTRAR HIGH COURT',
+        approverName: currentUser?.full_name,
+        signatureImageBytes,
+      });
+
+      const safeRef = document.ref.replace(/[\\/:*?"<>|]/g, '-');
+
+      // Upload the stamped PDF as a new linked document version.
+      await dispatch(
+        uploadHelpdeskDocument({
+          blob: stampedBlob,
+          filename: `stamped-${safeRef}.pdf`,
+          ref: document.ref,
+          subject: document.subject,
+          entity_type: 'ticket' as DocumentEntityType,
+          entity_id: ticketId,
+          format: 'pdf' as DocumentFormat,
+        })
+      ).unwrap();
+
+      // Mark the parent ticket approved.
+      await dispatch(approveTicket({ id: ticketId, comments: 'Document reviewed, stamped, and approved.' })).unwrap();
+
+      toast.success('Document stamped and ticket approved. Sent back to the requester.');
+      onActionComplete();
+    } catch (err) {
+      console.error('Approve & stamp failed:', err);
+      toast.error(typeof err === 'string' ? err : 'Failed to approve and stamp the document.');
+    } finally {
+      setIsStamping(false);
+    }
+  };
+
+  const handleReturn = async () => {
+    if (!returnReason.trim()) {
+      toast.error('Please provide a reason for returning this document.');
+      return;
+    }
+    try {
+      await dispatch(returnTicket({ id: ticketId, reason: returnReason.trim() })).unwrap();
+      toast.success('Ticket returned to the requester.');
+      onActionComplete();
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to return the ticket.');
+    }
+  };
+
+  const handleDeliverToRequester = async () => {
+    try {
+      await dispatch(
+        returnTicket({ id: ticketId, reason: 'Approved and stamped. Document ready for collection.' })
+      ).unwrap();
+      toast.success('Stamped document sent back to the requester.');
+      onActionComplete();
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to send the document to the requester.');
+    }
+  };
+
+  // ...rest of the component (the entire return JSX) stays exactly as-is
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
       <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
@@ -251,18 +361,99 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({ document, onC
                   <FileText size={20} className="text-blue-600" />
                   <h4 className="text-sm font-semibold text-blue-800">Stamped Document</h4>
                 </div>
-                <a
-                  href={document.file_url}
-                  download={`stamped-${document.ref}.${document.format}`}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                >
-                  <Download size={16} />
-                  Download Stamped Document
-                </a>
+                <div className="flex gap-2">
+                  <a
+                    href={document.file_url}
+                    download={`stamped-${document.ref}.${document.format}`}
+                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+                  >
+                    <Download size={16} />
+                    Download Stamped Document
+                  </a>
+                  <GoldButton
+                    variant="success"
+                    onClick={handleDeliverToRequester}
+                    disabled={actionsLoading.returning}
+                    icon={
+                      actionsLoading.returning ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : (
+                        <Send size={16} />
+                      )
+                    }
+                  >
+                    {actionsLoading.returning ? 'Sending…' : 'Send to Requester'}
+                  </GoldButton>
+                </div>
               </div>
               <p className="mt-2 text-xs text-blue-600">
-                This document has been approved and e-stamped. Click to download the final version.
+                This document has been approved and e-stamped. Send it back to the requester, or download it directly.
               </p>
+            </div>
+          )}
+
+          {/* Approve / Return actions */}
+          {canDecide && (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <h4 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
+                <Clock size={16} />
+                Pending Your Decision
+              </h4>
+              <p className="mt-1 text-xs text-amber-700">
+                Approving will burn a blue registrar stamp into the PDF, upload the stamped version,
+                and mark the ticket approved. Returning sends the ticket back to the requester unstamped.
+              </p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <GoldButton
+                  variant="success"
+                  onClick={handleApproveAndStamp}
+                  disabled={isStamping || actionsLoading.approving || showReturnForm}
+                  icon={
+                    isStamping || actionsLoading.approving ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <Stamp size={14} />
+                    )
+                  }
+                >
+                  {isStamping || actionsLoading.approving ? 'Stamping…' : 'Approve & Stamp'}
+                </GoldButton>
+                <GoldButton
+                  variant="outline"
+                  onClick={() => setShowReturnForm((v) => !v)}
+                  disabled={isStamping || actionsLoading.returning}
+                  icon={<ArrowLeft size={14} />}
+                >
+                  Return
+                </GoldButton>
+              </div>
+
+              {showReturnForm && (
+                <div className="mt-3 space-y-2">
+                  <textarea
+                    value={returnReason}
+                    onChange={(e) => setReturnReason(e.target.value)}
+                    placeholder="Reason for returning this document to the requester…"
+                    rows={3}
+                    className={`${inputClasses} resize-none`}
+                  />
+                  <div className="flex gap-2">
+                    <GoldButton
+                      variant="danger"
+                      size="sm"
+                      onClick={handleReturn}
+                      disabled={actionsLoading.returning}
+                      icon={actionsLoading.returning ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                    >
+                      {actionsLoading.returning ? 'Returning…' : 'Confirm Return'}
+                    </GoldButton>
+                    <GhostButton onClick={() => setShowReturnForm(false)} disabled={actionsLoading.returning}>
+                      Cancel
+                    </GhostButton>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1727,6 +1918,19 @@ const SuperAdminTickets: React.FC = () => {
     }
   };
 
+  const handleDeliverToRequester = async (ticketId: string) => {
+    try {
+      await dispatch(
+        returnTicket({ id: ticketId, reason: 'Approved and stamped. Document ready for collection.' })
+      ).unwrap();
+      toast.success('Stamped document sent back to the requester.');
+      dispatch(fetchTickets(filters));
+      dispatch(fetchHelpdeskDocuments({ entity_type: 'ticket', entity_id: ticketId }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to send the document to the requester.');
+    }
+  };
+
   const handleSendDocumentForApproval = async (documentId: string) => {
     try {
       await dispatch(submitForApproval({ id: documentId })).unwrap();
@@ -2137,6 +2341,21 @@ const SuperAdminTickets: React.FC = () => {
                           {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
                         </GhostButton>
                       )}
+                      {doc.status === 'approved' && (
+                        <GhostButton
+                          onClick={() => expandedTicketId && handleDeliverToRequester(expandedTicketId)}
+                          disabled={actionsLoading.returning}
+                          icon={
+                            actionsLoading.returning ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Send size={12} />
+                            )
+                          }
+                        >
+                          {actionsLoading.returning ? 'Sending…' : 'Send to Requester'}
+                        </GhostButton>
+                      )}
                       {doc.e_stamp_status === 'stamped' && (
                         <span className="ml-1 inline-flex items-center gap-1 text-xs text-emerald-600">
                           <Stamp size={12} />
@@ -2182,10 +2401,16 @@ const SuperAdminTickets: React.FC = () => {
       )}
 
       {/* ── Document Viewer Modal ──────────────────────────────────────────── */}
-      {showDocViewer && selectedDocForView && (
+      {showDocViewer && selectedDocForView && expandedTicketId && (
         <DocumentViewerModal
           document={selectedDocForView}
+          ticketId={expandedTicketId}
           onClose={handleCloseDocViewer}
+          onActionComplete={() => {
+            handleCloseDocViewer();
+            dispatch(fetchTickets(filters));
+            dispatch(fetchHelpdeskDocuments({ entity_type: 'ticket', entity_id: expandedTicketId }));
+          }}
         />
       )}
     </div>
