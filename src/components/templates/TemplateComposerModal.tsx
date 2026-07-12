@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
-import { fetchActiveTemplate } from '../../store/slices/templatesSlice'; // ✅ removed fetchAllTemplates
+import { fetchActiveTemplate } from '../../store/slices/templatesSlice';
 import { type TemplateType } from '../../types/templates.types';
 import { selectCurrentUser } from '../../store/slices/userSlice';
 import { createMemo, createLetter } from '../../store/slices/documentSlice';
@@ -44,16 +44,15 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
   const [isCreating, setIsCreating] = useState(false);
 
   // Form state
-  const [title, setTitle] = useState(
-    `${type === 'memo' ? 'Memo' : 'Letter'} — ${new Intl.DateTimeFormat('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())}`
-  );
+  const [title, setTitle] = useState('');
   const [toField, setToField] = useState('REGISTRAR, HIGH COURT / ORHC AIE HOLDER');
-  const [fromField, setFromField] = useState('HIGH COURT SUPPORT OFFICE -ORHC');
+  const [fromField, setFromField] = useState('HIGH COURT SUPPORT OFFICE');
   const [refField, setRefField] = useState('');
   const [dateField, setDateField] = useState(
     new Intl.DateTimeFormat('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())
   );
-  const [subjectField, setSubjectField] = useState('');
+  
+  // ✅ Signatory fields - separate from the FROM field
   const [signatoryName, setSignatoryName] = useState(currentUser?.full_name ?? '');
   const [senderTitleField, setSenderTitleField] = useState('Registrar, High Court');
 
@@ -72,7 +71,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
       setLoadingTemplate(true);
       setLoadError(null);
       try {
-        // ✅ removed unused 'key' variable – just pass departmentId directly
         const result = await dispatch(fetchActiveTemplate({ departmentId, type }));
         if (fetchActiveTemplate.fulfilled.match(result) && result.payload.template) {
           const template = result.payload.template;
@@ -99,7 +97,7 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
 
   const handleSaveDraft = async () => {
     if (!title.trim()) {
-      toast.error('Please give this document a title');
+      toast.error(`Please enter a subject for this ${type === 'memo' ? 'memo' : 'letter'}`);
       return;
     }
     const bodyHtml = editorRef.current?.innerHTML ?? '';
@@ -112,25 +110,29 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
     try {
       let result;
       if (type === 'memo') {
+        // ✅ Properly typed with signatureName
         const payload: ComposeMemoInput = {
           title: title.trim(),
           to: toField.trim(),
           date: new Date(dateField).toISOString(),
           body: bodyHtml,
           from: fromField.trim(),
-          signatureTitle: senderTitleField.trim(),
+          signatureName: signatoryName.trim() || currentUser?.full_name || fromField.trim(),
+          signatureTitle: senderTitleField.trim() || 'Registrar, High Court',
           department_id: departmentId ?? undefined,
           reference_no: refField.trim() || undefined,
         };
         result = await dispatch(createMemo(payload));
       } else {
+        // ✅ Properly typed for letter
         const payload: ComposeLetterInput = {
           title: title.trim(),
           to: toField.trim(),
           date: new Date(dateField).toISOString(),
           body: bodyHtml,
-          from: signatoryName.trim(),
-          signatureTitle: senderTitleField.trim(),
+          from: signatoryName.trim() || currentUser?.full_name || '',
+          signatureName: signatoryName.trim() || currentUser?.full_name || '',
+          signatureTitle: senderTitleField.trim() || 'Registrar, High Court',
           department_id: departmentId ?? undefined,
           reference_no: refField.trim() || undefined,
           cc: ccField.trim() || undefined,
@@ -167,7 +169,7 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full text-sm font-semibold text-slate-900 bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:outline-none transition-colors"
-              placeholder="Document title (internal reference, not printed on the document)"
+              placeholder={type === 'memo' ? 'Subject of this memo' : 'Subject of this letter'}
             />
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors flex-shrink-0">
@@ -237,7 +239,7 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                         { label: 'FROM', value: fromField, set: setFromField, upper: true },
                         { label: 'REF', value: refField, set: setRefField, upper: false, placeholder: 'RHC/AIE/___' },
                         { label: 'DATE', value: dateField, set: setDateField, upper: false },
-                        { label: 'SUBJECT', value: subjectField, set: setSubjectField, upper: true, placeholder: 'Subject of this memo' },
+                        { label: 'SUBJECT', value: title, set: setTitle, upper: true, placeholder: 'Subject of this memo' },
                       ].map(({ label, value, set, upper, placeholder }) => (
                         <div key={label} className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
                           <span className="w-24 shrink-0 uppercase">{label}</span>
@@ -259,15 +261,33 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                       data-placeholder="Start typing the body of the memo…"
                       className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
                     />
+                    
+                    {/* ✅ Signatory section - separate from the FROM field */}
                     <div className="mt-10">
-                      <input
-                        value={fromField}
-                        onChange={(e) => setFromField(e.target.value)}
-                        className={`${editableLineClasses} block text-[13.5px] font-bold underline uppercase`}
-                      />
+                      <div className="space-y-1">
+                        <input
+                          value={signatoryName}
+                          onChange={(e) => setSignatoryName(e.target.value)}
+                          placeholder="Signatory name"
+                          className={`${editableLineClasses} block text-[13.5px] font-bold uppercase`}
+                        />
+                        <input
+                          value={senderTitleField}
+                          onChange={(e) => setSenderTitleField(e.target.value)}
+                          placeholder="Title, e.g. Registrar, High Court"
+                          className={`${editableLineClasses} block text-[13.5px] font-bold underline uppercase mt-0.5`}
+                        />
+                        {/* Show the drafted by initials hint */}
+                        {currentUser?.full_name && (
+                          <div className="text-[11px] text-stone-400 mt-1 italic">
+                            rhc/{currentUser.full_name.split(' ').map(n => n[0]).join('')}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </>
                 ) : (
+                  // Letter template
                   <>
                     <div className="flex items-center mb-1">
                       <div className="flex-shrink-0 mr-4">
@@ -310,8 +330,8 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                       <div className="mb-4">
                         <span className="font-bold underline">RE: </span>
                         <input
-                          value={subjectField}
-                          onChange={(e) => setSubjectField(e.target.value)}
+                          value={title}
+                          onChange={(e) => setTitle(e.target.value)}
                           placeholder="Subject of this letter"
                           className={`${editableLineClasses} font-bold underline`}
                         />
@@ -363,16 +383,23 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                   </>
                 )}
 
-                {(footerImageUrl || footerText) && (
-                  <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
-                    {footerImageUrl && (
-                      <img src={footerImageUrl} alt="" className="h-10 w-auto object-contain" />
-                    )}
-                    {footerText && (
-                      <p className="text-[10px] leading-tight text-stone-700 whitespace-pre-wrap">{footerText}</p>
-                    )}
-                  </div>
-                )}
+                {/* ✅ Footer section - always visible with default content */}
+                <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
+                  {footerImageUrl ? (
+                    <img src={footerImageUrl} alt="" className="h-10 w-auto object-contain" />
+                  ) : (
+                    <div className="h-10 w-20 bg-stone-100 rounded flex items-center justify-center text-[9px] text-stone-400">
+                      No image
+                    </div>
+                  )}
+                  {footerText ? (
+                    <p className="text-[10px] leading-tight text-stone-700 whitespace-pre-wrap">{footerText}</p>
+                  ) : (
+                    <p className="text-[10px] leading-tight text-stone-400 italic">
+                      {departmentId ? 'No footer configured for this department' : 'No department selected'}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           </>

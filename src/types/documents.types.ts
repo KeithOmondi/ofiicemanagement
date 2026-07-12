@@ -32,26 +32,28 @@ export interface CreateComposedDocumentInput {
   department_id?: string;
 }
 
-// For the new /compose-memo endpoint
+// ✅ Updated ComposeMemoInput with signatureName
 export interface ComposeMemoInput {
   title: string;               // subject
   to: string;                  // recipient
   date?: string;               // ISO date string, optional (backend defaults to now)
   body: string;
-  from?: string;               // sender name, optional (backend uses current user)
+  from?: string;               // sender department/office (e.g., "HIGH COURT SUPPORT OFFICE")
+  signatureName?: string;      // ✅ The actual person signing (e.g., "Keith Dennis")
   signatureTitle?: string;     // e.g. "Registrar, High Court"
   department_id?: string;
   reference_no?: string;       // optional user‑provided reference
 }
 
-// For the new /compose-letter endpoint
+// ✅ Updated ComposeLetterInput with signature fields
 export interface ComposeLetterInput {
   title: string;
   to: string;
   date?: string;
   body: string;
-  from?: string;
-  signatureTitle?: string;
+  from?: string;               // sender name (the person)
+  signatureName?: string;      // ✅ The actual person signing
+  signatureTitle?: string;     // e.g. "Registrar, High Court"
   department_id?: string;
   reference_no?: string;
   cc?: string;                 // carbon copy

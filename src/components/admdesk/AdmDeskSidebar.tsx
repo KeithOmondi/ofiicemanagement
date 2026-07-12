@@ -87,7 +87,8 @@ const navigationConfig: NavSection[] = [
     items: [
       { to: (id) => `/dept/${id}/dashboard`,  label: 'Dashboard',           icon: Icon.dashboard },
       { to: (id) => `/dept/${id}/documents`,  label: 'Document Management', icon: Icon.document  },
-       { to: (id) => `/dept/${id}/registry`,  label: 'Document Registry', icon: Icon.document  },
+      { to: (id) => `/dept/${id}/registry`,  label: 'Document Registry', icon: Icon.document  },
+      { to: (id) => `/dept/${id}/memo-letter`,  label: 'Memo and Letters', icon: Icon.document  },
     ],
   },
   {

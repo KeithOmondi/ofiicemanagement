@@ -1,19 +1,14 @@
-// src/pages/documents/SuperAdminDocuments.tsx
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useAppDispatch, useAppSelector } from "../../store/hook";
 import {
   fetchDocuments,
   deleteDocument,
-  signDocument,
   sendDocument,
   markDocument,
   acknowledgeMark,
   completeMark,
-  createUploadDocument,
   updateDocument,
   clearError,
-  requestSignOtp,
   fetchResponses,
   updateMark,
 } from "../../store/slices/documentSlice";
@@ -33,23 +28,14 @@ import type {
   DocumentStatus,
   DocumentType,
   DocumentFilters,
-  CreateUploadDocumentInput,
-  RefType,
 } from "../../types/documents.types";
 import { format } from "date-fns";
-//import toast from "react-hot-toast";
+import toast from "react-hot-toast";
+import TemplateComposerModal from "../../components/templates/TemplateComposerModal";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── All the helper components ──────────────────────────────────────────────
 
-interface ToastState {
-  type: "success" | "error";
-  message: string;
-}
-
-type SaveState = "idle" | "saving" | "saved" | "unsaved" | "error";
-
-// ─── Status Badge ─────────────────────────────────────────────────────────────
-
+// (1) StatusBadge
 const STATUS_STYLES: Record<DocumentStatus, string> = {
   draft: "bg-stone-100 text-stone-500 border border-stone-200",
   uploaded: "bg-blue-50 text-blue-700 border border-blue-100",
@@ -78,8 +64,7 @@ const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => (
   </span>
 );
 
-// ─── Doc Icon ─────────────────────────────────────────────────────────────────
-
+// (2) DocIcon
 const DOC_ICON_COLORS: Record<DocumentType, string> = {
   memo: "text-amber-500",
   letter: "text-stone-400",
@@ -112,16 +97,14 @@ const DocIcon: React.FC<{ type: DocumentType; className?: string }> = ({
   </svg>
 );
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
+// (3) formatFileSize
 const formatFileSize = (bytes: number | null): string => {
   if (!bytes) return "";
   const kb = bytes / 1024;
   return kb < 1024 ? `${Math.round(kb)}KB` : `${(kb / 1024).toFixed(1)}MB`;
 };
 
-// ─── Sticky Note (updated with calendar icon for quick date change) ────────
-
+// (4) StickyNote
 interface StickyNoteProps {
   authorName: string;
   initialText: string;
@@ -137,12 +120,11 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   canEdit,
   onSave,
 }) => {
-  // ── Normalize date to YYYY-MM-DD ──────────────────────────────────────────
   const normalizeDate = (dateStr: string | null | undefined): string | null => {
     if (!dateStr) return null;
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return null;
-    return d.toISOString().split("T")[0]; // YYYY-MM-DD
+    return d.toISOString().split("T")[0];
   };
 
   const [text, setText] = useState(initialText);
@@ -196,14 +178,12 @@ const StickyNote: React.FC<StickyNoteProps> = ({
     setEditing(false);
   };
 
-  // Quick date change – save the new date without exiting edit mode
   const handleQuickDateChange = (newDate: string | null) => {
     setDate(newDate);
     setShowDatePicker(false);
     onSave?.(text, newDate);
   };
 
-  // ── Safe date formatting and comparisons ──────────────────────────────────
   const parseDate = (dateStr: string | null | undefined): Date | null => {
     if (!dateStr) return null;
     const d = new Date(dateStr);
@@ -238,10 +218,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({
     return d.getTime() === today.getTime();
   };
 
-  // Show only if date is valid
   const showDateChip = date && parseDate(date) !== null;
-
-  // ── Render ──────────────────────────────────────────────────────────────────
 
   if (minimized) {
     return (
@@ -251,18 +228,8 @@ const StickyNote: React.FC<StickyNoteProps> = ({
         onClick={() => setMinimized(false)}
         title="Expand note"
       >
-        <svg
-          className="h-3 w-3"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth="2.5"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-          />
+        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
         Note
       </button>
@@ -293,11 +260,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({
           style={{ background: "#FDE047" }}
         >
           <div className="flex items-center gap-1.5 min-w-0">
-            <svg
-              className="h-3 w-3 text-[#7A4E0D] flex-shrink-0"
-              viewBox="0 0 24 24"
-              fill="currentColor"
-            >
+            <svg className="h-3 w-3 text-[#7A4E0D] flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
               <path d="M16 2a1 1 0 011 1v1h1a2 2 0 012 2v1a2 2 0 01-2 2h-.5l.5 9H6l.5-9H6a2 2 0 01-2-2V6a2 2 0 012-2h1V3a1 1 0 012 0v1h6V3a1 1 0 011-1z" />
             </svg>
             <span className="text-[10px] font-bold text-[#7A4E0D] tracking-wide truncate">
@@ -314,13 +277,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({
                   className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
                   title="Set bring‑up date"
                 >
-                  <svg
-                    className="h-3 w-3"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                     <rect x="3" y="4" width="18" height="18" rx="2" />
                     <line x1="16" y1="2" x2="16" y2="6" />
                     <line x1="8" y1="2" x2="8" y2="6" />
@@ -333,18 +290,8 @@ const StickyNote: React.FC<StickyNoteProps> = ({
                   className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
                   title="Edit note"
                 >
-                  <svg
-                    className="h-3 w-3"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M15.232 5.232l3.536 3.536M9 11l6-6 3 3-6 6H9v-3z"
-                    />
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 11l6-6 3 3-6 6H9v-3z" />
                   </svg>
                 </button>
               </>
@@ -355,18 +302,8 @@ const StickyNote: React.FC<StickyNoteProps> = ({
               className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
               title="Minimise"
             >
-              <svg
-                className="h-3 w-3"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth="2.5"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M20 12H4"
-                />
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
               </svg>
             </button>
           </div>
@@ -430,7 +367,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({
                 )}
               </p>
 
-              {/* ─── Date chip (only if valid) ─── */}
               {showDateChip && (
                 <div
                   className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium border ${
@@ -446,7 +382,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({
                 </div>
               )}
 
-              {/* ─── Quick date picker ─── */}
               {showDatePicker && canEdit && (
                 <div
                   className="mt-2 p-2 bg-white rounded border border-[#E8A840] shadow-sm"
@@ -494,53 +429,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   );
 };
 
-
-// ─── Empty State ──────────────────────────────────────────────────────────────
-
-const EmptyState: React.FC<{
-  canUpload: boolean;
-  creating: boolean;
-  onUpload: () => void;
-}> = ({ canUpload, creating, onUpload }) => (
-  <div className="flex flex-1 items-center justify-center px-4">
-    <div className="text-center max-w-sm">
-      <svg
-        className="mx-auto h-12 w-12 text-stone-300"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth="1"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-        />
-      </svg>
-      <p className="mt-3 text-sm font-semibold text-stone-500">
-        Select a document to edit
-      </p>
-      <p className="mt-1 text-xs text-stone-400 leading-relaxed">
-        Choose a document from the list, or upload a new one to begin editing,
-        e-signing, and sending.
-      </p>
-      {canUpload && (
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-          <button
-            onClick={onUpload}
-            disabled={creating}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs font-semibold text-stone-600 hover:bg-stone-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            ↑ Upload Document
-          </button>
-        </div>
-      )}
-    </div>
-  </div>
-);
-
-// ─── List Item ────────────────────────────────────────────────────────────────
-
+// (5) ListItem
 const ListItem: React.FC<{
   document: Document;
   selected: boolean;
@@ -637,8 +526,7 @@ const ListItem: React.FC<{
   </div>
 );
 
-// ─── Annotation Card ──────────────────────────────────────────────────────────
-
+// (6) AnnotationCard
 const AnnotationCard: React.FC<{
   title: string;
   department: string;
@@ -686,8 +574,7 @@ const AnnotationCard: React.FC<{
   </div>
 );
 
-// ─── Annotations Panel ────────────────────────────────────────────────────────
-
+// (7) AnnotationsPanel
 const AnnotationsPanel: React.FC<{ document: Document }> = ({
   document: doc,
 }) => (
@@ -730,34 +617,21 @@ const AnnotationsPanel: React.FC<{ document: Document }> = ({
   </div>
 );
 
-// ─── Document Fallback ────────────────────────────────────────────────────────
-
+// (8) DocumentFallback
 const DocumentFallback: React.FC<{ document: Document }> = ({
   document: doc,
 }) => (
   <div className="px-5 sm:px-16 py-8 sm:py-14">
     <div className="flex items-center justify-center gap-4 sm:gap-6 mb-6 sm:mb-8">
       <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full border-2 border-stone-200 bg-stone-50 flex items-center justify-center text-stone-300">
-        <svg
-          viewBox="0 0 40 40"
-          className="w-7 h-7 sm:w-10 sm:h-10"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        >
+        <svg viewBox="0 0 40 40" className="w-7 h-7 sm:w-10 sm:h-10" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="20" cy="20" r="18" />
           <path d="M20 8 L22 15 L30 15 L24 20 L26 28 L20 23 L14 28 L16 20 L10 15 L18 15 Z" />
         </svg>
       </div>
       <div className="h-12 sm:h-16 w-px bg-stone-200" />
       <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full border-2 border-stone-200 bg-stone-50 flex items-center justify-center text-stone-300">
-        <svg
-          viewBox="0 0 40 40"
-          className="w-7 h-7 sm:w-10 sm:h-10"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        >
+        <svg viewBox="0 0 40 40" className="w-7 h-7 sm:w-10 sm:h-10" fill="none" stroke="currentColor" strokeWidth="1.5">
           <circle cx="20" cy="20" r="18" />
           <path d="M10 25 L20 10 L30 25" />
           <line x1="8" y1="25" x2="32" y2="25" />
@@ -766,12 +640,8 @@ const DocumentFallback: React.FC<{ document: Document }> = ({
       </div>
     </div>
     <div className="text-center mb-2">
-      <p className="text-[10px] text-stone-400 tracking-widest uppercase">
-        Republic of Kenya
-      </p>
-      <p className="text-xs sm:text-sm font-bold text-stone-900 tracking-wide mt-0.5 uppercase">
-        Office of the Registrar High Court
-      </p>
+      <p className="text-[10px] text-stone-400 tracking-widest uppercase">Republic of Kenya</p>
+      <p className="text-xs sm:text-sm font-bold text-stone-900 tracking-wide mt-0.5 uppercase">Office of the Registrar High Court</p>
     </div>
     <div className="border-t-2 border-stone-700 mt-4 mb-6" />
     <h2 className="text-center text-sm sm:text-base font-bold tracking-widest uppercase text-stone-800 mb-6 sm:mb-8">
@@ -783,21 +653,15 @@ const DocumentFallback: React.FC<{ document: Document }> = ({
   </div>
 );
 
-// ─── File Preview ─────────────────────────────────────────────────────────────
-
+// (9) FilePreview
 const FilePreview: React.FC<{ document: Document }> = ({ document: doc }) => {
   const fileUrl = doc.file_url;
 
   if (!fileUrl) {
     return (
       <div className="flex flex-col items-center justify-center h-full min-h-[300px] sm:min-h-[400px] p-6 sm:p-8">
-        <DocIcon
-          type={doc.type}
-          className="h-12 w-12 sm:h-14 sm:w-14 text-stone-300 mb-3"
-        />
-        <p className="text-sm text-stone-400 text-center">
-          No file attached to this document.
-        </p>
+        <DocIcon type={doc.type} className="h-12 w-12 sm:h-14 sm:w-14 text-stone-300 mb-3" />
+        <p className="text-sm text-stone-400 text-center">No file attached to this document.</p>
       </div>
     );
   }
@@ -839,27 +703,15 @@ const FilePreview: React.FC<{ document: Document }> = ({ document: doc }) => {
 
   return (
     <div className="flex flex-col items-center justify-center h-full min-h-[300px] sm:min-h-[400px] p-6 sm:p-8 gap-4">
-      <DocIcon
-        type={doc.type}
-        className="h-12 w-12 sm:h-14 sm:w-14 text-stone-300"
-      />
+      <DocIcon type={doc.type} className="h-12 w-12 sm:h-14 sm:w-14 text-stone-300" />
       <p className="text-sm text-stone-600 font-medium text-center break-all">
         {doc.original_name || doc.title}
       </p>
       <div className="flex flex-wrap justify-center gap-3">
-        <a
-          href={fileUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-lg bg-[#1E4620] px-4 py-2 text-xs font-medium text-white hover:bg-[#163a18]"
-        >
+        <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg bg-[#1E4620] px-4 py-2 text-xs font-medium text-white hover:bg-[#163a18]">
           Open in New Tab
         </a>
-        <a
-          href={fileUrl}
-          download
-          className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-4 py-2 text-xs font-medium text-stone-700 hover:bg-stone-50"
-        >
+        <a href={fileUrl} download className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-4 py-2 text-xs font-medium text-stone-700 hover:bg-stone-50">
           Download
         </a>
       </div>
@@ -867,30 +719,17 @@ const FilePreview: React.FC<{ document: Document }> = ({ document: doc }) => {
   );
 };
 
-// ─── Spinner ──────────────────────────────────────────────────────────────────
-
+// (10) Spinner
 const Spinner: React.FC<{ className?: string }> = ({
   className = "h-3.5 w-3.5",
 }) => (
   <svg className={`animate-spin ${className}`} fill="none" viewBox="0 0 24 24">
-    <circle
-      className="opacity-25"
-      cx="12"
-      cy="12"
-      r="10"
-      stroke="currentColor"
-      strokeWidth="4"
-    />
-    <path
-      className="opacity-75"
-      fill="currentColor"
-      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-    />
+    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
   </svg>
 );
 
-// ─── Responses Panel ──────────────────────────────────────────────────────────
-
+// (11) ResponsesPanel
 const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
   const dispatch = useAppDispatch();
   const responses = useAppSelector((state) => state.documents.responses);
@@ -926,10 +765,7 @@ const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
           <p className="text-[10px] text-stone-400 italic">No responses yet.</p>
         ) : (
           responses.map((r) => (
-            <div
-              key={r.id}
-              className="rounded-lg border border-stone-200 bg-stone-50 p-2.5"
-            >
+            <div key={r.id} className="rounded-lg border border-stone-200 bg-stone-50 p-2.5">
               <div className="flex items-start justify-between gap-2 mb-1">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[#1E4620] text-[8px] font-bold text-white">
@@ -977,23 +813,204 @@ const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
   );
 };
 
-// ─── Document Editor ──────────────────────────────────────────────────────────
-
-interface DocumentEditorProps {
+// (12) MemoDisplay - For displaying memos properly
+interface MemoDisplayProps {
   document: Document;
+  isEditable: boolean;
+  editorRef: React.RefObject<HTMLDivElement | null>;
+  handleInput: () => void;
+  handleManualSave: () => void;
   currentUserName: string;
-  isSuperAdmin: boolean;
-  onBack: () => void;
-  onSave?: (id: string, body: string) => Promise<void>;
-  onDelete?: () => void;
-  onSign?: () => void;
-  isSigning?: boolean;
-  onSend?: () => void;
-  onMark?: () => void;
-  onAcknowledge?: () => void;
-  onComplete?: () => void;
-  onUpdateMark?: (markId: string, text: string, date: string | null) => void;
 }
+
+const MemoDisplay: React.FC<MemoDisplayProps> = ({
+  document,
+  isEditable,
+  editorRef,
+  handleInput,
+  handleManualSave,
+  currentUserName,
+}) => {
+  // Parse memo data from document body or use defaults
+  const memoData = useMemo(() => {
+    try {
+      // If the body contains JSON data, parse it
+      if (document.body?.startsWith('{')) {
+        return JSON.parse(document.body);
+      }
+    } catch {
+      // If parsing fails, use defaults
+    }
+    
+    // Default memo data structure
+    return {
+      to: document.assigned_to_name || 'REGISTRAR, HIGH COURT / ORHC AIE HOLDER',
+      from: document.department_name || 'HIGH COURT SUPPORT OFFICE',
+      ref: document.reference_no || 'RHC/AIE/0000',
+      date: document.created_at ? format(new Date(document.created_at), "dd MMM yyyy") : format(new Date(), "dd MMM yyyy"),
+      subject: document.title,
+      body: document.body || '',
+      signatureName: currentUserName || 'HIGH COURT SUPPORT OFFICE',
+      signatureTitle: 'Registrar, High Court',
+    };
+  }, [document, currentUserName]);
+
+  return (
+    <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col">
+      {/* Header - Crest */}
+      <div className="flex justify-center mb-3">
+        <img 
+          src="/JOB_LOGO.jpg" 
+          alt="Judiciary of Kenya crest" 
+          className="h-[78px] w-auto object-contain"
+          onError={(e) => {
+            // Fallback if image doesn't load
+            (e.target as HTMLImageElement).style.display = 'none';
+          }}
+        />
+      </div>
+      
+      {/* Title */}
+      <div className="text-center mt-4 mb-2">
+        <p className="text-[19px] font-bold uppercase leading-snug">
+          OFFICE OF THE REGISTRAR HIGH COURT<br />INTERNAL MEMO
+        </p>
+      </div>
+      
+      <div className="border-t-[2.5px] border-black mb-2.5" />
+      
+      {/* Fields - TO, FROM, REF, DATE, SUBJECT */}
+      <div className="mt-2">
+        <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
+          <span className="w-24 shrink-0 uppercase">TO</span>
+          <span className="w-5 shrink-0">:</span>
+          <span className="flex-1">{memoData.to}</span>
+        </div>
+        <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
+          <span className="w-24 shrink-0 uppercase">FROM</span>
+          <span className="w-5 shrink-0">:</span>
+          <span className="flex-1">{memoData.from}</span>
+        </div>
+        <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
+          <span className="w-24 shrink-0 uppercase">REF</span>
+          <span className="w-5 shrink-0">:</span>
+          <span className="flex-1">{memoData.ref}</span>
+        </div>
+        <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
+          <span className="w-24 shrink-0 uppercase">DATE</span>
+          <span className="w-5 shrink-0">:</span>
+          <span className="flex-1">{memoData.date}</span>
+        </div>
+        <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
+          <span className="w-24 shrink-0 uppercase">SUBJECT</span>
+          <span className="w-5 shrink-0">:</span>
+          <span className="flex-1">{memoData.subject}</span>
+        </div>
+      </div>
+      
+      <div className="border-t-[2.5px] border-black mt-3 mb-10" />
+      
+      {/* Body - Editable content */}
+      <div
+        ref={editorRef}
+        contentEditable={isEditable}
+        suppressContentEditableWarning
+        onInput={handleInput}
+        onBlur={handleManualSave}
+        data-placeholder="Start typing the body of the memo…"
+        className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
+        dangerouslySetInnerHTML={{ __html: memoData.body || '' }}
+      />
+      
+      {/* ✅ Signatory section - properly separated from FROM field */}
+      <div className="mt-10">
+        <div className="font-bold uppercase text-[13.5px]">
+          {memoData.signatureName}
+        </div>
+        <div className="font-bold underline uppercase text-[13.5px]">
+          {memoData.signatureTitle}
+        </div>
+      </div>
+      
+      {/* Footer - Default High Court Support Office details */}
+      <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
+        <div className="flex-1 text-[10px] leading-tight text-stone-700">
+          <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
+          <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
+          <p className="font-bold text-[#1E4620] mt-1">Justice Be Our Shield and Defender</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// (13) MemoLetterLayout - For letters
+const MemoLetterLayout: React.FC<{
+  type: "memo" | "letter";
+  title: string;
+  referenceNo?: string | null;
+  date: string;
+  children: React.ReactNode;
+}> = ({ type, title, referenceNo, date, children }) => {
+  const isMemo = type === "memo";
+  return (
+    <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col">
+      {/* ─── HEADER ────────────────────────────────── */}
+      <div className="text-center border-b-2 border-stone-700 pb-4 mb-6">
+        <div className="flex justify-center items-center gap-4 mb-2">
+          {/* Logo placeholder – replace with your actual logo */}
+          <div className="w-16 h-16 bg-stone-100 rounded-full flex items-center justify-center text-stone-400 text-xs font-bold">
+            LOGO
+          </div>
+          <div className="text-left">
+            <p className="text-[10px] text-stone-500 tracking-widest uppercase font-semibold">
+              Republic of Kenya
+            </p>
+            <p className="text-sm font-bold text-stone-900 tracking-wide uppercase">
+              Office of the Registrar High Court
+            </p>
+          </div>
+        </div>
+        <h1 className="text-lg font-bold uppercase tracking-widest text-stone-800 mt-1">
+          {isMemo ? "INTERNAL MEMO" : "OFFICIAL LETTER"}
+        </h1>
+        <p className="text-sm font-medium text-stone-600 mt-1">{title}</p>
+        {referenceNo && (
+          <p className="text-xs text-stone-500 mt-1">
+            Ref: <span className="font-semibold">{referenceNo}</span>
+          </p>
+        )}
+        <p className="text-xs text-stone-400 mt-0.5">Date: {date}</p>
+      </div>
+
+      {/* ─── BODY (editable content) ────────────────── */}
+      <div className="flex-1">{children}</div>
+
+      {/* ─── FOOTER ────────────────────────────────── */}
+      <div className="border-t border-stone-200 pt-4 mt-6 text-center">
+        <div className="flex justify-center gap-8 text-[10px] text-stone-500">
+          <span>Tel: +254 020 123 456</span>
+          <span>Email: registrar@highcourt.go.ke</span>
+          <span>Website: www.highcourt.go.ke</span>
+        </div>
+        <div className="mt-4">
+          <div className="inline-block border-t border-stone-400 w-48 pt-1">
+            <p className="text-[11px] font-semibold text-stone-700">
+              _________________________
+            </p>
+            <p className="text-[10px] text-stone-500">REGISTRAR, HIGH COURT</p>
+          </div>
+        </div>
+        <p className="text-[9px] text-stone-400 mt-2">
+          This document is electronically signed and valid without a wet ink signature.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// (14) DocumentEditor – main editor component
+type SaveState = "idle" | "saving" | "saved" | "unsaved" | "error";
 
 const SAVE_LABEL: Record<SaveState, string> = {
   idle: "",
@@ -1003,6 +1020,21 @@ const SAVE_LABEL: Record<SaveState, string> = {
   error: "Failed to save · click Save to retry",
 };
 
+interface DocumentEditorProps {
+  document: Document;
+  currentUserName: string;
+  isSuperAdmin: boolean;
+  onBack: () => void;
+  onSave?: (id: string, body: string) => Promise<void>;
+  onDelete?: () => void;
+  onSend?: () => void;
+  onMark?: () => void;
+  onAcknowledge?: () => void;
+  onComplete?: () => void;
+  onUpdateMark?: (markId: string, text: string, date: string | null) => void;
+  onDownload?: () => void;
+}
+
 const DocumentEditor: React.FC<DocumentEditorProps> = ({
   document,
   currentUserName,
@@ -1010,16 +1042,16 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onBack,
   onSave,
   onDelete,
-  onSign,
-  isSigning = false,
   onSend,
   onMark,
   onAcknowledge,
   onComplete,
   onUpdateMark,
+  onDownload,
 }) => {
-  const isComposed = document.type === "memo" || document.type === "letter";
-  const isEditable = !!onSave;
+  const isFileBased = !!document.file_url;
+  const isComposed = (document.type === "memo" || document.type === "letter") && !isFileBased;
+  const isEditable = !!onSave && !isFileBased;
   const formattedDate = document.created_at
     ? format(new Date(document.created_at), "dd MMM yyyy")
     : "—";
@@ -1034,7 +1066,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     ? (document.created_by_name ?? currentUserName)
     : currentUserName;
 
-  // ── Editing state ───────────────────────────────────────────────────────
+  // Editing state
   const editorRef = useRef<HTMLDivElement>(null);
   const lastSavedHtml = useRef(document.body ?? "");
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1077,11 +1109,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     scheduleAutosave(html);
   };
 
-  const handleManualSave = () => {
+  const handleManualSave = useCallback(() => {
     if (!editorRef.current) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     persist(editorRef.current.innerHTML);
-  };
+  }, [persist]);
 
   useEffect(() => {
     return () => {
@@ -1099,8 +1131,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEditable]);
+  }, [isEditable, handleManualSave]);
 
   const exec = (command: string, value?: string) => {
     if (!isEditable) return;
@@ -1125,12 +1156,21 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       </div>`,
     );
 
-  // ── Sticky note save handler ──────────────────────────────────────────
   const handleStickyNoteSave = (text: string, date: string | null) => {
     if (document.active_mark && onUpdateMark) {
       onUpdateMark(document.active_mark.id, text, date);
     } else {
       console.warn("Cannot save sticky note – no onUpdateMark handler provided");
+    }
+  };
+
+  const handleDownload = () => {
+    if (onDownload) {
+      onDownload();
+    } else if (document.file_url) {
+      window.open(document.file_url, '_blank');
+    } else {
+      toast.error('No file available to download');
     }
   };
 
@@ -1144,18 +1184,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             className="lg:hidden flex-shrink-0 rounded-md p-1 text-stone-500 hover:bg-stone-100 transition-colors -ml-1"
             aria-label="Back to document list"
           >
-            <svg
-              className="h-4.5 w-4.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M15 19l-7-7 7-7"
-              />
+            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
           </button>
           <span className="text-sm font-semibold text-stone-900 truncate">
@@ -1184,7 +1214,19 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
-          {/* ─── Responses Button ──────────────────────────────────────── */}
+          {(document.file_url || onDownload) && (
+            <button
+              onClick={handleDownload}
+              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors whitespace-nowrap"
+              title="Download document"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download
+            </button>
+          )}
+
           <button
             onClick={() => setShowResponses((v) => !v)}
             title={showResponses ? "Hide responses" : "Show responses"}
@@ -1216,41 +1258,20 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   : "border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
               }`}
             >
-              <svg
-                className="h-3 w-3"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m0 0v3m0 0l3 3m-3-3h-3"
-                />
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m0 0v3m0 0l3 3m-3-3h-3" />
               </svg>
               Note
             </button>
           )}
 
-          {/* Mark button – hidden if document already has a mark */}
           {onMark && !document.active_mark && (
             <button
               onClick={onMark}
               className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 transition-colors whitespace-nowrap"
             >
-              <svg
-                className="h-3 w-3"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-                />
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
               </svg>
               Mark
             </button>
@@ -1274,50 +1295,13 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
-          {onSign && (
-            <button
-              onClick={onSign}
-              disabled={isSigning}
-              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSigning ? (
-                <Spinner className="h-3 w-3" />
-              ) : (
-                <svg
-                  className="h-3 w-3"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                  />
-                </svg>
-              )}
-              {isSigning ? "Sending OTP…" : "E-Sign"}
-            </button>
-          )}
-
           {onSend && (
             <button
               onClick={onSend}
               className="hidden sm:inline-flex items-center gap-1 rounded-md bg-[#1E4620] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap"
             >
-              <svg
-                className="h-3 w-3"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
               Convert to PDF & Send
             </button>
@@ -1328,18 +1312,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
               onClick={onDelete}
               className="rounded-md p-1.5 text-red-400 hover:bg-red-50 transition-colors flex-shrink-0"
             >
-              <svg
-                className="h-3.5 w-3.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                />
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </button>
           )}
@@ -1459,13 +1433,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           onClick={insertDate}
           className="px-2 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex items-center gap-1 flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <svg
-            className="h-3 w-3"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
             <rect x="3" y="4" width="18" height="18" rx="2" />
             <line x1="16" y1="2" x2="16" y2="6" />
             <line x1="8" y1="2" x2="8" y2="6" />
@@ -1489,18 +1457,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           onClick={insertSigBlock}
           className="px-2 h-6 rounded text-[10px] font-medium text-white/80 hover:bg-white/10 transition-colors flex items-center gap-1 flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <svg
-            className="h-3 w-3"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-            />
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
           </svg>
           Sig Block
         </button>
@@ -1509,34 +1467,14 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
         <button className="px-2 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex items-center gap-0.5 flex-shrink-0 whitespace-nowrap">
           Size
-          <svg
-            className="h-2.5 w-2.5 ml-0.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M19 9l-7 7-7-7"
-            />
+          <svg className="h-2.5 w-2.5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </button>
         <button className="px-2 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex items-center gap-0.5 flex-shrink-0 whitespace-nowrap">
           Font
-          <svg
-            className="h-2.5 w-2.5 ml-0.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth="2.5"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M19 9l-7 7-7-7"
-            />
+          <svg className="h-2.5 w-2.5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
           </svg>
         </button>
 
@@ -1560,21 +1498,39 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           />
         )}
 
-        <div className="mx-auto max-w-[794px] w-full min-h-[600px] sm:min-h-[900px] bg-white shadow-sm rounded-sm">
+        <div className="mx-auto max-w-[794px] w-full bg-white shadow-sm rounded-sm">
           {isComposed ? (
             !isEditable && !document.body ? (
               <DocumentFallback document={document} />
             ) : (
-              <div
-                ref={editorRef}
-                contentEditable={isEditable}
-                suppressContentEditableWarning
-                onInput={handleInput}
-                onBlur={handleManualSave}
-                data-placeholder={`Start typing your ${document.type}…`}
-                className="w-full h-full min-h-[600px] sm:min-h-[900px] px-8 py-10 sm:px-16 sm:py-14 focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
-                dangerouslySetInnerHTML={{ __html: document.body || "" }}
-              />
+              document.type === 'memo' ? (
+                <MemoDisplay 
+                  document={document}
+                  isEditable={isEditable}
+                  editorRef={editorRef}
+                  handleInput={handleInput}
+                  handleManualSave={handleManualSave}
+                  currentUserName={currentUserName}
+                />
+              ) : (
+                <MemoLetterLayout
+                  type="letter"
+                  title={document.title}
+                  referenceNo={document.reference_no}
+                  date={document.created_at ? format(new Date(document.created_at), "dd MMM yyyy") : ""}
+                >
+                  <div
+                    ref={editorRef}
+                    contentEditable={isEditable}
+                    suppressContentEditableWarning
+                    onInput={handleInput}
+                    onBlur={handleManualSave}
+                    data-placeholder="Start typing your letter…"
+                    className="w-full min-h-[400px] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
+                    dangerouslySetInnerHTML={{ __html: document.body || "" }}
+                  />
+                </MemoLetterLayout>
+              )
             )
           ) : (
             <FilePreview document={document} />
@@ -1590,19 +1546,20 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             : "Not signed"}
         </span>
         <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto">
+          {(document.file_url || onDownload) && (
+            <button
+              onClick={handleDownload}
+              className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-blue-700 transition-colors whitespace-nowrap"
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download
+            </button>
+          )}
           <button className="text-[10px] text-stone-400 hover:text-stone-600 transition-colors whitespace-nowrap">
             🖨 Print
           </button>
-          {onSign && (
-            <button
-              onClick={onSign}
-              disabled={isSigning}
-              className="inline-flex items-center gap-1 rounded bg-[#C29B38] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#a8832e] transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSigning && <Spinner className="h-2.5 w-2.5" />}
-              {isSigning ? "Sending OTP…" : "E-Sign"}
-            </button>
-          )}
           {onSend && (
             <button
               onClick={onSend}
@@ -1614,7 +1571,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       </div>
 
-      {/* ─── Responses Panel ───────────────────────────────────────────── */}
+      {/* Responses Panel */}
       {showResponses && <ResponsesPanel documentId={document.id} />}
 
       <AnnotationsPanel document={document} />
@@ -1622,8 +1579,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   );
 };
 
-// ─── Mark Modal ───────────────────────────────────────────────────────────────
-
+// (15) MarkModal
 interface MarkModalProps {
   document: Document;
   onClose: () => void;
@@ -1692,10 +1648,7 @@ const MarkModal: React.FC<MarkModalProps> = ({
           <h2 className="text-sm sm:text-base font-bold text-stone-900 flex items-center gap-2">
             <span className="text-red-500">📌</span> Mark Document to Department
           </h2>
-          <button
-            onClick={onClose}
-            className="text-stone-400 hover:text-stone-600 text-lg leading-none flex-shrink-0"
-          >
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-lg leading-none flex-shrink-0">
             ✕
           </button>
         </div>
@@ -1814,455 +1767,48 @@ const MarkModal: React.FC<MarkModalProps> = ({
   );
 };
 
-// ─── Upload Modal ─────────────────────────────────────────────────────────────
+// ─── Main AdminMemoandLetters Component ────────────────────────────────────
 
-type UploadableDocumentType = Exclude<DocumentType, "memo" | "letter">;
-
-const REF_TYPES: { value: RefType; label: string }[] = [
-  { value: "for_signature", label: "For Signature" },
-  { value: "for_attention", label: "For Attention" },
-  { value: "for_information", label: "For Information" },
-  { value: "direction", label: "Direction" },
-  { value: "other", label: "Other" },
-];
-
-interface UploadModalProps {
-  onClose: () => void;
-  onUpload: (input: CreateUploadDocumentInput, file: File) => void;
-}
-
-const UploadModal: React.FC<UploadModalProps> = ({ onClose, onUpload }) => {
-  const [title, setTitle] = useState("");
-  const [type, setType] = useState<UploadableDocumentType>("judgment");
-  const [referenceNo, setReferenceNo] = useState("");
-  const [refType, setRefType] = useState<RefType>("for_attention");
-  const [refOtherDescription, setRefOtherDescription] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file || !title) return;
-    if (refType === "other" && !refOtherDescription.trim()) {
-      setError("Please describe the action required");
-      return;
-    }
-    setError(null);
-    onUpload(
-      {
-        title,
-        type,
-        reference_no: referenceNo || undefined,
-        ref_type: refType,
-        ref_other_description:
-          refType === "other" ? refOtherDescription.trim() : undefined,
-      },
-      file,
-    );
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-3 sm:p-4">
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-4 sm:p-6 shadow-xl">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-sm sm:text-base font-bold text-stone-900">
-            Upload Document
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-stone-400 hover:text-stone-600 text-lg leading-none flex-shrink-0"
-          >
-            ✕
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-stone-600 mb-1">
-              Document Type
-            </label>
-            <select
-              value={type}
-              onChange={(e) =>
-                setType(e.target.value as UploadableDocumentType)
-              }
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
-            >
-              <option value="judgment">Judgment</option>
-              <option value="ruling">Ruling</option>
-              <option value="order">Order</option>
-              <option value="correspondence">Correspondence</option>
-              <option value="upload">Other Document</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-stone-600 mb-1">
-              Action Required
-            </label>
-            <select
-              value={refType}
-              onChange={(e) => setRefType(e.target.value as RefType)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
-            >
-              {REF_TYPES.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            {refType === "other" && (
-              <div className="mt-2">
-                <input
-                  value={refOtherDescription}
-                  onChange={(e) => setRefOtherDescription(e.target.value)}
-                  placeholder="Describe the action required…"
-                  className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none ${
-                    error
-                      ? "border-red-300"
-                      : "border-stone-200 focus:border-[#1E4620]"
-                  }`}
-                />
-                {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-stone-600 mb-1">
-              Title
-            </label>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-stone-600 mb-1">
-              Case Number{" "}
-              <span className="font-normal text-stone-400">
-                (if applicable)
-              </span>
-            </label>
-            <input
-              value={referenceNo}
-              onChange={(e) => setReferenceNo(e.target.value)}
-              placeholder="e.g. HCT-00-CR-SC-0045-2024"
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-stone-600 mb-1">
-              File
-            </label>
-            <div className="flex items-center justify-center rounded-lg border-2 border-dashed border-stone-300 p-4 sm:p-6 hover:border-[#1E4620] transition-colors cursor-pointer">
-              <input
-                type="file"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                className="hidden"
-                id="file-upload"
-                accept=".pdf,.docx,.xlsx,.jpg,.png,.mp4,.mp3"
-              />
-              <label
-                htmlFor="file-upload"
-                className="cursor-pointer text-center"
-              >
-                <p className="text-sm text-stone-600 break-all">
-                  {file ? file.name : "Click or drag files to upload"}
-                </p>
-                <p className="text-xs text-stone-400 mt-1">
-                  PDF, DOCX, XLSX, JPG, PNG — Max 25MB
-                </p>
-              </label>
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-stone-500 order-2 sm:order-1"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!file || !title}
-              className="rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a18] disabled:opacity-40 disabled:cursor-not-allowed order-1 sm:order-2"
-            >
-              Upload
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-// ─── OTP Modal ────────────────────────────────────────────────────────────────
-
-interface OtpModalProps {
-  isSigningInProgress: boolean;
-  otpLoading: boolean;
-  otpValue: string;
-  otpError: string | null;
-  signingDocId: string | null;
-  onOtpChange: (val: string) => void;
-  onSubmit: () => void;
-  onCancel: () => void;
-  onResend: () => void;
-}
-
-const OtpModal: React.FC<OtpModalProps> = ({
-  isSigningInProgress,
-  otpLoading,
-  otpValue,
-  otpError,
-  onOtpChange,
-  onSubmit,
-  onCancel,
-  onResend,
-}) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
-    <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
-      <div className="flex items-center gap-3 mb-5">
-        <div className="h-9 w-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-          <svg
-            className="h-4 w-4 text-amber-600"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-            />
-          </svg>
-        </div>
-        <div>
-          <h3 className="text-sm font-bold text-stone-900">
-            Confirm E-Signature
-          </h3>
-          <p className="text-xs text-stone-400 mt-0.5">
-            Enter the OTP sent to your email
-          </p>
-        </div>
-      </div>
-
-      <div className="mb-4">
-        <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-2">
-          One-Time PIN
-        </label>
-        <input
-          type="text"
-          inputMode="numeric"
-          maxLength={6}
-          value={otpValue}
-          onChange={(e) =>
-            onOtpChange(e.target.value.replace(/\D/g, "").slice(0, 6))
-          }
-          onKeyDown={(e) =>
-            e.key === "Enter" &&
-            otpValue.length === 6 &&
-            !isSigningInProgress &&
-            onSubmit()
-          }
-          placeholder="● ● ● ● ● ●"
-          className="w-full rounded-lg border border-stone-200 px-4 py-3 text-center text-xl font-bold tracking-[0.5em] text-stone-900 focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-          autoFocus
-        />
-        <p className="text-[10px] text-stone-400 mt-1.5 text-center">
-          OTP expires in 5 minutes
-        </p>
-      </div>
-
-      {otpError && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
-          <svg
-            className="h-3.5 w-3.5 text-red-500 flex-shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth="2"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-          <p className="text-xs text-red-700">{otpError}</p>
-        </div>
-      )}
-
-      <p className="text-[10px] text-stone-400 text-center mb-5">
-        Didn't receive it?{" "}
-        <button
-          onClick={onResend}
-          disabled={otpLoading || isSigningInProgress}
-          className="text-[#1E4620] font-semibold hover:underline disabled:opacity-50"
-        >
-          {otpLoading ? "Sending…" : "Resend OTP"}
-        </button>
-      </p>
-
-      <div className="flex gap-2">
-        <button
-          onClick={onCancel}
-          disabled={isSigningInProgress}
-          className="flex-1 rounded-lg border border-stone-300 px-4 py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors disabled:opacity-50"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={onSubmit}
-          disabled={otpValue.length !== 6 || isSigningInProgress}
-          className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-        >
-          {isSigningInProgress ? (
-            <>
-              <Spinner className="h-3.5 w-3.5" /> Signing…
-            </>
-          ) : (
-            "Confirm & Sign"
-          )}
-        </button>
-      </div>
-    </div>
-  </div>
-);
-
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-const TABS = ["all", "my_action", "judgments", "rulings"] as const;
-type Tab = (typeof TABS)[number];
-
-const TAB_LABELS: Record<Tab, string> = {
-  all: "All",
-  my_action: "For My Action",
-  judgments: "Judgments",
-  rulings: "Rulings",
-};
-
-const CHIPS = ["Correspondence", "Orders", "Drafts"] as const;
-
-const SuperAdminDocuments: React.FC = () => {
+const AdminMemoandLetters: React.FC = () => {
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
-  const { documents, loading, error, pagination, actionInProgress } =
+  const { documents, loading, error, pagination } =
     useAppSelector((state) => state.documents);
 
-  const [activeTab, setActiveTab] = useState<Tab>("all");
-  const [activeChip, setActiveChip] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"all" | "my_action">("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedDocument, setSelectedDocument] = useState<Document | null>(
-    null,
-  );
+  const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showMarkModal, setShowMarkModal] = useState(false);
-  const [showUploadModal, setShowUploadModal] = useState(false);
-  const [signToast, setSignToast] = useState<ToastState | null>(null);
-  const [isCreatingDocument] = useState(false);
-
-  const [showOtpModal, setShowOtpModal] = useState(false);
-  const [otpValue, setOtpValue] = useState("");
-  const [otpLoading, setOtpLoading] = useState(false);
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [signingDocId, setSigningDocId] = useState<string | null>(null);
+  const [showComposer, setShowComposer] = useState<"memo" | "letter" | null>(null);
+  const [isCreating] = useState(false);
 
   const canUpload = hasRole(user, "staff");
   const canAdmin = hasRole(user, "dept_head");
   const isSuperAdmin = hasRole(user, "super_admin");
   const canView = !!user;
 
-  // ─── Filter out memos and letters ──────────────────────────────────────────
-  const visibleDocuments = useMemo(
-    () => documents.filter((doc) => doc.type !== "memo" && doc.type !== "letter"),
+  // Filter to only memos and letters
+  const memoLetterDocs = useMemo(
+    () => documents.filter((doc) => doc.type === "memo" || doc.type === "letter"),
     [documents]
   );
 
-  // ─── Fetch documents ─────────────────────────────────────────────────────
+  // Fetch documents
   useEffect(() => {
     if (!canView) return;
     const params: DocumentFilters = { page: 1, limit: 10 };
     if (activeTab === "my_action") params.for_my_action = true;
-    else if (activeTab === "judgments") params.type = "judgment";
-    else if (activeTab === "rulings") params.type = "ruling";
     if (searchQuery) params.search = searchQuery;
     dispatch(fetchDocuments(params));
   }, [dispatch, activeTab, searchQuery, canView]);
 
-  // ─── Handlers ────────────────────────────────────────────────────────────
-
+  // Handlers
   const handleDelete = (id: string) => {
     if (window.confirm("Delete this document?")) dispatch(deleteDocument(id));
   };
   const handleSend = (id: string) => dispatch(sendDocument(id));
   const handleAcknowledge = (id: string) => dispatch(acknowledgeMark(id));
   const handleComplete = (id: string) => dispatch(completeMark(id));
-
-  const showToast = (toast: ToastState) => {
-    setSignToast(toast);
-    setTimeout(() => setSignToast(null), 4000);
-  };
-
-  const handleSign = async (id: string) => {
-    setOtpError(null);
-    setOtpValue("");
-    setSigningDocId(id);
-    setOtpLoading(true);
-
-    const result = await dispatch(requestSignOtp(id));
-    setOtpLoading(false);
-
-    if (requestSignOtp.fulfilled.match(result)) {
-      setShowOtpModal(true);
-    } else {
-      showToast({
-        type: "error",
-        message:
-          (result.payload as string) ?? "Failed to send OTP. Please try again.",
-      });
-    }
-  };
-
-  const handleOtpSubmit = async () => {
-    if (!signingDocId || !otpValue.trim()) return;
-    setOtpError(null);
-
-    const result = await dispatch(
-      signDocument({ id: signingDocId, otp: otpValue.trim() }),
-    );
-
-    if (signDocument.fulfilled.match(result)) {
-      setShowOtpModal(false);
-      setOtpValue("");
-      setSigningDocId(null);
-      setSelectedDocument(result.payload as Document);
-      showToast({ type: "success", message: "Document signed successfully." });
-    } else {
-      setOtpError(
-        (result.payload as string) ?? "Invalid OTP. Please try again.",
-      );
-    }
-  };
-
-  const handleOtpCancel = () => {
-    setShowOtpModal(false);
-    setOtpValue("");
-    setOtpError(null);
-    setSigningDocId(null);
-  };
-
-  const handleOtpChange = (val: string) => {
-    setOtpError(null);
-    setOtpValue(val);
-  };
 
   const handleMark = (
     id: string,
@@ -2271,7 +1817,7 @@ const SuperAdminDocuments: React.FC = () => {
       userId: string;
       instructions: string;
       priority: string;
-    },
+    }
   ) => {
     dispatch(
       markDocument({
@@ -2282,21 +1828,14 @@ const SuperAdminDocuments: React.FC = () => {
           instructions: data.instructions,
           priority: data.priority as "low" | "normal" | "urgent",
         },
-      }),
+      })
     );
     setShowMarkModal(false);
-  };
-
-  const handleCreateUpload = (input: CreateUploadDocumentInput, file: File) => {
-    dispatch(createUploadDocument({ input, file }));
-    setShowUploadModal(false);
   };
 
   const handlePageChange = (page: number) => {
     const params: DocumentFilters = { page, limit: 10 };
     if (activeTab === "my_action") params.for_my_action = true;
-    else if (activeTab === "judgments") params.type = "judgment";
-    else if (activeTab === "rulings") params.type = "ruling";
     if (searchQuery) params.search = searchQuery;
     dispatch(fetchDocuments(params));
   };
@@ -2310,7 +1849,6 @@ const SuperAdminDocuments: React.FC = () => {
     }
   };
 
-  // ─── Handler for updating mark ──────────────────────────────────────────
   const handleUpdateMark = (markId: string, text: string, date: string | null) => {
     dispatch(updateMark({ markId, instructions: text, bring_up_date: date }));
     if (selectedDocument && selectedDocument.active_mark) {
@@ -2326,6 +1864,25 @@ const SuperAdminDocuments: React.FC = () => {
     }
   };
 
+  const handleTemplateCreated = (doc: Document) => {
+    toast.success(`${doc.type} created successfully`);
+    setShowComposer(null);
+    setSelectedDocument(doc);
+    // Refresh list
+    const params: DocumentFilters = { page: 1, limit: 10 };
+    if (activeTab === "my_action") params.for_my_action = true;
+    if (searchQuery) params.search = searchQuery;
+    dispatch(fetchDocuments(params));
+  };
+
+  const handleDownload = () => {
+    if (!selectedDocument?.file_url) {
+      toast.error('No file available to download');
+      return;
+    }
+    window.open(selectedDocument.file_url, '_blank');
+  };
+
   if (!canView) {
     return (
       <div className="flex items-center justify-center min-h-[400px] px-4 text-center">
@@ -2336,64 +1893,45 @@ const SuperAdminDocuments: React.FC = () => {
     );
   }
 
-  const isSigningInProgress = !!actionInProgress.signing;
-
   return (
     <div className="flex flex-col h-full">
-      {/* Toast */}
-      {signToast && (
-        <div
-          className={`fixed bottom-4 right-4 z-50 flex items-center gap-2.5 rounded-lg px-4 py-3 text-sm font-medium shadow-lg transition-all ${
-            signToast.type === "success"
-              ? "bg-emerald-600 text-white"
-              : "bg-red-600 text-white"
-          }`}
-        >
-          <span>{signToast.type === "success" ? "✅" : "❌"}</span>
-          <span>{signToast.message}</span>
-          <button
-            onClick={() => setSignToast(null)}
-            className="ml-2 text-white/70 hover:text-white text-xs"
-          >
-            ✕
-          </button>
-        </div>
+      {/* Composer Modal */}
+      {showComposer && (
+        <TemplateComposerModal
+          type={showComposer}
+          departmentId={user?.department_id ?? null}
+          onClose={() => setShowComposer(null)}
+          onCreated={handleTemplateCreated}
+        />
       )}
 
-      {/* Page Header */}
+      {/* Header */}
       <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b border-stone-200 bg-white flex-wrap">
         <div className="min-w-0">
           <h1 className="text-base sm:text-lg font-bold text-stone-900 tracking-tight truncate">
-            Document Management
+            Memos & Letters
           </h1>
           <p className="text-[11px] sm:text-xs text-stone-400 mt-0.5 hidden sm:block">
-            Upload, annotate and mark documents
+            Compose, edit, and manage your official correspondence
           </p>
         </div>
 
         {canUpload && (
           <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <button
-              onClick={() => setShowUploadModal(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50 transition-colors"
+              onClick={() => setShowComposer("memo")}
+              disabled={isCreating}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#E8A840] bg-[#F5C24C] px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-[#7A4E0D] hover:bg-[#f0bb40] transition-colors disabled:opacity-50"
             >
-              <svg
-                className="h-3.5 w-3.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-                />
-              </svg>
-              <span className="hidden sm:inline">Upload</span>
+              <span>📄</span> New Memo
             </button>
-
-            {/* ─── Mark button (disabled if selected doc already marked) ─── */}
+            <button
+              onClick={() => setShowComposer("letter")}
+              disabled={isCreating}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50 transition-colors disabled:opacity-50"
+            >
+              <span>✉️</span> New Letter
+            </button>
             <button
               onClick={() => selectedDocument && setShowMarkModal(true)}
               disabled={!selectedDocument || !!selectedDocument.active_mark}
@@ -2403,18 +1941,8 @@ const SuperAdminDocuments: React.FC = () => {
                   : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
               }`}
             >
-              <svg
-                className="h-3.5 w-3.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-                />
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
               </svg>
               <span className="hidden sm:inline">Mark</span>
             </button>
@@ -2424,7 +1952,7 @@ const SuperAdminDocuments: React.FC = () => {
 
       {/* Body */}
       <div className="flex flex-1 overflow-hidden relative">
-        {/* Left panel */}
+        {/* Left Panel */}
         <div
           className={`w-full lg:w-[300px] flex-shrink-0 flex-col border-r border-stone-200 bg-white overflow-hidden ${
             selectedDocument ? "hidden lg:flex" : "flex"
@@ -2435,59 +1963,35 @@ const SuperAdminDocuments: React.FC = () => {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Search documents..."
+                placeholder="Search memos & letters..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 pl-8 text-xs placeholder:text-stone-400 focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620] focus:bg-white"
               />
-              <svg
-                className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-stone-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
+              <svg className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
           </div>
 
           {/* Tabs */}
           <div className="flex gap-1 px-3 pb-2 overflow-x-auto">
-            {TABS.map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex-1 min-w-[64px] whitespace-nowrap rounded-md px-1.5 py-1.5 text-[9px] font-semibold transition-colors ${
-                  activeTab === tab
-                    ? "bg-[#1E4620] text-white"
-                    : "text-stone-500 hover:bg-stone-100"
-                }`}
-              >
-                {TAB_LABELS[tab]}
-              </button>
-            ))}
-          </div>
-
-          {/* Chips */}
-          <div className="flex items-center gap-1.5 px-3 pb-2 flex-wrap">
-            {CHIPS.map((chip) => (
-              <button
-                key={chip}
-                onClick={() => setActiveChip(activeChip === chip ? null : chip)}
-                className={`rounded-full px-2.5 py-0.5 text-[10px] font-medium border transition-colors ${
-                  activeChip === chip
-                    ? "bg-stone-800 text-white border-stone-800"
-                    : "bg-white text-stone-600 border-stone-300 hover:border-stone-400"
-                }`}
-              >
-                {chip}
-              </button>
-            ))}
+            <button
+              onClick={() => setActiveTab("all")}
+              className={`flex-1 rounded-md px-1.5 py-1.5 text-[9px] font-semibold transition-colors ${
+                activeTab === "all" ? "bg-[#1E4620] text-white" : "text-stone-500 hover:bg-stone-100"
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setActiveTab("my_action")}
+              className={`flex-1 rounded-md px-1.5 py-1.5 text-[9px] font-semibold transition-colors ${
+                activeTab === "my_action" ? "bg-[#1E4620] text-white" : "text-stone-500 hover:bg-stone-100"
+              }`}
+            >
+              For My Action
+            </button>
           </div>
 
           {/* Document List */}
@@ -2495,12 +1999,7 @@ const SuperAdminDocuments: React.FC = () => {
             {error && (
               <div className="mx-3 mb-2 rounded-lg bg-red-50 p-2.5 text-xs text-red-700 flex items-center justify-between">
                 <span>{error}</span>
-                <button
-                  onClick={() => dispatch(clearError())}
-                  className="underline ml-2"
-                >
-                  ✕
-                </button>
+                <button onClick={() => dispatch(clearError())} className="underline ml-2">✕</button>
               </div>
             )}
 
@@ -2508,18 +2007,16 @@ const SuperAdminDocuments: React.FC = () => {
               <div className="flex justify-center py-12">
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#1E4620] border-t-transparent" />
               </div>
-            ) : visibleDocuments.length === 0 ? (
+            ) : memoLetterDocs.length === 0 ? (
               <div className="px-4 py-12 text-center">
-                <p className="text-sm text-stone-400">No documents found.</p>
+                <p className="text-sm text-stone-400">No memos or letters found.</p>
                 {canUpload && (
-                  <p className="text-xs text-stone-300 mt-1">
-                    Upload to get started.
-                  </p>
+                  <p className="text-xs text-stone-300 mt-1">Click "New Memo" or "New Letter" to start.</p>
                 )}
               </div>
             ) : (
               <div className="divide-y divide-stone-100">
-                {visibleDocuments.map((doc) => (
+                {memoLetterDocs.map((doc) => (
                   <ListItem
                     key={doc.id}
                     document={doc}
@@ -2538,99 +2035,28 @@ const SuperAdminDocuments: React.FC = () => {
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] text-stone-500 font-medium whitespace-nowrap">
                   {(pagination.page - 1) * pagination.limit + 1}–
-                  {Math.min(
-                    pagination.page * pagination.limit,
-                    pagination.total,
-                  )}{" "}
-                  of {pagination.total}
+                  {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
                 </span>
-
                 <div className="flex items-center gap-0.5">
                   <button
                     onClick={() => handlePageChange(pagination.page - 1)}
                     disabled={pagination.page <= 1}
                     className="flex h-7 w-7 items-center justify-center rounded-md border border-stone-200 bg-white text-stone-600 hover:bg-stone-50 hover:border-stone-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    aria-label="Previous page"
                   >
-                    <svg
-                      className="h-3.5 w-3.5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M15 19l-7-7 7-7"
-                      />
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                     </svg>
                   </button>
-
-                  <div className="flex items-center gap-0.5">
-                    {(() => {
-                      const total = pagination.totalPages;
-                      const current = pagination.page;
-                      const pages: (number | "ellipsis")[] = [];
-
-                      if (total <= 7) {
-                        for (let i = 1; i <= total; i++) pages.push(i);
-                      } else {
-                        pages.push(1);
-                        const start = Math.max(2, current - 1);
-                        const end = Math.min(total - 1, current + 1);
-                        if (start > 2) pages.push("ellipsis");
-                        for (let i = start; i <= end; i++) pages.push(i);
-                        if (end < total - 1) pages.push("ellipsis");
-                        pages.push(total);
-                      }
-
-                      return pages.map((page, index) => {
-                        if (page === "ellipsis") {
-                          return (
-                            <span
-                              key={`ellipsis-${index}`}
-                              className="w-5 text-center text-xs text-stone-400"
-                            >
-                              …
-                            </span>
-                          );
-                        }
-                        return (
-                          <button
-                            key={page}
-                            onClick={() => handlePageChange(page)}
-                            className={`h-7 min-w-[28px] rounded-md px-1.5 text-xs font-medium transition-colors ${
-                              page === current
-                                ? "bg-[#1E4620] text-white"
-                                : "text-stone-600 hover:bg-stone-100"
-                            }`}
-                          >
-                            {page}
-                          </button>
-                        );
-                      });
-                    })()}
-                  </div>
-
+                  <span className="text-[10px] text-stone-500 px-1">
+                    {pagination.page} / {pagination.totalPages}
+                  </span>
                   <button
                     onClick={() => handlePageChange(pagination.page + 1)}
                     disabled={pagination.page >= pagination.totalPages}
                     className="flex h-7 w-7 items-center justify-center rounded-md border border-stone-200 bg-white text-stone-600 hover:bg-stone-50 hover:border-stone-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    aria-label="Next page"
                   >
-                    <svg
-                      className="h-3.5 w-3.5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M9 5l7 7-7 7"
-                      />
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                     </svg>
                   </button>
                 </div>
@@ -2639,7 +2065,7 @@ const SuperAdminDocuments: React.FC = () => {
           )}
         </div>
 
-        {/* Right panel */}
+        {/* Right Panel - Document Editor */}
         <div
           className={`w-full flex-1 flex-col overflow-hidden bg-stone-100 ${
             selectedDocument ? "flex" : "hidden lg:flex"
@@ -2652,22 +2078,8 @@ const SuperAdminDocuments: React.FC = () => {
               currentUserName={user?.full_name ?? "Registrar"}
               isSuperAdmin={isSuperAdmin}
               onBack={() => setSelectedDocument(null)}
-              onSave={
-                canUpload && selectedDocument.status !== "filed"
-                  ? handleSaveBody
-                  : undefined
-              }
-              onDelete={
-                canAdmin ? () => handleDelete(selectedDocument.id) : undefined
-              }
-              onSign={
-                isSuperAdmin && !selectedDocument.is_signed
-                  ? () => handleSign(selectedDocument.id)
-                  : undefined
-              }
-              isSigning={
-                otpLoading || actionInProgress.signing === selectedDocument.id
-              }
+              onSave={canUpload && selectedDocument.status !== "filed" ? handleSaveBody : undefined}
+              onDelete={canAdmin ? () => handleDelete(selectedDocument.id) : undefined}
               onSend={
                 canAdmin &&
                 !selectedDocument.is_sent &&
@@ -2693,19 +2105,25 @@ const SuperAdminDocuments: React.FC = () => {
                   : undefined
               }
               onUpdateMark={handleUpdateMark}
+              onDownload={handleDownload}
             />
           ) : (
-            <EmptyState
-              canUpload={canUpload}
-              creating={isCreatingDocument}
-              onUpload={() => setShowUploadModal(true)}
-            />
+            <div className="flex flex-1 items-center justify-center px-4">
+              <div className="text-center max-w-sm">
+                <svg className="mx-auto h-12 w-12 text-stone-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <p className="mt-3 text-sm font-semibold text-stone-500">Select a memo or letter</p>
+                <p className="mt-1 text-xs text-stone-400 leading-relaxed">
+                  Choose a document from the list, or create a new one to start writing.
+                </p>
+              </div>
+            </div>
           )}
         </div>
       </div>
 
-      {/* ─── Modals ────────────────────────────────────────────────────────── */}
-
+      {/* Modals */}
       {showMarkModal && selectedDocument && (
         <MarkModal
           document={selectedDocument}
@@ -2713,29 +2131,8 @@ const SuperAdminDocuments: React.FC = () => {
           onMark={handleMark}
         />
       )}
-
-      {showUploadModal && (
-        <UploadModal
-          onClose={() => setShowUploadModal(false)}
-          onUpload={handleCreateUpload}
-        />
-      )}
-
-      {showOtpModal && (
-        <OtpModal
-          isSigningInProgress={isSigningInProgress}
-          otpLoading={otpLoading}
-          otpValue={otpValue}
-          otpError={otpError}
-          signingDocId={signingDocId}
-          onOtpChange={handleOtpChange}
-          onSubmit={handleOtpSubmit}
-          onCancel={handleOtpCancel}
-          onResend={() => signingDocId && handleSign(signingDocId)}
-        />
-      )}
     </div>
   );
 };
 
-export default SuperAdminDocuments;
+export default AdminMemoandLetters;

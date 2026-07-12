@@ -1,4 +1,4 @@
- // src/pages/dept-head/AdminDocs.tsx
+// src/pages/dept-head/AdminDocs.tsx
 
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { toast, Toaster } from 'react-hot-toast';
@@ -11,8 +11,6 @@ import {
   clearError,
   fetchDocumentById,
   respondToDocument,
-  createMemo,
-  createLetter,
   redirectDocumentToFolder,
   removeDocumentFromFolder,
 } from '../../store/slices/documentSlice';
@@ -29,14 +27,12 @@ import {
   selectRegistryError,
   clearError as clearRegistryError,
 } from '../../store/slices/registrySlice';
-import { fetchActiveTemplate, fetchAllTemplates } from '../../store/slices/templatesSlice';
 import {
   fetchRHCFolders,
   selectAllRHCFolders,
   selectRHCFoldersLoading,
   type RHCFolder,
 } from '../../store/slices/rhcFoldersSlice';
-import { GLOBAL_KEY, type TemplateType } from '../../types/templates.types';
 import type {
   CreateUploadDocumentInput,
   DocumentType,
@@ -45,8 +41,6 @@ import type {
   FinalizeDraftInput,
   DocumentFilters,
   RoutePriority,
-  ComposeMemoInput,
-  ComposeLetterInput,
 } from '../../types/documents.types';
 import type { RegistryEntry, RegistryStatus } from '../../types/registry.types';
 import type { RootState } from '../../store/store';
@@ -59,15 +53,15 @@ const selectDocLoading = (state: RootState): boolean => state.documents.loading;
 const selectDocError = (state: RootState): string | null => state.documents.error;
 const selectDeletingId = (state: RootState): string | undefined => state.documents.actionInProgress.deleting;
 const selectFinalizingId = (state: RootState): string | undefined => state.documents.actionInProgress.finalizingDraft;
-const selectTemplatesByDepartment = (state: RootState) => state.templates.byDepartment;
-const selectAllTemplates = (state: RootState) => state.templates.all;
-const selectIsCreatingMemo = (state: RootState) => state.documents.actionInProgress.creatingMemo || false;
-const selectIsCreatingLetter = (state: RootState) => state.documents.actionInProgress.creatingLetter || false;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const UPLOAD_TYPES: { value: Exclude<DocumentType, 'memo' | 'letter'>; label: string }[] = [
   { value: 'correspondence', label: 'Correspondence' },
+  { value: 'judgment', label: 'Judgment' },
+  { value: 'ruling', label: 'Ruling' },
+  { value: 'order', label: 'Order' },
+  { value: 'upload', label: 'Upload' },
 ];
 
 const REF_TYPES: { value: RefType; label: string }[] = [
@@ -138,13 +132,6 @@ const REGISTRY_STATUS_LABEL: Record<RegistryStatus, string> = {
 };
 
 const PAGE_SIZE = 10;
-const JUDICIARY_CREST_SRC = '/JOB_LOGO.jpg';
-const GOLD = '#C29B38';
-
-const TEMPLATE_TYPE_LABEL: Record<TemplateType, string> = {
-  memo: 'Memo',
-  letter: 'Letter',
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -991,434 +978,6 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
   );
 };
 
-// ─── Template Composer Modal ─────────────────────────────────────────────────
-
-interface TemplateComposerModalProps {
-  type: TemplateType;
-  departmentId: string | null;
-  onClose: () => void;
-  onCreated: (doc: DocType) => void;
-}
-
-const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
-  type,
-  departmentId,
-  onClose,
-  onCreated,
-}) => {
-  const dispatch = useAppDispatch();
-  const templatesByDepartment = useAppSelector(selectTemplatesByDepartment);
-  const allTemplates = useAppSelector(selectAllTemplates);
-  const currentUser = useAppSelector(selectCurrentUser);
-  const isCreating = useAppSelector(type === 'memo' ? selectIsCreatingMemo : selectIsCreatingLetter);
-
-  const [loadingTemplate, setLoadingTemplate] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
-  const [title, setTitle] = useState(
-    `${TEMPLATE_TYPE_LABEL[type]} — ${new Intl.DateTimeFormat('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())}`
-  );
-
-  const [toField, setToField] = useState('REGISTRAR, HIGH COURT / ORHC AIE HOLDER');
-  const [fromField, setFromField] = useState('HIGH COURT SUPPORT OFFICE');
-  const [refField, setRefField] = useState('');
-  const [dateField, setDateField] = useState(
-    new Intl.DateTimeFormat('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())
-  );
-  const [subjectField, setSubjectField] = useState('');
-  const [signatoryName, setSignatoryName] = useState(currentUser?.full_name ?? '');
-  const [senderTitleField, setSenderTitleField] = useState('Registrar, High Court');
-
-  const [memoSignatoryName, setMemoSignatoryName] = useState('Hon. Clara Otieno-Omondi');
-
-  const [ccField, setCcField] = useState('');
-  const [enclosuresField, setEnclosuresField] = useState('');
-
-  const [footerImageUrl, setFooterImageUrl] = useState<string | null>(null);
-  const [footerText, setFooterText] = useState<string>('');
-
-  const editorRef = useRef<HTMLDivElement>(null);
-
-  const editableLineClasses =
-    'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none';
-
-  const templatesByDepartmentRef = useRef(templatesByDepartment);
-  const allTemplatesRef = useRef(allTemplates);
-
-  useEffect(() => {
-    templatesByDepartmentRef.current = templatesByDepartment;
-    allTemplatesRef.current = allTemplates;
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      setLoadingTemplate(true);
-      setLoadError(null);
-
-      try {
-        const key = departmentId ?? GLOBAL_KEY;
-        let template = templatesByDepartmentRef.current[key]?.[type];
-
-        if (!template && departmentId) {
-          const deptTemplates = allTemplatesRef.current.filter(
-            (t) => t.department_id === departmentId && t.type === type
-          );
-          if (deptTemplates.length > 0) {
-            template = [...deptTemplates].sort(
-              (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-            )[0];
-          }
-        }
-
-        if (!template) {
-          const result = await dispatch(fetchActiveTemplate({ departmentId, type }));
-          if (fetchActiveTemplate.fulfilled.match(result) && result.payload.template) {
-            template = result.payload.template;
-          }
-        }
-
-        if (!cancelled) {
-          setFooterImageUrl(template?.footer_image_url ?? null);
-          setFooterText(template?.footer_text ?? '');
-        }
-      } catch (error) {
-        console.error('[TemplateComposerModal] Failed to resolve template footer:', error);
-        if (!cancelled) setLoadError("Couldn't load the department's footer — continuing without it.");
-      } finally {
-        if (!cancelled) setLoadingTemplate(false);
-      }
-    };
-
-    load();
-    return () => { cancelled = true; };
-  }, [type, departmentId, dispatch]);
-
-  const exec = (command: string, value?: string) => {
-    editorRef.current?.focus();
-    window.document.execCommand(command, false, value);
-  };
-
-  const getInitials = (fullName?: string | null): string => {
-    if (!fullName) return '';
-    return fullName
-      .trim()
-      .split(/\s+/)
-      .map((part) => part[0])
-      .filter(Boolean)
-      .join('')
-      .toUpperCase();
-  };
-
-  const memoRhcCode = `RHC/${getInitials(currentUser?.full_name) || '—'}`;
-
-  const handleSaveDraft = async () => {
-    if (!title.trim()) {
-      toast.error('Please give this document a title');
-      return;
-    }
-
-    const bodyHtml = editorRef.current?.innerHTML ?? '';
-    if (!bodyHtml.trim()) {
-      toast.error('Please write some content in the body');
-      return;
-    }
-
-    let result;
-    if (type === 'memo') {
-      const payload: ComposeMemoInput = {
-        title: title.trim(),
-        to: toField.trim(),
-        date: new Date(dateField).toISOString(),
-        body: bodyHtml,
-        from: fromField.trim(),
-        signatureTitle: fromField.trim(),
-        department_id: departmentId ?? undefined,
-        reference_no: refField.trim() || undefined,
-      };
-      result = await dispatch(createMemo(payload));
-    } else {
-      const payload: ComposeLetterInput = {
-        title: title.trim(),
-        to: toField.trim(),
-        date: new Date(dateField).toISOString(),
-        body: bodyHtml,
-        from: signatoryName.trim(),
-        signatureTitle: senderTitleField.trim(),
-        department_id: departmentId ?? undefined,
-        reference_no: refField.trim() || undefined,
-        cc: ccField.trim() || undefined,
-        enclosures: enclosuresField.trim() || undefined,
-      };
-      result = await dispatch(createLetter(payload));
-    }
-
-    if (createMemo.fulfilled.match(result) || createLetter.fulfilled.match(result)) {
-      toast.success(`${TEMPLATE_TYPE_LABEL[type]} saved as draft`);
-      onCreated(result.payload as DocType);
-    } else {
-      toast.error((result.payload as string) ?? 'Failed to save document');
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-      <div className="bg-white w-full max-w-4xl max-h-[92vh] rounded-xl overflow-hidden flex flex-col shadow-2xl">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 bg-slate-50 shrink-0">
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">
-              New {TEMPLATE_TYPE_LABEL[type]}
-            </p>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full text-sm font-semibold text-slate-900 bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:outline-none transition-colors"
-              placeholder="Document title (internal reference, not printed on the document)"
-            />
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors flex-shrink-0">
-            <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {loadingTemplate ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 py-20">
-            <Spinner size="md" />
-            <p className="text-sm text-slate-400">Loading department letterhead…</p>
-          </div>
-        ) : (
-          <>
-            <div className="flex items-center gap-1 bg-slate-800 px-3 py-1.5 flex-shrink-0">
-              {([
-                { label: 'B', command: 'bold', cls: 'font-extrabold' },
-                { label: 'I', command: 'italic', cls: 'italic' },
-                { label: 'U', command: 'underline', cls: 'underline' },
-              ] as const).map(({ label, command, cls }) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => exec(command)}
-                  className={`w-6 h-6 rounded text-xs text-white/80 hover:bg-white/10 transition-colors ${cls}`}
-                >
-                  {label}
-                </button>
-              ))}
-              <div className="w-px h-4 bg-white/20 mx-1" />
-              <button type="button" onClick={() => exec('insertUnorderedList')} className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors">
-                • List
-              </button>
-              <button type="button" onClick={() => exec('insertOrderedList')} className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors">
-                1. List
-              </button>
-              <span className="ml-auto text-[10px] text-white/40">Formats the body only — header/footer are fixed</span>
-            </div>
-
-            <div className="flex-1 overflow-y-auto bg-slate-100 py-6 px-4 sm:px-6">
-              <div
-                className="mx-auto max-w-[794px] bg-white shadow-sm rounded-sm px-8 py-10 sm:px-16 sm:py-14 text-sm text-black"
-                style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
-              >
-                {loadError && (
-                  <p className="mb-4 rounded bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
-                    {loadError}
-                  </p>
-                )}
-
-                {type === 'memo' ? (
-                  <>
-                    <div className="flex justify-center mb-3">
-                      <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-[78px] w-auto object-contain" />
-                    </div>
-                    <div className="text-center mt-4 mb-2">
-                      <p className="text-[19px] font-bold uppercase leading-snug">
-                        OFFICE OF THE REGISTRAR HIGH COURT<br />INTERNAL MEMO
-                      </p>
-                    </div>
-                    <div className="border-t-[2.5px] border-black mb-2.5" />
-                    <div className="mt-2">
-                      {[
-                        { label: 'TO', value: toField, set: setToField, upper: true },
-                        { label: 'FROM', value: fromField, set: setFromField, upper: true },
-                        { label: 'REF', value: refField, set: setRefField, upper: false, placeholder: 'RHC/AIE/___' },
-                        { label: 'DATE', value: dateField, set: setDateField, upper: false },
-                        { label: 'SUBJECT', value: subjectField, set: setSubjectField, upper: true, placeholder: 'Subject of this memo' },
-                      ].map(({ label, value, set, upper, placeholder }) => (
-                        <div key={label} className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
-                          <span className="w-24 shrink-0 uppercase">{label}</span>
-                          <span className="w-5 shrink-0">:</span>
-                          <input
-                            value={value}
-                            onChange={(e) => set(e.target.value)}
-                            placeholder={placeholder}
-                            className={`${editableLineClasses} ${upper ? 'uppercase' : ''}`}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                    <div className="border-t-[2.5px] border-black mt-3 mb-10" />
-                    <div
-                      ref={editorRef}
-                      contentEditable
-                      suppressContentEditableWarning
-                      data-placeholder="Start typing the body of the memo…"
-                      className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
-                    />
-
-                    <div className="mt-10">
-                      <input
-                        value={memoSignatoryName}
-                        onChange={(e) => setMemoSignatoryName(e.target.value)}
-                        placeholder="Signatory name"
-                        className={`${editableLineClasses} block text-[13.5px] font-bold uppercase`}
-                      />
-                    </div>
-
-                    <div className="mt-2">
-                      <input
-                        value={fromField}
-                        onChange={(e) => setFromField(e.target.value)}
-                        className={`${editableLineClasses} block text-[13.5px] font-bold underline uppercase`}
-                      />
-                      <p className="text-[12px] font-semibold text-stone-600 mt-0.5">
-                        {memoRhcCode}
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex items-center mb-1">
-                      <div className="flex-shrink-0 mr-4">
-                        <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="w-[70px] h-auto object-contain" />
-                      </div>
-                      <div>
-                        <p className="text-[18px] font-bold leading-tight">THE JUDICIARY</p>
-                        <p className="text-[14px] font-bold uppercase leading-tight mt-0.5">
-                          OFFICE OF THE REGISTRAR HIGH COURT
-                        </p>
-                      </div>
-                    </div>
-                    <div className="border-t-[1.5px] mb-7" style={{ borderColor: GOLD }} />
-                    <div className="flex justify-between text-[13px] font-bold mb-7">
-                      <span className="flex items-baseline gap-1">
-                        Ref:
-                        <input
-                          value={refField}
-                          onChange={(e) => setRefField(e.target.value)}
-                          placeholder="RHC/___"
-                          className={editableLineClasses}
-                        />
-                      </span>
-                      <input
-                        value={dateField}
-                        onChange={(e) => setDateField(e.target.value)}
-                        className={`${editableLineClasses} text-right`}
-                      />
-                    </div>
-                    <div className="min-h-[340px] text-[13px] leading-[1.8] text-justify">
-                      <div className="mb-4">
-                        <textarea
-                          value={toField}
-                          onChange={(e) => setToField(e.target.value)}
-                          placeholder="Recipient address block, e.g.\nThe Registrar,\nHigh Court of Kenya"
-                          rows={3}
-                          className="w-full resize-none bg-transparent border-0 focus:outline-none placeholder:text-stone-300 placeholder:italic"
-                        />
-                      </div>
-                      <div className="mb-4">
-                        <span className="font-bold underline">RE: </span>
-                        <input
-                          value={subjectField}
-                          onChange={(e) => setSubjectField(e.target.value)}
-                          placeholder="Subject of this letter"
-                          className={`${editableLineClasses} font-bold underline`}
-                        />
-                      </div>
-                      <div
-                        ref={editorRef}
-                        contentEditable
-                        suppressContentEditableWarning
-                        data-placeholder="Start typing the body of the letter…"
-                        className="min-h-[220px] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
-                      />
-                    </div>
-                    <div className="mt-12">
-                      <input
-                        value={signatoryName}
-                        onChange={(e) => setSignatoryName(e.target.value)}
-                        placeholder="Signatory name"
-                        className={`${editableLineClasses} block text-[13px] font-bold uppercase`}
-                      />
-                      <input
-                        value={senderTitleField}
-                        onChange={(e) => setSenderTitleField(e.target.value)}
-                        placeholder="Title, e.g. Registrar, High Court"
-                        className={`${editableLineClasses} block text-[13px] font-bold underline uppercase mt-0.5`}
-                      />
-                    </div>
-                    <div className="mt-8 space-y-2 border-t border-stone-300 pt-4">
-                      <div className="flex">
-                        <span className="w-24 shrink-0 font-bold text-xs">CC</span>
-                        <span className="w-4 shrink-0 text-xs">:</span>
-                        <input
-                          value={ccField}
-                          onChange={(e) => setCcField(e.target.value)}
-                          placeholder="Carbon copy recipients"
-                          className={`${editableLineClasses} text-xs`}
-                        />
-                      </div>
-                      <div className="flex">
-                        <span className="w-24 shrink-0 font-bold text-xs">Enclosures</span>
-                        <span className="w-4 shrink-0 text-xs">:</span>
-                        <input
-                          value={enclosuresField}
-                          onChange={(e) => setEnclosuresField(e.target.value)}
-                          placeholder="List enclosures, e.g. 1. Affidavit"
-                          className={`${editableLineClasses} text-xs`}
-                        />
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {(footerImageUrl || footerText) && (
-                  <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
-                    {footerImageUrl && (
-                      <img src={footerImageUrl} alt="" className="h-10 w-auto object-contain" />
-                    )}
-                    {footerText && (
-                      <p className="text-[10px] leading-tight text-stone-700 whitespace-pre-wrap">{footerText}</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </>
-        )}
-
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSaveDraft}
-            disabled={isCreating || loadingTemplate}
-            className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 transition"
-          >
-            {isCreating && <Spinner />}
-            {isCreating ? 'Saving…' : 'Save Draft & Continue'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 // ─── Upload Modal ─────────────────────────────────────────────────────────────
 
 interface UploadModalProps {
@@ -1430,7 +989,7 @@ interface UploadModalProps {
 
 const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalProps) => {
   const [file, setFile] = useState<File | null>(null);
-  const [type] = useState<Exclude<DocumentType, 'memo' | 'letter'>>('correspondence');
+  const [type, setType] = useState<Exclude<DocumentType, 'memo' | 'letter'>>('correspondence');
   const [priority, setPriority] = useState<RoutePriority>('normal');
   const [refType, setRefType] = useState<RefType>('for_attention');
   const [refOtherDescription, setRefOtherDescription] = useState('');
@@ -1553,8 +1112,8 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
               <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Document Type *</label>
               <select
                 value={type}
-                disabled
-                className="mt-1 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 cursor-not-allowed"
+                onChange={(e) => setType(e.target.value as Exclude<DocumentType, 'memo' | 'letter'>)}
+                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {UPLOAD_TYPES.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1805,8 +1364,6 @@ const AdminDocs = () => {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('');
 
-  const [composerType, setComposerType] = useState<TemplateType | null>(null);
-
   // Redirect modal state
   const [showRedirectModal, setShowRedirectModal] = useState(false);
   const [redirectTarget, setRedirectTarget] = useState<DocType | null>(null);
@@ -1828,11 +1385,6 @@ const AdminDocs = () => {
       dispatch(fetchCurrentUser());
     }
   }, [dispatch, currentUser]);
-
-  useEffect(() => {
-    console.log('[AdminDocs] Fetching all templates...');
-    dispatch(fetchAllTemplates());
-  }, [dispatch]);
 
   useEffect(() => {
     console.log('[AdminDocs] Fetching folders...');
@@ -1920,7 +1472,10 @@ const AdminDocs = () => {
     }
   };
 
-  
+  const handleRemoveFromFolderClick = (doc: DocType) => {
+    setRemoveTarget(doc);
+    setShowRemoveModal(true);
+  };
 
   const handleRemoveSubmit = async (note?: string) => {
     if (!removeTarget) return;
@@ -2014,36 +1569,17 @@ const AdminDocs = () => {
     setSelectedDocument(doc);
   };
 
-  const handleTemplateCreated = async (doc: DocType) => {
-    console.log(`[AdminDocs] Template created: ${doc.id}`);
-    setComposerType(null);
-    await triggerFetch(page);
-    setFinalizeTarget(doc);
-  };
+  const filteredDocuments = useMemo(() => {
+    if (!currentUser) return documents;
 
-  // ── Visible documents for this list ─────────────────────────────────────
-  // A document that has been redirected to a folder is treated as already
-  // handled — it belongs to the folder now, not the working list — so it's
-  // excluded here regardless of assignment/ownership. It still lives in the
-  // data (folder_id stays set) and shows up wherever folder contents are
-  // rendered; this list just stops surfacing it.
-  // A document that has been redirected to a folder is treated as already
-// handled — it belongs to the folder now, not the working list — so it's
-// excluded here regardless of assignment/ownership. Drafts stay private
-// to their creator until finalized (marked/sent), since an unfinished
-// draft isn't meant to be visible to the rest of the department yet.
-// Everything else — any non-draft document in this dept head's own
-// department — is now visible to the whole department, not just whoever
-// created or was assigned it.
-const filteredDocuments = useMemo(() => {
-  if (!currentUser) return documents;
-
-  return documents.filter(doc => {
-    if (doc.folder_id) return false; // already redirected — lives in its folder now
-    if (doc.is_draft) return doc.created_by === currentUser.id; // drafts stay private until finalized
-    return true; // non-draft, department-scoped docs are visible department-wide
-  });
-}, [documents, currentUser]);
+    return documents.filter(doc => {
+      // ✅ Exclude memos and letters from admin view
+      if (doc.type === 'memo' || doc.type === 'letter') return false;
+      if (doc.folder_id) return false; // already redirected — lives in its folder now
+      if (doc.is_draft) return doc.created_by === currentUser.id; // drafts stay private until finalized
+      return true; // non-draft, department-scoped docs are visible department-wide
+    });
+  }, [documents, currentUser]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -2074,15 +1610,6 @@ const filteredDocuments = useMemo(() => {
         />
       )}
 
-      {composerType && (
-        <TemplateComposerModal
-          type={composerType}
-          departmentId={departmentId}
-          onClose={() => setComposerType(null)}
-          onCreated={handleTemplateCreated}
-        />
-      )}
-
       {showRedirectModal && redirectTarget && (
         <RedirectModal
           document={redirectTarget}
@@ -2096,7 +1623,6 @@ const filteredDocuments = useMemo(() => {
         />
       )}
 
-      {/* Remove from Folder Modal */}
       {showRemoveModal && removeTarget && (
         <RemoveFromFolderModal
           document={removeTarget}
@@ -2120,34 +1646,6 @@ const filteredDocuments = useMemo(() => {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => {
-                console.log('[AdminDocs] New Memo clicked');
-                setComposerType('memo');
-              }}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-[#7A4E0D] bg-[#F5C24C] border border-[#E8A840] rounded-lg hover:bg-[#f0bb40] transition shadow-sm"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              New Memo
-            </button>
-
-            <button
-              onClick={() => {
-                console.log('[AdminDocs] New Letter clicked');
-                setComposerType('letter');
-              }}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition shadow-sm"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-              New Letter
-            </button>
-
             <button
               onClick={() => {
                 console.log('[AdminDocs] Upload Document clicked');
@@ -2354,7 +1852,22 @@ const filteredDocuments = useMemo(() => {
                               </svg>
                             </button>
 
-                            {/* Redirect to Folder Button */}
+                            {/* Remove from Folder Button */}
+                            {doc.folder_id && (
+                              <button
+                                onClick={() => handleRemoveFromFolderClick(doc)}
+                                title="Remove from folder"
+                                className="p-1.5 text-red-400 hover:text-red-600 bg-red-50 hover:bg-red-100 rounded-md transition"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                    d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                    d="M12 12l-3 3m0 0l3 3m-3-3h6" />
+                                </svg>
+                              </button>
+                            )}
+
                             <button
                               onClick={() => handleRedirectClick(doc)}
                               title="Redirect to folder"
