@@ -28,10 +28,10 @@ import SuperAdminSettings from '../pages/admin/SuperAdminSettings';
 import SuperAdminReports from '../pages/admin/SuperAdminReports';
 import SuperAdminLinks from '../pages/admin/SuperAdminLinks';
 import MemoandLetters from '../pages/admin/MemoandLetters';
-import SuperAdminTemplates from '../pages/admin/SuperAdminTemplates';
 import SuperAdminTickets from '../pages/admin/SuperAdminTickets';
 import SuperAdminConference from '../pages/admin/SuperAdminConference';
 import SuperAdminBringUp from '../pages/admin/SuperAdminBringUp';
+import SuperAdminFolders from '../pages/admin/SuperAdminFolders';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -100,7 +100,7 @@ const AppRoutes: React.FC = () => {
           <Route path="/super-admin/reports"         element={<SuperAdminReports />} />
           <Route path="/super-admin/links"         element={<SuperAdminLinks />} />
           <Route path="/super-admin/memo-letters"         element={<MemoandLetters />} />
-          <Route path="/super-admin/templates"         element={<SuperAdminTemplates />} />
+          <Route path="/super-admin/orhc-folders"         element={<SuperAdminFolders />} />
           <Route path="/super-admin/bring-up"         element={<SuperAdminBringUp />} />
         </Route>
       </Route>

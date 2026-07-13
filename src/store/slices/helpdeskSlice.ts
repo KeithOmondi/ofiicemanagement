@@ -29,6 +29,10 @@ export type Status =
   | "Resolved"
   | "Cancelled";
 
+// ─── DSA Payment Status ────────────────────────────────────────────────────
+
+export type DSAPaymentStatus = "Pending" | "In Process" | "Paid" | "Payment NA";
+
 // ─── Tickets ──────────────────────────────────────────────────────────────────
 
 export interface Ticket {
@@ -218,6 +222,14 @@ export interface DSADetail {
   days: number;
   total: number;
   notes: string | null;
+  date_of_request: string | null;
+  date_of_ticket_facilitation: string | null;
+  date_of_conference_facilitation: string | null;
+  travel_date: string | null;
+  travel_back: string | null;
+  requisition_number: string | null;
+  requisition_initiation_date: string | null;
+  payment_status: DSAPaymentStatus;
 }
 
 export interface DSADetailInput {
@@ -227,6 +239,14 @@ export interface DSADetailInput {
   dsa_per_day: number;
   days: number;
   notes?: string;
+  date_of_request?: string;
+  date_of_ticket_facilitation?: string;
+  date_of_conference_facilitation?: string;
+  travel_date?: string;
+  travel_back?: string;
+  requisition_number?: string;
+  requisition_initiation_date?: string;
+  payment_status?: DSAPaymentStatus;
 }
 
 // ─── Circuits ────────────────────────────────────────────────────────────────
@@ -494,6 +514,42 @@ export interface CreateProtocolEventInput {
   dsa_details?: DSADetailInput[];
 }
 
+// ─── Reports ─────────────────────────────────────────────────────────────────
+
+export type ReportModule = "circuit" | "special_bench" | "part_heard" | "service_week" | "other_payment";
+
+export interface DSAReportRow {
+  module: ReportModule;
+  parent_id: string;
+  dsa_detail_id: string;
+  activity: string;
+  parent_status: Status;
+  judge_name: string;
+  pj_number: string;
+  designation: string | null;
+  date_of_request: string | null;
+  date_of_ticket_facilitation: string | null;
+  date_of_conference_facilitation: string | null;
+  travel_date: string | null;
+  travel_back: string | null;
+  dsa_per_day: number;
+  days: number;
+  total: number;
+  requisition_number: string | null;
+  requisition_initiation_date: string | null;
+  payment_status: DSAPaymentStatus;
+}
+
+export interface DSAReportFilters {
+  modules?: ReportModule[];
+  judge_name?: string;
+  payment_status?: DSAPaymentStatus;
+  travel_start?: string;
+  travel_end?: string;
+  limit?: number;
+  offset?: number;
+}
+
 // ─── Audit & Stats ──────────────────────────────────────────────────────────
 
 export interface HelpDeskAuditEntry {
@@ -512,7 +568,7 @@ export interface HelpDeskStats {
   in_progress: number;
   visa_active: number;
   protocol_pending: number;
-  tickets: number; // Add this line
+  tickets: number;
 }
 
 // ─── Filters ────────────────────────────────────────────────────────────────
@@ -547,7 +603,8 @@ export type HelpDeskTab =
   | "generalRequests"
   | "visa"
   | "protocol"
-  | "tickets";
+  | "tickets"
+  | "reports";
 
 /* ============================================================
    STATE INTERFACE
@@ -569,6 +626,10 @@ interface HelpDeskState {
   tickets: Ticket[];
   auditLog: HelpDeskAuditEntry[];
   stats: HelpDeskStats | null;
+
+  // Reports
+  dsaReport: DSAReportRow[];
+  dsaReportFilters: DSAReportFilters;
 
   // Selection
   selectedUtility: JudgeUtility | null;
@@ -605,6 +666,7 @@ interface HelpDeskState {
     visa: { total: number; page: number; limit: number };
     protocol: { total: number; page: number; limit: number };
     tickets: { total: number; page: number; limit: number };
+    reports: { total: number; page: number; limit: number };
   };
 
   // Loading States
@@ -623,6 +685,7 @@ interface HelpDeskState {
     tickets: boolean;
     audit: boolean;
     stats: boolean;
+    reports: boolean;
     mutating: boolean;
   };
 
@@ -649,6 +712,9 @@ const initialState: HelpDeskState = {
   tickets: [],
   auditLog: [],
   stats: null,
+
+  dsaReport: [],
+  dsaReportFilters: {},
 
   selectedUtility: null,
   selectedClubMembership: null,
@@ -682,6 +748,7 @@ const initialState: HelpDeskState = {
     visa: { total: 0, page: 1, limit: 20 },
     protocol: { total: 0, page: 1, limit: 20 },
     tickets: { total: 0, page: 1, limit: 20 },
+    reports: { total: 0, page: 1, limit: 20 },
   },
 
   loading: {
@@ -699,6 +766,7 @@ const initialState: HelpDeskState = {
     tickets: false,
     audit: false,
     stats: false,
+    reports: false,
     mutating: false,
   },
 
@@ -720,16 +788,38 @@ const getErrorMessage = (error: unknown): string => {
 };
 
 const buildQueryString = (
-  filters: HelpDeskFilters | UtilityFilters | TicketFilters,
+  filters: HelpDeskFilters | UtilityFilters | TicketFilters | DSAReportFilters,
 ): string => {
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
-      params.append(key, String(value));
+      // Handle arrays (like modules)
+      if (Array.isArray(value)) {
+        params.append(key, value.join(","));
+      } else {
+        params.append(key, String(value));
+      }
     }
   });
   return params.toString() ? `?${params.toString()}` : "";
 };
+
+/* ============================================================
+   THUNKS - REPORTS
+============================================================ */
+
+export const fetchDSAReport = createAsyncThunk(
+  "helpdesk/fetchDSAReport",
+  async (filters: DSAReportFilters = {}, { rejectWithValue }) => {
+    try {
+      const query = buildQueryString(filters);
+      const { data } = await axiosClient.get(`/helpdesk/reports/dsa${query}`);
+      return data.data as DSAReportRow[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
 
 /* ============================================================
    THUNKS - STATS & AUDIT
@@ -1730,6 +1820,9 @@ const helpdeskSlice = createSlice({
     setTicketFilters(state, action: PayloadAction<Partial<TicketFilters>>) {
       state.ticketFilters = { ...state.ticketFilters, ...action.payload };
     },
+    setDSAReportFilters(state, action: PayloadAction<Partial<DSAReportFilters>>) {
+      state.dsaReportFilters = { ...state.dsaReportFilters, ...action.payload };
+    },
     setSearchQuery(state, action: PayloadAction<string>) {
       state.searchQuery = action.payload;
       state.filters.search = action.payload || undefined;
@@ -1740,6 +1833,7 @@ const helpdeskSlice = createSlice({
       state.filters = {};
       state.utilityFilters = {};
       state.ticketFilters = {};
+      state.dsaReportFilters = {};
       state.searchQuery = "";
     },
 
@@ -1968,6 +2062,25 @@ const helpdeskSlice = createSlice({
     resetHelpDeskState: () => initialState,
   },
   extraReducers: (builder) => {
+    /* ──────── REPORTS ────────────────────────────────────────────────── */
+    builder
+      .addCase(fetchDSAReport.pending, (state) => {
+        state.loading.reports = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchDSAReport.fulfilled,
+        (state, action: PayloadAction<DSAReportRow[]>) => {
+          state.loading.reports = false;
+          state.dsaReport = action.payload;
+          state.pagination.reports.total = action.payload.length;
+        },
+      )
+      .addCase(fetchDSAReport.rejected, (state, action) => {
+        state.loading.reports = false;
+        state.error = action.payload as string;
+      });
+
     /* ──────── STATS ───────────────────────────────────────────────────── */
     builder
       .addCase(fetchHelpDeskStats.pending, (state) => {
@@ -3137,6 +3250,7 @@ export const {
   setFilters,
   setUtilityFilters,
   setTicketFilters,
+  setDSAReportFilters,
   setSearchQuery,
   clearFilters,
   setPagination,
@@ -3202,6 +3316,14 @@ export const selectHelpDeskAudit = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.auditLog;
 export const selectHelpDeskStats = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.stats;
+
+// ─── Reports ────────────────────────────────────────────────────────────────
+export const selectDSAReport = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.dsaReport;
+export const selectDSAReportFilters = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.dsaReportFilters;
+export const selectDSAReportLoading = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.loading.reports;
 
 // ─── Selected Items ────────────────────────────────────────────────────────
 export const selectSelectedUtility = (state: { helpdesk: HelpDeskState }) =>
@@ -3313,6 +3435,8 @@ export const selectProtocolPagination = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.pagination.protocol;
 export const selectTicketsPagination = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.pagination.tickets;
+export const selectReportsPagination = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.pagination.reports;
 
 // ─── Derived Selectors ──────────────────────────────────────────────────────
 
@@ -3365,6 +3489,25 @@ export const selectTicketsByType =
 export const selectTicketsByReference =
   (referenceId: string) => (state: { helpdesk: HelpDeskState }) =>
     state.helpdesk.tickets.filter((t) => t.reference_id === referenceId);
+
+// ─── Report Derived Selectors ──────────────────────────────────────────────
+
+export const selectDSAReportByModule =
+  (module: ReportModule) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.dsaReport.filter((row) => row.module === module);
+
+export const selectDSAReportByPaymentStatus =
+  (status: DSAPaymentStatus) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.dsaReport.filter((row) => row.payment_status === status);
+
+export const selectDSAReportTotal = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.dsaReport.reduce((sum, row) => sum + row.total, 0);
+
+export const selectDSAReportByJudge =
+  (judgeName: string) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.dsaReport.filter(
+      (row) => row.judge_name.toLowerCase().includes(judgeName.toLowerCase()),
+    );
 
 // ─── Pending Counts ─────────────────────────────────────────────────────────
 

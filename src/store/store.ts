@@ -25,6 +25,7 @@ import ticketsReducer from "./slices/ticketSlice"
 import judgesReducer from "./slices/JudgesSlice"
 import rhcFoldersReducer from "./slices/rhcFoldersSlice"
 import eStampReducer from "./slices/eStampSlice"
+import aiReportsReducer from './slices/aiReportsSlice';
 
 export const store = configureStore({
   reducer: {
@@ -51,7 +52,8 @@ export const store = configureStore({
     tickets: ticketsReducer,
     judges: judgesReducer,
     rhcFolders: rhcFoldersReducer,
-    eStamp: eStampReducer
+    eStamp: eStampReducer,
+    aiReports: aiReportsReducer,
   },
 });
 

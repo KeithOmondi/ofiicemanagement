@@ -13,6 +13,7 @@ import {
   clearError as clearRegistryError,
 } from '../../store/slices/registrySlice';
 import { fetchDocuments, clearError as clearDocumentError } from '../../store/slices/documentSlice';
+import { deleteStation } from '../../store/slices/stationsSlice'; // Import deleteStation
 import type { RootState } from '../../store/store';
 import type { RegistryPriority, RegistryEntry } from '../../types/registry.types';
 import type { StationType } from '../../store/slices/stationsSlice';
@@ -74,6 +75,10 @@ const SuperAdminRegistry = () => {
   const [selectedStationForModal, setSelectedStationForModal] = useState<string | null>(null);
   const [stationEntries, setStationEntries] = useState<RegistryEntry[]>([]);
   const [modalLoading, setModalLoading] = useState(false);
+
+  // ── Delete confirmation state ──────────────────────────────────────────────
+  const [stationToDelete, setStationToDelete] = useState<string | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
   // ── Initial data load ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -161,6 +166,39 @@ const SuperAdminRegistry = () => {
     setSelectedStationForModal(null);
     setStationEntries([]);
     setModalLoading(false);
+  };
+
+  // ── Delete station handlers ──────────────────────────────────────────────────
+  const handleDeleteClick = (e: React.MouseEvent, stationId: string) => {
+    e.stopPropagation(); // Prevent opening the station modal
+    const station = stations.find(s => s.id === stationId);
+    if (station && station.file_count > 0) {
+      toast.error(`Cannot delete station "${station.name}" because it has ${station.file_count} file(s) on record.`);
+      return;
+    }
+    setStationToDelete(stationId);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!stationToDelete) return;
+
+    try {
+      await dispatch(deleteStation(stationToDelete)).unwrap();
+      toast.success('Station deleted successfully');
+      refreshCounts();
+    } catch {
+      // Error is handled by the slice and surfaced via toast
+      toast.error('Failed to delete station');
+    } finally {
+      setIsDeleteModalOpen(false);
+      setStationToDelete(null);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    setIsDeleteModalOpen(false);
+    setStationToDelete(null);
   };
 
   const routableDocuments = documents.filter((d) => d.status !== 'filed');
@@ -310,28 +348,43 @@ const SuperAdminRegistry = () => {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
             {stations.map((station) => (
-              <button
+              <div
                 key={station.id}
-                onClick={() => handleStationClick(station.id)}
-                disabled={!station.is_active}
-                className={`flex flex-col items-center py-6 px-4 text-center bg-white hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed ${activeStation === station.id ? 'ring-2 ring-inset ring-amber-400 bg-amber-50/30' : ''
+                className={`relative flex flex-col items-center py-6 px-4 text-center bg-white transition ${activeStation === station.id ? 'ring-2 ring-inset ring-amber-400 bg-amber-50/30' : ''
                   }`}
               >
-                <span
-                  className="text-3xl mb-2"
-                  style={{ color: station.type === 'sub_registry' ? '#c9a84c' : '#94a3b8' }}
+                <button
+                  onClick={() => handleStationClick(station.id)}
+                  disabled={!station.is_active}
+                  className="flex flex-col items-center w-full disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {STATION_TYPE_ICONS[station.type]}
-                </span>
-                <span className="text-xs font-medium" style={{ color: '#8B6914' }}>{station.name}</span>
-                <span className="text-[11px] text-slate-400 mb-3">
-                  {STATION_TYPE_LABELS[station.type]}
-                  {!station.is_active && ' · Inactive'}
-                </span>
-                <span className="text-xl font-medium text-slate-800">{station.file_count}</span>
-                <span className="text-[11px] text-slate-400">files on record</span>
-                <span className="text-[10px] text-amber-600 mt-2">Click to view files</span>
-              </button>
+                  <span
+                    className="text-3xl mb-2"
+                    style={{ color: station.type === 'sub_registry' ? '#c9a84c' : '#94a3b8' }}
+                  >
+                    {STATION_TYPE_ICONS[station.type]}
+                  </span>
+                  <span className="text-xs font-medium" style={{ color: '#8B6914' }}>{station.name}</span>
+                  <span className="text-[11px] text-slate-400 mb-3">
+                    {STATION_TYPE_LABELS[station.type]}
+                    {!station.is_active && ' · Inactive'}
+                  </span>
+                  <span className="text-xl font-medium text-slate-800">{station.file_count}</span>
+                  <span className="text-[11px] text-slate-400">files on record</span>
+                  <span className="text-[10px] text-amber-600 mt-2">Click to view files</span>
+                </button>
+
+                {/* Delete button */}
+                <button
+                  onClick={(e) => handleDeleteClick(e, station.id)}
+                  className="absolute top-2 right-2 p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
+                  title="Delete station"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
             ))}
           </div>
         )
@@ -427,7 +480,6 @@ const SuperAdminRegistry = () => {
                               <span className="font-medium">{formatDate(entry.routed_at)}</span>
                             </div>
 
-                            {/* ✅ received_at – converted to string */}
                             {entry.received_at && (
                               <div className="flex items-center gap-1">
                                 <span className="text-slate-400">Received:</span>
@@ -436,8 +488,6 @@ const SuperAdminRegistry = () => {
                                 </span>
                               </div>
                             )}
-
-                            {/* ❌ filed_at removed – does not exist on RegistryEntry */}
                           </div>
 
                           {entry.note && (
@@ -466,6 +516,44 @@ const SuperAdminRegistry = () => {
                   className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
                 >
                   Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Confirmation Modal ────────────────────────────────────────── */}
+      {isDeleteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="p-6">
+              <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-red-100 rounded-full">
+                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-center text-slate-900 mb-2">
+                Delete Station
+              </h3>
+              <p className="text-sm text-center text-slate-500 mb-6">
+                Are you sure you want to delete this station? This action cannot be undone.
+                {stationToDelete && stations.find(s => s.id === stationToDelete)?.file_count === 0 && 
+                  " This station has no files on record."
+                }
+              </p>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  onClick={handleCancelDelete}
+                  className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmDelete}
+                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition"
+                >
+                  Delete Station
                 </button>
               </div>
             </div>
