@@ -13,9 +13,13 @@ import {
   Folder,
   Calendar,
   Workflow,
+  HelpCircle,
+  Tickets,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import { logoutUser } from '../../store/slices/authSlice';
+import { selectAllDepartments } from '../../store/slices/departmentsSlice';
+import { getStaffDeptFlags } from '../../utils/staffDept';
 
 interface StaffSidebarProps {
   isOpen: boolean;
@@ -45,10 +49,16 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const { user } = useAppSelector((state) => state.auth);
+  const departments = useAppSelector(selectAllDepartments);
 
   // Resolve the real base path from the current URL
   const match = useMatch('/dept/:deptId/*');
   const base = match ? `/dept/${match.params.deptId}` : '';
+
+  // Same department lookup DeptDeskGateway uses, so the routes it registers
+  // and the nav items shown here never drift out of sync.
+  const department = departments.find((d) => d.id === user?.department_id);
+  const { isHelpdeskStaff } = getStaffDeptFlags(department?.name);
 
   // Grouped into sections, mirroring the Help Desk sidebar's
   // OVERVIEW / WORKSPACE / COMMUNICATION / SYSTEM style breakdown.
@@ -57,6 +67,14 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
       title: 'Overview',
       items: [
         { to: `${base}/dashboard`, label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" />, tab: 'dashboard' },
+        // Department-scoped: only shown to staff in the Helpdesk department,
+        // matching the routes gated in DeptDeskGateway.
+        ...(isHelpdeskStaff
+          ? [
+              { to: `${base}/help-desk`, label: 'Help Desk', icon: <HelpCircle className="h-4 w-4" />, tab: 'help' },
+              { to: `${base}/helpdesk-tickets`, label: 'Tickets', icon: <Tickets className="h-4 w-4" />, tab: 'tickets' },
+            ]
+          : []),
         { to: `${base}/documents`, label: 'Documents', icon: <Folder className="h-4 w-4" />, tab: 'documents' },
       ],
     },

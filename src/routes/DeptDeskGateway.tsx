@@ -64,6 +64,9 @@ import HelpdeskTickets from '../pages/helpdesk/HelpdeskTickets';
 import AdminFolders from '../pages/admdesk/AdminFolders';
 import AdminBringUp from '../pages/admdesk/AdminBringUp';
 import AdminMemoandLetters from '../pages/admdesk/AdminMemoandLetters';
+import HelpdeskStuff from '../pages/staff/HelpdeskStuff';
+import HelpdeskStuffTickets from '../pages/staff/HelpdeskStuffTickets';
+import { getStaffDeptFlags } from '../utils/staffDept';
 
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
@@ -78,13 +81,13 @@ const resolveDeskKey = (departmentName: string | null | undefined, userRole: str
 
   // For department heads, use their department
   if (!departmentName) return 'admin';
-  
+
   const lowerName = departmentName.toLowerCase().trim();
-  
+
   if (lowerName.includes('finance')) return 'finance';
   if (lowerName.includes('procurement')) return 'procurement';
   if (lowerName.includes('helpdesk') || lowerName.includes('help desk')) return 'helpdesk';
-  
+
   // Default to admin for any other department
   return 'admin';
 };
@@ -125,21 +128,28 @@ const DeptDeskGateway: React.FC = () => {
   const deskKey = resolveDeskKey(department?.name, user.role);
 
   // Debug logging
-  console.log('User:', { 
-    name: user.full_name, 
-    role: user.role, 
-    department_id: user.department_id 
+  console.log('User:', {
+    name: user.full_name,
+    role: user.role,
+    department_id: user.department_id
   });
   console.log('Department found:', department);
   console.log('Resolved desk key:', deskKey);
 
   // ── Staff desk ──────────────────────────────────────────────────────────────
-  // Staff and viewers get the staff interface
+  // Staff and viewers get the staff interface. Some routes are shared across
+  // every staff member regardless of department; others (e.g. the Help Desk
+  // staff routes) are only meaningful for staff who belong to that
+  // department, so they're gated behind the department flags below.
   if (deskKey === 'staff') {
+    const { isHelpdeskStaff } = getStaffDeptFlags(department?.name);
+
     return (
       <Routes>
         <Route element={<StaffLayout />}>
           <Route index element={<Navigate to="dashboard" replace />} />
+
+          {/* Shared across all staff, regardless of department */}
           <Route path="dashboard" element={<StaffDashboard />} />
           <Route path="inventory" element={<StaffInventory />} />
           <Route path="messages" element={<StaffMeesages />} />
@@ -148,6 +158,14 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="calendar" element={<StaffClendar />} />
           <Route path="tasks" element={<StaffTasks />} />
           <Route path="settings" element={<StaffSettings />} />
+
+          {/* Department-scoped staff routes */}
+          {isHelpdeskStaff && (
+            <>
+              <Route path="help-desk" element={<HelpdeskStuff />} />
+              <Route path="helpdesk-tickets" element={<HelpdeskStuffTickets />} />
+            </>
+          )}
         </Route>
         <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
       </Routes>
@@ -174,29 +192,28 @@ const DeptDeskGateway: React.FC = () => {
   }
 
   // ── Helpdesk desk ────────────────────────────────────────────────────────────
-  // In DeptDeskGateway.tsx — replace the helpdesk block
-if (deskKey === 'helpdesk') {
-  return (
-    <Routes>
-      <Route element={<HelpDeskLayout />}>
-        <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<HelpDeskDashboard />} />
-        <Route path="manage" element={<Helpdesk />} />  
-        <Route path="messages" element={<HelpdeskMessages />} />
-        <Route path="notices" element={<HelpDeskNotices />} />
-        <Route path="calendar" element={<HelpdeskCalendar />} />
-        <Route path="tasks" element={<HelpdeskTasks />} />
-        <Route path="inventory" element={<HelpdeskInventory />} />
-        <Route path="documents" element={<HelpDeskDocuments />} />
-        <Route path="settings" element={<HelpdeskSettings />} />
-        <Route path="uploads" element={<HelpdeskDocs />} />
-        <Route path="reports" element={<HelpdeskReport />} />
-        <Route path="tickets" element={<HelpdeskTickets />} />
-      </Route>
-      <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
-    </Routes>
-  );
-}
+  if (deskKey === 'helpdesk') {
+    return (
+      <Routes>
+        <Route element={<HelpDeskLayout />}>
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<HelpDeskDashboard />} />
+          <Route path="manage" element={<Helpdesk />} />
+          <Route path="messages" element={<HelpdeskMessages />} />
+          <Route path="notices" element={<HelpDeskNotices />} />
+          <Route path="calendar" element={<HelpdeskCalendar />} />
+          <Route path="tasks" element={<HelpdeskTasks />} />
+          <Route path="inventory" element={<HelpdeskInventory />} />
+          <Route path="documents" element={<HelpDeskDocuments />} />
+          <Route path="settings" element={<HelpdeskSettings />} />
+          <Route path="uploads" element={<HelpdeskDocs />} />
+          <Route path="reports" element={<HelpdeskReport />} />
+          <Route path="tickets" element={<HelpdeskTickets />} />
+        </Route>
+        <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+      </Routes>
+    );
+  }
 
   // ── Procurement desk ──────────────────────────────────────────────────────
   if (deskKey === 'procurement') {
