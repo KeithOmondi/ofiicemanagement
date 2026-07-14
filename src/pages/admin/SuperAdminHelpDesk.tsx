@@ -2255,7 +2255,7 @@ function VisaTab() {
           renderRow={(item: VisaRequest) => (
             <>
               <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
+              <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
               <td className="px-3 py-2 text-stone-600">{item.destination_country}</td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.date_of_travel)}</td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.date_of_return)}</td>
