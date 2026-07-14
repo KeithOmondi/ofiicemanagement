@@ -455,7 +455,7 @@ export interface VisaDocument {
 export interface VisaRequest {
   id: string;
   s_no: number | null;
-  name: string;
+  judge_name: string; // ✅ Changed from 'name' to 'judge_name'
   destination_country: string;
   date_of_travel: string | null;
   date_of_return: string | null;
@@ -472,7 +472,7 @@ export interface VisaRequest {
 
 export interface CreateVisaRequestInput {
   s_no?: number;
-  name: string;
+  judge_name: string; // ✅ Changed from 'name' to 'judge_name'
   destination_country: string;
   date_of_travel?: string;
   date_of_return?: string;
@@ -3242,8 +3242,7 @@ const helpdeskSlice = createSlice({
 });
 
 /* ============================================================
-   ACTIONS
-============================================================ */
+   ACTIONS============================================================ */
 
 export const {
   setActiveTab,

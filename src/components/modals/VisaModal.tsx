@@ -117,7 +117,7 @@ export const VisaModal: React.FC<VisaModalProps> = ({
 
   const [formData, setFormData] = useState<CreateVisaRequestInput>({
     s_no: undefined,
-    name: '',
+    judge_name: '', // ✅ Changed from 'name' to 'judge_name'
     destination_country: '',
     date_of_travel: '',
     date_of_return: '',
@@ -135,7 +135,7 @@ export const VisaModal: React.FC<VisaModalProps> = ({
     if (isOpen && editingItem) {
       setFormData({
         s_no: editingItem.s_no || undefined,
-        name: editingItem.name || '',
+        judge_name: editingItem.judge_name || '', // ✅ Changed from editingItem.name
         destination_country: editingItem.destination_country || '',
         date_of_travel: editingItem.date_of_travel || '',
         date_of_return: editingItem.date_of_return || '',
@@ -148,7 +148,7 @@ export const VisaModal: React.FC<VisaModalProps> = ({
     } else if (isOpen && !editingItem) {
       setFormData({
         s_no: undefined,
-        name: '',
+        judge_name: '', // ✅ Changed from 'name' to 'judge_name'
         destination_country: '',
         date_of_travel: '',
         date_of_return: '',
@@ -164,7 +164,7 @@ export const VisaModal: React.FC<VisaModalProps> = ({
   const resetForm = () => {
     setFormData({
       s_no: undefined,
-      name: '',
+      judge_name: '', // ✅ Changed from 'name' to 'judge_name'
       destination_country: '',
       date_of_travel: '',
       date_of_return: '',
@@ -182,8 +182,8 @@ export const VisaModal: React.FC<VisaModalProps> = ({
 
   const handleNextStep = () => {
     if (currentStep === 1) {
-      if (!formData.name?.trim() || !formData.destination_country?.trim()) {
-        toast.error('Please enter the name and destination country.');
+      if (!formData.judge_name?.trim() || !formData.destination_country?.trim()) { // ✅ Changed from formData.name
+        toast.error('Please enter the judge name and destination country.');
         return;
       }
       setCurrentStep(2);
@@ -198,7 +198,7 @@ export const VisaModal: React.FC<VisaModalProps> = ({
     try {
       const input: CreateVisaRequestInput = {
         s_no: formData.s_no ? parseInt(String(formData.s_no)) : undefined,
-        name: formData.name?.trim() || '',
+        judge_name: formData.judge_name?.trim() || '', // ✅ Changed from formData.name
         destination_country: formData.destination_country?.trim() || '',
         date_of_travel: formData.date_of_travel || undefined,
         date_of_return: formData.date_of_return || undefined,
@@ -312,13 +312,13 @@ export const VisaModal: React.FC<VisaModalProps> = ({
                   </div>
 
                   <div>
-                    <FieldLabel required>Name</FieldLabel>
+                    <FieldLabel required>Judge Name</FieldLabel> {/* ✅ Changed label from 'Name' to 'Judge Name' */}
                     <div className="relative">
                       <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                       <input
                         type="text"
-                        value={formData.name || ''}
-                        onChange={(e) => handleChange('name', e.target.value)}
+                        value={formData.judge_name || ''} // ✅ Changed from formData.name
+                        onChange={(e) => handleChange('judge_name', e.target.value)} // ✅ Changed from 'name'
                         placeholder="e.g. Hon. Justice Mella"
                         className={`${inputClasses} pl-9`}
                         required
@@ -435,8 +435,8 @@ export const VisaModal: React.FC<VisaModalProps> = ({
                     <span className="font-medium">{formData.s_no || '—'}</span>
                   </div>
                   <div className="flex justify-between border-b border-stone-100 py-2">
-                    <span className="text-stone-500">Name</span>
-                    <span className="font-medium">{formData.name || '—'}</span>
+                    <span className="text-stone-500">Judge Name</span> {/* ✅ Changed label */}
+                    <span className="font-medium">{formData.judge_name || '—'}</span> {/* ✅ Changed from formData.name */}
                   </div>
                   <div className="flex justify-between border-b border-stone-100 py-2">
                     <span className="text-stone-500">Destination</span>
