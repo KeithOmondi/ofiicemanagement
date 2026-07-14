@@ -39,7 +39,6 @@ import {
   updateUtilityItem,
   // Selectors
   selectHelpDeskStats,
-  selectHelpDeskAudit,
   selectAllUtilities,
   selectAllClubMemberships,
   selectAllCircuits,
@@ -52,7 +51,6 @@ import {
   selectAllVisaRequests,
   selectAllProtocolEvents,
   selectStatsLoading,
-  selectAuditLoading,
   selectHelpDeskMutating,
   selectHelpDeskError,
   clearError,
@@ -97,7 +95,6 @@ import {
   Plus,
   FileSpreadsheet,
   FileText,
-  Pencil,
   Wallet,
   Users,
   MapPin,
@@ -561,8 +558,6 @@ function TableWithActions<T extends { id: string }>({
 function OverviewTab() {
   const stats = useAppSelector(selectHelpDeskStats);
   const loading = useAppSelector(selectStatsLoading);
-  const auditLog = useAppSelector(selectHelpDeskAudit);
-  const auditLoading = useAppSelector(selectAuditLoading);
 
   return (
     <div className="space-y-4">
@@ -597,33 +592,7 @@ function OverviewTab() {
         />
       </div>
 
-      <Panel
-        title="Recent Activity"
-        icon={<Pencil className="h-4 w-4" />}
-        action={<span className="text-xs text-stone-400">Last 10 actions</span>}
-        loading={auditLoading}
-      >
-        {auditLog.length === 0 ? (
-          <EmptyState message="No recent activity." />
-        ) : (
-          <div className="space-y-2">
-            {auditLog.slice(0, 10).map((entry) => (
-              <div key={entry.id} className="flex items-start justify-between gap-4 rounded-lg border border-stone-100 px-3 py-2.5 hover:bg-stone-50">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-stone-700">
-                    <span className="font-medium text-stone-900">{entry.actor_name || 'System'}</span>
-                    {' — '}{entry.action}
-                  </p>
-                  {entry.detail && <p className="text-xs text-stone-400 mt-0.5">{entry.detail}</p>}
-                </div>
-                <span className="shrink-0 text-xs text-stone-400">
-                  {entry.timestamp ? new Date(entry.timestamp).toLocaleString() : '—'}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Panel>
+      
     </div>
   );
 }
