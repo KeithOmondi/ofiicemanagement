@@ -44,6 +44,8 @@ const STATUS_STYLES: Record<DocumentStatus, string> = {
   in_progress: "bg-indigo-50 text-indigo-700 border border-indigo-100",
   completed: "bg-emerald-50 text-emerald-700 border border-emerald-100",
   filed: "bg-stone-100 text-stone-500 border border-stone-200",
+  ready_to_release: "bg-amber-50 text-amber-700 border border-amber-200",  // ✅ Added
+  released: "bg-emerald-50 text-emerald-700 border border-emerald-200",
 };
 
 const STATUS_LABELS: Record<DocumentStatus, string> = {
@@ -54,6 +56,8 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
   in_progress: "IN PROGRESS",
   completed: "COMPLETED",
   filed: "FILED",
+  ready_to_release: "READY TO RELEASE",  // ✅ Added
+  released: "RELEASED",
 };
 
 const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => (
