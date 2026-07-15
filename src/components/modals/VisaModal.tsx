@@ -21,7 +21,6 @@ import {
   User,
   MapPin,
   FileText,
-  Hash,
   CreditCard,
   FileSignature,
   Briefcase,
@@ -115,9 +114,9 @@ export const VisaModal: React.FC<VisaModalProps> = ({
 
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
 
+  // s_no removed - auto-generated on backend
   const [formData, setFormData] = useState<CreateVisaRequestInput>({
-    s_no: undefined,
-    judge_name: '', // ✅ Changed from 'name' to 'judge_name'
+    judge_name: '',
     destination_country: '',
     date_of_travel: '',
     date_of_return: '',
@@ -134,8 +133,7 @@ export const VisaModal: React.FC<VisaModalProps> = ({
 
     if (isOpen && editingItem) {
       setFormData({
-        s_no: editingItem.s_no || undefined,
-        judge_name: editingItem.judge_name || '', // ✅ Changed from editingItem.name
+        judge_name: editingItem.judge_name || '',
         destination_country: editingItem.destination_country || '',
         date_of_travel: editingItem.date_of_travel || '',
         date_of_return: editingItem.date_of_return || '',
@@ -147,8 +145,7 @@ export const VisaModal: React.FC<VisaModalProps> = ({
       setCurrentStep(2);
     } else if (isOpen && !editingItem) {
       setFormData({
-        s_no: undefined,
-        judge_name: '', // ✅ Changed from 'name' to 'judge_name'
+        judge_name: '',
         destination_country: '',
         date_of_travel: '',
         date_of_return: '',
@@ -163,8 +160,7 @@ export const VisaModal: React.FC<VisaModalProps> = ({
 
   const resetForm = () => {
     setFormData({
-      s_no: undefined,
-      judge_name: '', // ✅ Changed from 'name' to 'judge_name'
+      judge_name: '',
       destination_country: '',
       date_of_travel: '',
       date_of_return: '',
@@ -182,7 +178,7 @@ export const VisaModal: React.FC<VisaModalProps> = ({
 
   const handleNextStep = () => {
     if (currentStep === 1) {
-      if (!formData.judge_name?.trim() || !formData.destination_country?.trim()) { // ✅ Changed from formData.name
+      if (!formData.judge_name?.trim() || !formData.destination_country?.trim()) {
         toast.error('Please enter the judge name and destination country.');
         return;
       }
@@ -196,9 +192,9 @@ export const VisaModal: React.FC<VisaModalProps> = ({
 
   const handleCreate = async () => {
     try {
+      // s_no removed - auto-generated on backend
       const input: CreateVisaRequestInput = {
-        s_no: formData.s_no ? parseInt(String(formData.s_no)) : undefined,
-        judge_name: formData.judge_name?.trim() || '', // ✅ Changed from formData.name
+        judge_name: formData.judge_name?.trim() || '',
         destination_country: formData.destination_country?.trim() || '',
         date_of_travel: formData.date_of_travel || undefined,
         date_of_return: formData.date_of_return || undefined,
@@ -296,29 +292,16 @@ export const VisaModal: React.FC<VisaModalProps> = ({
                   <h4 className="text-sm font-semibold text-stone-800">Visa Request Details</h4>
                 </div>
                 <div className="grid grid-cols-1 gap-4">
-                  <div>
-                    <FieldLabel>S/No.</FieldLabel>
-                    <div className="relative">
-                      <Hash size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-                      <input
-                        type="number"
-                        min={1}
-                        value={formData.s_no || ''}
-                        onChange={(e) => handleChange('s_no', e.target.value ? parseInt(e.target.value) : '')}
-                        placeholder="1"
-                        className={`${inputClasses} pl-9`}
-                      />
-                    </div>
-                  </div>
+                  {/* S/No. - Removed - auto-generated on backend */}
 
                   <div>
-                    <FieldLabel required>Judge Name</FieldLabel> {/* ✅ Changed label from 'Name' to 'Judge Name' */}
+                    <FieldLabel required>Judge Name</FieldLabel>
                     <div className="relative">
                       <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                       <input
                         type="text"
-                        value={formData.judge_name || ''} // ✅ Changed from formData.name
-                        onChange={(e) => handleChange('judge_name', e.target.value)} // ✅ Changed from 'name'
+                        value={formData.judge_name || ''}
+                        onChange={(e) => handleChange('judge_name', e.target.value)}
                         placeholder="e.g. Hon. Justice Mella"
                         className={`${inputClasses} pl-9`}
                         required
@@ -431,12 +414,8 @@ export const VisaModal: React.FC<VisaModalProps> = ({
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between border-b border-stone-100 py-2">
-                    <span className="text-stone-500">S/No.</span>
-                    <span className="font-medium">{formData.s_no || '—'}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-stone-100 py-2">
-                    <span className="text-stone-500">Judge Name</span> {/* ✅ Changed label */}
-                    <span className="font-medium">{formData.judge_name || '—'}</span> {/* ✅ Changed from formData.name */}
+                    <span className="text-stone-500">Judge Name</span>
+                    <span className="font-medium">{formData.judge_name || '—'}</span>
                   </div>
                   <div className="flex justify-between border-b border-stone-100 py-2">
                     <span className="text-stone-500">Destination</span>

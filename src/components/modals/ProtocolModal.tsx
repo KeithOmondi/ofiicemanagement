@@ -34,7 +34,6 @@ import {
   Upload,
   Trash2,
   Image,
-  Hash,
   User,
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
@@ -227,7 +226,6 @@ function SignatureSection({ userSignature, onUpload, onRemove, isLoading }: Sign
 // ─── Types for Basic Info ──────────────────────────────────────────────────
 
 interface BasicInfoState {
-  s_no: number | string;
   activity: string;
   period_from: string;
   period_to: string;
@@ -256,20 +254,7 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({ basicInfo, setBasicInfo }
           <h4 className="text-sm font-semibold text-stone-800">Protocol Event Information</h4>
         </div>
         <div className="grid grid-cols-1 gap-4">
-          <div>
-            <FieldLabel>S/No.</FieldLabel>
-            <div className="relative">
-              <Hash size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-              <input
-                type="number"
-                min={1}
-                value={basicInfo.s_no || ''}
-                onChange={(e) => handleChange('s_no', e.target.value ? parseInt(e.target.value) : '')}
-                placeholder="1"
-                className={`${inputClasses} pl-9`}
-              />
-            </div>
-          </div>
+          {/* s_no removed - auto-generated on backend */}
 
           <div>
             <FieldLabel required>Activity</FieldLabel>
@@ -859,7 +844,6 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
   const [basicInfo, setBasicInfo] = useState<BasicInfoState>({
-    s_no: '',
     activity: '',
     period_from: '',
     period_to: '',
@@ -879,7 +863,6 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
 
     if (isOpen && editingItem) {
       setBasicInfo({
-        s_no: editingItem.s_no || '',
         activity: editingItem.activity || '',
         period_from: editingItem.period_from || '',
         period_to: editingItem.period_to || '',
@@ -905,7 +888,6 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
       setCurrentStep(2);
     } else if (isOpen && !editingItem) {
       setBasicInfo({
-        s_no: '',
         activity: '',
         period_from: '',
         period_to: '',
@@ -920,7 +902,6 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
 
   const resetForm = () => {
     setBasicInfo({
-      s_no: '',
       activity: '',
       period_from: '',
       period_to: '',
@@ -1009,8 +990,8 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
           notes: undefined,
         }));
 
+      // s_no removed - auto-generated on backend
       const input: CreateProtocolEventInput = {
-        s_no: basicInfo.s_no ? parseInt(String(basicInfo.s_no)) : undefined,
         activity: basicInfo.activity.trim(),
         period_from: basicInfo.period_from || undefined,
         period_to: basicInfo.period_to || undefined,

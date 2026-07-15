@@ -20,7 +20,6 @@ import {
   Loader2,
   Save,
   User,
-  Hash,
   Calendar,
   FileSignature,
   Briefcase,
@@ -28,6 +27,8 @@ import {
   FileText,
   Users,
   CreditCard,
+  Mail,
+  Send,
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -118,9 +119,8 @@ export const RequestModal: React.FC<RequestModalProps> = ({
 
   const isMedical = mode === 'medical';
 
-  // Medical Claim Form
+  // Medical Claim Form (s_no removed - auto-generated)
   const [medicalForm, setMedicalForm] = useState<CreateMedicalClaimInput>({
-    s_no: undefined,
     officer_name: '',
     claim_amount: 0,
     date_forwarded_dhr: '',
@@ -128,15 +128,16 @@ export const RequestModal: React.FC<RequestModalProps> = ({
     remarks: '',
   });
 
-  // General Request Form
+  // General Request Form (s_no removed - auto-generated)
   const [generalForm, setGeneralForm] = useState<CreateGeneralRequestInput>({
-    s_no: undefined,
     judge_name: '',
     request: '',
     date_received: '',
     officer_assigned: '',
     status: 'Pending',
     remarks: '',
+    email: '',
+    send_email: false, // Default: don't send email (manual control by dep_head)
   });
 
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
@@ -148,7 +149,6 @@ export const RequestModal: React.FC<RequestModalProps> = ({
       if (isMedical) {
         const item = editingItem as MedicalClaim;
         setMedicalForm({
-          s_no: item.s_no || undefined,
           officer_name: item.officer_name || '',
           claim_amount: item.claim_amount || 0,
           date_forwarded_dhr: item.date_forwarded_dhr || '',
@@ -158,18 +158,18 @@ export const RequestModal: React.FC<RequestModalProps> = ({
       } else {
         const item = editingItem as GeneralRequest;
         setGeneralForm({
-          s_no: item.s_no || undefined,
           judge_name: item.judge_name || '',
           request: item.request || '',
           date_received: item.date_received || '',
           officer_assigned: item.officer_assigned || '',
           status: item.status || 'Pending',
           remarks: item.remarks || '',
+          email: '',
+          send_email: false,
         });
       }
     } else if (isOpen && !editingItem) {
       setMedicalForm({
-        s_no: undefined,
         officer_name: '',
         claim_amount: 0,
         date_forwarded_dhr: '',
@@ -177,20 +177,20 @@ export const RequestModal: React.FC<RequestModalProps> = ({
         remarks: '',
       });
       setGeneralForm({
-        s_no: undefined,
         judge_name: '',
         request: '',
         date_received: '',
         officer_assigned: '',
         status: 'Pending',
         remarks: '',
+        email: '',
+        send_email: false,
       });
     }
   }
 
   const resetForm = () => {
     setMedicalForm({
-      s_no: undefined,
       officer_name: '',
       claim_amount: 0,
       date_forwarded_dhr: '',
@@ -198,13 +198,14 @@ export const RequestModal: React.FC<RequestModalProps> = ({
       remarks: '',
     });
     setGeneralForm({
-      s_no: undefined,
       judge_name: '',
       request: '',
       date_received: '',
       officer_assigned: '',
       status: 'Pending',
       remarks: '',
+      email: '',
+      send_email: false,
     });
   };
 
@@ -212,7 +213,7 @@ export const RequestModal: React.FC<RequestModalProps> = ({
     setMedicalForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleGeneralChange = (field: keyof CreateGeneralRequestInput, value: string | number) => {
+  const handleGeneralChange = (field: keyof CreateGeneralRequestInput, value: string | number | boolean) => {
     setGeneralForm((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -228,8 +229,8 @@ export const RequestModal: React.FC<RequestModalProps> = ({
           return;
         }
 
+        // s_no removed - auto-generated on backend
         const input: CreateMedicalClaimInput = {
-          s_no: medicalForm.s_no ? parseInt(String(medicalForm.s_no)) : undefined,
           officer_name: medicalForm.officer_name.trim(),
           claim_amount: medicalForm.claim_amount,
           date_forwarded_dhr: medicalForm.date_forwarded_dhr || undefined,
@@ -259,14 +260,30 @@ export const RequestModal: React.FC<RequestModalProps> = ({
           return;
         }
 
+        // Validate email if send_email is true
+        if (generalForm.send_email && !generalForm.email?.trim()) {
+          toast.error('Please enter a recipient email address to send the notification.');
+          return;
+        }
+
+        if (generalForm.send_email && generalForm.email?.trim()) {
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(generalForm.email.trim())) {
+            toast.error('Please enter a valid email address.');
+            return;
+          }
+        }
+
+        // s_no removed - auto-generated on backend
         const input: CreateGeneralRequestInput = {
-          s_no: generalForm.s_no ? parseInt(String(generalForm.s_no)) : undefined,
           judge_name: generalForm.judge_name.trim(),
           request: generalForm.request.trim(),
           date_received: generalForm.date_received || undefined,
           officer_assigned: generalForm.officer_assigned?.trim() || undefined,
           status: generalForm.status,
           remarks: generalForm.remarks?.trim() || undefined,
+          email: generalForm.send_email ? generalForm.email?.trim() : undefined,
+          send_email: generalForm.send_email,
         };
 
         if (editingItem) {
@@ -276,8 +293,13 @@ export const RequestModal: React.FC<RequestModalProps> = ({
           })).unwrap();
           toast.success('General request updated successfully.');
         } else {
+          // Create the request - we don't need to use the result directly
           await dispatch(createGeneralRequest(input)).unwrap();
           toast.success('General request created successfully.');
+          
+          if (generalForm.send_email && generalForm.email) {
+            toast.success(`Notification email sent to ${generalForm.email}`);
+          }
         }
 
         await dispatch(fetchGeneralRequests({}));
@@ -349,31 +371,16 @@ export const RequestModal: React.FC<RequestModalProps> = ({
               <h4 className="text-sm font-semibold text-stone-800">
                 {isMedical ? 'Medical Claim Details' : 'General Request Details'}
               </h4>
+              {!isMedical && generalForm.send_email && (
+                <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                  <Send size={10} />
+                  Email On
+                </span>
+              )}
             </div>
 
             <div className="grid grid-cols-1 gap-4">
-              {/* S/No. */}
-              <div>
-                <FieldLabel>S/No.</FieldLabel>
-                <div className="relative">
-                  <Hash size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-                  <input
-                    type="number"
-                    min={1}
-                    value={isMedical ? medicalForm.s_no || '' : generalForm.s_no || ''}
-                    onChange={(e) => {
-                      const value = e.target.value ? parseInt(e.target.value) : '';
-                      if (isMedical) {
-                        handleMedicalChange('s_no', value);
-                      } else {
-                        handleGeneralChange('s_no', value);
-                      }
-                    }}
-                    placeholder="1"
-                    className={`${inputClasses} pl-9`}
-                  />
-                </div>
-              </div>
+              {/* S/No. - Removed - auto-generated on backend */}
 
               {/* Name */}
               <div>
@@ -520,6 +527,47 @@ export const RequestModal: React.FC<RequestModalProps> = ({
                   </select>
                 </div>
               </div>
+
+              {/* ─── General Request Only: Email Notification ─────────────── */}
+              {!isMedical && (
+                <div className="mt-2 border-t border-stone-200 pt-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <input
+                      type="checkbox"
+                      id="send_email"
+                      checked={generalForm.send_email || false}
+                      onChange={(e) => handleGeneralChange('send_email', e.target.checked)}
+                      className="h-4 w-4 rounded border-stone-300 text-[#c9a84c] focus:ring-[#c9a84c]"
+                    />
+                    <label htmlFor="send_email" className="text-sm font-medium text-stone-700 flex items-center gap-2">
+                      <Mail size={14} className="text-stone-400" />
+                      Send Acknowledgement Email
+                      <span className="text-xs text-stone-400 font-normal">
+                        (Department Head control)
+                      </span>
+                    </label>
+                  </div>
+
+                  {generalForm.send_email && (
+                    <div className="animate-in slide-in-from-top-2 duration-200">
+                      <FieldLabel required>Recipient Email</FieldLabel>
+                      <div className="relative">
+                        <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                        <input
+                          type="email"
+                          value={generalForm.email || ''}
+                          onChange={(e) => handleGeneralChange('email', e.target.value)}
+                          placeholder="judge@court.go.ke"
+                          className={`${inputClasses} pl-9 border-emerald-300 focus:border-emerald-500 focus:ring-emerald-500`}
+                        />
+                      </div>
+                      <p className="mt-1 text-[10px] text-stone-400">
+                        The judge will receive a confirmation email with their ticket number.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

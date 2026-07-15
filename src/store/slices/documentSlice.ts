@@ -27,7 +27,6 @@ import type {
   ComposeMemoInput,
   ComposeLetterInput,
   SendToUserInput,
-  //UpdateMarkInput,
 } from "../../types/documents.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -65,6 +64,7 @@ interface DocumentState {
     updatingMark?: string;
     redirectingToFolder?: string;
     removingFromFolder?: string;
+    regeneratingPdf?: string;
   };
 }
 
@@ -585,7 +585,7 @@ export const updateMark = createAsyncThunk(
 );
 
 // ════════════════════════════════════════════════════════════════════════════
-//  NEW: Folder Operations
+//  Folder Operations
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── Redirect Document to Folder ────────────────────────────────────────────
@@ -651,6 +651,23 @@ export const fetchDocumentsByFolder = createAsyncThunk(
   }
 );
 
+// ── Regenerate PDF from current edited fields/body ──────────────────────────
+
+export const regeneratePdf = createAsyncThunk(
+  "documents/regeneratePdf",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/regenerate-pdf`);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  },
+);
+
 // ─── Slice ────────────────────────────────────────────────────────────────────
 
 const documentSlice = createSlice({
@@ -698,6 +715,32 @@ const documentSlice = createSlice({
         if (action.meta.requestId !== state.latestDocumentsRequestId) return;
         state.error = action.payload as string;
       })
+
+      // ── regeneratePdf ─────────────────────────────────────────────────────────
+.addCase(regeneratePdf.pending, (state, action) => {
+  state.actionInProgress.regeneratingPdf = action.meta.arg;
+  state.error = null;
+})
+.addCase(
+  regeneratePdf.fulfilled,
+  (state, action: PayloadAction<Document>) => {
+    state.actionInProgress.regeneratingPdf = undefined;
+    const index = state.documents.findIndex(
+      (d) => d.id === action.payload.id,
+    );
+    if (index !== -1) state.documents[index] = action.payload;
+    if (state.currentDocument?.id === action.payload.id) {
+      state.currentDocument = {
+        ...state.currentDocument,
+        ...action.payload,
+      };
+    }
+  },
+)
+.addCase(regeneratePdf.rejected, (state, action) => {
+  state.actionInProgress.regeneratingPdf = undefined;
+  state.error = action.payload as string;
+})
 
       // ── fetchDocumentById ──────────────────────────────────────────────────
       .addCase(fetchDocumentById.pending, (state) => {
@@ -921,6 +964,7 @@ const documentSlice = createSlice({
           );
           if (index !== -1) state.documents[index] = action.payload;
           if (state.currentDocument?.id === action.payload.id) {
+            // Merge the updated document with the current document's annotations, mark_history, and responses
             state.currentDocument = {
               ...state.currentDocument,
               ...action.payload,
@@ -1252,7 +1296,6 @@ const documentSlice = createSlice({
               ...action.payload,
             };
           }
-          // Update in myMarked as well
           const myIndex = state.myMarked.findIndex(
             (d) => d.id === action.payload.id,
           );
@@ -1386,6 +1429,9 @@ export const selectIsRedirectingToFolder = (state: { documents: DocumentState },
 
 export const selectIsRemovingFromFolder = (state: { documents: DocumentState }, documentId: string) =>
   state.documents.actionInProgress.removingFromFolder === documentId;
+
+export const selectIsRegeneratingPdf = (state: { documents: DocumentState }, documentId: string) =>
+  state.documents.actionInProgress.regeneratingPdf === documentId;
 
 export type { DocumentState };
 

@@ -407,8 +407,8 @@ export interface MedicalClaim {
   updated_at: string;
 }
 
+// s_no removed from input - auto-generated on backend
 export interface CreateMedicalClaimInput {
-  s_no?: number;
   officer_name: string;
   claim_amount: number;
   date_forwarded_dhr?: string;
@@ -421,6 +421,7 @@ export interface CreateMedicalClaimInput {
 export interface GeneralRequest {
   id: string;
   s_no: number | null;
+  ticket_number: string | null; // Auto-generated ticket number
   judge_name: string;
   request: string;
   date_received: string | null;
@@ -432,14 +433,17 @@ export interface GeneralRequest {
   updated_at: string;
 }
 
+// s_no removed from input - auto-generated on backend
+// send_email controls whether email is sent (manual control by dep_head)
 export interface CreateGeneralRequestInput {
-  s_no?: number;
   judge_name: string;
   request: string;
   date_received?: string;
   officer_assigned?: string;
   status?: Status;
   remarks?: string;
+  email?: string; // Recipient email for notification
+  send_email?: boolean; // Manual control: true = send email, false = don't send
 }
 
 // ─── Visa Support ────────────────────────────────────────────────────────────
@@ -449,13 +453,40 @@ export interface VisaDocument {
   visa_request_id: string;
   document_name: string;
   document_url: string;
+  viewed_at: string | null; // When the document was first viewed
+  view_count: number; // Number of times viewed
   created_at: string;
+}
+
+// ─── Document Tracking ──────────────────────────────────────────────────────
+
+export interface DocumentView {
+  id: string;
+  document_id: string;
+  document_type: string; // e.g., 'visa_document', 'utility_document', etc.
+  viewer_id: string; // User ID who viewed
+  viewer_name: string; // User name who viewed
+  viewed_at: string;
+  ip_address: string | null;
+  user_agent: string | null;
+}
+
+export interface DocumentWithViewStatus {
+  id: string;
+  document_name: string;
+  document_url: string;
+  created_at: string;
+  viewed_at: string | null;
+  view_count: number;
+  last_viewed_by: string | null;
+  last_viewed_at: string | null;
+  viewers: DocumentView[]; // Full view history
 }
 
 export interface VisaRequest {
   id: string;
   s_no: number | null;
-  judge_name: string; // ✅ Changed from 'name' to 'judge_name'
+  judge_name: string;
   destination_country: string;
   date_of_travel: string | null;
   date_of_return: string | null;
@@ -470,11 +501,12 @@ export interface VisaRequest {
   updated_at: string;
 }
 
+// s_no removed from input - auto-generated on backend
 export interface CreateVisaRequestInput {
-  s_no?: number;
-  judge_name: string; // ✅ Changed from 'name' to 'judge_name'
+  judge_name: string;
   destination_country: string;
   date_of_travel?: string;
+  request_date?: string;
   date_of_return?: string;
   visa_type: VisaType;
   purpose_of_travel?: string;
@@ -502,8 +534,8 @@ export interface ProtocolEvent {
   updated_at: string;
 }
 
+// s_no removed from input - auto-generated on backend
 export interface CreateProtocolEventInput {
-  s_no?: number;
   activity: string;
   period_from?: string;
   period_to?: string;
@@ -645,6 +677,9 @@ interface HelpDeskState {
   selectedProtocolEvent: ProtocolEvent | null;
   selectedTicket: Ticket | null;
 
+  // Document Tracking
+  documentViewStatus: DocumentWithViewStatus | null;
+
   // UI State
   activeTab: HelpDeskTab;
   filters: HelpDeskFilters;
@@ -687,6 +722,7 @@ interface HelpDeskState {
     stats: boolean;
     reports: boolean;
     mutating: boolean;
+    documentTracking: boolean;
   };
 
   error: string | null;
@@ -729,6 +765,8 @@ const initialState: HelpDeskState = {
   selectedProtocolEvent: null,
   selectedTicket: null,
 
+  documentViewStatus: null,
+
   activeTab: "utilities",
   filters: {},
   utilityFilters: {},
@@ -768,6 +806,7 @@ const initialState: HelpDeskState = {
     stats: false,
     reports: false,
     mutating: false,
+    documentTracking: false,
   },
 
   error: null,
@@ -815,6 +854,21 @@ export const fetchDSAReport = createAsyncThunk(
       const query = buildQueryString(filters);
       const { data } = await axiosClient.get(`/helpdesk/reports/dsa${query}`);
       return data.data as DSAReportRow[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const exportDSAReport = createAsyncThunk(
+  "helpdesk/exportDSAReport",
+  async (filters: DSAReportFilters = {}, { rejectWithValue }) => {
+    try {
+      const query = buildQueryString(filters);
+      const response = await axiosClient.get(`/helpdesk/reports/dsa/export${query}`, {
+        responseType: "blob",
+      });
+      return response.data as Blob;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
     }
@@ -1728,6 +1782,37 @@ export const deleteVisaRequest = createAsyncThunk(
   },
 );
 
+// ─── Visa Document Tracking Thunks ──────────────────────────────────────────
+
+export const markDocumentViewed = createAsyncThunk(
+  "helpdesk/markDocumentViewed",
+  async (documentId: string, { rejectWithValue }) => {
+    try {
+      await axiosClient.post(`/helpdesk/visa/documents/${documentId}/view`);
+      return documentId;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchDocumentViewStatus = createAsyncThunk(
+  "helpdesk/fetchDocumentViewStatus",
+  async (
+    { documentId, includeViewers = false }: { documentId: string; includeViewers?: boolean },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.get(
+        `/helpdesk/visa/documents/${documentId}/status?include_viewers=${includeViewers}`
+      );
+      return data.data as DocumentWithViewStatus;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
 /* ============================================================
    THUNKS - PROTOCOL SUPPORT
 ============================================================ */
@@ -1896,6 +1981,9 @@ const helpdeskSlice = createSlice({
     },
     setSelectedTicket(state, action: PayloadAction<Ticket | null>) {
       state.selectedTicket = action.payload;
+    },
+    setDocumentViewStatus(state, action: PayloadAction<DocumentWithViewStatus | null>) {
+      state.documentViewStatus = action.payload;
     },
 
     // ─── Optimistic Updates ─────────────────────────────────────────────
@@ -2114,6 +2202,54 @@ const helpdeskSlice = createSlice({
       )
       .addCase(fetchHelpDeskAudit.rejected, (state, action) => {
         state.loading.audit = false;
+        state.error = action.payload as string;
+      });
+
+    /* ──────── DOCUMENT TRACKING ───────────────────────────────────────── */
+    builder
+      .addCase(markDocumentViewed.pending, (state) => {
+        state.loading.documentTracking = true;
+        state.error = null;
+      })
+      .addCase(
+        markDocumentViewed.fulfilled,
+        (state, action: PayloadAction<string>) => {
+          state.loading.documentTracking = false;
+          state.success = true;
+          // Update the document in the visa request if it exists
+          const docId = action.payload;
+          for (const visa of state.visaRequests) {
+            const doc = visa.documents?.find((d) => d.id === docId);
+            if (doc) {
+              doc.view_count = (doc.view_count || 0) + 1;
+              doc.viewed_at = doc.viewed_at || new Date().toISOString();
+              break;
+            }
+          }
+          if (state.documentViewStatus && state.documentViewStatus.id === docId) {
+            state.documentViewStatus.view_count += 1;
+            state.documentViewStatus.viewed_at = state.documentViewStatus.viewed_at || new Date().toISOString();
+          }
+        },
+      )
+      .addCase(markDocumentViewed.rejected, (state, action) => {
+        state.loading.documentTracking = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(fetchDocumentViewStatus.pending, (state) => {
+        state.loading.documentTracking = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchDocumentViewStatus.fulfilled,
+        (state, action: PayloadAction<DocumentWithViewStatus>) => {
+          state.loading.documentTracking = false;
+          state.documentViewStatus = action.payload;
+        },
+      )
+      .addCase(fetchDocumentViewStatus.rejected, (state, action) => {
+        state.loading.documentTracking = false;
         state.error = action.payload as string;
       });
 
@@ -3242,7 +3378,8 @@ const helpdeskSlice = createSlice({
 });
 
 /* ============================================================
-   ACTIONS============================================================ */
+   ACTIONS
+============================================================ */
 
 export const {
   setActiveTab,
@@ -3265,6 +3402,7 @@ export const {
   setSelectedVisaRequest,
   setSelectedProtocolEvent,
   setSelectedTicket,
+  setDocumentViewStatus,
   updateUtilityItemOptimistically,
   updateClubOptimistically,
   updateCircuitOptimistically,
@@ -3352,6 +3490,8 @@ export const selectSelectedProtocolEvent = (state: {
 }) => state.helpdesk.selectedProtocolEvent;
 export const selectSelectedTicket = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.selectedTicket;
+export const selectDocumentViewStatus = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.documentViewStatus;
 
 // ─── Filters & UI ──────────────────────────────────────────────────────────
 export const selectActiveTab = (state: { helpdesk: HelpDeskState }) =>
@@ -3397,6 +3537,8 @@ export const selectStatsLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.stats;
 export const selectHelpDeskMutating = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.mutating;
+export const selectDocumentTrackingLoading = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.loading.documentTracking;
 
 // ─── Status ────────────────────────────────────────────────────────────────
 export const selectHelpDeskError = (state: { helpdesk: HelpDeskState }) =>
@@ -3507,6 +3649,25 @@ export const selectDSAReportByJudge =
     state.helpdesk.dsaReport.filter(
       (row) => row.judge_name.toLowerCase().includes(judgeName.toLowerCase()),
     );
+
+// ─── Document Tracking Selectors ───────────────────────────────────────────
+
+export const selectDocumentViewCount = (documentId: string) => (state: { helpdesk: HelpDeskState }) => {
+  const doc = state.helpdesk.visaRequests
+    .flatMap(v => v.documents || [])
+    .find(d => d.id === documentId);
+  return doc?.view_count || 0;
+};
+
+export const selectDocumentViewedAt = (documentId: string) => (state: { helpdesk: HelpDeskState }) => {
+  const doc = state.helpdesk.visaRequests
+    .flatMap(v => v.documents || [])
+    .find(d => d.id === documentId);
+  return doc?.viewed_at || null;
+};
+
+export const selectDocumentViewers = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.documentViewStatus?.viewers || [];
 
 // ─── Pending Counts ─────────────────────────────────────────────────────────
 

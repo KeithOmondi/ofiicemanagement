@@ -80,6 +80,7 @@ export interface CreateUploadDocumentInput {
   priority?: RoutePriority;
 }
 
+// ✅ Updated UpdateDocumentInput with memo/letter fields (editable by Super Admin)
 export interface UpdateDocumentInput {
   title?: string;
   category?: DocumentCategory | null;
@@ -89,6 +90,15 @@ export interface UpdateDocumentInput {
   assigned_to?: string | null;
   department_id?: string | null;
   priority?: RoutePriority;
+  // ✅ Memo/Letter specific fields (editable by Super Admin only)
+  to_recipient?: string | null;
+  from_sender?: string | null;
+  document_date?: string | null;
+  subject?: string | null;
+  cc?: string | null;
+  enclosures?: string | null;
+  signature_name?: string | null;
+  signature_title?: string | null;
 }
 
 // ── Mark to Department ──────────────────────────────────────────────────────
@@ -269,6 +279,15 @@ export interface Document {
   updated_at: Date;
   active_mark: DocumentMark | null;
   response_count?: number;
+  // ✅ Memo/Letter specific fields (stored in DB, editable by Super Admin)
+  to_recipient: string | null;
+  from_sender: string | null;
+  document_date: string | null;
+  subject: string | null;
+  cc: string | null;
+  enclosures: string | null;
+  signature_name: string | null;
+  signature_title: string | null;
 }
 
 export interface DocumentWithAnnotations extends Document {

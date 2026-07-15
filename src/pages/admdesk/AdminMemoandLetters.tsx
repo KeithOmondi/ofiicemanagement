@@ -944,66 +944,192 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
   );
 };
 
-// (13) MemoLetterLayout - For letters
-const MemoLetterLayout: React.FC<{
-  type: "memo" | "letter";
-  title: string;
-  referenceNo?: string | null;
+// (13) LetterDisplay – For displaying/editing letters with the full
+// letterhead field set (Ref, Date, To, RE:, body, Signatory, CC,
+// Enclosures). Previously the letter view only ever showed a generic
+// static header/footer and the body; the other fields the composer
+// actually collects (to/cc/enclosures/signatory) were silently
+// dropped once a letter was saved. This renders them for everyone,
+// and — when `canEditFields` is true (super admins only) — as live
+// inputs whose values are lifted up via `onFieldChange` so the parent
+// can include them in the save payload alongside the body.
+const GOLD = '#C29B38';
+
+interface LetterFields {
+  ref: string;
   date: string;
-  children: React.ReactNode;
-}> = ({ type, title, referenceNo, date, children }) => {
-  const isMemo = type === "memo";
+  to: string;
+  cc: string;
+  enclosures: string;
+  signatureName: string;
+  signatureTitle: string;
+}
+
+interface LetterDisplayProps {
+  document: Document;
+  isEditable: boolean;
+  canEditFields: boolean;
+  fields: LetterFields;
+  onFieldChange: (field: keyof LetterFields, value: string) => void;
+  onFieldBlur: () => void;
+  editorRef: React.RefObject<HTMLDivElement | null>;
+  handleInput: () => void;
+  handleManualSave: () => void;
+}
+
+const editableFieldClasses =
+  'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-[#1E4620] focus:outline-none';
+
+const LetterDisplay: React.FC<LetterDisplayProps> = ({
+  document: doc,
+  isEditable,
+  canEditFields,
+  fields,
+  onFieldChange,
+  onFieldBlur,
+  editorRef,
+  handleInput,
+  handleManualSave,
+}) => {
   return (
     <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col">
-      {/* ─── HEADER ────────────────────────────────── */}
-      <div className="text-center border-b-2 border-stone-700 pb-4 mb-6">
-        <div className="flex justify-center items-center gap-4 mb-2">
-          {/* Logo placeholder – replace with your actual logo */}
-          <div className="w-16 h-16 bg-stone-100 rounded-full flex items-center justify-center text-stone-400 text-xs font-bold">
-            LOGO
-          </div>
-          <div className="text-left">
-            <p className="text-[10px] text-stone-500 tracking-widest uppercase font-semibold">
-              Republic of Kenya
-            </p>
-            <p className="text-sm font-bold text-stone-900 tracking-wide uppercase">
-              Office of the Registrar High Court
-            </p>
-          </div>
+      <div className="flex items-center mb-1">
+        <div className="flex-shrink-0 mr-4">
+          <img
+            src="/JOB_LOGO.jpg"
+            alt="Judiciary of Kenya crest"
+            className="w-[70px] h-auto object-contain"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
         </div>
-        <h1 className="text-lg font-bold uppercase tracking-widest text-stone-800 mt-1">
-          {isMemo ? "INTERNAL MEMO" : "OFFICIAL LETTER"}
-        </h1>
-        <p className="text-sm font-medium text-stone-600 mt-1">{title}</p>
-        {referenceNo && (
-          <p className="text-xs text-stone-500 mt-1">
-            Ref: <span className="font-semibold">{referenceNo}</span>
+        <div>
+          <p className="text-[18px] font-bold leading-tight">THE JUDICIARY</p>
+          <p className="text-[14px] font-bold uppercase leading-tight mt-0.5">
+            OFFICE OF THE REGISTRAR HIGH COURT
           </p>
+        </div>
+      </div>
+      <div className="border-t-[1.5px] mb-7" style={{ borderColor: GOLD }} />
+
+      <div className="flex justify-between text-[13px] font-bold mb-7">
+        <span className="flex items-baseline gap-1">
+          Ref:
+          {canEditFields ? (
+            <input
+              value={fields.ref}
+              onChange={(e) => onFieldChange('ref', e.target.value)}
+              onBlur={onFieldBlur}
+              className={editableFieldClasses}
+            />
+          ) : (
+            <span>{fields.ref || '—'}</span>
+          )}
+        </span>
+        {canEditFields ? (
+          <input
+            value={fields.date}
+            onChange={(e) => onFieldChange('date', e.target.value)}
+            onBlur={onFieldBlur}
+            className={`${editableFieldClasses} text-right`}
+          />
+        ) : (
+          <span>{fields.date}</span>
         )}
-        <p className="text-xs text-stone-400 mt-0.5">Date: {date}</p>
       </div>
 
-      {/* ─── BODY (editable content) ────────────────── */}
-      <div className="flex-1">{children}</div>
+      <div className="text-[13px] leading-[1.8] text-justify">
+        <div className="mb-4">
+          {canEditFields ? (
+            <textarea
+              value={fields.to}
+              onChange={(e) => onFieldChange('to', e.target.value)}
+              onBlur={onFieldBlur}
+              rows={3}
+              className="w-full resize-none bg-transparent border-0 focus:outline-none"
+            />
+          ) : (
+            <p className="whitespace-pre-wrap">{fields.to}</p>
+          )}
+        </div>
+        <div className="mb-4">
+          <span className="font-bold underline">RE: {doc.title}</span>
+        </div>
 
-      {/* ─── FOOTER ────────────────────────────────── */}
-      <div className="border-t border-stone-200 pt-4 mt-6 text-center">
-        <div className="flex justify-center gap-8 text-[10px] text-stone-500">
-          <span>Tel: +254 020 123 456</span>
-          <span>Email: registrar@highcourt.go.ke</span>
-          <span>Website: www.highcourt.go.ke</span>
+        <div
+          ref={editorRef}
+          contentEditable={isEditable}
+          suppressContentEditableWarning
+          onInput={handleInput}
+          onBlur={handleManualSave}
+          data-placeholder="Start typing the body of the letter…"
+          className="min-h-[220px] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
+          dangerouslySetInnerHTML={{ __html: doc.body || '' }}
+        />
+      </div>
+
+      <div className="mt-12">
+        {canEditFields ? (
+          <>
+            <input
+              value={fields.signatureName}
+              onChange={(e) => onFieldChange('signatureName', e.target.value)}
+              onBlur={onFieldBlur}
+              className={`${editableFieldClasses} block text-[13px] font-bold uppercase`}
+            />
+            <input
+              value={fields.signatureTitle}
+              onChange={(e) => onFieldChange('signatureTitle', e.target.value)}
+              onBlur={onFieldBlur}
+              className={`${editableFieldClasses} block text-[13px] font-bold underline uppercase mt-0.5`}
+            />
+          </>
+        ) : (
+          <>
+            <div className="text-[13px] font-bold uppercase">{fields.signatureName}</div>
+            <div className="text-[13px] font-bold underline uppercase">{fields.signatureTitle}</div>
+          </>
+        )}
+      </div>
+
+      <div className="mt-8 space-y-2 border-t border-stone-300 pt-4">
+        <div className="flex">
+          <span className="w-24 shrink-0 font-bold text-xs">CC</span>
+          <span className="w-4 shrink-0 text-xs">:</span>
+          {canEditFields ? (
+            <input
+              value={fields.cc}
+              onChange={(e) => onFieldChange('cc', e.target.value)}
+              onBlur={onFieldBlur}
+              className={`${editableFieldClasses} text-xs`}
+            />
+          ) : (
+            <span className="text-xs">{fields.cc}</span>
+          )}
         </div>
-        <div className="mt-4">
-          <div className="inline-block border-t border-stone-400 w-48 pt-1">
-            <p className="text-[11px] font-semibold text-stone-700">
-              _________________________
-            </p>
-            <p className="text-[10px] text-stone-500">REGISTRAR, HIGH COURT</p>
-          </div>
+        <div className="flex">
+          <span className="w-24 shrink-0 font-bold text-xs">Enclosures</span>
+          <span className="w-4 shrink-0 text-xs">:</span>
+          {canEditFields ? (
+            <input
+              value={fields.enclosures}
+              onChange={(e) => onFieldChange('enclosures', e.target.value)}
+              onBlur={onFieldBlur}
+              className={`${editableFieldClasses} text-xs`}
+            />
+          ) : (
+            <span className="text-xs">{fields.enclosures}</span>
+          )}
         </div>
-        <p className="text-[9px] text-stone-400 mt-2">
-          This document is electronically signed and valid without a wet ink signature.
-        </p>
+      </div>
+
+      <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
+        <div className="flex-1 text-[10px] leading-tight text-stone-700">
+          <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
+          <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
+          <p className="font-bold text-[#1E4620] mt-1">Justice Be Our Shield and Defender</p>
+        </div>
       </div>
     </div>
   );
@@ -1020,12 +1146,22 @@ const SAVE_LABEL: Record<SaveState, string> = {
   error: "Failed to save · click Save to retry",
 };
 
+interface DocumentUpdatePayload {
+  body?: string;
+  reference_no?: string;
+  to?: string;
+  cc?: string;
+  enclosures?: string;
+  signature_name?: string;
+  signature_title?: string;
+}
+
 interface DocumentEditorProps {
   document: Document;
   currentUserName: string;
   isSuperAdmin: boolean;
   onBack: () => void;
-  onSave?: (id: string, body: string) => Promise<void>;
+  onSave?: (id: string, updates: DocumentUpdatePayload) => Promise<void>;
   onDelete?: () => void;
   onSend?: () => void;
   onMark?: () => void;
@@ -1052,6 +1188,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const isFileBased = !!document.file_url;
   const isComposed = (document.type === "memo" || document.type === "letter") && !isFileBased;
   const isEditable = !!onSave && !isFileBased;
+  const isLetter = document.type === "letter";
+  // Super admins can edit the full letter field set (Ref/To/CC/Enclosures/
+  // Signatory), not just the body — everyone else only ever sees the body
+  // as editable, matching the previous behaviour.
+  const canEditLetterFields = isSuperAdmin && isLetter && isEditable;
   const formattedDate = document.created_at
     ? format(new Date(document.created_at), "dd MMM yyyy")
     : "—";
@@ -1077,12 +1218,36 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     document.body ? document.body.split(/\s+/).filter(Boolean).length : 0,
   );
 
+  // Letter metadata field state (super-admin editable). Falls back to
+  // whatever the document already has, or sensible defaults matching
+  // what the composer used at creation time.
+  const [letterFields, setLetterFields] = useState<LetterFields>(() => ({
+    ref: document.reference_no ?? "",
+    date: formattedDate,
+    to: (document as unknown as { to?: string }).to ?? "",
+    cc: (document as unknown as { cc?: string }).cc ?? "",
+    enclosures: (document as unknown as { enclosures?: string }).enclosures ?? "",
+    signatureName:
+      (document as unknown as { signature_name?: string }).signature_name ??
+      currentUserName,
+    signatureTitle:
+      (document as unknown as { signature_title?: string }).signature_title ??
+      "Registrar, High Court",
+  }));
+
+  const handleLetterFieldChange = (field: keyof LetterFields, value: string) => {
+    setLetterFields((prev) => ({ ...prev, [field]: value }));
+    setSaveState("unsaved");
+  };
+
   const persist = useCallback(
-    async (html: string) => {
-      if (!onSave || html === lastSavedHtml.current) return;
+    async (html: string, extraFields?: DocumentUpdatePayload) => {
+      if (!onSave) return;
+      const updates: DocumentUpdatePayload = { body: html, ...extraFields };
+      if (html === lastSavedHtml.current && !extraFields) return;
       setSaveState("saving");
       try {
-        await onSave(document.id, html);
+        await onSave(document.id, updates);
         lastSavedHtml.current = html;
         setSaveState("saved");
       } catch {
@@ -1092,13 +1257,31 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     [onSave, document.id],
   );
 
+  const letterFieldPayload = useCallback(
+    (): DocumentUpdatePayload | undefined =>
+      canEditLetterFields
+        ? {
+            reference_no: letterFields.ref,
+            to: letterFields.to,
+            cc: letterFields.cc,
+            enclosures: letterFields.enclosures,
+            signature_name: letterFields.signatureName,
+            signature_title: letterFields.signatureTitle,
+          }
+        : undefined,
+    [canEditLetterFields, letterFields],
+  );
+
   const scheduleAutosave = useCallback(
     (html: string) => {
       setSaveState("unsaved");
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
-      debounceTimer.current = setTimeout(() => persist(html), 1500);
+      debounceTimer.current = setTimeout(
+        () => persist(html, letterFieldPayload()),
+        1500,
+      );
     },
-    [persist],
+    [persist, letterFieldPayload],
   );
 
   const handleInput = () => {
@@ -1112,8 +1295,16 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const handleManualSave = useCallback(() => {
     if (!editorRef.current) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    persist(editorRef.current.innerHTML);
-  }, [persist]);
+    persist(editorRef.current.innerHTML, letterFieldPayload());
+  }, [persist, letterFieldPayload]);
+
+  // Field edits (Ref/To/CC/Enclosures/Signatory) save on blur rather than
+  // per-keystroke, since they're plain inputs rather than the debounced
+  // contentEditable body.
+  const handleLetterFieldBlur = useCallback(() => {
+    if (!editorRef.current) return;
+    persist(editorRef.current.innerHTML, letterFieldPayload());
+  }, [persist, letterFieldPayload]);
 
   useEffect(() => {
     return () => {
@@ -1198,6 +1389,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           {document.original_name && !isComposed && (
             <span className="text-[10px] text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded hidden sm:inline">
               {document.original_name}
+            </span>
+          )}
+          {canEditLetterFields && (
+            <span className="text-[9px] font-semibold text-[#1E4620] bg-[#1E4620]/10 px-1.5 py-0.5 rounded hidden sm:inline">
+              Full edit access
             </span>
           )}
         </div>
@@ -1513,23 +1709,17 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   currentUserName={currentUserName}
                 />
               ) : (
-                <MemoLetterLayout
-                  type="letter"
-                  title={document.title}
-                  referenceNo={document.reference_no}
-                  date={document.created_at ? format(new Date(document.created_at), "dd MMM yyyy") : ""}
-                >
-                  <div
-                    ref={editorRef}
-                    contentEditable={isEditable}
-                    suppressContentEditableWarning
-                    onInput={handleInput}
-                    onBlur={handleManualSave}
-                    data-placeholder="Start typing your letter…"
-                    className="w-full min-h-[400px] focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
-                    dangerouslySetInnerHTML={{ __html: document.body || "" }}
-                  />
-                </MemoLetterLayout>
+                <LetterDisplay
+                  document={document}
+                  isEditable={isEditable}
+                  canEditFields={canEditLetterFields}
+                  fields={letterFields}
+                  onFieldChange={handleLetterFieldChange}
+                  onFieldBlur={handleLetterFieldBlur}
+                  editorRef={editorRef}
+                  handleInput={handleInput}
+                  handleManualSave={handleManualSave}
+                />
               )
             )
           ) : (
@@ -1840,8 +2030,23 @@ const AdminMemoandLetters: React.FC = () => {
     dispatch(fetchDocuments(params));
   };
 
-  const handleSaveBody = async (id: string, body: string) => {
-    const result = await dispatch(updateDocument({ id, input: { body } }));
+  // Accepts the body plus, for super admins editing a letter's field set,
+  // the extra reference/to/cc/enclosures/signature fields. Both are just
+  // spread into the update input — the backend's UpdateDocumentInput is
+  // a partial patch, so omitted fields are left untouched.
+  const handleSaveBody = async (
+    id: string,
+    updates: {
+      body?: string;
+      reference_no?: string;
+      to?: string;
+      cc?: string;
+      enclosures?: string;
+      signature_name?: string;
+      signature_title?: string;
+    },
+  ) => {
+    const result = await dispatch(updateDocument({ id, input: updates }));
     if (updateDocument.fulfilled.match(result)) {
       setSelectedDocument(result.payload as Document);
     } else {
@@ -2078,7 +2283,12 @@ const AdminMemoandLetters: React.FC = () => {
               currentUserName={user?.full_name ?? "Registrar"}
               isSuperAdmin={isSuperAdmin}
               onBack={() => setSelectedDocument(null)}
-              onSave={canUpload && selectedDocument.status !== "filed" ? handleSaveBody : undefined}
+              onSave={
+                (canUpload || isSuperAdmin) &&
+                (isSuperAdmin || selectedDocument.status !== "filed")
+                  ? handleSaveBody
+                  : undefined
+              }
               onDelete={canAdmin ? () => handleDelete(selectedDocument.id) : undefined}
               onSend={
                 canAdmin &&
