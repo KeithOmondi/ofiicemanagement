@@ -33,7 +33,7 @@ const Spinner: React.FC<{ size?: 'sm' | 'md' }> = ({ size = 'sm' }) => (
 // Splits the CC textarea value into "Copy to:" entries for the live
 // preview, mirroring formatCC() in LetterTemplate.ts: entries separated
 // by a blank line, last line of each entry treated as the station and
-// rendered bold + underlined.
+// rendered bold + uppercase (no underline).
 interface CCPreviewEntry {
   bodyLines: string[];
   location: string;
@@ -73,7 +73,7 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
   const [dateField, setDateField] = useState(
     new Intl.DateTimeFormat('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())
   );
-  
+
   // ✅ Signatory fields - separate from the FROM field
   const [signatoryName, setSignatoryName] = useState(currentUser?.full_name ?? '');
   const [senderTitleField, setSenderTitleField] = useState('Registrar, High Court');
@@ -132,7 +132,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
     try {
       let result;
       if (type === 'memo') {
-        // ✅ Properly typed with signatureName
         const payload: ComposeMemoInput = {
           title: title.trim(),
           to: toField.trim(),
@@ -146,7 +145,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
         };
         result = await dispatch(createMemo(payload));
       } else {
-        // ✅ Properly typed for letter
         const payload: ComposeLetterInput = {
           title: title.trim(),
           to: toField.trim(),
@@ -285,8 +283,7 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                       data-placeholder="Start typing the body of the memo…"
                       className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
                     />
-                    
-                    {/* ✅ Signatory section - separate from the FROM field */}
+
                     <div className="mt-10">
                       <div className="space-y-1">
                         <input
@@ -301,7 +298,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                           placeholder="Title, e.g. Registrar, High Court"
                           className={`${editableLineClasses} block text-[13.5px] font-bold underline uppercase mt-0.5`}
                         />
-                        {/* Show the drafted by initials hint */}
                         {currentUser?.full_name && (
                           <div className="text-[11px] text-stone-400 mt-1 italic">
                             rhc/{currentUser.full_name.split(' ').map(n => n[0]).join('')}
@@ -383,15 +379,11 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                       />
                     </div>
 
-                    {/* CC ("Copy to:") — multi-line entries, blank line
-                        between recipients, last line of each entry is
-                        the station/location. Mirrors formatCC() in
-                        LetterTemplate.ts so the live preview below
-                        matches the generated PDF. */}
+                    {/* ✅ CC block – updated to match the new letter template styling */}
                     <div className="mt-8 border-t border-stone-300 pt-4">
-                      <div className="flex items-baseline gap-1 mb-1">
-                        <span className="font-bold text-xs italic underline">Copy to</span>
-                        <span className="text-xs">:</span>
+                      {/* "Copy to:" label – block, italic, underlined */}
+                      <div className="mb-2">
+                        <span className="font-bold text-xs italic underline">Copy to:</span>
                       </div>
                       <textarea
                         value={ccField}
@@ -401,24 +393,24 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                         className="w-full resize-y bg-transparent border border-dashed border-stone-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-stone-500 placeholder:text-stone-300 placeholder:italic"
                       />
                       <p className="text-[10px] text-stone-400 mt-1">
-                        Separate each recipient with a blank line. The last line of each entry (e.g. station) is rendered bold and underlined.
+                        Separate each recipient with a blank line. The last line of each entry (e.g. station) is rendered bold and uppercase (no underline).
                       </p>
 
                       {ccPreviewEntries.length > 0 && (
-                        <div className="mt-3 flex text-[13px] leading-[1.5]">
-                          <span className="w-[90px] shrink-0" />
-                          <div className="flex-1 space-y-3">
+                        // Preview styled exactly like the template’s .cc-block
+                        <div className="mt-3 text-[13px] leading-[1.5]">
+                          <div className="ml-6"> {/* indent the whole list */}
                             {ccPreviewEntries.map((entry, idx) => (
-                              <div key={idx} className="flex">
+                              <div key={idx} className="flex mb-4 last:mb-0">
                                 <span className="w-6 shrink-0">{idx + 1}.</span>
-                                <span>
+                                <div className="flex-1">
                                   {entry.bodyLines.map((line, i) => (
                                     <p key={i} className="m-0">{line}</p>
                                   ))}
                                   {entry.location && (
-                                    <p className="m-0 font-bold underline">{entry.location}</p>
+                                    <p className="m-0 font-bold uppercase">{entry.location}</p>
                                   )}
-                                </span>
+                                </div>
                               </div>
                             ))}
                           </div>
@@ -439,7 +431,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                   </>
                 )}
 
-                {/* ✅ Footer section - always visible with default content */}
                 <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
                   {footerImageUrl ? (
                     <img src={footerImageUrl} alt="" className="h-10 w-auto object-contain" />
