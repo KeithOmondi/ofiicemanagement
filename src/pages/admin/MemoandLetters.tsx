@@ -16,6 +16,7 @@ import {
   fetchResponses,
   updateMark,
   regeneratePdf,
+  releaseDocument,
 } from "../../store/slices/documentSlice";
 import { hasRole } from "../../store/slices/authSlice";
 import {
@@ -34,6 +35,8 @@ import type {
   DocumentType,
   DocumentFilters,
 } from "../../types/documents.types";
+import type { User } from "../../store/slices/userSlice";
+import type { DepartmentWithUserCount } from "../../store/slices/departmentsSlice";
 import { format } from "date-fns";
 import toast from "react-hot-toast";
 import TemplateComposerModal from "../../components/templates/TemplateComposerModal";
@@ -49,6 +52,8 @@ const STATUS_STYLES: Record<DocumentStatus, string> = {
   in_progress: "bg-indigo-50 text-indigo-700 border border-indigo-100",
   completed: "bg-emerald-50 text-emerald-700 border border-emerald-100",
   filed: "bg-stone-100 text-stone-500 border border-stone-200",
+  ready_to_release: "bg-amber-50 text-amber-700 border border-amber-200",
+  released: "bg-emerald-50 text-emerald-700 border border-emerald-200",
 };
 
 const STATUS_LABELS: Record<DocumentStatus, string> = {
@@ -59,6 +64,8 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
   in_progress: "IN PROGRESS",
   completed: "COMPLETED",
   filed: "FILED",
+  ready_to_release: "READY TO RELEASE",
+  released: "RELEASED",
 };
 
 const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => (
@@ -531,6 +538,19 @@ const ListItem: React.FC<{
           )}
         </div>
       )}
+
+      {document.status === "ready_to_release" && (
+        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-600">
+          <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
+            <path
+              fillRule="evenodd"
+              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+              clipRule="evenodd"
+            />
+          </svg>
+          Ready for release
+        </div>
+      )}
     </div>
   </div>
 );
@@ -816,7 +836,7 @@ interface EditableFields {
   to_recipient: string;
   from_sender: string;
   reference_no: string;
-  document_date: string; // ISO yyyy-MM-dd
+  document_date: string;
   subject: string;
   cc: string;
   enclosures: string;
@@ -831,7 +851,7 @@ const toISODateInput = (value: string | Date | null | undefined): string => {
   return d.toISOString().split('T')[0];
 };
 
-// (12) MemoDisplay - For displaying memos
+// (12) MemoDisplay
 interface MemoDisplayProps {
   document: Document;
   isEditable: boolean;
@@ -979,7 +999,6 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
       </div>
       <div className="border-t-[2.5px] border-black mt-3 mb-10" />
 
-      {/* Body: edit mode vs read mode */}
       {isEditMode && isEditable ? (
         <div
           ref={editorRef}
@@ -1031,7 +1050,7 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
   );
 };
 
-// (13) LetterDisplay - similar changes (edit vs read body)
+// (13) LetterDisplay
 interface LetterDisplayProps {
   document: Document;
   isEditable: boolean;
@@ -1182,7 +1201,6 @@ const LetterDisplay: React.FC<LetterDisplayProps> = ({
         </div>
       </div>
 
-      {/* Body: edit mode vs read mode */}
       {isEditMode && isEditable ? (
         <div
           ref={editorRef}
@@ -1279,7 +1297,7 @@ const LetterDisplay: React.FC<LetterDisplayProps> = ({
   );
 };
 
-// (14) DocumentEditor – main editor component
+// (14) DocumentEditor
 type SaveState = "idle" | "saving" | "saved" | "unsaved" | "error";
 
 const SAVE_LABEL: Record<SaveState, string> = {
@@ -1357,11 +1375,9 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     document.body ? document.body.split(/\s+/).filter(Boolean).length : 0,
   );
 
-  // ─── Body state (local) ──────────────────────────────────────────────────
   const [bodyHtml, setBodyHtml] = useState(document.body || "");
   const lastSavedHtml = useRef<string>(document.body ?? "");
 
-  // ─── Field state (debounced) ──────────────────────────────────────────────
   const [fieldValues, setFieldValues] = useState<EditableFields>(() => ({
     to_recipient: document.to_recipient || document.assigned_to_name || '',
     from_sender: document.from_sender || document.department_name || '',
@@ -1406,7 +1422,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     await Promise.all(dirty.map((field) => persistField(field, fieldLatestValue.current[field])));
   }, [persistField]);
 
-  // ─── Body editor logic ────────────────────────────────────────────────────
   const persistBody = useCallback(
     async (html: string) => {
       if (!onSave || html === lastSavedHtml.current) return;
@@ -1461,32 +1476,19 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   }, [persistBody]);
 
-  // ─── Sync body when entering edit mode or document changes ──────────────
-  useEffect(() => {
-    if (!isEditMode) {
-      // When not editing, keep bodyHtml in sync with document (for read-only display)
-      const newBody = document.body ?? "";
-      if (newBody !== lastSavedHtml.current) {
-        setBodyHtml(newBody);
-        lastSavedHtml.current = newBody;
-      }
-    } else {
-      // When entering edit mode, set the editor content from current bodyHtml
-      if (editorRef.current) {
-        editorRef.current.innerHTML = bodyHtml;
-      }
-    }
-    // Only run when isEditMode or document.id changes (i.e., switching documents)
-  }, [isEditMode, document.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const bodyHtmlRef = useRef<string>(document.body || "");
+  const documentBodyRef = useRef<string>(document.body ?? "");
 
-  // Cleanup timers
+  useEffect(() => {
+    documentBodyRef.current = document.body ?? "";
+  }, [document.body]);
+
   useEffect(() => {
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
   }, []);
 
-  // Ctrl+S shortcut
   useEffect(() => {
     if (!isEditable) return;
     const handler = (e: KeyboardEvent) => {
@@ -1499,10 +1501,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     return () => window.removeEventListener("keydown", handler);
   }, [isEditable, handleManualSave]);
 
-  // ─── Toggle edit mode ─────────────────────────────────────────────────────
   const toggleEditMode = async () => {
     if (isEditMode) {
-      // Exiting edit mode: flush body and field saves
       await flushBodySave();
       await flushFieldSaves();
       setIsEditMode(false);
@@ -1513,7 +1513,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         toast.success('Edit mode disabled');
       }
     } else {
-      // Entering edit mode: ensure bodyHtml is current and set editor content
       const newBody = document.body ?? "";
       setBodyHtml(newBody);
       lastSavedHtml.current = newBody;
@@ -1525,7 +1524,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   };
 
-  // ─── Editor commands ──────────────────────────────────────────────────────
   const exec = (command: string, value?: string) => {
     if (!isEditable || !isEditMode) return;
     editorRef.current?.focus();
@@ -1533,6 +1531,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     if (editorRef.current) {
       const html = editorRef.current.innerHTML;
       setBodyHtml(html);
+      bodyHtmlRef.current = html;
       scheduleAutosave(html);
     }
   };
@@ -1553,7 +1552,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       </div>`,
     );
 
-  // ─── Handlers ─────────────────────────────────────────────────────────────
   const handleStickyNoteSave = (text: string, date: string | null) => {
     if (document.active_mark && onUpdateMark) {
       onUpdateMark(document.active_mark.id, text, date);
@@ -1574,7 +1572,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Title Bar */}
       <div className="flex items-center justify-between gap-2 sm:gap-3 bg-white border-b border-stone-200 px-3 sm:px-4 py-2.5 flex-wrap">
         <div className="flex items-center gap-2 min-w-0">
           <button
@@ -1753,7 +1750,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       </div>
 
-      {/* Toolbar - Only show when in edit mode */}
       {isEditMode && (
         <div className="flex items-center gap-1 bg-[#1E4620] px-3 py-1.5 overflow-x-auto flex-shrink-0">
           <div className="flex items-center gap-1.5 mr-2 flex-shrink-0">
@@ -1905,7 +1901,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       )}
 
-      {/* Canvas */}
       <div className="flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6 relative">
         {showNote && (
           <StickyNote
@@ -1921,7 +1916,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         <div className="mx-auto max-w-[794px] w-full bg-white shadow-sm rounded-sm">
           {isComposed ? (
             isEditMode ? (
-              // Edit mode: pass fields, onChange, and bodyHtml (used only for read-only parts)
               document.type === 'memo' ? (
                 <MemoDisplay
                   document={document}
@@ -1952,10 +1946,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 />
               )
             ) : document.file_url ? (
-              // Read mode: PDF preview
               <FilePreview document={document} />
             ) : document.body ? (
-              // Read mode: static display (no fields)
               document.type === 'memo' ? (
                 <MemoDisplay
                   document={document}
@@ -1990,7 +1982,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       </div>
 
-      {/* Status Bar */}
       <div className="flex items-center justify-between gap-2 bg-white border-t border-stone-100 px-3 sm:px-4 py-1.5 flex-shrink-0 flex-wrap">
         <span className="text-[10px] text-stone-400 whitespace-nowrap">
           {document.is_signed
@@ -2338,6 +2329,176 @@ const OtpModal: React.FC<OtpModalProps> = ({
   </div>
 );
 
+// (17) ReleaseConfirmationModal with Recipient Selection
+interface ReleaseConfirmationModalProps {
+  document: Document;
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (note?: string, recipientId?: string) => void;
+  isReleasing: boolean;
+  users: User[];
+  departments: DepartmentWithUserCount[];
+}
+
+const ReleaseConfirmationModal: React.FC<ReleaseConfirmationModalProps> = ({
+  document,
+  isOpen,
+  onClose,
+  onConfirm,
+  isReleasing,
+  users = [],
+  departments = [],
+}) => {
+  const [note, setNote] = useState("");
+  const [recipientId, setRecipientId] = useState<string>("");
+  const [selectedDepartment, setSelectedDepartment] = useState<string>("");
+
+  const filteredUsers = useMemo(() => {
+    if (!selectedDepartment) return users;
+    return users.filter((u) => u.department_id === selectedDepartment);
+  }, [users, selectedDepartment]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-xl bg-white shadow-2xl p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 flex-shrink-0">
+            <svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-stone-900">Release Document</h3>
+            <p className="text-xs text-stone-500 mt-0.5">
+              This action will make the document visible to the admin side.
+            </p>
+          </div>
+        </div>
+
+        <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 p-3">
+          <p className="text-xs text-amber-800">
+            <strong>Document:</strong> {document.title}
+          </p>
+          <p className="text-xs text-amber-800 mt-1">
+            <strong>Status:</strong> {document.status.replace('_', ' ')}
+          </p>
+          {document.signed_by_name && (
+            <p className="text-xs text-amber-800 mt-1">
+              <strong>Signed by:</strong> {document.signed_by_name}
+            </p>
+          )}
+        </div>
+
+        {/* Department Selection */}
+        <div className="mb-4">
+          <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
+            Department *
+          </label>
+          <select
+            value={selectedDepartment}
+            onChange={(e) => {
+              setSelectedDepartment(e.target.value);
+              setRecipientId("");
+            }}
+            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
+            disabled={isReleasing}
+          >
+            <option value="">Select Department</option>
+            {departments.map((dept) => (
+              <option key={dept.id} value={dept.id}>
+                {dept.name} ({dept.user_count || 0} users)
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* User Selection */}
+        <div className="mb-4">
+          <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
+            Assign to User (Optional)
+          </label>
+          <select
+            value={recipientId}
+            onChange={(e) => setRecipientId(e.target.value)}
+            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620] disabled:opacity-50"
+            disabled={!selectedDepartment || isReleasing}
+          >
+            <option value="">Select User</option>
+            {filteredUsers.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.full_name} — {user.pj_number}
+              </option>
+            ))}
+          </select>
+          {selectedDepartment && filteredUsers.length === 0 && (
+            <p className="mt-1 text-[10px] text-amber-600">
+              No active users found in this department.
+            </p>
+          )}
+        </div>
+
+        {/* Release Note */}
+        <div className="mb-4">
+          <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
+            Release Note (Optional)
+          </label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={3}
+            placeholder="Add a note about this release..."
+            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620] resize-none"
+            disabled={isReleasing}
+          />
+        </div>
+
+        <div className="flex items-start gap-2 mb-4 p-2 bg-red-50 rounded-lg border border-red-100">
+          <svg className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <p className="text-xs text-red-700">
+            <strong>Warning:</strong> This action cannot be undone. Once released, 
+            the document will be visible to all admin users.
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={isReleasing}
+            className="px-4 py-2 text-sm font-medium text-stone-500 hover:text-stone-800 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm(note || undefined, recipientId || undefined)}
+            disabled={!selectedDepartment || isReleasing}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isReleasing ? (
+              <>
+                <Spinner className="h-4 w-4" />
+                Releasing...
+              </>
+            ) : (
+              <>
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                Confirm Release
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 const MemoandLetters: React.FC = () => {
@@ -2345,6 +2506,12 @@ const MemoandLetters: React.FC = () => {
   const { user } = useAppSelector((state) => state.auth);
   const { documents, loading, error, pagination, actionInProgress } =
     useAppSelector((state) => state.documents);
+
+  // Fetch users and departments for the release modal
+  const users = useAppSelector(selectAllUsers);
+  const departments = useAppSelector(selectAllDepartments);
+  //const usersLoading = useAppSelector(selectUsersListLoading);
+  //const departmentsLoading = useAppSelector(selectDepartmentsListLoading);
 
   const [activeTab, setActiveTab] = useState<"all" | "my_action">("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -2360,6 +2527,9 @@ const MemoandLetters: React.FC = () => {
   const [otpError, setOtpError] = useState<string | null>(null);
   const [signingDocId, setSigningDocId] = useState<string | null>(null);
 
+  const [showReleaseModal, setShowReleaseModal] = useState(false);
+  const [isReleasing, setIsReleasing] = useState(false);
+
   const canUpload = hasRole(user, "staff") || hasRole(user, "super_admin");
   const canAdmin = hasRole(user, "dept_head") || hasRole(user, "super_admin");
   const isSuperAdmin = hasRole(user, "super_admin");
@@ -2370,6 +2540,7 @@ const MemoandLetters: React.FC = () => {
     [documents]
   );
 
+  // ─── Fetch documents ──────────────────────────────────────────────────
   useEffect(() => {
     if (!canView) return;
     const params: DocumentFilters = { page: 1, limit: 10 };
@@ -2378,15 +2549,34 @@ const MemoandLetters: React.FC = () => {
     dispatch(fetchDocuments(params));
   }, [dispatch, activeTab, searchQuery, canView]);
 
-  const handleDelete = (id: string) => {
-    if (window.confirm("Delete this document?")) dispatch(deleteDocument(id));
-  };
-  const handleSend = (id: string) => dispatch(sendDocument(id));
-  const handleAcknowledge = (id: string) => dispatch(acknowledgeMark(id));
-  const handleComplete = (id: string) => dispatch(completeMark(id));
+  // ─── Fetch users and departments for Super Admin ──────────────────────
+  useEffect(() => {
+    if (isSuperAdmin) {
+      dispatch(fetchUsers({ is_active: true, limit: 100 }));
+      dispatch(fetchDepartments({ is_active: true }));
+    }
+  }, [dispatch, isSuperAdmin]);
 
-  const showToast = (toast: { type: "success" | "error"; message: string }) => {
-    setSignToast(toast);
+  const handleDelete = (id: string) => {
+    if (window.confirm("Delete this document?")) {
+      dispatch(deleteDocument(id));
+    }
+  };
+
+  const handleSend = (id: string) => {
+    dispatch(sendDocument(id));
+  };
+
+  const handleAcknowledge = (id: string) => {
+    dispatch(acknowledgeMark(id));
+  };
+
+  const handleComplete = (id: string) => {
+    dispatch(completeMark(id));
+  };
+
+  const showToast = (toastMsg: { type: "success" | "error"; message: string }) => {
+    setSignToast(toastMsg);
     setTimeout(() => setSignToast(null), 4000);
   };
 
@@ -2424,7 +2614,7 @@ const MemoandLetters: React.FC = () => {
       setOtpValue("");
       setSigningDocId(null);
       setSelectedDocument(result.payload as Document);
-      toast.success("Document signed successfully.");
+      toast.success("Document signed successfully. Ready for release.");
       const params: DocumentFilters = { page: 1, limit: 10 };
       if (activeTab === "my_action") params.for_my_action = true;
       if (searchQuery) params.search = searchQuery;
@@ -2446,6 +2636,40 @@ const MemoandLetters: React.FC = () => {
   const handleOtpChange = (val: string) => {
     setOtpError(null);
     setOtpValue(val);
+  };
+
+  // ─── Release handlers ──────────────────────────────────────────────────
+  const handleReleaseConfirm = async (note?: string, recipientId?: string) => {
+    if (!selectedDocument) return;
+    
+    setIsReleasing(true);
+    try {
+      const result = await dispatch(releaseDocument({ 
+        id: selectedDocument.id, 
+        note,
+        recipient_id: recipientId,
+      }));
+      
+      if (releaseDocument.fulfilled.match(result)) {
+        setSelectedDocument(result.payload as Document);
+        toast.success('Document released to admin side successfully.');
+        const params: DocumentFilters = { page: 1, limit: 10 };
+        if (activeTab === "my_action") params.for_my_action = true;
+        if (searchQuery) params.search = searchQuery;
+        dispatch(fetchDocuments(params));
+      } else {
+        toast.error((result.payload as string) ?? 'Failed to release document.');
+      }
+    } catch {
+      toast.error('An error occurred while releasing the document.');
+    } finally {
+      setIsReleasing(false);
+      setShowReleaseModal(false);
+    }
+  };
+
+  const handleRelease = () => {
+    setShowReleaseModal(true);
   };
 
   const handleMark = (
@@ -2769,7 +2993,7 @@ const MemoandLetters: React.FC = () => {
               onSend={
                 canAdmin &&
                 !selectedDocument.is_sent &&
-                selectedDocument.is_signed
+                selectedDocument.status === 'released'
                   ? () => handleSend(selectedDocument.id)
                   : undefined
               }
@@ -2835,6 +3059,33 @@ const MemoandLetters: React.FC = () => {
           onCancel={handleOtpCancel}
           onResend={() => signingDocId && handleSign(signingDocId)}
         />
+      )}
+
+      {showReleaseModal && selectedDocument && (
+        <ReleaseConfirmationModal
+          document={selectedDocument}
+          isOpen={showReleaseModal}
+          onClose={() => setShowReleaseModal(false)}
+          onConfirm={handleReleaseConfirm}
+          isReleasing={isReleasing}
+          users={users}
+          departments={departments}
+        />
+      )}
+
+      {isSuperAdmin && selectedDocument && selectedDocument.status === 'ready_to_release' && (
+        <div className="fixed bottom-6 right-6 z-40">
+          <button
+            onClick={handleRelease}
+            className="inline-flex items-center gap-2 rounded-full bg-[#1E4620] px-5 py-3 text-sm font-semibold text-white shadow-lg hover:bg-[#163a18] transition-all hover:shadow-xl hover:scale-105"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+            Release to Admin
+          </button>
+        </div>
       )}
     </div>
   );

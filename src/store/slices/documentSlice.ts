@@ -38,7 +38,7 @@ interface DocumentState {
   markHistory: DocumentMark[];
   flowHistory: DocumentFlowEntry[];
   responses: DocumentResponse[];
-   lastFetchParams: DocumentFilters | null;
+  lastFetchParams: DocumentFilters | null;
   loading: boolean;
   error: string | null;
   pagination: {
@@ -50,6 +50,7 @@ interface DocumentState {
   latestDocumentsRequestId: string | null;
   actionInProgress: {
     signing?: string;
+    releasing?: string;  // ✅ NEW
     sending?: string;
     marking?: string;
     acknowledging?: string;
@@ -359,6 +360,19 @@ export const deleteDocument = createAsyncThunk(
   },
 );
 
+// ── Request OTP ───────────────────────────────────────────────────────────────
+
+export const requestSignOtp = createAsyncThunk(
+  'documents/requestSignOtp',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      await axiosClient.post(`/documents/${id}/request-sign-otp`);
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
 // ── Sign with OTP ──────────────────────────────────────────────────────────
 
 export const signDocument = createAsyncThunk(
@@ -376,13 +390,21 @@ export const signDocument = createAsyncThunk(
   }
 );
 
-// ── Request OTP ───────────────────────────────────────────────────────────────
+// ── Release Document to Admin Side ──────────────────────────────────────────
 
-export const requestSignOtp = createAsyncThunk(
-  'documents/requestSignOtp',
-  async (id: string, { rejectWithValue }) => {
+// src/store/slices/documentSlice.ts
+
+// ── Release Document to Admin Side ──────────────────────────────────────────
+
+export const releaseDocument = createAsyncThunk(
+  'documents/releaseDocument',
+  async ({ id, note, recipient_id }: { id: string; note?: string; recipient_id?: string }, { rejectWithValue }) => {
     try {
-      await axiosClient.post(`/documents/${id}/request-sign-otp`);
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/release`, { note, recipient_id });
+      return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
@@ -719,30 +741,30 @@ const documentSlice = createSlice({
       })
 
       // ── regeneratePdf ─────────────────────────────────────────────────────────
-.addCase(regeneratePdf.pending, (state, action) => {
-  state.actionInProgress.regeneratingPdf = action.meta.arg;
-  state.error = null;
-})
-.addCase(
-  regeneratePdf.fulfilled,
-  (state, action: PayloadAction<Document>) => {
-    state.actionInProgress.regeneratingPdf = undefined;
-    const index = state.documents.findIndex(
-      (d) => d.id === action.payload.id,
-    );
-    if (index !== -1) state.documents[index] = action.payload;
-    if (state.currentDocument?.id === action.payload.id) {
-      state.currentDocument = {
-        ...state.currentDocument,
-        ...action.payload,
-      };
-    }
-  },
-)
-.addCase(regeneratePdf.rejected, (state, action) => {
-  state.actionInProgress.regeneratingPdf = undefined;
-  state.error = action.payload as string;
-})
+      .addCase(regeneratePdf.pending, (state, action) => {
+        state.actionInProgress.regeneratingPdf = action.meta.arg;
+        state.error = null;
+      })
+      .addCase(
+        regeneratePdf.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.regeneratingPdf = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+        },
+      )
+      .addCase(regeneratePdf.rejected, (state, action) => {
+        state.actionInProgress.regeneratingPdf = undefined;
+        state.error = action.payload as string;
+      })
 
       // ── fetchDocumentById ──────────────────────────────────────────────────
       .addCase(fetchDocumentById.pending, (state) => {
@@ -966,7 +988,6 @@ const documentSlice = createSlice({
           );
           if (index !== -1) state.documents[index] = action.payload;
           if (state.currentDocument?.id === action.payload.id) {
-            // Merge the updated document with the current document's annotations, mark_history, and responses
             state.currentDocument = {
               ...state.currentDocument,
               ...action.payload,
@@ -999,9 +1020,18 @@ const documentSlice = createSlice({
         state.actionInProgress.deleting = undefined;
       })
 
+      // ── requestSignOtp ─────────────────────────────────────────────────────
+      .addCase(requestSignOtp.pending, (state) => {
+        state.error = null;
+      })
+      .addCase(requestSignOtp.rejected, (state, action) => {
+        state.error = action.payload as string;
+      })
+
       // ── signDocument ────────────────────────────────────────────────────────
       .addCase(signDocument.pending, (state, action) => {
         state.actionInProgress.signing = action.meta.arg.id;
+        state.error = null;
       })
       .addCase(
         signDocument.fulfilled,
@@ -1021,8 +1051,37 @@ const documentSlice = createSlice({
           }
         },
       )
-      .addCase(signDocument.rejected, (state) => {
+      .addCase(signDocument.rejected, (state, action) => {
         state.actionInProgress.signing = undefined;
+        state.error = action.payload as string;
+      })
+
+      // ── releaseDocument ────────────────────────────────────────────────────
+      .addCase(releaseDocument.pending, (state, action) => {
+        state.actionInProgress.releasing = action.meta.arg.id;
+        state.error = null;
+      })
+      .addCase(
+        releaseDocument.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.releasing = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              annotations: state.currentDocument.annotations,
+              mark_history: state.currentDocument.mark_history,
+              responses: state.currentDocument.responses,
+              ...action.payload,
+            };
+          }
+        },
+      )
+      .addCase(releaseDocument.rejected, (state, action) => {
+        state.actionInProgress.releasing = undefined;
+        state.error = action.payload as string;
       })
 
       // ── sendDocument ────────────────────────────────────────────────────────
@@ -1434,6 +1493,12 @@ export const selectIsRemovingFromFolder = (state: { documents: DocumentState }, 
 
 export const selectIsRegeneratingPdf = (state: { documents: DocumentState }, documentId: string) =>
   state.documents.actionInProgress.regeneratingPdf === documentId;
+
+export const selectIsSigning = (state: { documents: DocumentState }, documentId: string) =>
+  state.documents.actionInProgress.signing === documentId;
+
+export const selectIsReleasing = (state: { documents: DocumentState }, documentId: string) =>
+  state.documents.actionInProgress.releasing === documentId;
 
 export type { DocumentState };
 

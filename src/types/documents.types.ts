@@ -7,8 +7,15 @@ export type DocumentType =
   | 'order' | 'correspondence' | 'upload' | 'ticket';
 
 export type DocumentStatus =
-  | 'draft' | 'uploaded' | 'pending_review'
-  | 'marked' | 'in_progress' | 'completed' | 'filed';
+  | 'draft' 
+  | 'uploaded' 
+  | 'pending_review'
+  | 'marked' 
+  | 'in_progress' 
+  | 'completed' 
+  | 'filed'
+  | 'ready_to_release'  // ✅ NEW: Signed and ready for release
+  | 'released';         // ✅ NEW: Released to admin side
 
 export type DocumentCategory =
   | 'judgments' | 'rulings' | 'correspondence'
@@ -32,27 +39,25 @@ export interface CreateComposedDocumentInput {
   department_id?: string;
 }
 
-// ✅ Updated ComposeMemoInput with signatureName
 export interface ComposeMemoInput {
   title: string;               // subject
   to: string;                  // recipient
   date?: string;               // ISO date string, optional (backend defaults to now)
   body: string;
   from?: string;               // sender department/office (e.g., "HIGH COURT SUPPORT OFFICE")
-  signatureName?: string;      // ✅ The actual person signing (e.g., "Keith Dennis")
+  signatureName?: string;      // The actual person signing (e.g., "Keith Dennis")
   signatureTitle?: string;     // e.g. "Registrar, High Court"
   department_id?: string;
   reference_no?: string;       // optional user‑provided reference
 }
 
-// ✅ Updated ComposeLetterInput with signature fields
 export interface ComposeLetterInput {
   title: string;
   to: string;
   date?: string;
   body: string;
   from?: string;               // sender name (the person)
-  signatureName?: string;      // ✅ The actual person signing
+  signatureName?: string;      // The actual person signing
   signatureTitle?: string;     // e.g. "Registrar, High Court"
   department_id?: string;
   reference_no?: string;
@@ -80,7 +85,6 @@ export interface CreateUploadDocumentInput {
   priority?: RoutePriority;
 }
 
-// ✅ Updated UpdateDocumentInput with memo/letter fields (editable by Super Admin)
 export interface UpdateDocumentInput {
   title?: string;
   category?: DocumentCategory | null;
@@ -90,7 +94,7 @@ export interface UpdateDocumentInput {
   assigned_to?: string | null;
   department_id?: string | null;
   priority?: RoutePriority;
-  // ✅ Memo/Letter specific fields (editable by Super Admin only)
+  // Memo/Letter specific fields (editable by Super Admin only)
   to_recipient?: string | null;
   from_sender?: string | null;
   document_date?: string | null;
@@ -110,7 +114,6 @@ export interface MarkDocumentInput {
   priority?: RoutePriority;
 }
 
-// ── Update Mark Input (for the new PATCH endpoint) ──────────────────────
 export interface UpdateMarkInput {
   instructions?: string;
   bring_up_date?: string | null;
@@ -129,7 +132,7 @@ export interface DocumentFilters {
   status?: DocumentStatus;
   assigned_to?: string;
   department_id?: string;
-  folder_id?: string;           // ✅ NEW: Filter by folder
+  folder_id?: string;
   for_my_action?: boolean;
   visible_in_summary?: boolean;
   page?: number;
@@ -265,12 +268,15 @@ export interface Document {
   created_by_name: string;
   department_id: string | null;
   department_name: string | null;
-  folder_id: string | null;           // ✅ NEW: Reference to RHC folder
-  folder_name: string | null;         // ✅ NEW: Name of the folder
+  folder_id: string | null;
+  folder_name: string | null;
   is_signed: boolean;
   signed_by: string | null;
   signed_by_name: string | null;
   signed_at: Date | null;
+  released_at: Date | null;        // ✅ NEW: When released to admin side
+  released_by: string | null;      // ✅ NEW: Who released it
+  released_by_name: string | null; // ✅ NEW: Name of who released it
   is_sent: boolean;
   sent_at: Date | null;
   is_draft: boolean;
@@ -279,7 +285,7 @@ export interface Document {
   updated_at: Date;
   active_mark: DocumentMark | null;
   response_count?: number;
-  // ✅ Memo/Letter specific fields (stored in DB, editable by Super Admin)
+  // Memo/Letter specific fields (stored in DB, editable by Super Admin)
   to_recipient: string | null;
   from_sender: string | null;
   document_date: string | null;
@@ -303,4 +309,3 @@ export interface DocumentPaginationResponse {
   limit: number;
   totalPages: number;
 }
-
