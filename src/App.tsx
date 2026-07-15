@@ -5,19 +5,25 @@ import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from './store/store';
 import { refreshAccessToken } from './store/slices/authSlice';
 import AppRoutes from './routes/AppRoutes';
+import { useAppAutoRefresh } from './hooks/useAppAutoRefresh'; // <-- import
 
 const AppInner: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const isInitializing = useSelector((state: RootState) => state.auth.isInitializing);
+  const isAuthenticated = useSelector((state: RootState) => !!state.auth.user);
 
   useEffect(() => {
-    // On every hard refresh, attempt to restore the session via httpOnly cookie.
-    // The slice sets isInitializing = false in both fulfilled and rejected cases.
     dispatch(refreshAccessToken());
   }, [dispatch]);
 
+  // ✅ Global silent refresh – runs every 5 seconds after the user is authenticated
+  useAppAutoRefresh({
+    interval: 5000,
+    enabled: isAuthenticated, // only start polling once logged in
+    // optional onRefresh: () => console.log('Refreshed data'),
+  });
+
   if (isInitializing) {
-    // Prevent ProtectedRoutes from rendering and redirecting while we wait
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#f5f0e8]">
         <div className="flex flex-col items-center gap-3">
