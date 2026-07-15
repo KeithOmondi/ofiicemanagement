@@ -1456,24 +1456,53 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     scheduleAutosave(html);
   };
 
+  // Saves body + any pending field edits WITHOUT exiting edit mode or
+  // regenerating the PDF — lets the user keep editing after saving.
+  const handleSaveAll = useCallback(async () => {
+    const bodySave = editorRef.current
+      ? persistBody(editorRef.current.innerHTML)
+      : Promise.resolve();
+    await Promise.all([bodySave, flushFieldSaves()]);
+  }, [persistBody, flushFieldSaves]);
+
+  const enterEditMode = () => {
+    const newBody = document.body ?? "";
+    setBodyHtml(newBody);
+    lastSavedHtml.current = newBody;
+    setIsEditMode(true);
+    setTimeout(() => {
+      editorRef.current?.focus();
+      toast.success('Edit mode enabled. "Save" keeps you editing — "Done" saves, regenerates the PDF, and exits.');
+    }, 100);
+  };
+
+  // Saves everything, regenerates the PDF, and exits edit mode — the
+  // "finish editing" action, distinct from a mid-edit Save.
+  const finishEditing = async () => {
+    await handleSaveAll();
+    setIsEditMode(false);
+    if (onRegeneratePdf) {
+      await onRegeneratePdf();
+      toast.success('Changes saved — PDF updated');
+    } else {
+      toast.success('Changes saved');
+    }
+  };
+
+  const toggleEditMode = () => {
+    if (isEditMode) {
+      finishEditing();
+    } else {
+      enterEditMode();
+    }
+  };
+
+  // Keep for onBlur usage in MemoDisplay and LetterDisplay
   const handleManualSave = useCallback(() => {
     if (!editorRef.current) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     const html = editorRef.current.innerHTML;
     persistBody(html);
-  }, [persistBody]);
-
-  const flushBodySave = useCallback(async () => {
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current);
-      debounceTimer.current = null;
-    }
-    if (editorRef.current) {
-      const html = editorRef.current.innerHTML;
-      if (html !== lastSavedHtml.current) {
-        await persistBody(html);
-      }
-    }
   }, [persistBody]);
 
   const bodyHtmlRef = useRef<string>(document.body || "");
@@ -1489,40 +1518,32 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     };
   }, []);
 
+  // contentEditable elements don't accept React children or
+  // dangerouslySetInnerHTML — React can't safely own their DOM once
+  // they're editable. So the editor div always mounts empty when
+  // isEditMode turns on, even though `bodyHtml` state still holds the
+  // real content. This manually injects it once, on the transition
+  // into edit mode only. Deliberately NOT depending on bodyHtml — that
+  // changes on every keystroke via handleInput, and re-setting
+  // innerHTML mid-typing would blow away the cursor position.
+  useEffect(() => {
+    if (isEditMode && editorRef.current) {
+      editorRef.current.innerHTML = bodyHtml;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEditMode]);
+
   useEffect(() => {
     if (!isEditable) return;
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
-        handleManualSave();
+        handleSaveAll();
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [isEditable, handleManualSave]);
-
-  const toggleEditMode = async () => {
-    if (isEditMode) {
-      await flushBodySave();
-      await flushFieldSaves();
-      setIsEditMode(false);
-      if (onRegeneratePdf) {
-        await onRegeneratePdf();
-        toast.success('Edit mode disabled — PDF updated');
-      } else {
-        toast.success('Edit mode disabled');
-      }
-    } else {
-      const newBody = document.body ?? "";
-      setBodyHtml(newBody);
-      lastSavedHtml.current = newBody;
-      setIsEditMode(true);
-      setTimeout(() => {
-        editorRef.current?.focus();
-        toast.success('Edit mode enabled. Click Save to save changes.');
-      }, 100);
-    }
-  };
+  }, [isEditable, handleSaveAll]);
 
   const exec = (command: string, value?: string) => {
     if (!isEditable || !isEditMode) return;
@@ -1614,14 +1635,14 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                 </svg>
               )}
-              {isRegeneratingPdf ? "Regenerating…" : isEditMode ? "Exit Edit" : "Edit"}
+              {isRegeneratingPdf ? "Regenerating…" : isEditMode ? "Done" : "Edit"}
             </button>
           )}
 
           {isEditable && isEditMode && (
             <button
-              onClick={handleManualSave}
-              disabled={saveState === "saving" || saveState === "saved"}
+              onClick={handleSaveAll}
+              disabled={saveState === "saving"}
               className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap disabled:opacity-50"
             >
               {saveState === "saving" ? <Spinner className="h-3 w-3" /> : null}
