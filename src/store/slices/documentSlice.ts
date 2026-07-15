@@ -38,6 +38,7 @@ interface DocumentState {
   markHistory: DocumentMark[];
   flowHistory: DocumentFlowEntry[];
   responses: DocumentResponse[];
+   lastFetchParams: DocumentFilters | null;
   loading: boolean;
   error: string | null;
   pagination: {
@@ -79,6 +80,7 @@ const initialState: DocumentState = {
   error: null,
   pagination: null,
   latestDocumentsRequestId: null,
+  lastFetchParams: null,
   actionInProgress: {},
 };
 

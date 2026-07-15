@@ -421,13 +421,14 @@ export interface CreateMedicalClaimInput {
 export interface GeneralRequest {
   id: string;
   s_no: number | null;
-  ticket_number: string | null; // Auto-generated ticket number
+  ticket_number: string | null;
   judge_name: string;
   request: string;
   date_received: string | null;
   officer_assigned: string | null;
   status: Status;
   remarks: string | null;
+  email: string | null; // Add this field
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -1681,16 +1682,17 @@ export const createGeneralRequest = createAsyncThunk(
   },
 );
 
+// In helpdeskSlice.ts - already correct
 export const updateGeneralRequestStatus = createAsyncThunk(
   "helpdesk/updateGeneralRequestStatus",
   async (
-    { id, status, remarks }: { id: string; status: Status; remarks?: string },
+    { id, status, remarks, email }: { id: string; status: Status; remarks?: string; email?: string },
     { rejectWithValue },
   ) => {
     try {
       const { data } = await axiosClient.put(
         `/helpdesk/general-requests/${id}/status`,
-        { status, remarks },
+        { status, remarks, email },
       );
       return data.data as GeneralRequest;
     } catch (err) {

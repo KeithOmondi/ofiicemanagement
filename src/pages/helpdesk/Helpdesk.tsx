@@ -118,6 +118,7 @@ import {
   Upload,
   ExternalLink,
   Send,
+  Mail,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
 import UtilitiesModal, { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
@@ -1955,6 +1956,25 @@ function GeneralRequestsTab() {
   const [editingItem, setEditingItem] = useState<GeneralRequest | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
+  // ─── Status Change with Email ───────────────────────────────────────────
+  const handleStatusChange = async (id: string, status: Status) => {
+    // Find the request to get its email
+    const request = data.find((r) => r.id === id);
+    
+    // Only send email if status is Resolved or Rejected
+    const email = (status === 'Resolved' || status === 'Rejected') 
+      ? request?.email || undefined 
+      : undefined;
+    
+    await dispatch(updateGeneralRequestStatus({ 
+      id, 
+      status, 
+      email 
+    }));
+    await dispatch(fetchGeneralRequests({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
   const handleAdd = () => {
     setEditingItem(null);
     setShowModal(true);
@@ -1963,12 +1983,6 @@ function GeneralRequestsTab() {
   const handleEdit = (item: GeneralRequest) => {
     setEditingItem(item);
     setShowModal(true);
-  };
-
-  const handleStatusChange = async (id: string, status: Status) => {
-    await dispatch(updateGeneralRequestStatus({ id, status }));
-    await dispatch(fetchGeneralRequests({}));
-    await dispatch(fetchHelpDeskStats());
   };
 
   const handleDelete = async () => {
@@ -1998,20 +2012,20 @@ function GeneralRequestsTab() {
           loading={loading}
           columns={[
             { key: 's_no', label: 'S/No.' },
+            { key: 'ticket_number', label: 'Ticket #' },
             { key: 'judge_name', label: "Judge's Name" },
             { key: 'request', label: 'Request' },
             { key: 'date_received', label: 'Date Received' },
-            { key: 'officer_assigned', label: 'Officer Assigned' },
             { key: 'status', label: 'Status', align: 'center' },
             { key: 'remarks', label: 'Remarks' },
           ]}
           renderRow={(item: GeneralRequest) => (
             <>
               <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
+              <td className="px-3 py-2 font-mono text-xs text-stone-500">{item.ticket_number || '—'}</td>
               <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
               <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.request}</td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
-              <td className="px-3 py-2 text-stone-600">{item.officer_assigned || '—'}</td>
               <td className="px-3 py-2 text-center">
                 <StatusDropdown
                   status={item.status}
@@ -2025,6 +2039,15 @@ function GeneralRequestsTab() {
           onEdit={handleEdit}
           onDelete={(id) => setDeleteTarget(id)}
           mutating={mutating}
+          extraActions={(item: GeneralRequest) => (
+            <>
+              {item.email && (
+                <span className="text-[10px] text-stone-400 ml-1" title={`Email: ${item.email}`}>
+                  <Mail className="h-3 w-3 inline" />
+                </span>
+              )}
+            </>
+          )}
         />
       </Panel>
 
