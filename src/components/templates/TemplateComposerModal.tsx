@@ -30,6 +30,28 @@ const Spinner: React.FC<{ size?: 'sm' | 'md' }> = ({ size = 'sm' }) => (
   </svg>
 );
 
+// Splits the CC textarea value into "Copy to:" entries for the live
+// preview, mirroring formatCC() in LetterTemplate.ts: entries separated
+// by a blank line, last line of each entry treated as the station and
+// rendered bold + underlined.
+interface CCPreviewEntry {
+  bodyLines: string[];
+  location: string;
+}
+
+const parseCCPreview = (cc: string): CCPreviewEntry[] => {
+  return cc
+    .split(/\n\s*\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const lines = entry.split('\n').map((l) => l.trim()).filter(Boolean);
+      const location = lines[lines.length - 1] || '';
+      const bodyLines = lines.slice(0, -1);
+      return { bodyLines, location };
+    });
+};
+
 export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
   type,
   departmentId,
@@ -156,6 +178,8 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
 
   const editableLineClasses =
     'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none';
+
+  const ccPreviewEntries = parseCCPreview(ccField);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
@@ -358,27 +382,59 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                         className={`${editableLineClasses} block text-[13px] font-bold underline uppercase mt-0.5`}
                       />
                     </div>
-                    <div className="mt-8 space-y-2 border-t border-stone-300 pt-4">
-                      <div className="flex">
-                        <span className="w-24 shrink-0 font-bold text-xs">CC</span>
-                        <span className="w-4 shrink-0 text-xs">:</span>
-                        <input
-                          value={ccField}
-                          onChange={(e) => setCcField(e.target.value)}
-                          placeholder="Carbon copy recipients"
-                          className={`${editableLineClasses} text-xs`}
-                        />
+
+                    {/* CC ("Copy to:") — multi-line entries, blank line
+                        between recipients, last line of each entry is
+                        the station/location. Mirrors formatCC() in
+                        LetterTemplate.ts so the live preview below
+                        matches the generated PDF. */}
+                    <div className="mt-8 border-t border-stone-300 pt-4">
+                      <div className="flex items-baseline gap-1 mb-1">
+                        <span className="font-bold text-xs italic underline">Copy to</span>
+                        <span className="text-xs">:</span>
                       </div>
-                      <div className="flex">
-                        <span className="w-24 shrink-0 font-bold text-xs">Enclosures</span>
-                        <span className="w-4 shrink-0 text-xs">:</span>
-                        <input
-                          value={enclosuresField}
-                          onChange={(e) => setEnclosuresField(e.target.value)}
-                          placeholder="List enclosures, e.g. 1. Affidavit"
-                          className={`${editableLineClasses} text-xs`}
-                        />
-                      </div>
+                      <textarea
+                        value={ccField}
+                        onChange={(e) => setCcField(e.target.value)}
+                        placeholder={'Presiding Judge,\nCivil Division\nNAIROBI\n\nPresiding Judge,\nTribunals Appeal Division\nNAIROBI'}
+                        rows={4}
+                        className="w-full resize-y bg-transparent border border-dashed border-stone-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-stone-500 placeholder:text-stone-300 placeholder:italic"
+                      />
+                      <p className="text-[10px] text-stone-400 mt-1">
+                        Separate each recipient with a blank line. The last line of each entry (e.g. station) is rendered bold and underlined.
+                      </p>
+
+                      {ccPreviewEntries.length > 0 && (
+                        <div className="mt-3 flex text-[13px] leading-[1.5]">
+                          <span className="w-[90px] shrink-0" />
+                          <div className="flex-1 space-y-3">
+                            {ccPreviewEntries.map((entry, idx) => (
+                              <div key={idx} className="flex">
+                                <span className="w-6 shrink-0">{idx + 1}.</span>
+                                <span>
+                                  {entry.bodyLines.map((line, i) => (
+                                    <p key={i} className="m-0">{line}</p>
+                                  ))}
+                                  {entry.location && (
+                                    <p className="m-0 font-bold underline">{entry.location}</p>
+                                  )}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-4 flex">
+                      <span className="w-24 shrink-0 font-bold text-xs">Enclosures</span>
+                      <span className="w-4 shrink-0 text-xs">:</span>
+                      <input
+                        value={enclosuresField}
+                        onChange={(e) => setEnclosuresField(e.target.value)}
+                        placeholder="List enclosures, e.g. 1. Affidavit"
+                        className={`${editableLineClasses} text-xs`}
+                      />
                     </div>
                   </>
                 )}
