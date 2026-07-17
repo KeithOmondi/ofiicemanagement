@@ -1,21 +1,21 @@
 // src/pages/documents/SuperAdminBringUp.tsx
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { toast, Toaster } from 'react-hot-toast';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   fetchDocuments,
-  deleteDocument,
   signDocument,
   sendDocument,
   markDocument,
   acknowledgeMark,
   completeMark,
-  updateDocument,
   clearError,
   requestSignOtp,
-  fetchResponses,
   updateMark,
+  respondToDocument,
+  fetchDocumentById,
 } from '../../store/slices/documentSlice';
 import { hasRole } from '../../store/slices/authSlice';
 import {
@@ -40,8 +40,6 @@ import { format } from 'date-fns';
 
 const PAGE_SIZE = 100;
 
-type SaveState = 'idle' | 'saving' | 'saved' | 'unsaved' | 'error';
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const parseDate = (dateStr: string | null | undefined): Date | null => {
@@ -55,8 +53,6 @@ const startOfDay = (d: Date): Date => {
   copy.setHours(0, 0, 0, 0);
   return copy;
 };
-
-
 
 type BringUpBucket = 'overdue' | 'today' | 'upcoming';
 
@@ -277,7 +273,7 @@ const ListItem: React.FC<ListItemProps> = ({
   </div>
 );
 
-// ─── Sticky Note (copied from SuperAdminDocuments) ──────────────────────────
+// ─── Sticky Note ─────────────────────────────────────────────────────────────
 
 interface StickyNoteProps {
   authorName: string;
@@ -593,92 +589,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   );
 };
 
-// ─── Responses Panel ──────────────────────────────────────────────────────────
-
-const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
-  const dispatch = useAppDispatch();
-  const responses = useAppSelector((state) => state.documents.responses);
-  const loading = useAppSelector((state) => state.documents.loading);
-
-  useEffect(() => {
-    dispatch(fetchResponses(documentId));
-  }, [dispatch, documentId]);
-
-  if (loading) {
-    return (
-      <div className="bg-white border-t border-stone-200 flex-shrink-0 px-4 py-6 flex justify-center">
-        <Spinner className="h-4 w-4 text-stone-400" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-white border-t border-stone-200 flex-shrink-0">
-      <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-stone-100">
-        <span className="text-xs font-semibold text-[#1E4620]">
-          Responses
-          {responses.length > 0 && (
-            <span className="ml-1.5 rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-medium text-stone-500">
-              {responses.length}
-            </span>
-          )}
-        </span>
-      </div>
-
-      <div className="px-3 sm:px-4 py-3 max-h-[220px] overflow-y-auto space-y-2">
-        {responses.length === 0 ? (
-          <p className="text-[10px] text-stone-400 italic">No responses yet.</p>
-        ) : (
-          responses.map((r) => (
-            <div key={r.id} className="rounded-lg border border-stone-200 bg-stone-50 p-2.5">
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[#1E4620] text-[8px] font-bold text-white">
-                    {r.response_number}
-                  </span>
-                  <span className="text-[11px] font-semibold text-stone-800 truncate">
-                    {r.responded_by_name}
-                  </span>
-                </div>
-                <span className="text-[9px] text-stone-400 whitespace-nowrap flex-shrink-0">
-                  {format(new Date(r.created_at), 'dd MMM yyyy · hh:mm aa')}
-                </span>
-              </div>
-
-              {r.note && (
-                <p className="text-[11px] text-stone-700 leading-relaxed mt-1 whitespace-pre-wrap">
-                  {r.note}
-                </p>
-              )}
-
-              {r.file_url && (
-                <a
-                  href={r.file_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-[#1E4620] hover:underline font-medium"
-                >
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round"
-                      d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                  </svg>
-                  {r.original_name ?? 'Attached file'}
-                  {r.file_size_bytes && (
-                    <span className="text-stone-400 ml-1">
-                      ({formatFileSize(r.file_size_bytes)})
-                    </span>
-                  )}
-                </a>
-              )}
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ─── Annotation Card ──────────────────────────────────────────────────────────
+// ─── Annotations Panel ────────────────────────────────────────────────────────
 
 const AnnotationCard: React.FC<{
   title: string;
@@ -724,8 +635,6 @@ const AnnotationCard: React.FC<{
     </div>
   </div>
 );
-
-// ─── Annotations Panel ────────────────────────────────────────────────────────
 
 const AnnotationsPanel: React.FC<{ document: Document }> = ({ document: doc }) => (
   <div className="bg-white border-t border-stone-200 flex-shrink-0">
@@ -865,6 +774,335 @@ const FilePreview: React.FC<{ document: Document }> = ({ document: doc }) => {
   );
 };
 
+// ─── Response Modal ──────────────────────────────────────────────────────────
+
+interface ResponseModalProps {
+  document: Document;
+  onClose: () => void;
+  onResponseSubmitted: () => void;
+}
+
+const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResponseSubmitted }) => {
+  const dispatch = useAppDispatch();
+  const currentUser = useAppSelector((state) => state.auth.user);
+  const currentDocument = useAppSelector((state) => state.documents.currentDocument);
+
+  const [note, setNote] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    dispatch(fetchDocumentById(document.id));
+  }, [dispatch, document.id]);
+
+  const responses = currentDocument?.id === document.id ? currentDocument.responses ?? [] : [];
+  const isPendingResponse = document.status === 'pending_review' && document.assigned_to === currentUser?.id;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!note.trim() || isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      const result = await dispatch(
+        respondToDocument({
+          id: document.id,
+          input: { note: note.trim() },
+          file: file ?? undefined,
+        })
+      ).unwrap();
+
+      toast.success(`Response #${result.response.response_number} added successfully`);
+      setNote('');
+      setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+
+      dispatch(fetchDocumentById(document.id));
+      onResponseSubmitted();
+    } catch (error) {
+      toast.error(typeof error === 'string' ? error : 'Failed to add response');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const droppedFile = e.dataTransfer.files[0];
+    if (droppedFile) {
+      if (droppedFile.size > 25 * 1024 * 1024) {
+        toast.error('File size exceeds 25MB limit');
+        return;
+      }
+      setFile(droppedFile);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      if (selectedFile.size > 25 * 1024 * 1024) {
+        toast.error('File size exceeds 25MB limit');
+        e.target.value = '';
+        return;
+      }
+      setFile(selectedFile);
+    }
+  };
+
+  const clearFile = () => {
+    setFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const formatDateTime = (date: string | Date): string =>
+    new Intl.DateTimeFormat('en-KE', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(new Date(date));
+
+  const TYPE_BADGE: Record<string, string> = {
+    memo: 'bg-blue-100 text-blue-700',
+    letter: 'bg-indigo-100 text-indigo-700',
+    judgment: 'bg-purple-100 text-purple-700',
+    ruling: 'bg-pink-100 text-pink-700',
+    order: 'bg-amber-100 text-amber-700',
+    correspondence: 'bg-green-100 text-green-700',
+    upload: 'bg-gray-100 text-gray-700',
+    ticket: "text-purple-500",
+  };
+
+  return (
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-2xl max-h-[90vh] rounded-xl bg-white shadow-2xl border border-slate-100 flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              <h2 className="text-base font-semibold text-slate-900">Response Thread</h2>
+            </div>
+            {isPendingResponse && (
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 animate-pulse">
+                ⚠️ Response Required
+              </span>
+            )}
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Document Info */}
+        <div className="px-6 py-3 bg-slate-50 border-b border-slate-100 shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Document:</span>
+            <span className="text-sm font-medium text-slate-900 truncate">{document.title}</span>
+            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${TYPE_BADGE[document.type] ?? 'bg-slate-100 text-slate-700'}`}>
+              {document.type}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 mt-1">
+            <span className="text-xs text-slate-500">
+              Status: <span className={`font-medium ${document.status === 'pending_review' ? 'text-red-600' : 'text-slate-700'}`}>
+                {document.is_draft ? 'draft' : document.status.replace(/_/g, ' ')}
+              </span>
+            </span>
+            <span className="text-xs text-slate-500">
+              Responses: <span className="font-medium text-slate-700">{responses.length}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Responses List */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 min-h-[200px] max-h-[300px]">
+          {responses.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-center py-8">
+              <svg className="w-12 h-12 text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+              <p className="text-sm text-slate-400">No responses yet</p>
+              <p className="text-xs text-slate-400 mt-1">Add your response below</p>
+            </div>
+          ) : (
+            responses.map((r) => (
+              <div key={r.id} className="flex gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
+                  {r.response_number}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                    <span className="text-xs font-semibold text-slate-700">{r.responded_by_name}</span>
+                    <span className="text-[11px] text-slate-400">{formatDateTime(r.created_at)}</span>
+                  </div>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{r.note}</p>
+                  {r.file_url && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <a
+                        href={r.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+                      >
+                        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        {r.original_name || 'View attachment'}
+                        {r.file_size_bytes && (
+                          <span className="text-[10px] text-slate-400">({formatFileSize(r.file_size_bytes)})</span>
+                        )}
+                      </a>
+                      <a
+                        href={r.file_url}
+                        download
+                        className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
+                      >
+                        Download
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Response Form */}
+        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-xl shrink-0">
+          <form onSubmit={handleSubmit}>
+            <div className="flex items-center gap-2 mb-2">
+              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                Add Response {responses.length > 0 ? `#${responses.length + 1}` : '#1'}
+              </span>
+            </div>
+
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={3}
+              placeholder={isPendingResponse
+                ? 'Type your response to the request for more information…'
+                : 'Type your response…'}
+              className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+
+            {/* File Upload Area */}
+            <div
+              className={`mt-2 relative border-2 border-dashed rounded-lg p-3 transition-colors ${
+                isDragging
+                  ? 'border-blue-500 bg-blue-50'
+                  : file
+                    ? 'border-green-500 bg-green-50'
+                    : 'border-slate-200 hover:border-blue-400'
+              }`}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 flex-shrink-0">
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                    {file ? 'Change file' : 'Attach a file (optional)'}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      className="hidden"
+                      onChange={handleFileChange}
+                    />
+                  </label>
+                  {file && (
+                    <>
+                      <span className="text-xs font-medium text-slate-700 truncate max-w-[150px]">
+                        {file.name}
+                      </span>
+                      <span className="text-[10px] text-slate-400 flex-shrink-0">
+                        ({(file.size / 1024).toFixed(1)} KB)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={clearFile}
+                        className="text-red-400 hover:text-red-600 flex-shrink-0"
+                      >
+                        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </>
+                  )}
+                </div>
+                {isDragging && (
+                  <span className="text-xs font-medium text-blue-600 flex-shrink-0">Drop file here</span>
+                )}
+                {!file && !isDragging && (
+                  <span className="text-[10px] text-slate-400 flex-shrink-0">
+                    or drag & drop
+                  </span>
+                )}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-1">
+                Max file size: 25 MB. Supported: PDF, DOCX, XLSX, JPG, PNG, MP4, MP3
+              </div>
+            </div>
+
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition"
+              >
+                Close
+              </button>
+              <button
+                type="submit"
+                disabled={!note.trim() || isSubmitting}
+                className={`inline-flex items-center gap-2 px-6 py-2 text-sm font-medium text-white rounded-lg transition-colors ${
+                  isPendingResponse
+                    ? 'bg-red-600 hover:bg-red-700'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                } disabled:opacity-60`}
+              >
+                {isSubmitting && <Spinner />}
+                {isSubmitting ? 'Sending…' : isPendingResponse ? '📤 Send Response' : 'Send Response'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Document Editor ──────────────────────────────────────────────────────────
 
 interface DocumentEditorProps {
@@ -872,8 +1110,6 @@ interface DocumentEditorProps {
   currentUserName: string;
   isSuperAdmin: boolean;
   onBack: () => void;
-  onSave?: (id: string, body: string) => Promise<void>;
-  onDelete?: () => void;
   onSign?: () => void;
   isSigning?: boolean;
   onSend?: () => void;
@@ -882,23 +1118,14 @@ interface DocumentEditorProps {
   onComplete?: () => void;
   onUpdateMark?: (markId: string, text: string, date: string | null) => void;
   onDownload?: () => void;
+  onOpenResponses?: () => void;
 }
-
-const SAVE_LABEL: Record<SaveState, string> = {
-  idle: '',
-  saving: 'Saving…',
-  saved: 'All changes saved',
-  unsaved: 'Unsaved changes',
-  error: 'Failed to save · click Save to retry',
-};
 
 const DocumentEditor: React.FC<DocumentEditorProps> = ({
   document,
   currentUserName,
   isSuperAdmin,
   onBack,
-  onSave,
-  onDelete,
   onSign,
   isSigning = false,
   onSend,
@@ -907,112 +1134,21 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onComplete,
   onUpdateMark,
   onDownload,
+  onOpenResponses,
 }) => {
   const isComposed = document.type === 'memo' || document.type === 'letter';
-  const isEditable = !!onSave;
   const formattedDate = document.created_at
     ? format(new Date(document.created_at), 'dd MMM yyyy')
     : '—';
 
   const hasMarkNote = !!document.active_mark?.instructions;
   const [showNote, setShowNote] = useState(hasMarkNote);
-  const [showResponses, setShowResponses] = useState(false);
 
   const stickyNoteText = document.active_mark?.instructions ?? '';
   const stickyNoteDate = document.active_mark?.bring_up_date ?? null;
   const noteAuthor = document.active_mark
     ? (document.created_by_name ?? currentUserName)
     : currentUserName;
-
-  const editorRef = useRef<HTMLDivElement>(null);
-  const lastSavedHtml = useRef(document.body ?? '');
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [saveState, setSaveState] = useState<SaveState>(
-    document.body ? 'saved' : 'idle',
-  );
-  const [wordCount, setWordCount] = useState(
-    document.body ? document.body.split(/\s+/).filter(Boolean).length : 0,
-  );
-
-  const persist = useCallback(
-    async (html: string) => {
-      if (!onSave || html === lastSavedHtml.current) return;
-      setSaveState('saving');
-      try {
-        await onSave(document.id, html);
-        lastSavedHtml.current = html;
-        setSaveState('saved');
-      } catch {
-        setSaveState('error');
-      }
-    },
-    [onSave, document.id],
-  );
-
-  const scheduleAutosave = useCallback(
-    (html: string) => {
-      setSaveState('unsaved');
-      if (debounceTimer.current) clearTimeout(debounceTimer.current);
-      debounceTimer.current = setTimeout(() => persist(html), 1500);
-    },
-    [persist],
-  );
-
-  const handleInput = () => {
-    if (!editorRef.current) return;
-    const html = editorRef.current.innerHTML;
-    const text = editorRef.current.innerText ?? '';
-    setWordCount(text.split(/\s+/).filter(Boolean).length);
-    scheduleAutosave(html);
-  };
-
-const handleManualSave = useCallback(() => {
-  if (!editorRef.current) return;
-  if (debounceTimer.current) clearTimeout(debounceTimer.current);
-  persist(editorRef.current.innerHTML);
-}, [persist]);
-
-useEffect(() => {
-  return () => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-  };
-}, []);
- 
-
-useEffect(() => {
-  if (!isEditable) return;
-  const handler = (e: KeyboardEvent) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-      e.preventDefault();
-      handleManualSave();
-    }
-  };
-  window.addEventListener('keydown', handler);
-  return () => window.removeEventListener('keydown', handler);
-}, [isEditable, handleManualSave]);
-
-  const exec = (command: string, value?: string) => {
-    if (!isEditable) return;
-    editorRef.current?.focus();
-    window.document.execCommand(command, false, value);
-    handleInput();
-  };
-
-  const insertDate = () => exec('insertHTML', format(new Date(), 'dd MMM yyyy'));
-  const insertRef = () =>
-    exec(
-      'insertHTML',
-      `<strong>Ref: ${document.reference_no ?? '________'}</strong>`,
-    );
-  const insertSigBlock = () =>
-    exec(
-      'insertHTML',
-      `<div style="margin-top:48px;">
-        <p>_____________________________</p>
-        <p><strong>${currentUserName}</strong></p>
-        <p>REGISTRAR, HIGH COURT</p>
-      </div>`,
-    );
 
   const handleStickyNoteSave = (text: string, date: string | null) => {
     if (document.active_mark && onUpdateMark) {
@@ -1027,6 +1163,12 @@ useEffect(() => {
       window.open(document.file_url, '_blank');
     } else {
       toast.error('No file available to download');
+    }
+  };
+
+  const handleOpenResponses = () => {
+    if (onOpenResponses) {
+      onOpenResponses();
     }
   };
 
@@ -1054,25 +1196,10 @@ useEffect(() => {
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
-          {isEditable && (
-            <button
-              onClick={handleManualSave}
-              disabled={saveState === 'saving' || saveState === 'saved'}
-              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap disabled:opacity-50"
-            >
-              {saveState === 'saving' ? <Spinner className="h-3 w-3" /> : null}
-              Save
-            </button>
-          )}
-
-          {/* Responses button */}
+          {/* Responses button - opens modal */}
           <button
-            onClick={() => setShowResponses((v) => !v)}
-            className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
-              showResponses
-                ? 'border-[#1E4620] bg-[#1E4620]/10 text-[#1E4620]'
-                : 'border-stone-200 bg-white text-stone-500 hover:bg-stone-50'
-            }`}
+            onClick={handleOpenResponses}
+            className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
           >
             <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round"
@@ -1161,171 +1288,10 @@ useEffect(() => {
               Convert to PDF & Send
             </button>
           )}
-
-          {onDelete && (
-            <button
-              onClick={onDelete}
-              className="rounded-md p-1.5 text-red-400 hover:bg-red-50 transition-colors flex-shrink-0"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-1 bg-[#1E4620] px-3 py-1.5 overflow-x-auto flex-shrink-0">
-        <div className="flex items-center gap-1.5 mr-2 flex-shrink-0">
-          <select className="rounded bg-[#2d5c30] border-0 text-white text-xs px-2 py-1 focus:outline-none cursor-pointer capitalize">
-            <option>{document.type}</option>
-          </select>
-          <span className="text-white/40 text-[10px] capitalize hidden sm:inline">
-            {document.status.replace('_', ' ')}
-          </span>
-          {isEditable && saveState !== 'idle' && (
-            <>
-              <span className="text-white/30 text-[10px] hidden sm:inline">·</span>
-              <span
-                className={`text-[10px] hidden sm:inline whitespace-nowrap ${
-                  saveState === 'error' ? 'text-red-300' : 'text-white/40'
-                }`}
-              >
-                {SAVE_LABEL[saveState]}
-              </span>
-            </>
-          )}
-        </div>
-
-        <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-        {(
-          [
-            { label: 'B', command: 'bold' },
-            { label: 'I', command: 'italic' },
-            { label: 'U', command: 'underline' },
-            { label: 'S', command: 'strikeThrough' },
-          ] as const
-        ).map(({ label, command }) => (
-          <button
-            key={label}
-            type="button"
-            disabled={!isEditable}
-            onClick={() => exec(command)}
-            className={`w-6 h-6 rounded text-xs text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
-              label === 'B'
-                ? 'font-extrabold'
-                : label === 'I'
-                  ? 'italic'
-                  : label === 'U'
-                    ? 'underline'
-                    : 'line-through'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-
-        <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-        {(['h1', 'h2', 'h3'] as const).map((tag) => (
-          <button
-            key={tag}
-            type="button"
-            disabled={!isEditable}
-            onClick={() => exec('formatBlock', `<${tag}>`)}
-            className="px-1.5 h-6 rounded text-[10px] font-semibold text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {tag.toUpperCase()}
-          </button>
-        ))}
-
-        <button
-          type="button"
-          disabled={!isEditable}
-          onClick={() => exec('formatBlock', '<p>')}
-          className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          ¶
-        </button>
-
-        <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-        <button
-          type="button"
-          disabled={!isEditable}
-          onClick={() => exec('insertUnorderedList')}
-          className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          • List
-        </button>
-        <button
-          type="button"
-          disabled={!isEditable}
-          onClick={() => exec('insertOrderedList')}
-          className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          1. List
-        </button>
-
-        <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-        <button
-          type="button"
-          disabled={!isEditable}
-          onClick={() => exec('insertHorizontalRule')}
-          className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          —
-        </button>
-
-        <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-        <button
-          type="button"
-          disabled={!isEditable}
-          onClick={insertDate}
-          className="px-2 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex items-center gap-1 flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <rect x="3" y="4" width="18" height="18" rx="2" />
-            <line x1="16" y1="2" x2="16" y2="6" />
-            <line x1="8" y1="2" x2="8" y2="6" />
-            <line x1="3" y1="10" x2="21" y2="10" />
-          </svg>
-          Date
-        </button>
-
-        <button
-          type="button"
-          disabled={!isEditable}
-          onClick={insertRef}
-          className="px-2 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          § Ref
-        </button>
-
-        <button
-          type="button"
-          disabled={!isEditable}
-          onClick={insertSigBlock}
-          className="px-2 h-6 rounded text-[10px] font-medium text-white/80 hover:bg-white/10 transition-colors flex items-center gap-1 flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-          </svg>
-          Sig Block
-        </button>
-
-        <div className="flex-1 min-w-[8px]" />
-
-        <span className="text-white/40 text-[10px] flex-shrink-0 whitespace-nowrap">
-          {wordCount} words
-        </span>
-      </div>
-
-      {/* Canvas */}
+      {/* Canvas (no toolbar – removed) */}
       <div className="flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6 relative">
         {showNote && (
           <StickyNote
@@ -1340,20 +1306,7 @@ useEffect(() => {
 
         <div className="mx-auto max-w-[794px] w-full min-h-[600px] sm:min-h-[900px] bg-white shadow-sm rounded-sm">
           {isComposed ? (
-            !isEditable && !document.body ? (
-              <DocumentFallback document={document} />
-            ) : (
-              <div
-                ref={editorRef}
-                contentEditable={isEditable}
-                suppressContentEditableWarning
-                onInput={handleInput}
-                onBlur={handleManualSave}
-                data-placeholder={`Start typing your ${document.type}…`}
-                className="w-full h-full min-h-[600px] sm:min-h-[900px] px-8 py-10 sm:px-16 sm:py-14 focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
-                dangerouslySetInnerHTML={{ __html: document.body || '' }}
-              />
-            )
+            <DocumentFallback document={document} />
           ) : (
             <FilePreview document={document} />
           )}
@@ -1403,8 +1356,7 @@ useEffect(() => {
         </div>
       </div>
 
-      {showResponses && <ResponsesPanel documentId={document.id} />}
-
+      {/* Annotations panel */}
       <AnnotationsPanel document={document} />
     </div>
   );
@@ -1709,8 +1661,6 @@ const SuperAdminBringUp: React.FC = () => {
   const { documents, loading, error, actionInProgress } = useAppSelector(
     (state) => state.documents,
   );
-  //const departments = useAppSelector(selectAllDepartments);
-  //const users = useAppSelector(selectAllUsers);
 
   const isSuperAdmin = hasRole(user, 'super_admin');
   const canView = !!user;
@@ -1724,6 +1674,10 @@ const SuperAdminBringUp: React.FC = () => {
   const [otpError, setOtpError] = useState<string | null>(null);
   const [signingDocId, setSigningDocId] = useState<string | null>(null);
   const [signToast, setSignToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Response modal state
+  const [showResponseModal, setShowResponseModal] = useState(false);
+  const [responseDocument, setResponseDocument] = useState<Document | null>(null);
 
   // Fetch documents with bring-up date
   useEffect(() => {
@@ -1859,25 +1813,9 @@ const SuperAdminBringUp: React.FC = () => {
     setShowMarkModal(false);
   };
 
-  const handleDelete = (id: string) => {
-    if (window.confirm('Delete this document?')) {
-      dispatch(deleteDocument(id));
-      if (selectedDocument?.id === id) setSelectedDocument(null);
-    }
-  };
-
   const handleSend = (id: string) => dispatch(sendDocument(id));
   const handleAcknowledge = (id: string) => dispatch(acknowledgeMark(id));
   const handleComplete = (id: string) => dispatch(completeMark(id));
-
-  const handleSaveBody = async (id: string, body: string) => {
-    const result = await dispatch(updateDocument({ id, input: { body } }));
-    if (updateDocument.fulfilled.match(result)) {
-      setSelectedDocument(result.payload as Document);
-    } else {
-      throw new Error((result.payload as string) ?? 'Failed to save changes');
-    }
-  };
 
   const handleUpdateMark = (markId: string, text: string, date: string | null) => {
     dispatch(updateMark({ markId, instructions: text, bring_up_date: date }));
@@ -1900,6 +1838,26 @@ const SuperAdminBringUp: React.FC = () => {
       return;
     }
     window.open(selectedDocument.file_url, '_blank');
+  };
+
+  // Open response modal for the currently selected document
+  const handleOpenResponses = () => {
+    if (selectedDocument) {
+      setResponseDocument(selectedDocument);
+      setShowResponseModal(true);
+    }
+  };
+
+  const handleResponseSubmitted = () => {
+    if (selectedDocument) {
+      dispatch(fetchDocumentById(selectedDocument.id));
+    }
+    const params: DocumentFilters = {
+      page: 1,
+      limit: PAGE_SIZE,
+      has_bring_up_date: true,
+    };
+    dispatch(fetchDocuments(params));
   };
 
   // ─── Render ─────────────────────────────────────────────────────────────────
@@ -1946,6 +1904,20 @@ const SuperAdminBringUp: React.FC = () => {
         </div>
       )}
 
+      {/* ─── Response Modal (portal) ────────────────────────────────────── */}
+      {showResponseModal && responseDocument &&
+        createPortal(
+          <ResponseModal
+            document={responseDocument}
+            onClose={() => {
+              setShowResponseModal(false);
+              setResponseDocument(null);
+            }}
+            onResponseSubmitted={handleResponseSubmitted}
+          />,
+          document.body
+        )}
+
       {/* Main layout: left list / right editor */}
       <div className="flex flex-1 overflow-hidden relative">
         {/* Left panel: grouped list */}
@@ -1973,7 +1945,8 @@ const SuperAdminBringUp: React.FC = () => {
                 No documents with bring‑up dates.
               </div>
             ) : (
-              (['overdue', 'today', 'upcoming'] as BringUpBucket[]).map((bucket) => {
+              /* ─── ONLY OVERDUE AND UPCOMING BUCKETS ─── */
+              (['overdue', 'upcoming'] as BringUpBucket[]).map((bucket) => {
                 const docs = grouped[bucket];
                 if (docs.length === 0) return null;
                 return (
@@ -2017,12 +1990,6 @@ const SuperAdminBringUp: React.FC = () => {
               currentUserName={user?.full_name ?? 'Registrar'}
               isSuperAdmin={isSuperAdmin}
               onBack={() => setSelectedDocument(null)}
-              onSave={
-                isSuperAdmin && selectedDocument.status !== 'filed'
-                  ? handleSaveBody
-                  : undefined
-              }
-              onDelete={isSuperAdmin ? () => handleDelete(selectedDocument.id) : undefined}
               onSign={
                 isSuperAdmin && !selectedDocument.is_signed
                   ? () => handleSign(selectedDocument.id)
@@ -2041,20 +2008,22 @@ const SuperAdminBringUp: React.FC = () => {
                   ? () => setShowMarkModal(true)
                   : undefined
               }
+              // ─── UPDATED CONDITIONS FOR ACKNOWLEDGE & COMPLETE ───
               onAcknowledge={
                 selectedDocument.status === 'marked' &&
-                selectedDocument.assigned_to === user?.id
+                (selectedDocument.assigned_to === user?.id || isSuperAdmin)
                   ? () => handleAcknowledge(selectedDocument.id)
                   : undefined
               }
               onComplete={
                 selectedDocument.status === 'in_progress' &&
-                selectedDocument.assigned_to === user?.id
+                (selectedDocument.assigned_to === user?.id || isSuperAdmin)
                   ? () => handleComplete(selectedDocument.id)
                   : undefined
               }
               onUpdateMark={handleUpdateMark}
               onDownload={handleDownload}
+              onOpenResponses={handleOpenResponses}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center px-4">
