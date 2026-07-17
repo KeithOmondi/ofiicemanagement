@@ -1,6 +1,6 @@
 // src/pages/MemoandLetters.tsx
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import { useAppDispatch, useAppSelector } from "../../store/hook";
 import {
   fetchDocuments,
@@ -851,7 +851,127 @@ const toISODateInput = (value: string | Date | null | undefined): string => {
   return d.toISOString().split('T')[0];
 };
 
-// (12) MemoDisplay
+// ─── Draggable Signature Box ──────────────────────────────────────────────
+
+interface SignatureBoxProps {
+  position: { x: number; y: number; width: number; height: number };
+  onPositionChange: (pos: { x: number; y: number; width: number; height: number }) => void;
+  isOtpModalOpen?: boolean;
+}
+
+const SignatureBox: React.FC<SignatureBoxProps> = ({
+  position,
+  onPositionChange,
+  isOtpModalOpen = false,
+}) => {
+  const [isDragging, setIsDragging] = useState(false);
+  const [isResizing, setIsResizing] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [posStart, setPosStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+    setDragStart({ x: e.clientX, y: e.clientY });
+    setPosStart({ x: position.x, y: position.y, width: position.width, height: position.height });
+  };
+
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+    setDragStart({ x: e.clientX, y: e.clientY });
+    setPosStart({ x: position.x, y: position.y, width: position.width, height: position.height });
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging) {
+        const dx = e.clientX - dragStart.x;
+        const dy = e.clientY - dragStart.y;
+        onPositionChange({
+          x: Math.max(0, posStart.x + dx),
+          y: Math.max(0, posStart.y + dy),
+          width: posStart.width,
+          height: posStart.height,
+        });
+      }
+      if (isResizing) {
+        const dx = e.clientX - dragStart.x;
+        const dy = e.clientY - dragStart.y;
+        onPositionChange({
+          x: posStart.x,
+          y: posStart.y,
+          width: Math.max(100, posStart.width + dx),
+          height: Math.max(40, posStart.height + dy),
+        });
+      }
+    };
+
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      setIsResizing(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, isResizing, dragStart, posStart, onPositionChange]);
+
+  return (
+    <div
+      className={`absolute border-2 border-[#C29B38] border-dashed bg-[#C29B38]/10 rounded ${
+        isOtpModalOpen ? 'z-[100]' : 'z-20'
+      }`}
+      style={{
+        left: position.x,
+        top: position.y,
+        width: position.width,
+        height: position.height,
+        cursor: isDragging ? 'grabbing' : 'grab',
+      }}
+      onMouseDown={handleMouseDown}
+    >
+      <div className="absolute -top-6 left-0 text-[9px] font-semibold text-[#C29B38] bg-white/80 px-1.5 py-0.5 rounded whitespace-nowrap">
+        📍 Signature here
+      </div>
+
+      <div
+        className="absolute -bottom-1 -right-1 w-3 h-3 bg-[#C29B38] rounded-sm cursor-se-resize"
+        onMouseDown={handleResizeMouseDown}
+      />
+      <div
+        className="absolute -bottom-1 -left-1 w-3 h-3 bg-[#C29B38] rounded-sm cursor-sw-resize"
+        onMouseDown={handleResizeMouseDown}
+      />
+      <div
+        className="absolute -top-1 -right-1 w-3 h-3 bg-[#C29B38] rounded-sm cursor-ne-resize"
+        onMouseDown={handleResizeMouseDown}
+      />
+      <div
+        className="absolute -top-1 -left-1 w-3 h-3 bg-[#C29B38] rounded-sm cursor-nw-resize"
+        onMouseDown={handleResizeMouseDown}
+      />
+
+      <div className="absolute inset-0 flex items-center justify-center text-[10px] text-[#C29B38]/40 font-medium select-none pointer-events-none">
+        Drag to position · Resize corners
+      </div>
+    </div>
+  );
+};
+
+// ─── Ref types for display components ──────────────────────────────────────
+
+export interface DisplayHandle {
+  getSignaturePosition: () => { x: number; y: number; width: number; height: number } | null;
+}
+
+// ─── MemoDisplay ───────────────────────────────────────────────────────────
+
 interface MemoDisplayProps {
   document: Document;
   isEditable: boolean;
@@ -866,7 +986,7 @@ interface MemoDisplayProps {
   bodyHtml?: string;
 }
 
-const MemoDisplay: React.FC<MemoDisplayProps> = ({
+const MemoDisplay = forwardRef<DisplayHandle, MemoDisplayProps>(({
   document,
   isEditable,
   isEditMode,
@@ -878,7 +998,7 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
   fields,
   onFieldChange,
   bodyHtml,
-}) => {
+}, ref) => {
   const canEditFields = isSuperAdmin && isEditMode && !!fields && !!onFieldChange;
 
   const toField = canEditFields ? fields!.to_recipient : (document.to_recipient || document.assigned_to_name || 'REGISTRAR, HIGH COURT / ORHC AIE HOLDER');
@@ -908,6 +1028,60 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
     </div>
   );
 
+  const signatureRef = useRef<HTMLDivElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    getSignaturePosition: () => {
+      if (!signatureRef.current) return null;
+      const rect = signatureRef.current.getBoundingClientRect();
+      const container = signatureRef.current.closest('.document-preview-container');
+      if (!container) return null;
+      const containerRect = container.getBoundingClientRect();
+      const containerStyle = window.getComputedStyle(container);
+      const paddingTop = parseFloat(containerStyle.paddingTop) || 0;
+      const paddingLeft = parseFloat(containerStyle.paddingLeft) || 0;
+      const padding = 8;
+      return {
+        x: rect.left - containerRect.left - paddingLeft,
+        y: rect.top - containerRect.top - paddingTop - padding,
+        width: Math.min(rect.width, 250),
+        height: Math.min(rect.height + padding, 90),
+      };
+    },
+  }));
+
+  const renderSignature = () => {
+    const content = canEditFields ? (
+      <>
+        <input
+          type="text"
+          value={signatureName}
+          onChange={(e) => handleFieldChange('signature_name', e.target.value)}
+          className="font-bold uppercase text-[13.5px] bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full"
+        />
+        <input
+          type="text"
+          value={signatureTitle}
+          onChange={(e) => handleFieldChange('signature_title', e.target.value)}
+          className="font-bold underline uppercase text-[13.5px] bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full mt-1"
+        />
+      </>
+    ) : (
+      <>
+        <div className="font-bold uppercase text-[13.5px]">{signatureName}</div>
+        <div className="font-bold underline uppercase text-[13.5px]">{signatureTitle}</div>
+      </>
+    );
+
+    return (
+      <div className="mt-10">
+        <div ref={signatureRef} className="inline-block">
+          {content}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col">
       <div className="flex justify-center mb-3">
@@ -925,6 +1099,7 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
       </div>
       <div className="border-t-[2.5px] border-black mb-2.5" />
       {editModeIndicator}
+
       <div className="mt-2">
         <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
           <span className="w-24 shrink-0 uppercase">TO</span>
@@ -1016,29 +1191,8 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
         />
       )}
 
-      <div className="mt-10">
-        {canEditFields ? (
-          <>
-            <input
-              type="text"
-              value={signatureName}
-              onChange={(e) => handleFieldChange('signature_name', e.target.value)}
-              className="font-bold uppercase text-[13.5px] bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full"
-            />
-            <input
-              type="text"
-              value={signatureTitle}
-              onChange={(e) => handleFieldChange('signature_title', e.target.value)}
-              className="font-bold underline uppercase text-[13.5px] bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full mt-1"
-            />
-          </>
-        ) : (
-          <>
-            <div className="font-bold uppercase text-[13.5px]">{signatureName}</div>
-            <div className="font-bold underline uppercase text-[13.5px]">{signatureTitle}</div>
-          </>
-        )}
-      </div>
+      {renderSignature()}
+
       <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
         <div className="flex-1 text-[10px] leading-tight text-stone-700">
           <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
@@ -1048,9 +1202,12 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
       </div>
     </div>
   );
-};
+});
 
-// (13) LetterDisplay
+MemoDisplay.displayName = 'MemoDisplay';
+
+// ─── LetterDisplay ─────────────────────────────────────────────────────────
+
 interface LetterDisplayProps {
   document: Document;
   isEditable: boolean;
@@ -1065,7 +1222,7 @@ interface LetterDisplayProps {
   bodyHtml?: string;
 }
 
-const LetterDisplay: React.FC<LetterDisplayProps> = ({
+const LetterDisplay = forwardRef<DisplayHandle, LetterDisplayProps>(({
   document,
   isEditable,
   isEditMode,
@@ -1077,7 +1234,7 @@ const LetterDisplay: React.FC<LetterDisplayProps> = ({
   fields,
   onFieldChange,
   bodyHtml,
-}) => {
+}, ref) => {
   const canEditFields = isSuperAdmin && isEditMode && !!fields && !!onFieldChange;
 
   const refField = canEditFields ? fields!.reference_no : (document.reference_no || 'RHC/LTR/0000');
@@ -1109,6 +1266,58 @@ const LetterDisplay: React.FC<LetterDisplayProps> = ({
     </div>
   );
 
+  const signatureRef = useRef<HTMLDivElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    getSignaturePosition: () => {
+      if (!signatureRef.current) return null;
+      const rect = signatureRef.current.getBoundingClientRect();
+      const container = signatureRef.current.closest('.document-preview-container');
+      if (!container) return null;
+      const containerRect = container.getBoundingClientRect();
+      const containerStyle = window.getComputedStyle(container);
+      const paddingTop = parseFloat(containerStyle.paddingTop) || 0;
+      const paddingLeft = parseFloat(containerStyle.paddingLeft) || 0;
+      const padding = 8;
+      return {
+        x: rect.left - containerRect.left - paddingLeft,
+        y: rect.top - containerRect.top - paddingTop - padding,
+        width: Math.min(rect.width, 250),
+        height: Math.min(rect.height + padding, 90),
+      };
+    },
+  }));
+
+  const renderSignature = () => {
+    const content = canEditFields ? (
+      <>
+        <input
+          type="text"
+          value={signatureName}
+          onChange={(e) => handleFieldChange('signature_name', e.target.value)}
+          className="font-bold uppercase text-sm bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full max-w-xs"
+        />
+        <input
+          type="text"
+          value={signatureTitle}
+          onChange={(e) => handleFieldChange('signature_title', e.target.value)}
+          className="font-bold uppercase text-sm bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full max-w-xs mt-1"
+        />
+      </>
+    ) : (
+      <>
+        <div className="font-bold uppercase text-sm">{signatureName}</div>
+        <div className="font-bold uppercase text-sm">{signatureTitle}</div>
+      </>
+    );
+
+    return (
+      <div className="mt-16" ref={signatureRef}>
+        {content}
+      </div>
+    );
+  };
+
   return (
     <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col font-sans">
       <div className="flex justify-center mb-3">
@@ -1128,6 +1337,7 @@ const LetterDisplay: React.FC<LetterDisplayProps> = ({
         </p>
       </div>
       {editModeIndicator}
+
       <div className="space-y-3 text-sm font-bold mb-8">
         <div className="flex">
           <span className="w-24 shrink-0">REF</span>
@@ -1218,29 +1428,7 @@ const LetterDisplay: React.FC<LetterDisplayProps> = ({
         />
       )}
 
-      <div className="mt-16">
-        {canEditFields ? (
-          <>
-            <input
-              type="text"
-              value={signatureName}
-              onChange={(e) => handleFieldChange('signature_name', e.target.value)}
-              className="font-bold uppercase text-sm bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full max-w-xs"
-            />
-            <input
-              type="text"
-              value={signatureTitle}
-              onChange={(e) => handleFieldChange('signature_title', e.target.value)}
-              className="font-bold uppercase text-sm bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full max-w-xs mt-1"
-            />
-          </>
-        ) : (
-          <>
-            <div className="font-bold uppercase text-sm">{signatureName}</div>
-            <div className="font-bold uppercase text-sm">{signatureTitle}</div>
-          </>
-        )}
-      </div>
+      {renderSignature()}
 
       {(ccField || enclosuresField || canEditFields) && (
         <div className="mt-8 space-y-1 text-sm">
@@ -1295,9 +1483,12 @@ const LetterDisplay: React.FC<LetterDisplayProps> = ({
       </div>
     </div>
   );
-};
+});
 
-// (14) DocumentEditor
+LetterDisplay.displayName = 'LetterDisplay';
+
+// ─── DocumentEditor ────────────────────────────────────────────────────────
+
 type SaveState = "idle" | "saving" | "saved" | "unsaved" | "error";
 
 const SAVE_LABEL: Record<SaveState, string> = {
@@ -1312,6 +1503,7 @@ interface DocumentEditorProps {
   document: Document;
   currentUserName: string;
   isSuperAdmin: boolean;
+  isReleased?: boolean;                             // <-- NEW PROP
   onBack: () => void;
   onSave?: (id: string, body: string) => Promise<void>;
   onFieldUpdate?: (field: string, value: string) => void;
@@ -1326,12 +1518,18 @@ interface DocumentEditorProps {
   onDownload?: () => void;
   onRegeneratePdf?: () => Promise<void>;
   isRegeneratingPdf?: boolean;
+  showSignatureBox?: boolean;
+  signatureBoxPosition?: { x: number; y: number; width: number; height: number };
+  onSignatureBoxChange?: (pos: { x: number; y: number; width: number; height: number }) => void;
+  onAutoSignaturePosition?: (pos: { x: number; y: number; width: number; height: number }) => void;
+  isOtpModalOpen?: boolean;
 }
 
 const DocumentEditor: React.FC<DocumentEditorProps> = ({
   document,
   currentUserName,
   isSuperAdmin,
+  isReleased = false,                              // <-- DEFAULT
   onBack,
   onSave,
   onFieldUpdate,
@@ -1346,6 +1544,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onDownload,
   onRegeneratePdf,
   isRegeneratingPdf = false,
+  showSignatureBox = false,
+  signatureBoxPosition = { x: 100, y: 400, width: 250, height: 90 },
+  onSignatureBoxChange,
+  onAutoSignaturePosition,
+  isOtpModalOpen = false,
 }) => {
   const isComposed = document.type === "memo" || document.type === "letter";
   const isEditable = !!onSave && isComposed;
@@ -1367,6 +1570,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     : currentUserName;
 
   const editorRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saveState, setSaveState] = useState<SaveState>(
     document.body ? "saved" : "idle",
@@ -1456,8 +1660,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     scheduleAutosave(html);
   };
 
-  // Saves body + any pending field edits WITHOUT exiting edit mode or
-  // regenerating the PDF — lets the user keep editing after saving.
   const handleSaveAll = useCallback(async () => {
     const bodySave = editorRef.current
       ? persistBody(editorRef.current.innerHTML)
@@ -1476,8 +1678,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }, 100);
   };
 
-  // Saves everything, regenerates the PDF, and exits edit mode — the
-  // "finish editing" action, distinct from a mid-edit Save.
   const finishEditing = async () => {
     await handleSaveAll();
     setIsEditMode(false);
@@ -1490,6 +1690,9 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   };
 
   const toggleEditMode = () => {
+    // Prevent entering edit mode if the document is released
+    if (isReleased) return;
+
     if (isEditMode) {
       finishEditing();
     } else {
@@ -1497,7 +1700,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   };
 
-  // Keep for onBlur usage in MemoDisplay and LetterDisplay
   const handleManualSave = useCallback(() => {
     if (!editorRef.current) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -1518,14 +1720,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     };
   }, []);
 
-  // contentEditable elements don't accept React children or
-  // dangerouslySetInnerHTML — React can't safely own their DOM once
-  // they're editable. So the editor div always mounts empty when
-  // isEditMode turns on, even though `bodyHtml` state still holds the
-  // real content. This manually injects it once, on the transition
-  // into edit mode only. Deliberately NOT depending on bodyHtml — that
-  // changes on every keystroke via handleInput, and re-setting
-  // innerHTML mid-typing would blow away the cursor position.
   useEffect(() => {
     if (isEditMode && editorRef.current) {
       editorRef.current.innerHTML = bodyHtml;
@@ -1591,6 +1785,39 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
   const showEditControls = isSuperAdmin && isComposed;
 
+  const displayRef = useRef<DisplayHandle>(null);
+
+  // Auto-position the signature box when it becomes visible.
+  // NOTE: when the document already has a generated file_url, the visible
+  // pane renders <FilePreview /> (an <iframe>/gview embed) instead of the
+  // MemoDisplay/LetterDisplay component, so `displayRef` would never mount
+  // and this effect would silently no-op, leaving the signature box at its
+  // stale default position. To fix that we also render a hidden, identically
+  // sized measurement copy of the display component (see below) whenever
+  // showSignatureBox is true and a file_url is present, purely so this
+  // effect has something to measure against.
+  useEffect(() => {
+    if (showSignatureBox && displayRef.current?.getSignaturePosition && onAutoSignaturePosition) {
+      const pos = displayRef.current.getSignaturePosition();
+      if (pos) {
+        // Adjust position to be right above the signature block with some padding
+        onAutoSignaturePosition({
+          x: pos.x + 10,
+          y: pos.y - 15,
+          width: Math.min(pos.width + 20, 300),
+          height: Math.min(pos.height + 10, 100),
+        });
+      }
+    }
+  }, [showSignatureBox, onAutoSignaturePosition]);
+
+  // Whether we need to render a hidden measurement copy of the display
+  // component to compute an accurate signature position when the visible
+  // pane is showing FilePreview (i.e. document.file_url is set) instead of
+  // the live MemoDisplay/LetterDisplay.
+  const needsHiddenMeasurer =
+    isComposed && !!document.file_url && showSignatureBox && !isEditMode;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex items-center justify-between gap-2 sm:gap-3 bg-white border-b border-stone-200 px-3 sm:px-4 py-2.5 flex-wrap">
@@ -1614,7 +1841,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
-          {showEditControls && (
+          {/** Edit button hidden when document is released */}
+          {!isReleased && showEditControls && (
             <button
               onClick={toggleEditMode}
               disabled={isRegeneratingPdf}
@@ -1922,7 +2150,12 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6 relative">
+      <div
+        ref={containerRef}
+        className={`flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6 relative document-preview-container ${
+          isOtpModalOpen ? 'pointer-events-none' : ''
+        }`}
+      >
         {showNote && (
           <StickyNote
             key={document.id}
@@ -1934,11 +2167,69 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           />
         )}
 
-        <div className="mx-auto max-w-[794px] w-full bg-white shadow-sm rounded-sm">
+        {showSignatureBox && onSignatureBoxChange && (
+          <div className="pointer-events-auto">
+            <SignatureBox
+              position={signatureBoxPosition}
+              onPositionChange={onSignatureBoxChange}
+              isOtpModalOpen={isOtpModalOpen}
+            />
+          </div>
+        )}
+
+        {/*
+          Hidden measurement copy: only rendered when the visible pane shows
+          FilePreview (document.file_url is set) but we still need to know
+          where the signature block would sit in the composed layout. It is
+          invisible and non-interactive, but shares the exact same width and
+          content as the real document so displayRef.getSignaturePosition()
+          returns a position that actually matches where the signature
+          belongs — right above the signatory's name — instead of leaving
+          the signature box at its stale default coordinates.
+        */}
+        {needsHiddenMeasurer && (
+          <div
+            className="absolute inset-0 opacity-0 pointer-events-none overflow-hidden"
+            aria-hidden="true"
+          >
+            <div className="mx-auto max-w-[794px] w-full">
+              {document.type === 'memo' ? (
+                <MemoDisplay
+                  ref={displayRef}
+                  document={document}
+                  isEditable={false}
+                  isEditMode={false}
+                  editorRef={editorRef}
+                  handleInput={handleInput}
+                  handleManualSave={handleManualSave}
+                  currentUserName={currentUserName}
+                  isSuperAdmin={isSuperAdmin}
+                  bodyHtml={bodyHtml}
+                />
+              ) : (
+                <LetterDisplay
+                  ref={displayRef}
+                  document={document}
+                  isEditable={false}
+                  isEditMode={false}
+                  editorRef={editorRef}
+                  handleInput={handleInput}
+                  handleManualSave={handleManualSave}
+                  currentUserName={currentUserName}
+                  isSuperAdmin={isSuperAdmin}
+                  bodyHtml={bodyHtml}
+                />
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="mx-auto max-w-[794px] w-full bg-white shadow-sm rounded-sm pdf-page-surface">
           {isComposed ? (
             isEditMode ? (
               document.type === 'memo' ? (
                 <MemoDisplay
+                  ref={displayRef}
                   document={document}
                   isEditable={isEditable}
                   isEditMode={isEditMode}
@@ -1953,6 +2244,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 />
               ) : (
                 <LetterDisplay
+                  ref={displayRef}
                   document={document}
                   isEditable={isEditable}
                   isEditMode={isEditMode}
@@ -1971,6 +2263,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             ) : document.body ? (
               document.type === 'memo' ? (
                 <MemoDisplay
+                  ref={displayRef}
                   document={document}
                   isEditable={false}
                   isEditMode={false}
@@ -1983,6 +2276,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 />
               ) : (
                 <LetterDisplay
+                  ref={displayRef}
                   document={document}
                   isEditable={false}
                   isEditMode={false}
@@ -2052,7 +2346,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   );
 };
 
-// (15) MarkModal
+// ─── MarkModal ─────────────────────────────────────────────────────────────
+
 interface MarkModalProps {
   document: Document;
   onClose: () => void;
@@ -2240,7 +2535,8 @@ const MarkModal: React.FC<MarkModalProps> = ({
   );
 };
 
-// (16) OtpModal
+// ─── OtpModal ─────────────────────────────────────────────────────────────
+
 interface OtpModalProps {
   isSigningInProgress: boolean;
   otpLoading: boolean;
@@ -2251,6 +2547,8 @@ interface OtpModalProps {
   onSubmit: () => void;
   onCancel: () => void;
   onResend: () => void;
+  showPositionBox?: boolean;
+  positionBox?: { x: number; y: number; width: number; height: number };
 }
 
 const OtpModal: React.FC<OtpModalProps> = ({
@@ -2262,9 +2560,17 @@ const OtpModal: React.FC<OtpModalProps> = ({
   onSubmit,
   onCancel,
   onResend,
+  showPositionBox = false,
+  positionBox = { x: 0, y: 0, width: 200, height: 80 },
 }) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
-    <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+  <div
+    className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4"
+    style={{ pointerEvents: 'none' }}
+  >
+    <div
+      className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl"
+      style={{ pointerEvents: 'auto' }}
+    >
       <div className="flex items-center gap-3 mb-5">
         <div className="h-9 w-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
           <svg className="h-4 w-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -2278,6 +2584,17 @@ const OtpModal: React.FC<OtpModalProps> = ({
           </p>
         </div>
       </div>
+
+      {showPositionBox && (
+        <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+          <p className="text-[10px] text-blue-700 font-medium">
+            📍 Signature position set
+          </p>
+          <p className="text-[9px] text-blue-600 mt-0.5">
+            Position: ({Math.round(positionBox.x)}, {Math.round(positionBox.y)}) · Size: {Math.round(positionBox.width)}×{Math.round(positionBox.height)}
+          </p>
+        </div>
+      )}
 
       <div className="mb-4">
         <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-2">
@@ -2350,7 +2667,8 @@ const OtpModal: React.FC<OtpModalProps> = ({
   </div>
 );
 
-// (17) ReleaseConfirmationModal with Recipient Selection
+// ─── ReleaseConfirmationModal ─────────────────────────────────────────────
+
 interface ReleaseConfirmationModalProps {
   document: Document;
   isOpen: boolean;
@@ -2413,7 +2731,6 @@ const ReleaseConfirmationModal: React.FC<ReleaseConfirmationModalProps> = ({
           )}
         </div>
 
-        {/* Department Selection */}
         <div className="mb-4">
           <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
             Department *
@@ -2436,7 +2753,6 @@ const ReleaseConfirmationModal: React.FC<ReleaseConfirmationModalProps> = ({
           </select>
         </div>
 
-        {/* User Selection */}
         <div className="mb-4">
           <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
             Assign to User (Optional)
@@ -2461,7 +2777,6 @@ const ReleaseConfirmationModal: React.FC<ReleaseConfirmationModalProps> = ({
           )}
         </div>
 
-        {/* Release Note */}
         <div className="mb-4">
           <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
             Release Note (Optional)
@@ -2528,11 +2843,8 @@ const MemoandLetters: React.FC = () => {
   const { documents, loading, error, pagination, actionInProgress } =
     useAppSelector((state) => state.documents);
 
-  // Fetch users and departments for the release modal
   const users = useAppSelector(selectAllUsers);
   const departments = useAppSelector(selectAllDepartments);
-  //const usersLoading = useAppSelector(selectUsersListLoading);
-  //const departmentsLoading = useAppSelector(selectDepartmentsListLoading);
 
   const [activeTab, setActiveTab] = useState<"all" | "my_action">("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -2548,6 +2860,15 @@ const MemoandLetters: React.FC = () => {
   const [otpError, setOtpError] = useState<string | null>(null);
   const [signingDocId, setSigningDocId] = useState<string | null>(null);
 
+  // ── Signature box state ──
+  const [signatureBoxPosition, setSignatureBoxPosition] = useState({
+    x: 100,
+    y: 400,
+    width: 160,
+    height: 55,
+  });
+  const [showSignatureBox, setShowSignatureBox] = useState(false);
+  
   const [showReleaseModal, setShowReleaseModal] = useState(false);
   const [isReleasing, setIsReleasing] = useState(false);
 
@@ -2561,7 +2882,6 @@ const MemoandLetters: React.FC = () => {
     [documents]
   );
 
-  // ─── Fetch documents ──────────────────────────────────────────────────
   useEffect(() => {
     if (!canView) return;
     const params: DocumentFilters = { page: 1, limit: 10 };
@@ -2570,7 +2890,6 @@ const MemoandLetters: React.FC = () => {
     dispatch(fetchDocuments(params));
   }, [dispatch, activeTab, searchQuery, canView]);
 
-  // ─── Fetch users and departments for Super Admin ──────────────────────
   useEffect(() => {
     if (isSuperAdmin) {
       dispatch(fetchUsers({ is_active: true, limit: 100 }));
@@ -2606,14 +2925,16 @@ const MemoandLetters: React.FC = () => {
     setOtpValue("");
     setSigningDocId(id);
     setOtpLoading(true);
+    setShowSignatureBox(true);
 
     const result = await dispatch(requestSignOtp(id));
     setOtpLoading(false);
 
     if (requestSignOtp.fulfilled.match(result)) {
       setShowOtpModal(true);
-      toast.success("OTP sent to the super admin's email");
+      toast.success("OTP sent. Drag the signature box to position it, then enter the OTP.");
     } else {
+      setShowSignatureBox(false);
       showToast({
         type: "error",
         message:
@@ -2622,20 +2943,55 @@ const MemoandLetters: React.FC = () => {
     }
   };
 
+  // ── Signature box handlers ──
+  const handleSignatureBoxChange = (pos: { x: number; y: number; width: number; height: number }) => {
+    setSignatureBoxPosition(pos);
+  };
+  // ── End signature box handlers ──
+
   const handleOtpSubmit = async () => {
     if (!signingDocId || !otpValue.trim()) return;
     setOtpError(null);
 
-    const result = await dispatch(
-      signDocument({ id: signingDocId, otp: otpValue.trim() })
-    );
+    // Always get the position from the signature box
+    const PDF_PAGE_WIDTH_PT = 595.28;
+    const pageSurfaceEl = window.document.querySelector('.pdf-page-surface');
+    const renderedPageWidthPx = pageSurfaceEl
+      ? pageSurfaceEl.getBoundingClientRect().width
+      : 794;
+    const scale = PDF_PAGE_WIDTH_PT / renderedPageWidthPx;
+    
+    // Use a minimal Y offset since the anchor is immediately before the signature block
+    // The backend's anchor detection uses -60, we use a tiny nudge to match
+    const positionX = signatureBoxPosition.x * scale;
+    const positionY = (signatureBoxPosition.y + 5) * scale; // Reduced from 20 to 5 for better alignment
+    const positionWidth = signatureBoxPosition.width * scale;
+    const positionHeight = signatureBoxPosition.height * scale;
+
+    const payload = {
+      id: signingDocId,
+      otp: otpValue.trim(),
+      position_x: positionX,
+      position_y: positionY,
+      position_width: positionWidth,
+      position_height: positionHeight,
+    };
+
+    console.log('📦 [FRONTEND] Signature position (PDF pt):', payload);
+
+    const result = await dispatch(signDocument(payload));
 
     if (signDocument.fulfilled.match(result)) {
       setShowOtpModal(false);
+      setShowSignatureBox(false);
       setOtpValue("");
       setSigningDocId(null);
-      setSelectedDocument(result.payload as Document);
+      
+      const signedDoc = result.payload as Document;
+      setSelectedDocument(signedDoc);
+      
       toast.success("Document signed successfully. Ready for release.");
+      
       const params: DocumentFilters = { page: 1, limit: 10 };
       if (activeTab === "my_action") params.for_my_action = true;
       if (searchQuery) params.search = searchQuery;
@@ -2649,6 +3005,7 @@ const MemoandLetters: React.FC = () => {
 
   const handleOtpCancel = () => {
     setShowOtpModal(false);
+    setShowSignatureBox(false);
     setOtpValue("");
     setOtpError(null);
     setSigningDocId(null);
@@ -2659,7 +3016,6 @@ const MemoandLetters: React.FC = () => {
     setOtpValue(val);
   };
 
-  // ─── Release handlers ──────────────────────────────────────────────────
   const handleReleaseConfirm = async (note?: string, recipientId?: string) => {
     if (!selectedDocument) return;
     
@@ -2996,6 +3352,7 @@ const MemoandLetters: React.FC = () => {
               document={selectedDocument}
               currentUserName={user?.full_name ?? "Registrar"}
               isSuperAdmin={isSuperAdmin}
+              isReleased={selectedDocument.status === 'released'}     // <-- PASS RELEASED STATUS
               onBack={() => setSelectedDocument(null)}
               onSave={
                 (isSuperAdmin && (selectedDocument.type === 'memo' || selectedDocument.type === 'letter')) ||
@@ -3043,6 +3400,11 @@ const MemoandLetters: React.FC = () => {
                   : undefined
               }
               isRegeneratingPdf={actionInProgress.regeneratingPdf === selectedDocument.id}
+              showSignatureBox={showSignatureBox}
+              signatureBoxPosition={signatureBoxPosition}
+              onSignatureBoxChange={handleSignatureBoxChange}
+              onAutoSignaturePosition={handleSignatureBoxChange}
+              isOtpModalOpen={showOtpModal}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center px-4">
@@ -3079,6 +3441,8 @@ const MemoandLetters: React.FC = () => {
           onSubmit={handleOtpSubmit}
           onCancel={handleOtpCancel}
           onResend={() => signingDocId && handleSign(signingDocId)}
+          showPositionBox={true}
+          positionBox={signatureBoxPosition}
         />
       )}
 

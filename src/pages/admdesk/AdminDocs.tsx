@@ -13,6 +13,7 @@ import {
   respondToDocument,
   redirectDocumentToFolder,
   removeDocumentFromFolder,
+  fetchFlowHistory,
 } from '../../store/slices/documentSlice';
 import { selectCurrentUser, fetchCurrentUser } from '../../store/slices/userSlice';
 import {
@@ -53,6 +54,8 @@ const selectDocLoading = (state: RootState): boolean => state.documents.loading;
 const selectDocError = (state: RootState): string | null => state.documents.error;
 const selectDeletingId = (state: RootState): string | undefined => state.documents.actionInProgress.deleting;
 const selectFinalizingId = (state: RootState): string | undefined => state.documents.actionInProgress.finalizingDraft;
+const selectFlowHistory = (state: RootState) => state.documents.flowHistory;
+const selectFlowLoading = (state: RootState) => state.documents.loading;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -181,6 +184,91 @@ const PriorityBadge: React.FC<{ priority: RoutePriority }> = ({ priority }) => (
     {PRIORITY_LABEL[priority] ?? priority}
   </span>
 );
+
+// ─── Flow History Panel ──────────────────────────────────────────────────────
+
+interface FlowHistoryPanelProps {
+  documentId: string;
+}
+
+const FlowHistoryPanel: React.FC<FlowHistoryPanelProps> = ({ documentId }) => {
+  const dispatch = useAppDispatch();
+  const flowHistory = useAppSelector(selectFlowHistory);
+  const loading = useAppSelector(selectFlowLoading);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  useEffect(() => {
+    if (isExpanded) {
+      dispatch(fetchFlowHistory(documentId));
+    }
+  }, [dispatch, documentId, isExpanded]);
+
+  if (!isExpanded) {
+    return (
+      <button
+        onClick={() => setIsExpanded(true)}
+        className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-1"
+      >
+        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            d="M19 9l-7 7-7-7" />
+        </svg>
+        View Flow History
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Document Flow</h4>
+        <button
+          onClick={() => setIsExpanded(false)}
+          className="text-slate-400 hover:text-slate-600"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+          </svg>
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-4">
+          <Spinner />
+        </div>
+      ) : flowHistory.length === 0 ? (
+        <p className="text-xs text-slate-400 py-2">No flow history available</p>
+      ) : (
+        <div className="space-y-2 max-h-48 overflow-y-auto">
+          {flowHistory.map((entry) => (
+            <div key={entry.id} className="flex items-start gap-2 text-xs border-b border-slate-50 pb-2">
+              <div className="flex-shrink-0 w-2 h-2 rounded-full bg-blue-500 mt-1.5" />
+              <div className="flex-1 min-w-0">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="font-medium text-slate-700">{entry.action}</span>
+                  <span className="text-slate-400 text-[10px]">{formatDateTime(entry.created_at)}</span>
+                </div>
+                <div className="text-slate-500 text-[10px]">
+                  {entry.from_user_name && (
+                    <span>From: {entry.from_user_name}</span>
+                  )}
+                  {entry.to_user_name && (
+                    <span className="ml-2">To: {entry.to_user_name}</span>
+                  )}
+                </div>
+                {entry.note && (
+                  <p className="text-slate-600 text-[10px] italic mt-0.5 truncate">
+                    "{entry.note}"
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── Redirect Modal ──────────────────────────────────────────────────────────
 
@@ -544,7 +632,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate }
   );
 };
 
-// ─── Response Thread Panel ───────────────────────────────────────────────────
+// ─── Enhanced Response Thread Panel ──────────────────────────────────────────
 
 const ResponseThreadPanel: React.FC<{ document: DocType }> = ({ document: doc }) => {
   const dispatch = useAppDispatch();
@@ -556,6 +644,7 @@ const ResponseThreadPanel: React.FC<{ document: DocType }> = ({ document: doc })
   const [file, setFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     dispatch(fetchDocumentById(doc.id));
@@ -574,27 +663,80 @@ const ResponseThreadPanel: React.FC<{ document: DocType }> = ({ document: doc })
   const responses = currentDocument?.id === doc.id ? currentDocument.responses ?? [] : [];
   const isSubmitting = respondingId === doc.id;
   const canRespond = !!currentUser && doc.assigned_to === currentUser.id && doc.status !== 'filed';
+  const isPendingResponse = doc.status === 'pending_review' && doc.assigned_to === currentUser?.id;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!note.trim() || isSubmitting) return;
-    const result = await dispatch(
-      respondToDocument({ id: doc.id, input: { note: note.trim() }, file: file ?? undefined })
-    );
-    if (respondToDocument.fulfilled.match(result)) {
+
+    try {
+      const result = await dispatch(
+        respondToDocument({ 
+          id: doc.id, 
+          input: { note: note.trim() }, 
+          file: file ?? undefined 
+        })
+      ).unwrap();
+
+      toast.success(`Response #${result.response.response_number} added successfully`);
       setNote('');
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
-      toast.success('Response added');
+
+      // Refresh document list to update status
       dispatch(fetchDocuments({ page: 1, limit: PAGE_SIZE, for_my_action: true }));
-    } else {
-      toast.error((result.payload as string) ?? 'Failed to add response');
+      // Refresh the current document to get updated responses
+      dispatch(fetchDocumentById(doc.id));
+
+    } catch (error) {
+      toast.error(typeof error === 'string' ? error : 'Failed to add response');
     }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const droppedFile = e.dataTransfer.files[0];
+    if (droppedFile) {
+      // Validate file size (max 25MB)
+      if (droppedFile.size > 25 * 1024 * 1024) {
+        toast.error('File size exceeds 25MB limit');
+        return;
+      }
+      setFile(droppedFile);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      if (selectedFile.size > 25 * 1024 * 1024) {
+        toast.error('File size exceeds 25MB limit');
+        e.target.value = '';
+        return;
+      }
+      setFile(selectedFile);
+    }
+  };
+
+  const clearFile = () => {
+    setFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const isAssignedToUser = doc.assigned_to === currentUser?.id;
 
-  if (!hasResponses && !isAssignedToUser) return null;
+  if (!hasResponses && !isAssignedToUser && !isPendingResponse) return null;
 
   const showToggleButton = !hasResponses && isAssignedToUser;
 
@@ -606,6 +748,11 @@ const ResponseThreadPanel: React.FC<{ document: DocType }> = ({ document: doc })
           {hasResponses && (
             <span className="text-xs text-slate-400">
               ({responses.length} {responses.length === 1 ? 'reply' : 'replies'})
+            </span>
+          )}
+          {isPendingResponse && !hasResponses && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700">
+              Response Required
             </span>
           )}
         </div>
@@ -633,13 +780,17 @@ const ResponseThreadPanel: React.FC<{ document: DocType }> = ({ document: doc })
         )}
       </div>
 
-      {(isExpanded || hasResponses) && (
+      {(isExpanded || hasResponses || isPendingResponse) && (
         <>
           {!hasResponses && isAssignedToUser && (
-            <p className="text-sm text-slate-400 italic mb-3">
-              No responses yet. If the Super Admin returned this for more information, your reply
-              will appear here — numbered — instead of a new upload.
-            </p>
+            <div className="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
+              <p className="text-xs text-amber-700">
+                {isPendingResponse 
+                  ? '📌 This document has been returned to you for additional information. Please provide your response below.'
+                  : '💡 No responses yet. If the Super Admin returned this for more information, your reply will appear here — numbered — instead of a new upload.'
+                }
+              </p>
+            </div>
           )}
 
           {hasResponses && (
@@ -656,18 +807,30 @@ const ResponseThreadPanel: React.FC<{ document: DocType }> = ({ document: doc })
                     </div>
                     <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{r.note}</p>
                     {r.file_url && (
-                      <a
-                        href={r.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-2 inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
-                      >
-                        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        {r.original_name || 'View attachment'}
-                      </a>
+                      <div className="mt-2 flex items-center gap-2">
+                        <a
+                          href={r.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+                        >
+                          <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          {r.original_name || 'View attachment'}
+                          {r.file_size_bytes && (
+                            <span className="text-[10px] text-slate-400">({formatFileSize(r.file_size_bytes)})</span>
+                          )}
+                        </a>
+                        <a
+                          href={r.file_url}
+                          download
+                          className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                          Download
+                        </a>
+                      </div>
                     )}
                   </div>
                 </li>
@@ -684,27 +847,78 @@ const ResponseThreadPanel: React.FC<{ document: DocType }> = ({ document: doc })
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 rows={3}
-                placeholder="Type your response…"
+                placeholder={isPendingResponse 
+                  ? 'Type your response to the Super Admin\'s request for more information…' 
+                  : 'Type your response…'}
                 className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-800">
-                  <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                  {file ? file.name : 'Attach a file (optional)'}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    className="hidden"
-                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  />
-                </label>
+              
+              <div
+                className={`mt-2 relative border-2 border-dashed rounded-lg p-3 transition-colors ${
+                  isDragging 
+                    ? 'border-blue-500 bg-blue-50' 
+                    : file 
+                      ? 'border-green-500 bg-green-50' 
+                      : 'border-slate-200 hover:border-blue-400'
+                }`}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 flex-shrink-0">
+                      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
+                      {file ? 'Change file' : 'Attach a file (optional)'}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        className="hidden"
+                        onChange={handleFileChange}
+                      />
+                    </label>
+                    {file && (
+                      <>
+                        <span className="text-xs font-medium text-slate-700 truncate max-w-[150px]">
+                          {file.name}
+                        </span>
+                        <span className="text-[10px] text-slate-400 flex-shrink-0">
+                          ({(file.size / 1024).toFixed(1)} KB)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={clearFile}
+                          className="text-red-400 hover:text-red-600 flex-shrink-0"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {isDragging && (
+                    <span className="text-xs font-medium text-blue-600 flex-shrink-0">Drop file here</span>
+                  )}
+                  {!file && !isDragging && (
+                    <span className="text-[10px] text-slate-400 flex-shrink-0">
+                      or drag & drop
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  Max file size: 25 MB. Supported: PDF, DOCX, XLSX, JPG, PNG, MP4, MP3
+                </div>
+              </div>
+
+              <div className="mt-3 flex items-center justify-end gap-2">
                 <button
                   type="submit"
                   disabled={!note.trim() || isSubmitting}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 transition"
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 transition-colors"
                 >
                   {isSubmitting && <Spinner />}
                   {isSubmitting ? 'Sending…' : 'Send Response'}
@@ -718,6 +932,9 @@ const ResponseThreadPanel: React.FC<{ document: DocType }> = ({ document: doc })
               This document is not currently assigned to you.
             </p>
           )}
+
+          {/* Flow History */}
+          {doc.id && <FlowHistoryPanel documentId={doc.id} />}
         </>
       )}
     </div>
@@ -1566,6 +1783,8 @@ const AdminDocs = () => {
 
   const handlePreview = (doc: DocType) => {
     console.log(`[AdminDocs] Previewing document: ${doc.id}`);
+    // Fetch fresh document data to get latest responses
+    dispatch(fetchDocumentById(doc.id));
     setSelectedDocument(doc);
   };
 
@@ -1730,9 +1949,16 @@ const AdminDocs = () => {
                       currentUser && doc.assigned_to === currentUser.id && doc.status === 'pending_review' && !doc.is_draft;
 
                     return (
-                      <tr key={doc.id} className="border-b border-slate-50 hover:bg-slate-50/60 transition">
+                      <tr key={doc.id} className={`border-b border-slate-50 hover:bg-slate-50/60 transition ${
+                        needsMyResponse ? 'bg-amber-50/50' : ''
+                      }`}>
                         <td className="px-4 py-3 font-medium text-slate-900 truncate max-w-[200px]" title={doc.title}>
                           {doc.title}
+                          {needsMyResponse && (
+                            <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">
+                              Response needed
+                            </span>
+                          )}
                         </td>
 
                         <td className="px-4 py-3">
@@ -1750,12 +1976,9 @@ const AdminDocs = () => {
                             <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[doc.status] ?? 'bg-gray-100 text-gray-700'}`}>
                               {doc.is_draft ? 'draft' : doc.status.replace(/_/g, ' ')}
                             </span>
-                            {needsMyResponse && (
-                              <span
-                                className="inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700"
-                                title="Returned to you — a response is needed"
-                              >
-                                Needs response
+                            {doc.status === 'pending_review' && doc.assigned_to === currentUser?.id && (
+                              <span className="inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700">
+                                Awaiting Response
                               </span>
                             )}
                           </div>
@@ -1840,7 +2063,7 @@ const AdminDocs = () => {
                               title={needsMyResponse ? 'Open — a response is needed' : 'Preview / open thread'}
                               className={`p-1.5 rounded-md transition ${
                                 needsMyResponse
-                                  ? 'text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100'
+                                  ? 'text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 animate-pulse'
                                   : 'text-slate-400 hover:text-blue-600'
                               }`}
                             >

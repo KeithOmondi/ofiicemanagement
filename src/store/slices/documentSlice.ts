@@ -50,7 +50,7 @@ interface DocumentState {
   latestDocumentsRequestId: string | null;
   actionInProgress: {
     signing?: string;
-    releasing?: string;  // ✅ NEW
+    releasing?: string;
     sending?: string;
     marking?: string;
     acknowledging?: string;
@@ -373,26 +373,42 @@ export const requestSignOtp = createAsyncThunk(
   }
 );
 
-// ── Sign with OTP ──────────────────────────────────────────────────────────
+// ── Sign with OTP (including optional custom position) ──────────────────────
 
 export const signDocument = createAsyncThunk(
   'documents/signDocument',
-  async ({ id, otp }: { id: string; otp: string }, { rejectWithValue }) => {
+  async ({ 
+    id, 
+    otp,
+    position_x,
+    position_y,
+    position_width,
+    position_height,
+  }: { 
+    id: string; 
+    otp: string;
+    position_x?: number;
+    position_y?: number;
+    position_width?: number;
+    position_height?: number;
+  }, { rejectWithValue }) => {
     try {
       const response = await axiosClient.post<{
         success: boolean;
         data: Document;
-      }>(`/documents/${id}/sign`, { otp });
+      }>(`/documents/${id}/sign`, { 
+        otp,
+        position_x,
+        position_y,
+        position_width,
+        position_height,
+      });
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
   }
 );
-
-// ── Release Document to Admin Side ──────────────────────────────────────────
-
-// src/store/slices/documentSlice.ts
 
 // ── Release Document to Admin Side ──────────────────────────────────────────
 
@@ -410,6 +426,7 @@ export const releaseDocument = createAsyncThunk(
     }
   }
 );
+
 
 // ── Send document ───────────────────────────────────────────────────────────
 

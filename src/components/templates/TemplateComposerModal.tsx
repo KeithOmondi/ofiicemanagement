@@ -74,9 +74,12 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
     new Intl.DateTimeFormat('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())
   );
 
-  // ✅ Signatory fields - separate from the FROM field
+  // Signatory fields - separate from the FROM field
   const [signatoryName, setSignatoryName] = useState(currentUser?.full_name ?? '');
   const [senderTitleField, setSenderTitleField] = useState('Registrar, High Court');
+
+  // 👇 NEW: control TO / FROM order in memo
+  const [fromFirst, setFromFirst] = useState(false);
 
   const [ccField, setCcField] = useState('');
   const [enclosuresField, setEnclosuresField] = useState('');
@@ -142,6 +145,7 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
           signatureTitle: senderTitleField.trim() || 'Registrar, High Court',
           department_id: departmentId ?? undefined,
           reference_no: refField.trim() || undefined,
+          fromFirst, // 👈 include the flag
         };
         result = await dispatch(createMemo(payload));
       } else {
@@ -255,26 +259,51 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                       </p>
                     </div>
                     <div className="border-t-[2.5px] border-black mb-2.5" />
+
+                    {/* 👇 Memo fields with swap button */}
                     <div className="mt-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs text-stone-400 font-medium">Order:</span>
+                        <button
+                          type="button"
+                          onClick={() => setFromFirst(!fromFirst)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium text-stone-600 bg-stone-100 rounded hover:bg-stone-200 transition"
+                        >
+                          <span>{fromFirst ? 'FROM → TO' : 'TO → FROM'}</span>
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                          </svg>
+                        </button>
+                        <span className="text-[10px] text-stone-400 italic">(swap TO / FROM)</span>
+                      </div>
+
                       {[
                         { label: 'TO', value: toField, set: setToField, upper: true },
                         { label: 'FROM', value: fromField, set: setFromField, upper: true },
                         { label: 'REF', value: refField, set: setRefField, upper: false, placeholder: 'RHC/AIE/___' },
                         { label: 'DATE', value: dateField, set: setDateField, upper: false },
                         { label: 'SUBJECT', value: title, set: setTitle, upper: true, placeholder: 'Subject of this memo' },
-                      ].map(({ label, value, set, upper, placeholder }) => (
-                        <div key={label} className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
-                          <span className="w-24 shrink-0 uppercase">{label}</span>
-                          <span className="w-5 shrink-0">:</span>
-                          <input
-                            value={value}
-                            onChange={(e) => set(e.target.value)}
-                            placeholder={placeholder}
-                            className={`${editableLineClasses} ${upper ? 'uppercase' : ''}`}
-                          />
-                        </div>
-                      ))}
+                      ]
+                        // Reorder based on fromFirst: swap TO and FROM if true
+                        .sort((a, b) => {
+                          if (a.label === 'TO' && b.label === 'FROM') return fromFirst ? 1 : -1;
+                          if (a.label === 'FROM' && b.label === 'TO') return fromFirst ? -1 : 1;
+                          return 0;
+                        })
+                        .map(({ label, value, set, upper, placeholder }) => (
+                          <div key={label} className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
+                            <span className="w-24 shrink-0 uppercase">{label}</span>
+                            <span className="w-5 shrink-0">:</span>
+                            <input
+                              value={value}
+                              onChange={(e) => set(e.target.value)}
+                              placeholder={placeholder}
+                              className={`${editableLineClasses} ${upper ? 'uppercase' : ''}`}
+                            />
+                          </div>
+                        ))}
                     </div>
+
                     <div className="border-t-[2.5px] border-black mt-3 mb-10" />
                     <div
                       ref={editorRef}
@@ -307,7 +336,7 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                     </div>
                   </>
                 ) : (
-                  // Letter template
+                  // Letter template (unchanged)
                   <>
                     <div className="flex items-center mb-1">
                       <div className="flex-shrink-0 mr-4">
@@ -379,9 +408,8 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                       />
                     </div>
 
-                    {/* ✅ CC block – updated to match the new letter template styling */}
+                    {/* CC block – unchanged */}
                     <div className="mt-8 border-t border-stone-300 pt-4">
-                      {/* "Copy to:" label – block, italic, underlined */}
                       <div className="mb-2">
                         <span className="font-bold text-xs italic underline">Copy to:</span>
                       </div>
@@ -397,9 +425,8 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                       </p>
 
                       {ccPreviewEntries.length > 0 && (
-                        // Preview styled exactly like the template’s .cc-block
                         <div className="mt-3 text-[13px] leading-[1.5]">
-                          <div className="ml-6"> {/* indent the whole list */}
+                          <div className="ml-6">
                             {ccPreviewEntries.map((entry, idx) => (
                               <div key={idx} className="flex mb-4 last:mb-0">
                                 <span className="w-6 shrink-0">{idx + 1}.</span>

@@ -1,3 +1,4 @@
+// src/pages/Helpdesk.tsx
 import React, { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -70,6 +71,9 @@ import {
   type ClubMembership,
   type JudgeUtility,
   type UtilityStatus,
+  type RequestType,
+  type RemarkType,
+  type GeneralRequestCategory,
 } from '../../store/slices/helpdeskSlice';
 
 // ─── Helpdesk Documents imports ───────────────────────────────────────────────
@@ -118,7 +122,7 @@ import {
   Upload,
   ExternalLink,
   Send,
-  Mail,
+  Tag,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
 import UtilitiesModal, { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
@@ -127,6 +131,44 @@ import { VisaModal } from '../../components/modals/VisaModal';
 import { RequestModal } from '../../components/modals/RequestModal';
 import ClubModal from '../../components/Layout/ClubModal';
 import { toast } from 'react-hot-toast';
+
+// ─── Constants for request types ────────────────────────────────────────────
+const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
+  Driver: 'Driver',
+  Bodyguard: 'Bodyguard',
+  Firearm: 'Firearm',
+  'Current Station': 'Current Station',
+  'Force Number': 'Force Number',
+  'Residence Security': 'Residence Security',
+  Sentry: 'Sentry',
+};
+
+const REQUEST_TYPE_COLORS: Record<RequestType, string> = {
+  Driver: 'bg-blue-50 text-blue-700 border-blue-200',
+  Bodyguard: 'bg-purple-50 text-purple-700 border-purple-200',
+  Firearm: 'bg-red-50 text-red-700 border-red-200',
+  'Current Station': 'bg-green-50 text-green-700 border-green-200',
+  'Force Number': 'bg-orange-50 text-orange-700 border-orange-200',
+  'Residence Security': 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  Sentry: 'bg-gray-50 text-gray-700 border-gray-200',
+};
+
+const CATEGORY_LABELS: Record<GeneralRequestCategory, string> = {
+  Security: 'Security',
+  Personnel: 'Personnel',
+  Administrative: 'Administrative',
+};
+
+const CATEGORY_COLORS: Record<GeneralRequestCategory, string> = {
+  Security: 'bg-red-50 text-red-700 border-red-200',
+  Personnel: 'bg-blue-50 text-blue-700 border-blue-200',
+  Administrative: 'bg-amber-50 text-amber-700 border-amber-200',
+};
+
+const REMARK_TYPE_LABELS: Record<RemarkType, string> = {
+  Onboarding: 'Onboarding',
+  Release: 'Release',
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -592,8 +634,6 @@ function OverviewTab() {
           loading={loading}
         />
       </div>
-
-      
     </div>
   );
 }
@@ -1944,7 +1984,7 @@ function MedicalClaimsTab() {
   );
 }
 
-// ─── General Requests Tab ────────────────────────────────────────────────────
+// ─── General Requests Tab (UPDATED - fixed email error) ─────────────────────
 
 function GeneralRequestsTab() {
   const dispatch = useAppDispatch();
@@ -1956,21 +1996,9 @@ function GeneralRequestsTab() {
   const [editingItem, setEditingItem] = useState<GeneralRequest | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  // ─── Status Change with Email ───────────────────────────────────────────
+  // ─── Status Change (without email, as it's not stored) ─────────────────
   const handleStatusChange = async (id: string, status: Status) => {
-    // Find the request to get its email
-    const request = data.find((r) => r.id === id);
-    
-    // Only send email if status is Resolved or Rejected
-    const email = (status === 'Resolved' || status === 'Rejected') 
-      ? request?.email || undefined 
-      : undefined;
-    
-    await dispatch(updateGeneralRequestStatus({ 
-      id, 
-      status, 
-      email 
-    }));
+    await dispatch(updateGeneralRequestStatus({ id, status }));
     await dispatch(fetchGeneralRequests({}));
     await dispatch(fetchHelpDeskStats());
   };
@@ -1996,7 +2024,7 @@ function GeneralRequestsTab() {
   return (
     <>
       <Panel
-        title="General Requests"
+        title="General / Personnel Requests"
         icon={<FileText className="h-4 w-4" />}
         action={
           <div className="flex gap-2">
@@ -2007,48 +2035,111 @@ function GeneralRequestsTab() {
           </div>
         }
       >
-        <TableWithActions
-          data={data}
-          loading={loading}
-          columns={[
-            { key: 's_no', label: 'S/No.' },
-            { key: 'ticket_number', label: 'Ticket #' },
-            { key: 'judge_name', label: "Judge's Name" },
-            { key: 'request', label: 'Request' },
-            { key: 'date_received', label: 'Date Received' },
-            { key: 'status', label: 'Status', align: 'center' },
-            { key: 'remarks', label: 'Remarks' },
-          ]}
-          renderRow={(item: GeneralRequest) => (
-            <>
-              <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-mono text-xs text-stone-500">{item.ticket_number || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
-              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.request}</td>
-              <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
-              <td className="px-3 py-2 text-center">
-                <StatusDropdown
-                  status={item.status}
-                  onStatusChange={(s) => handleStatusChange(item.id, s)}
-                  disabled={mutating}
-                />
-              </td>
-              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.remarks || '—'}</td>
-            </>
-          )}
-          onEdit={handleEdit}
-          onDelete={(id) => setDeleteTarget(id)}
-          mutating={mutating}
-          extraActions={(item: GeneralRequest) => (
-            <>
-              {item.email && (
-                <span className="text-[10px] text-stone-400 ml-1" title={`Email: ${item.email}`}>
-                  <Mail className="h-3 w-3 inline" />
-                </span>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-stone-200 text-xs uppercase text-stone-400">
+                <th className="px-3 py-2 font-medium">S/No.</th>
+                <th className="px-3 py-2 font-medium">Ticket #</th>
+                <th className="px-3 py-2 font-medium">Judge</th>
+                <th className="px-3 py-2 font-medium">Type</th>
+                <th className="px-3 py-2 font-medium">Category</th>
+                <th className="px-3 py-2 font-medium">Request</th>
+                <th className="px-3 py-2 font-medium">Date Recv'd</th>
+                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">Remarks</th>
+                <th className="px-3 py-2 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {loading ? (
+                <tr>
+                  <td colSpan={10} className="px-3 py-8 text-center">
+                    <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c] mx-auto" />
+                  </td>
+                </tr>
+              ) : data.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="px-3 py-8 text-center text-stone-400">
+                    No records found. Click 'Add' to create one.
+                  </td>
+                </tr>
+              ) : (
+                data.map((item) => (
+                  <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+                    <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-stone-500">{item.ticket_number || '—'}</td>
+                    <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                          REQUEST_TYPE_COLORS[item.request_type as RequestType] || 'bg-stone-50 text-stone-600 border-stone-200'
+                        }`}
+                      >
+                        {item.request_type ? REQUEST_TYPE_LABELS[item.request_type as RequestType] : '—'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      {item.category ? (
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                            CATEGORY_COLORS[item.category as GeneralRequestCategory] || 'bg-stone-50 text-stone-600 border-stone-200'
+                          }`}
+                        >
+                          {CATEGORY_LABELS[item.category as GeneralRequestCategory] || item.category}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-stone-600 max-w-xs truncate" title={item.request}>
+                      {item.request}
+                    </td>
+                    <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
+                    <td className="px-3 py-2 text-center">
+                      <StatusDropdown
+                        status={item.status}
+                        onStatusChange={(s) => handleStatusChange(item.id, s)}
+                        disabled={mutating}
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-stone-600 max-w-xs truncate" title={item.remarks || ''}>
+                      {item.remarks || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => handleEdit(item)}
+                          disabled={mutating}
+                          className="rounded p-1 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50"
+                          title="Edit"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget(item.id)}
+                          disabled={mutating}
+                          className="rounded p-1 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                        {item.remark_type && (
+                          <span
+                            className="text-[10px] text-stone-400"
+                            title={`Remark type: ${REMARK_TYPE_LABELS[item.remark_type as RemarkType] || item.remark_type}`}
+                          >
+                            <Tag className="h-3 w-3" />
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
-            </>
-          )}
-        />
+            </tbody>
+          </table>
+        </div>
       </Panel>
 
       <RequestModal

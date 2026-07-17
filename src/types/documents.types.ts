@@ -7,15 +7,15 @@ export type DocumentType =
   | 'order' | 'correspondence' | 'upload' | 'ticket';
 
 export type DocumentStatus =
-  | 'draft' 
-  | 'uploaded' 
+  | 'draft'
+  | 'uploaded'
   | 'pending_review'
-  | 'marked' 
-  | 'in_progress' 
-  | 'completed' 
+  | 'marked'
+  | 'in_progress'
+  | 'completed'
   | 'filed'
-  | 'ready_to_release'  // ✅ NEW: Signed and ready for release
-  | 'released';         // ✅ NEW: Released to admin side
+  | 'ready_to_release'
+  | 'released';
 
 export type DocumentCategory =
   | 'judgments' | 'rulings' | 'correspondence'
@@ -25,6 +25,149 @@ export type RoutePriority = 'low' | 'normal' | 'urgent';
 
 export type RefType =
   | 'for_signature' | 'for_attention' | 'for_information' | 'direction' | 'other';
+
+// ── NEW: Request Types ──────────────────────────────────────────────────────
+
+export type RequestType =
+  | 'driver'
+  | 'bodyguard'
+  | 'firearm'
+  | 'current_station'
+  | 'force_number'
+  | 'residence_security'
+  | 'sentry';
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+// ── Request Details ──────────────────────────────────────────────────────────
+
+export interface DocumentRequestDetails {
+  // Type of request
+  request_type: RequestType | null;
+  
+  // Driver specific fields
+  driver_name?: string | null;
+  driver_license?: string | null;
+  driver_vehicle?: string | null;
+  driver_contact?: string | null;
+  
+  // Bodyguard specific fields
+  bodyguard_name?: string | null;
+  bodyguard_badge?: string | null;
+  bodyguard_unit?: string | null;
+  bodyguard_contact?: string | null;
+  
+  // Firearm specific fields
+  firearm_type?: string | null;
+  firearm_serial?: string | null;
+  firearm_caliber?: string | null;
+  firearm_owner?: string | null;
+  firearm_license?: string | null;
+  
+  // Current station specific fields
+  current_station_name?: string | null;
+  current_station_location?: string | null;
+  current_station_contact?: string | null;
+  current_station_head?: string | null;
+  
+  // Force number specific fields
+  force_number_value?: string | null;
+  force_number_rank?: string | null;
+  force_number_unit?: string | null;
+  force_number_issue_date?: string | null;
+  
+  // Residence Security / Sentry specific fields
+  residence_address?: string | null;
+  residence_city?: string | null;
+  residence_state?: string | null;
+  security_personnel_count?: number | null;
+  security_shift_hours?: string | null;
+  security_equipment?: string | null;
+  sentry_post_location?: string | null;
+  sentry_instructions?: string | null;
+  
+  // Common request fields
+  request_date?: string | null;
+  request_reason?: string | null;
+  request_duration?: string | null;
+  request_start_date?: string | null;
+  request_end_date?: string | null;
+  requesting_officer?: string | null;
+  requesting_officer_rank?: string | null;
+  approving_officer?: string | null;
+  approving_officer_rank?: string | null;
+  approval_status?: ApprovalStatus | null;
+  approval_date?: string | null;
+  remarks?: string | null;
+}
+
+// ── Request-specific interfaces for better type safety ──────────────────────
+
+export interface DriverRequestDetails extends DocumentRequestDetails {
+  request_type: 'driver';
+  driver_name: string;
+  driver_license: string;
+  driver_vehicle: string;
+  driver_contact: string;
+}
+
+export interface BodyguardRequestDetails extends DocumentRequestDetails {
+  request_type: 'bodyguard';
+  bodyguard_name: string;
+  bodyguard_badge: string;
+  bodyguard_unit: string;
+  bodyguard_contact: string;
+}
+
+export interface FirearmRequestDetails extends DocumentRequestDetails {
+  request_type: 'firearm';
+  firearm_type: string;
+  firearm_serial: string;
+  firearm_caliber: string;
+  firearm_owner: string;
+  firearm_license: string;
+}
+
+export interface CurrentStationRequestDetails extends DocumentRequestDetails {
+  request_type: 'current_station';
+  current_station_name: string;
+  current_station_location: string;
+  current_station_contact: string;
+  current_station_head: string;
+}
+
+export interface ForceNumberRequestDetails extends DocumentRequestDetails {
+  request_type: 'force_number';
+  force_number_value: string;
+  force_number_rank: string;
+  force_number_unit: string;
+  force_number_issue_date: string;
+}
+
+export interface ResidenceSecurityRequestDetails extends DocumentRequestDetails {
+  request_type: 'residence_security' | 'sentry';
+  residence_address: string;
+  residence_city: string;
+  residence_state: string;
+  security_personnel_count: number;
+  security_shift_hours: string;
+  security_equipment: string;
+  sentry_post_location?: string | null;
+  sentry_instructions?: string | null;
+}
+
+export type AnyRequestDetails =
+  | DriverRequestDetails
+  | BodyguardRequestDetails
+  | FirearmRequestDetails
+  | CurrentStationRequestDetails
+  | ForceNumberRequestDetails
+  | ResidenceSecurityRequestDetails;
+
+// ── Signature Placement: now auto‑detected; custom positioning uses coordinates ─
+// The SignaturePlacement type is removed; placement is determined by scanning
+// for the signatory block (name + title) or by absolute coordinates.
+// For custom placement, use signature_position_x/y/width/height.
 
 // ── Input types ───────────────────────────────────────────────────────────────
 
@@ -37,6 +180,8 @@ export interface CreateComposedDocumentInput {
   body: string;
   assigned_to?: string;
   department_id?: string;
+  // ── NEW: Request Details ──────────────────────────────────────────────
+  request_details?: Partial<DocumentRequestDetails>;
 }
 
 export interface ComposeMemoInput {
@@ -49,6 +194,9 @@ export interface ComposeMemoInput {
   signatureTitle?: string;     // e.g. "Registrar, High Court"
   department_id?: string;
   reference_no?: string;       // optional user‑provided reference
+  fromFirst?: boolean;         // (unused, kept for compatibility)
+  // ── NEW: Request Details ──────────────────────────────────────────────
+  request_details?: Partial<DocumentRequestDetails>;
 }
 
 export interface ComposeLetterInput {
@@ -63,6 +211,8 @@ export interface ComposeLetterInput {
   reference_no?: string;
   cc?: string;                 // carbon copy
   enclosures?: string;         // list of enclosures
+  // ── NEW: Request Details ──────────────────────────────────────────────
+  request_details?: Partial<DocumentRequestDetails>;
 }
 
 // ── Other input types ──────────────────────────────────────────────────────────
@@ -83,6 +233,8 @@ export interface CreateUploadDocumentInput {
   department_id?: string;
   is_draft?: boolean;
   priority?: RoutePriority;
+  // ── NEW: Request Details ──────────────────────────────────────────────
+  request_details?: Partial<DocumentRequestDetails>;
 }
 
 export interface UpdateDocumentInput {
@@ -103,6 +255,13 @@ export interface UpdateDocumentInput {
   enclosures?: string | null;
   signature_name?: string | null;
   signature_title?: string | null;
+  // Custom signature position (absolute coordinates, used only if provided)
+  signature_position_x?: number | null;
+  signature_position_y?: number | null;
+  signature_position_width?: number | null;
+  signature_position_height?: number | null;
+  // ── NEW: Request Details ──────────────────────────────────────────────
+  request_details?: Partial<DocumentRequestDetails> | null;
 }
 
 // ── Mark to Department ──────────────────────────────────────────────────────
@@ -140,6 +299,8 @@ export interface DocumentFilters {
   sort_by?: 'created_at' | 'updated_at' | 'title' | 'status';
   sort_order?: 'ASC' | 'DESC';
   has_bring_up_date?: boolean;
+  // ── NEW: Request type filter ──────────────────────────────────────────
+  request_type?: RequestType;
 }
 
 // ── Draft / Flow input types ────────────────────────────────────────────────
@@ -178,11 +339,11 @@ export interface FolderDocumentFilters {
   search?: string;
   type?: DocumentType;
   status?: DocumentStatus;
+  // ── NEW: Request type filter ──────────────────────────────────────────
+  request_type?: RequestType;
 }
 
 // ── Entity types ──────────────────────────────────────────────────────────────
-
-// ── Document Mark (to Department) ──────────────────────────────────────────
 
 export interface DocumentMark {
   id: string;
@@ -213,8 +374,6 @@ export interface DocumentAnnotation {
   created_at: Date;
 }
 
-// ── Document Response (numbered reply thread) ───────────────────────────────
-
 export interface DocumentResponse {
   id: string;
   document_id: string;
@@ -229,8 +388,6 @@ export interface DocumentResponse {
   original_name: string | null;
   created_at: Date;
 }
-
-// ── Document Flow (audit trail) ─────────────────────────────────────────────
 
 export interface DocumentFlowEntry {
   id: string;
@@ -274,9 +431,9 @@ export interface Document {
   signed_by: string | null;
   signed_by_name: string | null;
   signed_at: Date | null;
-  released_at: Date | null;        // ✅ NEW: When released to admin side
-  released_by: string | null;      // ✅ NEW: Who released it
-  released_by_name: string | null; // ✅ NEW: Name of who released it
+  released_at: Date | null;
+  released_by: string | null;
+  released_by_name: string | null;
   is_sent: boolean;
   sent_at: Date | null;
   is_draft: boolean;
@@ -285,7 +442,7 @@ export interface Document {
   updated_at: Date;
   active_mark: DocumentMark | null;
   response_count?: number;
-  // Memo/Letter specific fields (stored in DB, editable by Super Admin)
+  // Memo/Letter specific fields
   to_recipient: string | null;
   from_sender: string | null;
   document_date: string | null;
@@ -294,6 +451,15 @@ export interface Document {
   enclosures: string | null;
   signature_name: string | null;
   signature_title: string | null;
+  // Custom signature position (absolute coordinates, used only if provided)
+  // When these are set, the signature is placed at exact coordinates;
+  // otherwise, it is auto‑detected above the signatory block.
+  signature_position_x: number | null;
+  signature_position_y: number | null;
+  signature_position_width: number | null;
+  signature_position_height: number | null;
+  // ── NEW: Request Details ──────────────────────────────────────────────
+  request_details: DocumentRequestDetails | null;
 }
 
 export interface DocumentWithAnnotations extends Document {

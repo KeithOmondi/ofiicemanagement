@@ -4,7 +4,6 @@ import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/tool
 import type { AxiosError } from 'axios';
 import axiosClient from '../../api/api';
 import type { RootState } from '../store';
-import type { HelpdeskEntityType } from '../../types/helpdesk-documents.types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -15,10 +14,52 @@ export type DocumentEntityType =
     | 'partHeard'
     | 'serviceWeek'
     | 'otherPayment'
-    | 'ticket';
+    | 'ticket'
+    | 'medicalClaim'
+    | 'generalRequest'   // Unified - includes all security/personnel requests
+    | 'securityRequest'; // Deprecated - kept for backward compatibility
 
 export type DocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
+
+// ─── Unified Request Types ──────────────────────────────────────────────────
+
+export type RequestType =
+    | 'Driver'
+    | 'Bodyguard'
+    | 'Firearm'
+    | 'Current Station'
+    | 'Force Number'
+    | 'Residence Security'
+    | 'Sentry';
+
+export type RemarkType = 'Onboarding' | 'Release';
+export type GeneralRequestCategory = 'Security' | 'Personnel' | 'Administrative';
+
+// ─── Document Tracking ──────────────────────────────────────────────────────
+
+export interface DocumentView {
+    id: string;
+    document_id: string;
+    document_type: string;
+    viewer_id: string;
+    viewer_name: string;
+    viewed_at: string;
+    ip_address: string | null;
+    user_agent: string | null;
+}
+
+export interface DocumentWithViewStatus {
+    id: string;
+    document_name: string;
+    document_url: string;
+    created_at: string;
+    viewed_at: string | null;
+    view_count: number;
+    last_viewed_by: string | null;
+    last_viewed_at: string | null;
+    viewers: DocumentView[];
+}
 
 export interface ApprovalHistoryEntry {
     id: string;
@@ -69,6 +110,12 @@ export interface HelpdeskDocument {
     returned_at?: string;
     returned_by?: string;
     rejection_reason?: string;
+    
+    // Unified General Request fields
+    request_type?: RequestType;
+    judge_name?: string;
+    remark_type?: RemarkType;
+    category_type?: GeneralRequestCategory;
 }
 
 export interface HelpdeskDocumentFilters {
@@ -81,7 +128,15 @@ export interface HelpdeskDocumentFilters {
     offset?: number;
     uploaded_by?: string;
     pending_my_approval?: boolean;
-    unlinked?: boolean; // ADD THIS
+    unlinked?: boolean;
+    
+    // Unified General Request filters
+    request_type?: RequestType;
+    judge_name?: string;
+    remark_type?: RemarkType;
+    category_type?: GeneralRequestCategory;
+    date_from?: string;
+    date_to?: string;
 }
 
 export interface UploadHelpdeskDocumentPayload {
@@ -93,28 +148,44 @@ export interface UploadHelpdeskDocumentPayload {
     entity_id?: string;
     format: DocumentFormat;
     status?: DocumentStatus;
+    
+    // Unified General Request fields
+    request_type?: RequestType;
+    judge_name?: string;
+    remark_type?: RemarkType;
+    category_type?: GeneralRequestCategory;
 }
 
 export interface SubmitForApprovalPayload {
     id: string;
     comments?: string;
+    submitted_by?: string;
+    submitted_by_name?: string;
 }
 
 export interface ApproveDocumentPayload {
     id: string;
     comments?: string;
+    approved_by?: string;
+    approved_by_name?: string;
+    e_stamp_url?: string;
+    e_stamp_public_id?: string;
 }
 
 export interface RejectDocumentPayload {
     id: string;
     reason: string;
     comments?: string;
+    rejected_by?: string;
+    rejected_by_name?: string;
 }
 
 export interface ReturnDocumentPayload {
     id: string;
     comments?: string;
     instructions?: string;
+    returned_by?: string;
+    returned_by_name?: string;
 }
 
 export interface AddCommentPayload {
@@ -130,8 +201,83 @@ export interface DeleteCommentPayload {
 
 export interface LinkHelpdeskDocumentPayload {
     id: string;
-    entity_type: HelpdeskEntityType;
+    entity_type: DocumentEntityType;
     entity_id: string;
+    request_type?: RequestType;
+    judge_name?: string;
+    remark_type?: RemarkType;
+    category_type?: GeneralRequestCategory;
+}
+
+export interface UpdateEStampPayload {
+    id: string;
+    e_stamp_url?: string;
+    e_stamp_public_id?: string;
+    e_stamp_status?: EStampStatus;
+}
+
+// ─── Bulk Operations ──────────────────────────────────────────────────────
+
+export interface BulkLinkDocumentsPayload {
+    document_ids: string[];
+    entity_type: DocumentEntityType;
+    entity_id: string;
+    request_type?: RequestType;
+    judge_name?: string;
+    remark_type?: RemarkType;
+    category_type?: GeneralRequestCategory;
+}
+
+export interface BulkUpdateStatusPayload {
+    document_ids: string[];
+    status: DocumentStatus;
+    comments?: string;
+}
+
+export interface BatchUploadPayload {
+    documents: Omit<UploadHelpdeskDocumentPayload, 'blob' | 'filename'>[];
+}
+
+export interface BulkOperationResult {
+    success: string[];
+    failed: string[];
+}
+
+// ─── Document Statistics ──────────────────────────────────────────────────
+
+export interface DocumentStats {
+    total: number;
+    pending_approval: number;
+    approved: number;
+    rejected: number;
+    returned: number;
+    draft: number;
+    by_entity: {
+        entity_type: DocumentEntityType;
+        count: number;
+        pending: number;
+        approved: number;
+    }[];
+    recent_activity: {
+        id: string;
+        ref: string;
+        subject: string;
+        action: string;
+        user_name: string;
+        created_at: string;
+    }[];
+}
+
+export interface DocumentSummary {
+    total: number;
+    by_status: Record<DocumentStatus, number>;
+    by_entity_type: Record<DocumentEntityType, number>;
+    by_format: Record<DocumentFormat, number>;
+    pending_approval: number;
+    draft: number;
+    approved: number;
+    rejected: number;
+    returned: number;
 }
 
 // ── Action Loading Types ─────────────────────────────────────────────────────
@@ -154,13 +300,19 @@ interface HelpdeskDocumentsState {
         reject: boolean;
         return: boolean;
         comment: boolean;
-        link: boolean; // ADD THIS
+        link: boolean;
+        batchUpload: boolean;
+        bulkLink: boolean;
+        bulkUpdate: boolean;
+        stats: boolean;
     };
     error: string | null;
     deletingId: string | null;
     actionLoading: {
         [documentId: string]: ActionLoadingState;
     };
+    stats: DocumentStats | null;
+    summary: DocumentSummary | null;
 }
 
 const initialState: HelpdeskDocumentsState = {
@@ -175,11 +327,17 @@ const initialState: HelpdeskDocumentsState = {
         reject: false,
         return: false,
         comment: false,
-        link: false, // ADD THIS
+        link: false,
+        batchUpload: false,
+        bulkLink: false,
+        bulkUpdate: false,
+        stats: false,
     },
     error: null,
     deletingId: null,
     actionLoading: {},
+    stats: null,
+    summary: null,
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -195,7 +353,16 @@ function buildParams(filters: HelpdeskDocumentFilters): Record<string, string> {
     if (filters.offset) params.offset = String(filters.offset);
     if (filters.uploaded_by) params.uploaded_by = filters.uploaded_by;
     if (filters.pending_my_approval) params.pending_my_approval = String(filters.pending_my_approval);
-    if (filters.unlinked) params.unlinked = String(filters.unlinked); // ADD THIS
+    if (filters.unlinked) params.unlinked = String(filters.unlinked);
+    
+    // Unified General Request filters
+    if (filters.request_type) params.request_type = filters.request_type;
+    if (filters.judge_name) params.judge_name = filters.judge_name;
+    if (filters.remark_type) params.remark_type = filters.remark_type;
+    if (filters.category_type) params.category_type = filters.category_type;
+    if (filters.date_from) params.date_from = filters.date_from;
+    if (filters.date_to) params.date_to = filters.date_to;
+    
     return params;
 }
 
@@ -270,6 +437,12 @@ export const uploadHelpdeskDocument = createAsyncThunk<
             form.append('format', payload.format);
             if (payload.entity_id) form.append('entity_id', payload.entity_id);
             if (payload.status) form.append('status', payload.status);
+            
+            // Unified General Request fields
+            if (payload.request_type) form.append('request_type', payload.request_type);
+            if (payload.judge_name) form.append('judge_name', payload.judge_name);
+            if (payload.remark_type) form.append('remark_type', payload.remark_type);
+            if (payload.category_type) form.append('category_type', payload.category_type);
 
             const { data } = await axiosClient.post('/helpdesk/documents/upload', form, {
                 headers: { 'Content-Type': 'multipart/form-data' },
@@ -282,15 +455,71 @@ export const uploadHelpdeskDocument = createAsyncThunk<
     }
 );
 
+export const batchUploadDocuments = createAsyncThunk<
+    { success: HelpdeskDocument[]; failed: { index: number; error: string }[] },
+    BatchUploadPayload,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/batchUpload',
+    async (payload, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.post('/helpdesk/documents/upload/batch', payload);
+            return data.data as { success: HelpdeskDocument[]; failed: { index: number; error: string }[] };
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Batch upload failed'));
+        }
+    }
+);
+
+export const fetchDocumentStats = createAsyncThunk<
+    DocumentStats,
+    { entity_type?: DocumentEntityType; date_from?: string; date_to?: string },
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/fetchStats',
+    async (filters, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.get('/helpdesk/documents/stats', {
+                params: filters,
+            });
+            return data.data as DocumentStats;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to fetch document stats'));
+        }
+    }
+);
+
+export const fetchDocumentSummary = createAsyncThunk<
+    DocumentSummary,
+    { entity_type?: DocumentEntityType },
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/fetchSummary',
+    async (filters, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.get('/helpdesk/documents/summary', {
+                params: filters,
+            });
+            return data.data as DocumentSummary;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to fetch document summary'));
+        }
+    }
+);
+
 export const submitForApproval = createAsyncThunk<
     HelpdeskDocument,
     SubmitForApprovalPayload,
     { rejectValue: string }
 >(
     'helpdeskDocuments/submitForApproval',
-    async ({ id, comments }, { rejectWithValue }) => {
+    async ({ id, comments, submitted_by, submitted_by_name }, { rejectWithValue }) => {
         try {
-            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/submit`, { comments });
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/submit`, {
+                comments,
+                submitted_by,
+                submitted_by_name,
+            });
             return data.data as HelpdeskDocument;
         } catch (err) {
             return rejectWithValue(getErrorMessage(err, 'Failed to submit for approval'));
@@ -304,9 +533,15 @@ export const approveDocument = createAsyncThunk<
     { rejectValue: string }
 >(
     'helpdeskDocuments/approve',
-    async ({ id, comments }, { rejectWithValue }) => {
+    async ({ id, comments, approved_by, approved_by_name, e_stamp_url, e_stamp_public_id }, { rejectWithValue }) => {
         try {
-            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/approve`, { comments });
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/approve`, {
+                comments,
+                approved_by,
+                approved_by_name,
+                e_stamp_url,
+                e_stamp_public_id,
+            });
             return data.data as HelpdeskDocument;
         } catch (err) {
             return rejectWithValue(getErrorMessage(err, 'Failed to approve document'));
@@ -320,9 +555,14 @@ export const rejectDocument = createAsyncThunk<
     { rejectValue: string }
 >(
     'helpdeskDocuments/reject',
-    async ({ id, reason, comments }, { rejectWithValue }) => {
+    async ({ id, reason, comments, rejected_by, rejected_by_name }, { rejectWithValue }) => {
         try {
-            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/reject`, { reason, comments });
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/reject`, {
+                reason,
+                comments,
+                rejected_by,
+                rejected_by_name,
+            });
             return data.data as HelpdeskDocument;
         } catch (err) {
             return rejectWithValue(getErrorMessage(err, 'Failed to reject document'));
@@ -336,12 +576,37 @@ export const returnDocument = createAsyncThunk<
     { rejectValue: string }
 >(
     'helpdeskDocuments/return',
-    async ({ id, comments, instructions }, { rejectWithValue }) => {
+    async ({ id, comments, instructions, returned_by, returned_by_name }, { rejectWithValue }) => {
         try {
-            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/return`, { comments, instructions });
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/return`, {
+                comments,
+                instructions,
+                returned_by,
+                returned_by_name,
+            });
             return data.data as HelpdeskDocument;
         } catch (err) {
             return rejectWithValue(getErrorMessage(err, 'Failed to return document'));
+        }
+    }
+);
+
+export const updateEStamp = createAsyncThunk<
+    HelpdeskDocument,
+    UpdateEStampPayload,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/updateEStamp',
+    async ({ id, e_stamp_url, e_stamp_public_id, e_stamp_status }, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/estampt`, {
+                e_stamp_url,
+                e_stamp_public_id,
+                e_stamp_status,
+            });
+            return data.data as HelpdeskDocument;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to update e-stamp'));
         }
     }
 );
@@ -397,21 +662,57 @@ export const deleteHelpdeskDocument = createAsyncThunk<
     }
 );
 
-export const linkHelpdeskDocument = createAsyncThunk <
+export const linkHelpdeskDocument = createAsyncThunk<
     HelpdeskDocument,
     LinkHelpdeskDocumentPayload,
     { rejectValue: string }
 >(
     'helpdeskDocuments/link',
-    async ({ id, entity_type, entity_id }, { rejectWithValue }) => {
+    async ({ id, entity_type, entity_id, request_type, judge_name, remark_type, category_type }, { rejectWithValue }) => {
         try {
             const { data } = await axiosClient.patch(`/helpdesk/documents/${id}/link`, {
                 entity_type,
                 entity_id,
+                request_type,
+                judge_name,
+                remark_type,
+                category_type,
             });
             return data.data as HelpdeskDocument;
         } catch (err) {
             return rejectWithValue(getErrorMessage(err, 'Failed to link document'));
+        }
+    }
+);
+
+export const bulkLinkDocuments = createAsyncThunk<
+    BulkOperationResult,
+    BulkLinkDocumentsPayload,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/bulkLink',
+    async (payload, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.post('/helpdesk/documents/bulk/link', payload);
+            return data.data as BulkOperationResult;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to bulk link documents'));
+        }
+    }
+);
+
+export const bulkUpdateStatus = createAsyncThunk<
+    BulkOperationResult,
+    BulkUpdateStatusPayload,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/bulkUpdateStatus',
+    async (payload, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.post('/helpdesk/documents/bulk/status', payload);
+            return data.data as BulkOperationResult;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to bulk update status'));
         }
     }
 );
@@ -431,9 +732,12 @@ const helpdeskDocumentsSlice = createSlice({
         clearActionLoading(state) {
             state.actionLoading = {};
         },
+        clearStats(state) {
+            state.stats = null;
+            state.summary = null;
+        },
     },
     extraReducers: (builder) => {
-
         // ── fetchHelpdeskDocuments ──────────────────────────────────────────
         builder
             .addCase(fetchHelpdeskDocuments.pending, (state) => {
@@ -483,6 +787,51 @@ const helpdeskDocumentsSlice = createSlice({
                 state.error = action.payload as string;
             });
 
+        // ── batchUploadDocuments ─────────────────────────────────────────────
+        builder
+            .addCase(batchUploadDocuments.pending, (state) => {
+                state.loading.batchUpload = true;
+                state.error = null;
+            })
+            .addCase(batchUploadDocuments.fulfilled, (state, action) => {
+                state.loading.batchUpload = false;
+                state.items = [...action.payload.success, ...state.items];
+            })
+            .addCase(batchUploadDocuments.rejected, (state, action) => {
+                state.loading.batchUpload = false;
+                state.error = action.payload as string;
+            });
+
+        // ── fetchDocumentStats ──────────────────────────────────────────────
+        builder
+            .addCase(fetchDocumentStats.pending, (state) => {
+                state.loading.stats = true;
+                state.error = null;
+            })
+            .addCase(fetchDocumentStats.fulfilled, (state, action: PayloadAction<DocumentStats>) => {
+                state.loading.stats = false;
+                state.stats = action.payload;
+            })
+            .addCase(fetchDocumentStats.rejected, (state, action) => {
+                state.loading.stats = false;
+                state.error = action.payload as string;
+            });
+
+        // ── fetchDocumentSummary ─────────────────────────────────────────────
+        builder
+            .addCase(fetchDocumentSummary.pending, (state) => {
+                state.loading.stats = true;
+                state.error = null;
+            })
+            .addCase(fetchDocumentSummary.fulfilled, (state, action: PayloadAction<DocumentSummary>) => {
+                state.loading.stats = false;
+                state.summary = action.payload;
+            })
+            .addCase(fetchDocumentSummary.rejected, (state, action) => {
+                state.loading.stats = false;
+                state.error = action.payload as string;
+            });
+
         // ── submitForApproval ────────────────────────────────────────────────
         builder
             .addCase(submitForApproval.pending, (state, action) => {
@@ -509,27 +858,60 @@ const helpdeskDocumentsSlice = createSlice({
                 }
             });
 
-            builder
-    .addCase(linkHelpdeskDocument.pending, (state) => {
-        state.loading.link = true;
-        state.error = null;
-    })
-    .addCase(linkHelpdeskDocument.fulfilled, (state, action: PayloadAction<HelpdeskDocument>) => {
-        state.loading.link = false;
-        const index = state.items.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) {
-            state.items[index] = action.payload;
-        } else {
-            state.items.unshift(action.payload);
-        }
-        if (state.selectedDocument?.id === action.payload.id) {
-            state.selectedDocument = action.payload;
-        }
-    })
-    .addCase(linkHelpdeskDocument.rejected, (state, action) => {
-        state.loading.link = false;
-        state.error = action.payload as string;
-    });
+        // ── linkHelpdeskDocument ─────────────────────────────────────────────
+        builder
+            .addCase(linkHelpdeskDocument.pending, (state) => {
+                state.loading.link = true;
+                state.error = null;
+            })
+            .addCase(linkHelpdeskDocument.fulfilled, (state, action: PayloadAction<HelpdeskDocument>) => {
+                state.loading.link = false;
+                const index = state.items.findIndex(d => d.id === action.payload.id);
+                if (index !== -1) {
+                    state.items[index] = action.payload;
+                } else {
+                    state.items.unshift(action.payload);
+                }
+                if (state.selectedDocument?.id === action.payload.id) {
+                    state.selectedDocument = action.payload;
+                }
+            })
+            .addCase(linkHelpdeskDocument.rejected, (state, action) => {
+                state.loading.link = false;
+                state.error = action.payload as string;
+            });
+
+        // ── bulkLinkDocuments ────────────────────────────────────────────────
+        builder
+            .addCase(bulkLinkDocuments.pending, (state) => {
+                state.loading.bulkLink = true;
+                state.error = null;
+            })
+            .addCase(bulkLinkDocuments.fulfilled, (state, action) => {
+                state.loading.bulkLink = false;
+                // Refresh items after bulk operation
+                state.items = state.items.filter(d => !action.payload.success.includes(d.id));
+            })
+            .addCase(bulkLinkDocuments.rejected, (state, action) => {
+                state.loading.bulkLink = false;
+                state.error = action.payload as string;
+            });
+
+        // ── bulkUpdateStatus ──────────────────────────────────────────────────
+        builder
+            .addCase(bulkUpdateStatus.pending, (state) => {
+                state.loading.bulkUpdate = true;
+                state.error = null;
+            })
+            .addCase(bulkUpdateStatus.fulfilled, (state, action) => {
+                state.loading.bulkUpdate = false;
+                // Refresh items after bulk operation
+                state.items = state.items.filter(d => !action.payload.success.includes(d.id));
+            })
+            .addCase(bulkUpdateStatus.rejected, (state, action) => {
+                state.loading.bulkUpdate = false;
+                state.error = action.payload as string;
+            });
 
         // ── approveDocument ──────────────────────────────────────────────────
         builder
@@ -609,6 +991,27 @@ const helpdeskDocumentsSlice = createSlice({
                 }
             });
 
+        // ── updateEStamp ──────────────────────────────────────────────────────
+        builder
+            .addCase(updateEStamp.pending, (state) => {
+                state.loading.approve = true;
+                state.error = null;
+            })
+            .addCase(updateEStamp.fulfilled, (state, action: PayloadAction<HelpdeskDocument>) => {
+                state.loading.approve = false;
+                const index = state.items.findIndex(d => d.id === action.payload.id);
+                if (index !== -1) {
+                    state.items[index] = action.payload;
+                }
+                if (state.selectedDocument?.id === action.payload.id) {
+                    state.selectedDocument = action.payload;
+                }
+            })
+            .addCase(updateEStamp.rejected, (state, action) => {
+                state.loading.approve = false;
+                state.error = action.payload as string;
+            });
+
         // ── addComment ───────────────────────────────────────────────────────
         builder
             .addCase(addComment.pending, (state) => {
@@ -668,6 +1071,7 @@ export const {
     clearDocumentError,
     clearSelectedDocument,
     clearActionLoading,
+    clearStats,
 } = helpdeskDocumentsSlice.actions;
 
 // ─── Selectors ───────────────────────────────────────────────────────────────
@@ -712,5 +1116,38 @@ export const selectDocumentLinking = (state: RootState) => state.helpdeskDocumen
 
 export const selectUnlinkedHelpdeskDocuments = (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => !d.entity_id);
+
+// ─── Unified General Request Selectors ──────────────────────────────────────
+
+export const selectDocumentsByRequestType = (requestType: RequestType) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.request_type === requestType);
+
+export const selectDocumentsByJudgeName = (judgeName: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter(
+        (d) => d.judge_name?.toLowerCase().includes(judgeName.toLowerCase())
+    );
+
+export const selectDocumentsByRemarkType = (remarkType: RemarkType) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.remark_type === remarkType);
+
+export const selectDocumentsByCategory = (categoryType: GeneralRequestCategory) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.category_type === categoryType);
+
+// ─── Statistics Selectors ────────────────────────────────────────────────────
+
+export const selectDocumentStats = (state: RootState) => state.helpdeskDocuments.stats;
+export const selectDocumentSummary = (state: RootState) => state.helpdeskDocuments.summary;
+
+export const selectPendingDocumentsCount = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.status === 'pending_approval').length;
+
+export const selectApprovedDocumentsCount = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.status === 'approved').length;
+
+export const selectRejectedDocumentsCount = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.status === 'rejected').length;
+
+export const selectDraftDocumentsCount = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.status === 'draft').length;
 
 export default helpdeskDocumentsSlice.reducer;

@@ -8,12 +8,31 @@ export type HelpdeskEntityType =
     | 'partHeard'
     | 'serviceWeek'
     | 'otherPayment'
-    | 'ticket';
+    | 'ticket'
+    | 'medicalClaim'
+    | 'generalRequest'   // Unified - includes all security/personnel requests
+    | 'securityRequest'; // Deprecated - kept for backward compatibility
 
 export type HelpdeskDocumentFormat = 'pdf' | 'docx' | 'xlsx';
 
 export type HelpdeskDocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
+
+// ─── Request Types (Unified) ───────────────────────────────────────────────
+
+export type RequestType =
+    | 'Driver'
+    | 'Bodyguard'
+    | 'Firearm'
+    | 'Current Station'
+    | 'Force Number'
+    | 'Residence Security'
+    | 'Sentry';
+
+export type RemarkType = 'Onboarding' | 'Release';
+export type GeneralRequestCategory = 'Security' | 'Personnel' | 'Administrative';
+
+// ─── Approval History ──────────────────────────────────────────────────────
 
 export interface ApprovalHistoryEntry {
     id: string;
@@ -27,6 +46,8 @@ export interface ApprovalHistoryEntry {
     created_at: string;
 }
 
+// ─── Comments ──────────────────────────────────────────────────────────────
+
 export interface Comment {
     id: string;
     document_id: string;
@@ -35,6 +56,31 @@ export interface Comment {
     comment: string;
     is_internal: boolean;
     created_at: string;
+}
+
+// ─── Document View Tracking ──────────────────────────────────────────────
+
+export interface DocumentView {
+    id: string;
+    document_id: string;
+    document_type: string;
+    viewer_id: string;
+    viewer_name: string;
+    viewed_at: string;
+    ip_address: string | null;
+    user_agent: string | null;
+}
+
+export interface DocumentWithViewStatus {
+    id: string;
+    document_name: string;
+    document_url: string;
+    created_at: string;
+    viewed_at: string | null;
+    view_count: number;
+    last_viewed_by: string | null;
+    last_viewed_at: string | null;
+    viewers: DocumentView[];
 }
 
 /**
@@ -70,9 +116,15 @@ export interface HelpdeskDocument {
     rejection_reason?: string;
     type: 'upload';
     category: 'general';
+    
+    // Unified General Request fields
+    request_type?: RequestType;        // Driver, Bodyguard, etc.
+    judge_name?: string;                // Associated judge name
+    remark_type?: RemarkType;          // Onboarding or Release
+    category_type?: GeneralRequestCategory; // Security, Personnel, Administrative
 }
 
-// ── Helpdesk Document Filters ───────────────────────────────────────────────
+// ─── Helpdesk Document Filters ───────────────────────────────────────────────
 
 export interface HelpdeskDocumentFilters {
     entity_type?: HelpdeskEntityType;
@@ -84,10 +136,18 @@ export interface HelpdeskDocumentFilters {
     offset?: number;
     uploaded_by?: string;
     pending_my_approval?: boolean;
-    unlinked?: boolean; // NEW — filters to entity_id IS NULL
+    unlinked?: boolean; // Filters to entity_id IS NULL
+    
+    // Unified General Request filters
+    request_type?: RequestType;
+    judge_name?: string;
+    remark_type?: RemarkType;
+    category_type?: GeneralRequestCategory;
+    date_from?: string;
+    date_to?: string;
 }
 
-// ── Helpdesk Document Upload Payload ────────────────────────────────────────
+// ─── Helpdesk Document Upload Payload ────────────────────────────────────────
 
 export interface UploadHelpdeskDocumentPayload {
     blob: Blob;
@@ -98,28 +158,44 @@ export interface UploadHelpdeskDocumentPayload {
     entity_id?: string;
     format: HelpdeskDocumentFormat;
     status?: HelpdeskDocumentStatus;
+    
+    // Unified General Request fields
+    request_type?: RequestType;
+    judge_name?: string;
+    remark_type?: RemarkType;
+    category_type?: GeneralRequestCategory;
 }
 
 export interface SubmitForApprovalPayload {
     id: string;
     comments?: string;
+    submitted_by?: string;
+    submitted_by_name?: string;
 }
 
 export interface ApproveDocumentPayload {
     id: string;
     comments?: string;
+    approved_by?: string;
+    approved_by_name?: string;
+    e_stamp_url?: string;
+    e_stamp_public_id?: string;
 }
 
 export interface RejectDocumentPayload {
     id: string;
     reason: string;
     comments?: string;
+    rejected_by?: string;
+    rejected_by_name?: string;
 }
 
 export interface ReturnDocumentPayload {
     id: string;
     comments?: string;
     instructions?: string;
+    returned_by?: string;
+    returned_by_name?: string;
 }
 
 export interface AddCommentPayload {
@@ -133,7 +209,46 @@ export interface DeleteCommentPayload {
     commentId: string;
 }
 
-// ── Helpdesk Document Response ──────────────────────────────────────────────
+export interface LinkHelpdeskDocumentPayload {
+    id: string;
+    entity_type: HelpdeskEntityType;
+    entity_id: string;
+    request_type?: RequestType;
+    judge_name?: string;
+    remark_type?: RemarkType;
+    category_type?: GeneralRequestCategory;
+}
+
+export interface UpdateEStampPayload {
+    id: string;
+    e_stamp_url?: string;
+    e_stamp_public_id?: string;
+    e_stamp_status?: EStampStatus;
+}
+
+// ─── Bulk Operations ──────────────────────────────────────────────────────
+
+export interface BulkLinkDocumentsPayload {
+    document_ids: string[];
+    entity_type: HelpdeskEntityType;
+    entity_id: string;
+    request_type?: RequestType;
+    judge_name?: string;
+    remark_type?: RemarkType;
+    category_type?: GeneralRequestCategory;
+}
+
+export interface BulkUpdateStatusPayload {
+    document_ids: string[];
+    status: HelpdeskDocumentStatus;
+    comments?: string;
+}
+
+export interface BatchUploadPayload {
+    documents: Omit<UploadHelpdeskDocumentPayload, 'blob' | 'filename'>[];
+}
+
+// ─── Helpdesk Document Response ──────────────────────────────────────────────
 
 export interface HelpdeskDocumentResponse {
     success: boolean;
@@ -153,7 +268,12 @@ export interface HelpdeskDocumentsListResponse {
     message?: string;
 }
 
-// ── Helpdesk Document State ──────────────────────────────────────────────────
+export interface BulkOperationResult {
+    success: string[];
+    failed: string[];
+}
+
+// ─── Helpdesk Document State ──────────────────────────────────────────────────
 
 export interface HelpdeskDocumentsState {
     items: HelpdeskDocument[];
@@ -167,7 +287,11 @@ export interface HelpdeskDocumentsState {
         reject: boolean;
         return: boolean;
         comment: boolean;
-        link: boolean; // NEW
+        link: boolean;
+        batchUpload: boolean;
+        bulkLink: boolean;
+        bulkUpdate: boolean;
+        stats: boolean;
     };
     error: string | null;
     deletingId: string | null;
@@ -179,13 +303,47 @@ export interface HelpdeskDocumentsState {
             returning?: boolean;
         };
     };
+    stats: DocumentStats | null;
+    summary: DocumentSummary | null;
 }
 
-export interface LinkHelpdeskDocumentPayload {
-    id: string;
-    entity_type: HelpdeskEntityType;
-    entity_id: string;
+// ─── Document Statistics ──────────────────────────────────────────────────
+
+export interface DocumentStats {
+    total: number;
+    pending_approval: number;
+    approved: number;
+    rejected: number;
+    returned: number;
+    draft: number;
+    by_entity: {
+        entity_type: HelpdeskEntityType;
+        count: number;
+        pending: number;
+        approved: number;
+    }[];
+    recent_activity: {
+        id: string;
+        ref: string;
+        subject: string;
+        action: string;
+        user_name: string;
+        created_at: string;
+    }[];
 }
+
+export interface DocumentSummary {
+    total: number;
+    by_status: Record<HelpdeskDocumentStatus, number>;
+    by_entity_type: Record<HelpdeskEntityType, number>;
+    by_format: Record<HelpdeskDocumentFormat, number>;
+    pending_approval: number;
+    draft: number;
+    approved: number;
+    rejected: number;
+    returned: number;
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 export const HELPEDSK_ENTITY_LABELS: Record<HelpdeskEntityType, string> = {
@@ -195,6 +353,9 @@ export const HELPEDSK_ENTITY_LABELS: Record<HelpdeskEntityType, string> = {
     serviceWeek: 'Service Week',
     otherPayment: 'Other Payment',
     ticket: 'Travel Ticket',
+    medicalClaim: 'Medical Claim',
+    generalRequest: 'General Request',
+    securityRequest: 'Security Request (Deprecated)',
 };
 
 export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
@@ -204,6 +365,21 @@ export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
     serviceWeek: 'Calendar',
     otherPayment: 'CreditCard',
     ticket: 'Plane',
+    medicalClaim: 'Stethoscope',
+    generalRequest: 'FileText',
+    securityRequest: 'Shield',
+};
+
+export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
+    circuit: 'text-purple-600 bg-purple-50',
+    bench: 'text-blue-600 bg-blue-50',
+    partHeard: 'text-indigo-600 bg-indigo-50',
+    serviceWeek: 'text-teal-600 bg-teal-50',
+    otherPayment: 'text-rose-600 bg-rose-50',
+    ticket: 'text-cyan-600 bg-cyan-50',
+    medicalClaim: 'text-emerald-600 bg-emerald-50',
+    generalRequest: 'text-amber-600 bg-amber-50',
+    securityRequest: 'text-gray-600 bg-gray-50',
 };
 
 export const DOCUMENT_STATUS_LABELS: Record<HelpdeskDocumentStatus, string> = {
@@ -222,9 +398,192 @@ export const DOCUMENT_STATUS_COLORS: Record<HelpdeskDocumentStatus, string> = {
     returned: 'bg-blue-50 text-blue-700',
 };
 
+export const DOCUMENT_STATUS_BADGE_STYLES: Record<HelpdeskDocumentStatus, string> = {
+    draft: 'badge-stone',
+    pending_approval: 'badge-amber',
+    approved: 'badge-emerald',
+    rejected: 'badge-red',
+    returned: 'badge-blue',
+};
+
 export const E_STAMP_STATUS_LABELS: Record<EStampStatus, string> = {
     pending: 'Pending',
     stamped: 'Stamped ✓',
     failed: 'Failed',
 };
 
+export const E_STAMP_STATUS_COLORS: Record<EStampStatus, string> = {
+    pending: 'text-amber-600 bg-amber-50',
+    stamped: 'text-emerald-600 bg-emerald-50',
+    failed: 'text-red-600 bg-red-50',
+};
+
+// ─── Request Type Helpers ────────────────────────────────────────────────────
+
+export const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
+    Driver: 'Driver Request',
+    Bodyguard: 'Bodyguard Request',
+    Firearm: 'Firearm Request',
+    'Current Station': 'Current Station Request',
+    'Force Number': 'Force Number Request',
+    'Residence Security': 'Residence Security Request',
+    Sentry: 'Sentry Request',
+};
+
+export const REQUEST_TYPE_COLORS: Record<RequestType, string> = {
+    Driver: 'text-blue-600 bg-blue-50',
+    Bodyguard: 'text-purple-600 bg-purple-50',
+    Firearm: 'text-red-600 bg-red-50',
+    'Current Station': 'text-green-600 bg-green-50',
+    'Force Number': 'text-orange-600 bg-orange-50',
+    'Residence Security': 'text-indigo-600 bg-indigo-50',
+    Sentry: 'text-gray-600 bg-gray-50',
+};
+
+export const REMARK_TYPE_LABELS: Record<RemarkType, string> = {
+    Onboarding: 'Onboarding',
+    Release: 'Release',
+};
+
+export const CATEGORY_TYPE_LABELS: Record<GeneralRequestCategory, string> = {
+    Security: 'Security',
+    Personnel: 'Personnel',
+    Administrative: 'Administrative',
+};
+
+// ─── Helper Functions ──────────────────────────────────────────────────────
+
+export function getEntityDisplayName(entityType: HelpdeskEntityType): string {
+    return HELPEDSK_ENTITY_LABELS[entityType] || entityType;
+}
+
+export function getEntityIcon(entityType: HelpdeskEntityType): string {
+    return HELPEDSK_ENTITY_ICONS[entityType] || 'File';
+}
+
+export function getEntityColor(entityType: HelpdeskEntityType): string {
+    return HELPEDSK_ENTITY_COLORS[entityType] || 'text-gray-600 bg-gray-50';
+}
+
+export function getStatusDisplayName(status: HelpdeskDocumentStatus): string {
+    return DOCUMENT_STATUS_LABELS[status] || status;
+}
+
+export function getStatusColor(status: HelpdeskDocumentStatus): string {
+    return DOCUMENT_STATUS_COLORS[status] || '';
+}
+
+export function getStatusBadgeStyle(status: HelpdeskDocumentStatus): string {
+    return DOCUMENT_STATUS_BADGE_STYLES[status] || '';
+}
+
+export function getEStampStatusLabel(status: EStampStatus): string {
+    return E_STAMP_STATUS_LABELS[status] || status;
+}
+
+export function getEStampStatusColor(status: EStampStatus): string {
+    return E_STAMP_STATUS_COLORS[status] || '';
+}
+
+export function getRequestTypeLabel(requestType: RequestType): string {
+    return REQUEST_TYPE_LABELS[requestType] || requestType;
+}
+
+export function getRequestTypeColor(requestType: RequestType): string {
+    return REQUEST_TYPE_COLORS[requestType] || 'text-gray-600 bg-gray-50';
+}
+
+export function getRemarkTypeLabel(remarkType: RemarkType): string {
+    return REMARK_TYPE_LABELS[remarkType] || remarkType;
+}
+
+export function getCategoryTypeLabel(category: GeneralRequestCategory): string {
+    return CATEGORY_TYPE_LABELS[category] || category;
+}
+
+export function isRequestType(value: string): value is RequestType {
+    return [
+        'Driver',
+        'Bodyguard',
+        'Firearm',
+        'Current Station',
+        'Force Number',
+        'Residence Security',
+        'Sentry'
+    ].includes(value);
+}
+
+export function isRemarkType(value: string): value is RemarkType {
+    return ['Onboarding', 'Release'].includes(value);
+}
+
+export function isGeneralRequestCategory(value: string): value is GeneralRequestCategory {
+    return ['Security', 'Personnel', 'Administrative'].includes(value);
+}
+
+// ─── Type Guards ─────────────────────────────────────────────────────────────
+
+export function isHelpdeskEntityType(value: string): value is HelpdeskEntityType {
+    return [
+        'circuit',
+        'bench',
+        'partHeard',
+        'serviceWeek',
+        'otherPayment',
+        'ticket',
+        'medicalClaim',
+        'generalRequest',
+        'securityRequest'
+    ].includes(value);
+}
+
+export function isHelpdeskDocumentStatus(value: string): value is HelpdeskDocumentStatus {
+    return ['draft', 'pending_approval', 'approved', 'rejected', 'returned'].includes(value);
+}
+
+export function isEStampStatus(value: string): value is EStampStatus {
+    return ['pending', 'stamped', 'failed'].includes(value);
+}
+
+// ─── URL Helpers ─────────────────────────────────────────────────────────────
+
+export function getDocumentDownloadUrl(documentId: string): string {
+    return `/api/helpdesk/documents/${documentId}/download`;
+}
+
+export function getDocumentViewUrl(documentId: string): string {
+    return `/api/helpdesk/documents/${documentId}/view`;
+}
+
+export function getEStampDownloadUrl(documentId: string): string {
+    return `/api/helpdesk/documents/${documentId}/estampt/download`;
+}
+
+// ─── Status Transition Validation ───────────────────────────────────────────
+
+export function validateDocumentStatusTransition(
+    currentStatus: HelpdeskDocumentStatus,
+    newStatus: HelpdeskDocumentStatus
+): boolean {
+    const validTransitions: Record<HelpdeskDocumentStatus, HelpdeskDocumentStatus[]> = {
+        draft: ['pending_approval'],
+        pending_approval: ['approved', 'rejected', 'returned'],
+        approved: ['returned'],
+        rejected: ['draft'],
+        returned: ['draft'],
+    };
+
+    return validTransitions[currentStatus]?.includes(newStatus) || false;
+}
+
+export function getAvailableStatusTransitions(currentStatus: HelpdeskDocumentStatus): HelpdeskDocumentStatus[] {
+    const transitions: Record<HelpdeskDocumentStatus, HelpdeskDocumentStatus[]> = {
+        draft: ['pending_approval'],
+        pending_approval: ['approved', 'rejected', 'returned'],
+        approved: ['returned'],
+        rejected: ['draft'],
+        returned: ['draft'],
+    };
+
+    return transitions[currentStatus] || [];
+}

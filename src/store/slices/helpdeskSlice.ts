@@ -29,6 +29,145 @@ export type Status =
   | "Resolved"
   | "Cancelled";
 
+// ─── Unified Request Types ──────────────────────────────────────────────────
+
+export type RequestType =
+  | "Driver"
+  | "Bodyguard"
+  | "Firearm"
+  | "Current Station"
+  | "Force Number"
+  | "Residence Security"
+  | "Sentry";
+
+export type RemarkType = "Onboarding" | "Release";
+export type GeneralRequestCategory = "Security" | "Personnel" | "Administrative";
+
+// ─── Unified General Request ──────────────────────────────────────────────
+
+export interface GeneralRequest {
+  id: string;
+  s_no: number | null;
+  ticket_number: string | null;
+  judge_name: string;
+  request: string;
+  request_type: RequestType;
+  category: GeneralRequestCategory | null;
+  date_received: string | null;
+  officer_assigned: string | null;
+  status: Status;
+  remarks: string | null;
+  remark_type: RemarkType | null;
+  request_date: string | null;
+  location: string | null;
+  firearm_type: string | null;
+  force_number: string | null;
+  officer_name: string | null;
+  assigned_to: string | null;
+  priority: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateGeneralRequestInput {
+  judge_name: string;
+  request: string;
+  request_type: RequestType;
+  category?: GeneralRequestCategory;
+  date_received?: string;
+  officer_assigned?: string;
+  status?: Status;
+  remarks?: string;
+  remark_type?: RemarkType;
+  request_date?: string;
+  location?: string;
+  firearm_type?: string;
+  force_number?: string;
+  officer_name?: string;
+  assigned_to?: string;
+  priority?: string;
+  notes?: string;
+  email?: string;
+  send_email?: boolean;
+}
+
+export interface UpdateGeneralRequestInput {
+  request?: string;
+  request_type?: RequestType;
+  category?: GeneralRequestCategory;
+  date_received?: string;
+  officer_assigned?: string;
+  status?: Status;
+  remarks?: string;
+  remark_type?: RemarkType;
+  request_date?: string;
+  location?: string;
+  firearm_type?: string;
+  force_number?: string;
+  officer_name?: string;
+  assigned_to?: string;
+  priority?: string;
+  notes?: string;
+}
+
+// ─── Security Request (Deprecated) ─────────────────────────────────────────
+
+/**
+ * @deprecated Use GeneralRequest instead
+ */
+export interface SecurityRequest {
+  id: string;
+  s_no: number | null;
+  judge_name: string;
+  request_type: RequestType;
+  request_date: string | null;
+  officer_assigned: string | null;
+  status: Status;
+  remarks: string | null;
+  remark_type: RemarkType | null;
+  location: string | null;
+  firearm_type: string | null;
+  force_number: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * @deprecated Use CreateGeneralRequestInput instead
+ */
+export interface CreateSecurityRequestInput {
+  judge_name: string;
+  request_type: RequestType;
+  request_date?: string;
+  officer_assigned?: string;
+  status?: Status;
+  remarks?: string;
+  remark_type?: RemarkType;
+  location?: string;
+  firearm_type?: string;
+  force_number?: string;
+  email?: string;
+  send_email?: boolean;
+}
+
+/**
+ * @deprecated Use UpdateGeneralRequestInput instead
+ */
+export interface UpdateSecurityRequestInput {
+  request_type?: RequestType;
+  request_date?: string;
+  officer_assigned?: string;
+  status?: Status;
+  remarks?: string;
+  remark_type?: RemarkType;
+  location?: string;
+  firearm_type?: string;
+  force_number?: string;
+}
+
 // ─── DSA Payment Status ────────────────────────────────────────────────────
 
 export type DSAPaymentStatus = "Pending" | "In Process" | "Paid" | "Payment NA";
@@ -407,7 +546,6 @@ export interface MedicalClaim {
   updated_at: string;
 }
 
-// s_no removed from input - auto-generated on backend
 export interface CreateMedicalClaimInput {
   officer_name: string;
   claim_amount: number;
@@ -416,9 +554,12 @@ export interface CreateMedicalClaimInput {
   remarks?: string;
 }
 
-// ─── General Requests ────────────────────────────────────────────────────────
+// ─── Legacy General Request (Deprecated) ──────────────────────────────────
 
-export interface GeneralRequest {
+/**
+ * @deprecated Use the new GeneralRequest with request_type instead
+ */
+export interface LegacyGeneralRequest {
   id: string;
   s_no: number | null;
   ticket_number: string | null;
@@ -428,23 +569,23 @@ export interface GeneralRequest {
   officer_assigned: string | null;
   status: Status;
   remarks: string | null;
-  email: string | null; // Add this field
   created_by: string | null;
   created_at: string;
   updated_at: string;
 }
 
-// s_no removed from input - auto-generated on backend
-// send_email controls whether email is sent (manual control by dep_head)
-export interface CreateGeneralRequestInput {
+/**
+ * @deprecated Use CreateGeneralRequestInput with request_type instead
+ */
+export interface CreateLegacyGeneralRequestInput {
   judge_name: string;
   request: string;
   date_received?: string;
   officer_assigned?: string;
   status?: Status;
   remarks?: string;
-  email?: string; // Recipient email for notification
-  send_email?: boolean; // Manual control: true = send email, false = don't send
+  email?: string;
+  send_email?: boolean;
 }
 
 // ─── Visa Support ────────────────────────────────────────────────────────────
@@ -454,19 +595,17 @@ export interface VisaDocument {
   visa_request_id: string;
   document_name: string;
   document_url: string;
-  viewed_at: string | null; // When the document was first viewed
-  view_count: number; // Number of times viewed
+  viewed_at: string | null;
+  view_count: number;
   created_at: string;
 }
-
-// ─── Document Tracking ──────────────────────────────────────────────────────
 
 export interface DocumentView {
   id: string;
   document_id: string;
-  document_type: string; // e.g., 'visa_document', 'utility_document', etc.
-  viewer_id: string; // User ID who viewed
-  viewer_name: string; // User name who viewed
+  document_type: string;
+  viewer_id: string;
+  viewer_name: string;
   viewed_at: string;
   ip_address: string | null;
   user_agent: string | null;
@@ -481,7 +620,7 @@ export interface DocumentWithViewStatus {
   view_count: number;
   last_viewed_by: string | null;
   last_viewed_at: string | null;
-  viewers: DocumentView[]; // Full view history
+  viewers: DocumentView[];
 }
 
 export interface VisaRequest {
@@ -502,7 +641,6 @@ export interface VisaRequest {
   updated_at: string;
 }
 
-// s_no removed from input - auto-generated on backend
 export interface CreateVisaRequestInput {
   judge_name: string;
   destination_country: string;
@@ -535,7 +673,6 @@ export interface ProtocolEvent {
   updated_at: string;
 }
 
-// s_no removed from input - auto-generated on backend
 export interface CreateProtocolEventInput {
   activity: string;
   period_from?: string;
@@ -610,6 +747,9 @@ export interface HelpDeskFilters {
   search?: string;
   status?: Status;
   judge_name?: string;
+  request_type?: RequestType;
+  remark_type?: RemarkType;
+  category?: GeneralRequestCategory;
   start_date?: string;
   end_date?: string;
   limit?: number;
@@ -620,6 +760,9 @@ export interface UpdateStatusInput {
   status: Status;
   notes?: string;
   remarks?: string;
+  email?: string;
+  resolvedBy?: string;
+  rejectedBy?: string;
 }
 
 // ─── Tab Types ──────────────────────────────────────────────────────────────
@@ -637,6 +780,7 @@ export type HelpDeskTab =
   | "visa"
   | "protocol"
   | "tickets"
+  | "security"
   | "reports";
 
 /* ============================================================
@@ -656,6 +800,7 @@ interface HelpDeskState {
   generalRequests: GeneralRequest[];
   visaRequests: VisaRequest[];
   protocolEvents: ProtocolEvent[];
+  securityRequests: SecurityRequest[];
   tickets: Ticket[];
   auditLog: HelpDeskAuditEntry[];
   stats: HelpDeskStats | null;
@@ -676,6 +821,7 @@ interface HelpDeskState {
   selectedGeneralRequest: GeneralRequest | null;
   selectedVisaRequest: VisaRequest | null;
   selectedProtocolEvent: ProtocolEvent | null;
+  selectedSecurityRequest: SecurityRequest | null;
   selectedTicket: Ticket | null;
 
   // Document Tracking
@@ -701,6 +847,7 @@ interface HelpDeskState {
     generalRequests: { total: number; page: number; limit: number };
     visa: { total: number; page: number; limit: number };
     protocol: { total: number; page: number; limit: number };
+    security: { total: number; page: number; limit: number };
     tickets: { total: number; page: number; limit: number };
     reports: { total: number; page: number; limit: number };
   };
@@ -718,6 +865,7 @@ interface HelpDeskState {
     generalRequests: boolean;
     visa: boolean;
     protocol: boolean;
+    security: boolean;
     tickets: boolean;
     audit: boolean;
     stats: boolean;
@@ -746,6 +894,7 @@ const initialState: HelpDeskState = {
   generalRequests: [],
   visaRequests: [],
   protocolEvents: [],
+  securityRequests: [],
   tickets: [],
   auditLog: [],
   stats: null,
@@ -764,6 +913,7 @@ const initialState: HelpDeskState = {
   selectedGeneralRequest: null,
   selectedVisaRequest: null,
   selectedProtocolEvent: null,
+  selectedSecurityRequest: null,
   selectedTicket: null,
 
   documentViewStatus: null,
@@ -786,6 +936,7 @@ const initialState: HelpDeskState = {
     generalRequests: { total: 0, page: 1, limit: 20 },
     visa: { total: 0, page: 1, limit: 20 },
     protocol: { total: 0, page: 1, limit: 20 },
+    security: { total: 0, page: 1, limit: 20 },
     tickets: { total: 0, page: 1, limit: 20 },
     reports: { total: 0, page: 1, limit: 20 },
   },
@@ -802,6 +953,7 @@ const initialState: HelpDeskState = {
     generalRequests: false,
     visa: false,
     protocol: false,
+    security: false,
     tickets: false,
     audit: false,
     stats: false,
@@ -833,7 +985,6 @@ const buildQueryString = (
   const params = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== "") {
-      // Handle arrays (like modules)
       if (Array.isArray(value)) {
         params.append(key, value.join(","));
       } else {
@@ -843,6 +994,289 @@ const buildQueryString = (
   });
   return params.toString() ? `?${params.toString()}` : "";
 };
+
+/* ============================================================
+   THUNKS - UNIFIED GENERAL REQUESTS
+============================================================ */
+
+export const fetchGeneralRequests = createAsyncThunk(
+  "helpdesk/fetchGeneralRequests",
+  async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
+    try {
+      const query = buildQueryString(filters);
+      const { data } = await axiosClient.get(`/helpdesk/general${query}`);
+      return data.data as GeneralRequest[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchGeneralRequestById = createAsyncThunk(
+  "helpdesk/fetchGeneralRequestById",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`/helpdesk/general/${id}`);
+      return data.data as GeneralRequest;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchGeneralRequestsByJudge = createAsyncThunk(
+  "helpdesk/fetchGeneralRequestsByJudge",
+  async (judgeName: string, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`/helpdesk/general/judge/${encodeURIComponent(judgeName)}`);
+      return data.data as GeneralRequest[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchGeneralRequestsByType = createAsyncThunk(
+  "helpdesk/fetchGeneralRequestsByType",
+  async (requestType: RequestType, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`/helpdesk/general/type/${requestType}`);
+      return data.data as GeneralRequest[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchGeneralRequestsByRemarkType = createAsyncThunk(
+  "helpdesk/fetchGeneralRequestsByRemarkType",
+  async (remarkType: RemarkType, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`/helpdesk/general/remark/${remarkType}`);
+      return data.data as GeneralRequest[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const createGeneralRequest = createAsyncThunk(
+  "helpdesk/createGeneralRequest",
+  async (input: CreateGeneralRequestInput, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.post("/helpdesk/general", input);
+      return data.data as GeneralRequest;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const updateGeneralRequest = createAsyncThunk(
+  "helpdesk/updateGeneralRequest",
+  async (
+    { id, updates }: { id: string; updates: UpdateGeneralRequestInput },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.put(`/helpdesk/general/${id}`, updates);
+      return data.data as GeneralRequest;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const updateGeneralRequestStatus = createAsyncThunk(
+  "helpdesk/updateGeneralRequestStatus",
+  async (
+    { id, status, notes, email, resolvedBy, rejectedBy }: 
+    { id: string; status: Status; notes?: string; email?: string; resolvedBy?: string; rejectedBy?: string },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.patch(
+        `/helpdesk/general/${id}/status`,
+        { status, notes, email, resolvedBy, rejectedBy },
+      );
+      return data.data as GeneralRequest;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const deleteGeneralRequest = createAsyncThunk(
+  "helpdesk/deleteGeneralRequest",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      await axiosClient.delete(`/helpdesk/general/${id}`);
+      return id;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchGeneralRequestStats = createAsyncThunk(
+  "helpdesk/fetchGeneralRequestStats",
+  async (_, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get("/helpdesk/general/stats");
+      return data.data as {
+        total: number;
+        byType: Record<RequestType, number>;
+        byStatus: Record<string, number>;
+        byRemarkType: Record<RemarkType, number>;
+        byCategory: Record<GeneralRequestCategory, number>;
+      };
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const sendGeneralRequestEmail = createAsyncThunk(
+  "helpdesk/sendGeneralRequestEmail",
+  async (
+    { id, email, type }: { id: string; email: string; type: 'acknowledgement' | 'resolved' | 'rejected' },
+    { rejectWithValue },
+  ) => {
+    try {
+      await axiosClient.post(`/helpdesk/general/${id}/email`, { email, type });
+      return { id, email, type };
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+/* ============================================================
+   THUNKS - LEGACY SECURITY REQUESTS (Deprecated)
+============================================================ */
+
+export const fetchSecurityRequests = createAsyncThunk(
+  "helpdesk/fetchSecurityRequests",
+  async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
+    try {
+      const query = buildQueryString(filters);
+      const { data } = await axiosClient.get(`/helpdesk/security${query}`);
+      return data.data as SecurityRequest[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchSecurityRequestById = createAsyncThunk(
+  "helpdesk/fetchSecurityRequestById",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`/helpdesk/security/${id}`);
+      return data.data as SecurityRequest;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchSecurityRequestsByJudge = createAsyncThunk(
+  "helpdesk/fetchSecurityRequestsByJudge",
+  async (judgeName: string, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`/helpdesk/security/judge/${encodeURIComponent(judgeName)}`);
+      return data.data as SecurityRequest[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchSecurityRequestsByType = createAsyncThunk(
+  "helpdesk/fetchSecurityRequestsByType",
+  async (requestType: RequestType, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`/helpdesk/security/type/${requestType}`);
+      return data.data as SecurityRequest[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const createSecurityRequest = createAsyncThunk(
+  "helpdesk/createSecurityRequest",
+  async (input: CreateSecurityRequestInput, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.post("/helpdesk/security", input);
+      return data.data as SecurityRequest;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const updateSecurityRequest = createAsyncThunk(
+  "helpdesk/updateSecurityRequest",
+  async (
+    { id, updates }: { id: string; updates: UpdateSecurityRequestInput },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.put(`/helpdesk/security/${id}`, updates);
+      return data.data as SecurityRequest;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const updateSecurityRequestStatus = createAsyncThunk(
+  "helpdesk/updateSecurityRequestStatus",
+  async (
+    { id, status, notes }: { id: string; status: Status; notes?: string },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.patch(`/helpdesk/security/${id}/status`, {
+        status,
+        notes,
+      });
+      return data.data as SecurityRequest;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const deleteSecurityRequest = createAsyncThunk(
+  "helpdesk/deleteSecurityRequest",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      await axiosClient.delete(`/helpdesk/security/${id}`);
+      return id;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const fetchSecurityRequestStats = createAsyncThunk(
+  "helpdesk/fetchSecurityRequestStats",
+  async (_, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get("/helpdesk/security/stats");
+      return data.data as {
+        total: number;
+        byType: Record<RequestType, number>;
+        byStatus: Record<string, number>;
+        byRemarkType: Record<RemarkType, number>;
+      };
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
 
 /* ============================================================
    THUNKS - REPORTS
@@ -1642,78 +2076,6 @@ export const deleteMedicalClaim = createAsyncThunk(
 );
 
 /* ============================================================
-   THUNKS - GENERAL REQUESTS
-============================================================ */
-
-export const fetchGeneralRequests = createAsyncThunk(
-  "helpdesk/fetchGeneralRequests",
-  async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
-    try {
-      const query = buildQueryString(filters);
-      const { data } = await axiosClient.get(`/helpdesk/general-requests${query}`);
-      return data.data as GeneralRequest[];
-    } catch (err) {
-      return rejectWithValue(getErrorMessage(err));
-    }
-  },
-);
-
-export const fetchGeneralRequestById = createAsyncThunk(
-  "helpdesk/fetchGeneralRequestById",
-  async (id: string, { rejectWithValue }) => {
-    try {
-      const { data } = await axiosClient.get(`/helpdesk/general-requests/${id}`);
-      return data.data as GeneralRequest;
-    } catch (err) {
-      return rejectWithValue(getErrorMessage(err));
-    }
-  },
-);
-
-export const createGeneralRequest = createAsyncThunk(
-  "helpdesk/createGeneralRequest",
-  async (input: CreateGeneralRequestInput, { rejectWithValue }) => {
-    try {
-      const { data } = await axiosClient.post("/helpdesk/general-requests", input);
-      return data.data as GeneralRequest;
-    } catch (err) {
-      return rejectWithValue(getErrorMessage(err));
-    }
-  },
-);
-
-// In helpdeskSlice.ts - already correct
-export const updateGeneralRequestStatus = createAsyncThunk(
-  "helpdesk/updateGeneralRequestStatus",
-  async (
-    { id, status, remarks, email }: { id: string; status: Status; remarks?: string; email?: string },
-    { rejectWithValue },
-  ) => {
-    try {
-      const { data } = await axiosClient.put(
-        `/helpdesk/general-requests/${id}/status`,
-        { status, remarks, email },
-      );
-      return data.data as GeneralRequest;
-    } catch (err) {
-      return rejectWithValue(getErrorMessage(err));
-    }
-  },
-);
-
-export const deleteGeneralRequest = createAsyncThunk(
-  "helpdesk/deleteGeneralRequest",
-  async (id: string, { rejectWithValue }) => {
-    try {
-      await axiosClient.delete(`/helpdesk/general-requests/${id}`);
-      return id;
-    } catch (err) {
-      return rejectWithValue(getErrorMessage(err));
-    }
-  },
-);
-
-/* ============================================================
    THUNKS - VISA SUPPORT
 ============================================================ */
 
@@ -1981,6 +2343,12 @@ const helpdeskSlice = createSlice({
     ) {
       state.selectedProtocolEvent = action.payload;
     },
+    setSelectedSecurityRequest(
+      state,
+      action: PayloadAction<SecurityRequest | null>,
+    ) {
+      state.selectedSecurityRequest = action.payload;
+    },
     setSelectedTicket(state, action: PayloadAction<Ticket | null>) {
       state.selectedTicket = action.payload;
     },
@@ -1989,6 +2357,7 @@ const helpdeskSlice = createSlice({
     },
 
     // ─── Optimistic Updates ─────────────────────────────────────────────
+
     updateUtilityItemOptimistically(
       state,
       action: PayloadAction<{
@@ -2127,6 +2496,21 @@ const helpdeskSlice = createSlice({
         if (notes !== undefined) state.selectedProtocolEvent.notes = notes;
       }
     },
+    updateSecurityRequestOptimistically(
+      state,
+      action: PayloadAction<{ id: string; status: Status; remarks?: string }>,
+    ) {
+      const { id, status, remarks } = action.payload;
+      const request = state.securityRequests.find((r) => r.id === id);
+      if (request) {
+        request.status = status;
+        if (remarks !== undefined) request.remarks = remarks;
+      }
+      if (state.selectedSecurityRequest?.id === id) {
+        state.selectedSecurityRequest.status = status;
+        if (remarks !== undefined) state.selectedSecurityRequest.remarks = remarks;
+      }
+    },
     updateTicketOptimistically(
       state,
       action: PayloadAction<{ id: string; status: Status; remarks?: string }>,
@@ -2152,6 +2536,259 @@ const helpdeskSlice = createSlice({
     resetHelpDeskState: () => initialState,
   },
   extraReducers: (builder) => {
+    /* ──────── UNIFIED GENERAL REQUESTS ────────────────────────────────── */
+    builder
+      .addCase(fetchGeneralRequests.pending, (state) => {
+        state.loading.generalRequests = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchGeneralRequests.fulfilled,
+        (state, action: PayloadAction<GeneralRequest[]>) => {
+          state.loading.generalRequests = false;
+          state.generalRequests = action.payload;
+          state.pagination.generalRequests.total = action.payload.length;
+        },
+      )
+      .addCase(fetchGeneralRequests.rejected, (state, action) => {
+        state.loading.generalRequests = false;
+        state.error = action.payload as string;
+      })
+      .addCase(createGeneralRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        createGeneralRequest.fulfilled,
+        (state, action: PayloadAction<GeneralRequest>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          state.generalRequests = [action.payload, ...state.generalRequests];
+          if (state.stats) state.stats.total_records += 1;
+        },
+      )
+      .addCase(createGeneralRequest.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updateGeneralRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateGeneralRequest.fulfilled,
+        (state, action: PayloadAction<GeneralRequest>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.generalRequests.findIndex(
+            (r) => r.id === action.payload.id,
+          );
+          if (index !== -1) state.generalRequests[index] = action.payload;
+          if (state.selectedGeneralRequest?.id === action.payload.id)
+            state.selectedGeneralRequest = action.payload;
+        },
+      )
+      .addCase(updateGeneralRequest.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updateGeneralRequestStatus.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateGeneralRequestStatus.fulfilled,
+        (state, action: PayloadAction<GeneralRequest>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.generalRequests.findIndex(
+            (r) => r.id === action.payload.id,
+          );
+          if (index !== -1) state.generalRequests[index] = action.payload;
+          if (state.selectedGeneralRequest?.id === action.payload.id)
+            state.selectedGeneralRequest = action.payload;
+        },
+      )
+      .addCase(updateGeneralRequestStatus.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(deleteGeneralRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+      })
+      .addCase(
+        deleteGeneralRequest.fulfilled,
+        (state, action: PayloadAction<string>) => {
+          state.loading.mutating = false;
+          state.generalRequests = state.generalRequests.filter(
+            (r) => r.id !== action.payload,
+          );
+          if (state.selectedGeneralRequest?.id === action.payload)
+            state.selectedGeneralRequest = null;
+          if (state.stats) state.stats.total_records -= 1;
+        },
+      )
+      .addCase(deleteGeneralRequest.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+      })
+      .addCase(fetchGeneralRequestsByJudge.pending, (state) => {
+        state.loading.generalRequests = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchGeneralRequestsByJudge.fulfilled,
+        (state, action: PayloadAction<GeneralRequest[]>) => {
+          state.loading.generalRequests = false;
+          state.generalRequests = action.payload;
+        },
+      )
+      .addCase(fetchGeneralRequestsByJudge.rejected, (state, action) => {
+        state.loading.generalRequests = false;
+        state.error = action.payload as string;
+      })
+      .addCase(fetchGeneralRequestsByType.pending, (state) => {
+        state.loading.generalRequests = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchGeneralRequestsByType.fulfilled,
+        (state, action: PayloadAction<GeneralRequest[]>) => {
+          state.loading.generalRequests = false;
+          state.generalRequests = action.payload;
+        },
+      )
+      .addCase(fetchGeneralRequestsByType.rejected, (state, action) => {
+        state.loading.generalRequests = false;
+        state.error = action.payload as string;
+      })
+      .addCase(fetchGeneralRequestsByRemarkType.pending, (state) => {
+        state.loading.generalRequests = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchGeneralRequestsByRemarkType.fulfilled,
+        (state, action: PayloadAction<GeneralRequest[]>) => {
+          state.loading.generalRequests = false;
+          state.generalRequests = action.payload;
+        },
+      )
+      .addCase(fetchGeneralRequestsByRemarkType.rejected, (state, action) => {
+        state.loading.generalRequests = false;
+        state.error = action.payload as string;
+      });
+
+    /* ──────── LEGACY SECURITY REQUESTS ────────────────────────────────── */
+    builder
+      .addCase(fetchSecurityRequests.pending, (state) => {
+        state.loading.security = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchSecurityRequests.fulfilled,
+        (state, action: PayloadAction<SecurityRequest[]>) => {
+          state.loading.security = false;
+          state.securityRequests = action.payload;
+          state.pagination.security.total = action.payload.length;
+        },
+      )
+      .addCase(fetchSecurityRequests.rejected, (state, action) => {
+        state.loading.security = false;
+        state.error = action.payload as string;
+      })
+      .addCase(createSecurityRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        createSecurityRequest.fulfilled,
+        (state, action: PayloadAction<SecurityRequest>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          state.securityRequests = [action.payload, ...state.securityRequests];
+          if (state.stats) state.stats.total_records += 1;
+        },
+      )
+      .addCase(createSecurityRequest.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updateSecurityRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateSecurityRequest.fulfilled,
+        (state, action: PayloadAction<SecurityRequest>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.securityRequests.findIndex(
+            (r) => r.id === action.payload.id,
+          );
+          if (index !== -1) state.securityRequests[index] = action.payload;
+          if (state.selectedSecurityRequest?.id === action.payload.id)
+            state.selectedSecurityRequest = action.payload;
+        },
+      )
+      .addCase(updateSecurityRequest.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updateSecurityRequestStatus.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateSecurityRequestStatus.fulfilled,
+        (state, action: PayloadAction<SecurityRequest>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.securityRequests.findIndex(
+            (r) => r.id === action.payload.id,
+          );
+          if (index !== -1) state.securityRequests[index] = action.payload;
+          if (state.selectedSecurityRequest?.id === action.payload.id)
+            state.selectedSecurityRequest = action.payload;
+        },
+      )
+      .addCase(updateSecurityRequestStatus.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(deleteSecurityRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+      })
+      .addCase(
+        deleteSecurityRequest.fulfilled,
+        (state, action: PayloadAction<string>) => {
+          state.loading.mutating = false;
+          state.securityRequests = state.securityRequests.filter(
+            (r) => r.id !== action.payload,
+          );
+          if (state.selectedSecurityRequest?.id === action.payload)
+            state.selectedSecurityRequest = null;
+          if (state.stats) state.stats.total_records -= 1;
+        },
+      )
+      .addCase(deleteSecurityRequest.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+      });
+
     /* ──────── REPORTS ────────────────────────────────────────────────── */
     builder
       .addCase(fetchDSAReport.pending, (state) => {
@@ -2218,7 +2855,6 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<string>) => {
           state.loading.documentTracking = false;
           state.success = true;
-          // Update the document in the visa request if it exists
           const docId = action.payload;
           for (const visa of state.visaRequests) {
             const doc = visa.documents?.find((d) => d.id === docId);
@@ -3120,87 +3756,6 @@ const helpdeskSlice = createSlice({
         state.error = action.payload as string;
       });
 
-    /* ──────── GENERAL REQUESTS ─────────────────────────────────────────── */
-    builder
-      .addCase(fetchGeneralRequests.pending, (state) => {
-        state.loading.generalRequests = true;
-        state.error = null;
-      })
-      .addCase(
-        fetchGeneralRequests.fulfilled,
-        (state, action: PayloadAction<GeneralRequest[]>) => {
-          state.loading.generalRequests = false;
-          state.generalRequests = action.payload;
-          state.pagination.generalRequests.total = action.payload.length;
-        },
-      )
-      .addCase(fetchGeneralRequests.rejected, (state, action) => {
-        state.loading.generalRequests = false;
-        state.error = action.payload as string;
-      })
-      .addCase(createGeneralRequest.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(
-        createGeneralRequest.fulfilled,
-        (state, action: PayloadAction<GeneralRequest>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.generalRequests = [action.payload, ...state.generalRequests];
-          if (state.stats) state.stats.total_records += 1;
-        },
-      )
-      .addCase(createGeneralRequest.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      })
-      .addCase(updateGeneralRequestStatus.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(
-        updateGeneralRequestStatus.fulfilled,
-        (state, action: PayloadAction<GeneralRequest>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.generalRequests.findIndex(
-            (r) => r.id === action.payload.id,
-          );
-          if (index !== -1) state.generalRequests[index] = action.payload;
-          if (state.selectedGeneralRequest?.id === action.payload.id)
-            state.selectedGeneralRequest = action.payload;
-        },
-      )
-      .addCase(updateGeneralRequestStatus.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      })
-      .addCase(deleteGeneralRequest.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-      })
-      .addCase(
-        deleteGeneralRequest.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          state.generalRequests = state.generalRequests.filter(
-            (r) => r.id !== action.payload,
-          );
-          if (state.selectedGeneralRequest?.id === action.payload)
-            state.selectedGeneralRequest = null;
-          if (state.stats) state.stats.total_records -= 1;
-        },
-      )
-      .addCase(deleteGeneralRequest.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-      });
-
     /* ──────── VISA REQUESTS ───────────────────────────────────────────── */
     builder
       .addCase(fetchVisaRequests.pending, (state) => {
@@ -3403,6 +3958,7 @@ export const {
   setSelectedGeneralRequest,
   setSelectedVisaRequest,
   setSelectedProtocolEvent,
+  setSelectedSecurityRequest,
   setSelectedTicket,
   setDocumentViewStatus,
   updateUtilityItemOptimistically,
@@ -3416,6 +3972,7 @@ export const {
   updateGeneralRequestOptimistically,
   updateVisaOptimistically,
   updateProtocolOptimistically,
+  updateSecurityRequestOptimistically,
   updateTicketOptimistically,
   clearError,
   clearSuccess,
@@ -3449,6 +4006,8 @@ export const selectAllVisaRequests = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.visaRequests;
 export const selectAllProtocolEvents = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.protocolEvents;
+export const selectAllSecurityRequests = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.securityRequests;
 export const selectAllTickets = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.tickets;
 export const selectHelpDeskAudit = (state: { helpdesk: HelpDeskState }) =>
@@ -3490,6 +4049,9 @@ export const selectSelectedVisaRequest = (state: { helpdesk: HelpDeskState }) =>
 export const selectSelectedProtocolEvent = (state: {
   helpdesk: HelpDeskState;
 }) => state.helpdesk.selectedProtocolEvent;
+export const selectSelectedSecurityRequest = (state: {
+  helpdesk: HelpDeskState;
+}) => state.helpdesk.selectedSecurityRequest;
 export const selectSelectedTicket = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.selectedTicket;
 export const selectDocumentViewStatus = (state: { helpdesk: HelpDeskState }) =>
@@ -3531,6 +4093,8 @@ export const selectVisaLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.visa;
 export const selectProtocolLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.protocol;
+export const selectSecurityLoading = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.loading.security;
 export const selectTicketsLoading = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.loading.tickets;
 export const selectAuditLoading = (state: { helpdesk: HelpDeskState }) =>
@@ -3576,6 +4140,8 @@ export const selectVisaPagination = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.pagination.visa;
 export const selectProtocolPagination = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.pagination.protocol;
+export const selectSecurityPagination = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.pagination.security;
 export const selectTicketsPagination = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.pagination.tickets;
 export const selectReportsPagination = (state: { helpdesk: HelpDeskState }) =>
@@ -3619,6 +4185,34 @@ export const selectMedicalClaimsByStatus =
 export const selectGeneralRequestsByStatus =
   (status: Status) => (state: { helpdesk: HelpDeskState }) =>
     state.helpdesk.generalRequests.filter((r) => r.status === status);
+
+export const selectGeneralRequestsByType =
+  (requestType: RequestType) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.generalRequests.filter((r) => r.request_type === requestType);
+
+export const selectGeneralRequestsByRemarkType =
+  (remarkType: RemarkType) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.generalRequests.filter((r) => r.remark_type === remarkType);
+
+export const selectGeneralRequestsByCategory =
+  (category: GeneralRequestCategory) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.generalRequests.filter((r) => r.category === category);
+
+// ─── Legacy Security Request Selectors ────────────────────────────────────
+
+export const selectSecurityRequestsByStatus =
+  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.securityRequests.filter((r) => r.status === status);
+
+export const selectSecurityRequestsByType =
+  (requestType: RequestType) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.securityRequests.filter((r) => r.request_type === requestType);
+
+export const selectSecurityRequestsByRemarkType =
+  (remarkType: RemarkType) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.securityRequests.filter((r) => r.remark_type === remarkType);
+
+// ─── Ticket Selectors ──────────────────────────────────────────────────────
 
 export const selectTicketsByStatus =
   (status: Status) => (state: { helpdesk: HelpDeskState }) =>
@@ -3721,6 +4315,13 @@ export const selectPendingGeneralRequestsCount = (state: {
     (r) => r.status === "Pending" || r.status === "In Progress",
   ).length;
 
+export const selectPendingSecurityRequestsCount = (state: {
+  helpdesk: HelpDeskState;
+}) =>
+  state.helpdesk.securityRequests.filter(
+    (r) => r.status === "Pending" || r.status === "In Progress",
+  ).length;
+
 export const selectPendingProtocolCount = (state: {
   helpdesk: HelpDeskState;
 }) =>
@@ -3732,6 +4333,72 @@ export const selectPendingTicketsCount = (state: {
   state.helpdesk.tickets.filter(
     (t) => t.status === "Pending" || t.status === "In Progress",
   ).length;
+
+// ─── Unified General Request Stats ────────────────────────────────────────
+
+export const selectGeneralRequestStats = (state: { helpdesk: HelpDeskState }) => {
+  const requests = state.helpdesk.generalRequests;
+  const byType = requests.reduce((acc, r) => {
+    acc[r.request_type] = (acc[r.request_type] || 0) + 1;
+    return acc;
+  }, {} as Record<RequestType, number>);
+
+  const byStatus = requests.reduce((acc, r) => {
+    acc[r.status] = (acc[r.status] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const byRemarkType = requests.reduce((acc, r) => {
+    if (r.remark_type) {
+      acc[r.remark_type] = (acc[r.remark_type] || 0) + 1;
+    }
+    return acc;
+  }, {} as Record<RemarkType, number>);
+
+  const byCategory = requests.reduce((acc, r) => {
+    if (r.category) {
+      acc[r.category] = (acc[r.category] || 0) + 1;
+    }
+    return acc;
+  }, {} as Record<GeneralRequestCategory, number>);
+
+  return {
+    total: requests.length,
+    byType,
+    byStatus,
+    byRemarkType,
+    byCategory,
+  };
+};
+
+// ─── Legacy Security Request Stats ────────────────────────────────────────
+
+export const selectSecurityRequestStats = (state: { helpdesk: HelpDeskState }) => {
+  const requests = state.helpdesk.securityRequests;
+  const byType = requests.reduce((acc, r) => {
+    acc[r.request_type] = (acc[r.request_type] || 0) + 1;
+    return acc;
+  }, {} as Record<RequestType, number>);
+
+  const byStatus = requests.reduce((acc, r) => {
+    acc[r.status] = (acc[r.status] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const byRemarkType = requests.reduce((acc, r) => {
+    if (r.remark_type) {
+      acc[r.remark_type] = (acc[r.remark_type] || 0) + 1;
+    }
+    return acc;
+  }, {} as Record<RemarkType, number>);
+
+  return {
+    total: requests.length,
+    byType,
+    byStatus,
+    byRemarkType,
+  };
+};
 
 // ─── Total DSA ──────────────────────────────────────────────────────────────
 
