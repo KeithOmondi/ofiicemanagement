@@ -523,8 +523,8 @@ const fetchDocs = useCallback(() => {
 }, [dispatch, currentUser]);
 
   useEffect(() => {
-    fetchDocs();
-  }, [dispatch, currentUser]);
+  fetchDocs();
+}, [fetchDocs]);
 
   useEffect(() => {
     if (error) {
