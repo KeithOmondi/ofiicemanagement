@@ -16,8 +16,8 @@ export type DocumentEntityType =
     | 'otherPayment'
     | 'ticket'
     | 'medicalClaim'
-    | 'generalRequest'   // Unified - includes all security/personnel requests
-    | 'securityRequest'; // Deprecated - kept for backward compatibility
+    | 'generalRequest'
+    | 'securityRequest';
 
 export type DocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
@@ -110,12 +110,16 @@ export interface HelpdeskDocument {
     returned_at?: string;
     returned_by?: string;
     rejection_reason?: string;
-    
+
     // Unified General Request fields
     request_type?: RequestType;
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
+
+    // ─── NEW FIELDS ──────────────────────────────────────────────────────────
+    rank?: string | null;            // Officer's rank (for Driver/Bodyguard)
+    reporting_date?: string | null;  // Expected reporting date
 }
 
 export interface HelpdeskDocumentFilters {
@@ -129,7 +133,7 @@ export interface HelpdeskDocumentFilters {
     uploaded_by?: string;
     pending_my_approval?: boolean;
     unlinked?: boolean;
-    
+
     // Unified General Request filters
     request_type?: RequestType;
     judge_name?: string;
@@ -137,6 +141,10 @@ export interface HelpdeskDocumentFilters {
     category_type?: GeneralRequestCategory;
     date_from?: string;
     date_to?: string;
+
+    // ─── NEW FILTERS ──────────────────────────────────────────────────────────
+    rank?: string;
+    reporting_date?: string;
 }
 
 export interface UploadHelpdeskDocumentPayload {
@@ -148,12 +156,16 @@ export interface UploadHelpdeskDocumentPayload {
     entity_id?: string;
     format: DocumentFormat;
     status?: DocumentStatus;
-    
+
     // Unified General Request fields
     request_type?: RequestType;
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
+
+    // ─── NEW FIELDS ──────────────────────────────────────────────────────────
+    rank?: string;
+    reporting_date?: string;
 }
 
 export interface SubmitForApprovalPayload {
@@ -207,6 +219,10 @@ export interface LinkHelpdeskDocumentPayload {
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
+
+    // ─── NEW FIELDS ──────────────────────────────────────────────────────────
+    rank?: string;
+    reporting_date?: string;
 }
 
 export interface UpdateEStampPayload {
@@ -226,6 +242,8 @@ export interface BulkLinkDocumentsPayload {
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
+    rank?: string;
+    reporting_date?: string;
 }
 
 export interface BulkUpdateStatusPayload {
@@ -354,7 +372,7 @@ function buildParams(filters: HelpdeskDocumentFilters): Record<string, string> {
     if (filters.uploaded_by) params.uploaded_by = filters.uploaded_by;
     if (filters.pending_my_approval) params.pending_my_approval = String(filters.pending_my_approval);
     if (filters.unlinked) params.unlinked = String(filters.unlinked);
-    
+
     // Unified General Request filters
     if (filters.request_type) params.request_type = filters.request_type;
     if (filters.judge_name) params.judge_name = filters.judge_name;
@@ -362,7 +380,11 @@ function buildParams(filters: HelpdeskDocumentFilters): Record<string, string> {
     if (filters.category_type) params.category_type = filters.category_type;
     if (filters.date_from) params.date_from = filters.date_from;
     if (filters.date_to) params.date_to = filters.date_to;
-    
+
+    // ─── NEW FILTERS ──────────────────────────────────────────────────────────
+    if (filters.rank) params.rank = filters.rank;
+    if (filters.reporting_date) params.reporting_date = filters.reporting_date;
+
     return params;
 }
 
@@ -370,8 +392,6 @@ function getErrorMessage(err: unknown, fallback: string): string {
     const error = err as AxiosError<{ message?: string }>;
     return error.response?.data?.message ?? fallback;
 }
-
-// ─── Fixed: Type-safe action loading helper ─────────────────────────────────
 
 function setActionLoading(
     state: HelpdeskDocumentsState,
@@ -437,12 +457,16 @@ export const uploadHelpdeskDocument = createAsyncThunk<
             form.append('format', payload.format);
             if (payload.entity_id) form.append('entity_id', payload.entity_id);
             if (payload.status) form.append('status', payload.status);
-            
+
             // Unified General Request fields
             if (payload.request_type) form.append('request_type', payload.request_type);
             if (payload.judge_name) form.append('judge_name', payload.judge_name);
             if (payload.remark_type) form.append('remark_type', payload.remark_type);
             if (payload.category_type) form.append('category_type', payload.category_type);
+
+            // ─── NEW FIELDS ──────────────────────────────────────────────────
+            if (payload.rank) form.append('rank', payload.rank);
+            if (payload.reporting_date) form.append('reporting_date', payload.reporting_date);
 
             const { data } = await axiosClient.post('/helpdesk/documents/upload', form, {
                 headers: { 'Content-Type': 'multipart/form-data' },
@@ -668,7 +692,7 @@ export const linkHelpdeskDocument = createAsyncThunk<
     { rejectValue: string }
 >(
     'helpdeskDocuments/link',
-    async ({ id, entity_type, entity_id, request_type, judge_name, remark_type, category_type }, { rejectWithValue }) => {
+    async ({ id, entity_type, entity_id, request_type, judge_name, remark_type, category_type, rank, reporting_date }, { rejectWithValue }) => {
         try {
             const { data } = await axiosClient.patch(`/helpdesk/documents/${id}/link`, {
                 entity_type,
@@ -677,6 +701,8 @@ export const linkHelpdeskDocument = createAsyncThunk<
                 judge_name,
                 remark_type,
                 category_type,
+                rank,
+                reporting_date,
             });
             return data.data as HelpdeskDocument;
         } catch (err) {
@@ -1132,6 +1158,14 @@ export const selectDocumentsByRemarkType = (remarkType: RemarkType) => (state: R
 
 export const selectDocumentsByCategory = (categoryType: GeneralRequestCategory) => (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.category_type === categoryType);
+
+// ─── New Selectors ──────────────────────────────────────────────────────────
+
+export const selectDocumentsByRank = (rank: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.rank === rank);
+
+export const selectDocumentsByReportingDate = (reportingDate: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.reporting_date === reportingDate);
 
 // ─── Statistics Selectors ────────────────────────────────────────────────────
 

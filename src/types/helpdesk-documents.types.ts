@@ -10,8 +10,8 @@ export type HelpdeskEntityType =
     | 'otherPayment'
     | 'ticket'
     | 'medicalClaim'
-    | 'generalRequest'   // Unified - includes all security/personnel requests
-    | 'securityRequest'; // Deprecated - kept for backward compatibility
+    | 'generalRequest'
+    | 'securityRequest';
 
 export type HelpdeskDocumentFormat = 'pdf' | 'docx' | 'xlsx';
 
@@ -116,12 +116,16 @@ export interface HelpdeskDocument {
     rejection_reason?: string;
     type: 'upload';
     category: 'general';
-    
+
     // Unified General Request fields
     request_type?: RequestType;        // Driver, Bodyguard, etc.
     judge_name?: string;                // Associated judge name
     remark_type?: RemarkType;          // Onboarding or Release
     category_type?: GeneralRequestCategory; // Security, Personnel, Administrative
+
+    // ─── NEW FIELDS ──────────────────────────────────────────────────────────
+    rank?: string | null;              // Officer's rank
+    reporting_date?: string | null;    // Expected reporting date
 }
 
 // ─── Helpdesk Document Filters ───────────────────────────────────────────────
@@ -136,8 +140,8 @@ export interface HelpdeskDocumentFilters {
     offset?: number;
     uploaded_by?: string;
     pending_my_approval?: boolean;
-    unlinked?: boolean; // Filters to entity_id IS NULL
-    
+    unlinked?: boolean;
+
     // Unified General Request filters
     request_type?: RequestType;
     judge_name?: string;
@@ -145,6 +149,10 @@ export interface HelpdeskDocumentFilters {
     category_type?: GeneralRequestCategory;
     date_from?: string;
     date_to?: string;
+
+    // ─── NEW FILTERS ──────────────────────────────────────────────────────────
+    rank?: string;
+    reporting_date?: string;
 }
 
 // ─── Helpdesk Document Upload Payload ────────────────────────────────────────
@@ -158,12 +166,16 @@ export interface UploadHelpdeskDocumentPayload {
     entity_id?: string;
     format: HelpdeskDocumentFormat;
     status?: HelpdeskDocumentStatus;
-    
+
     // Unified General Request fields
     request_type?: RequestType;
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
+
+    // ─── NEW FIELDS ──────────────────────────────────────────────────────────
+    rank?: string;
+    reporting_date?: string;
 }
 
 export interface SubmitForApprovalPayload {
@@ -217,6 +229,8 @@ export interface LinkHelpdeskDocumentPayload {
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
+    rank?: string;
+    reporting_date?: string;
 }
 
 export interface UpdateEStampPayload {
@@ -236,6 +250,8 @@ export interface BulkLinkDocumentsPayload {
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
+    rank?: string;
+    reporting_date?: string;
 }
 
 export interface BulkUpdateStatusPayload {

@@ -73,7 +73,6 @@ import {
   type UtilityStatus,
   type RequestType,
   type RemarkType,
-  type GeneralRequestCategory,
 } from '../../store/slices/helpdeskSlice';
 
 // ─── Helpdesk Documents imports ───────────────────────────────────────────────
@@ -122,7 +121,6 @@ import {
   Upload,
   ExternalLink,
   Send,
-  Tag,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
 import UtilitiesModal, { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
@@ -151,18 +149,6 @@ const REQUEST_TYPE_COLORS: Record<RequestType, string> = {
   'Force Number': 'bg-orange-50 text-orange-700 border-orange-200',
   'Residence Security': 'bg-indigo-50 text-indigo-700 border-indigo-200',
   Sentry: 'bg-gray-50 text-gray-700 border-gray-200',
-};
-
-const CATEGORY_LABELS: Record<GeneralRequestCategory, string> = {
-  Security: 'Security',
-  Personnel: 'Personnel',
-  Administrative: 'Administrative',
-};
-
-const CATEGORY_COLORS: Record<GeneralRequestCategory, string> = {
-  Security: 'bg-red-50 text-red-700 border-red-200',
-  Personnel: 'bg-blue-50 text-blue-700 border-blue-200',
-  Administrative: 'bg-amber-50 text-amber-700 border-amber-200',
 };
 
 const REMARK_TYPE_LABELS: Record<RemarkType, string> = {
@@ -236,9 +222,19 @@ const getStatusIcon = (status: string): React.ReactNode => {
   }
 };
 
-const getStatusOptions = (): Status[] => {
-  return ['Pending', 'Signed', 'Rejected', 'In Progress', 'Completed', 'Active', 'Resolved'];
-};
+// Full list of statuses for most modules
+const FULL_STATUS_OPTIONS: Status[] = [
+  'Pending',
+  'Signed',
+  'Rejected',
+  'In Progress',
+  'Completed',
+  'Active',
+  'Resolved',
+];
+
+// Limited list for General Requests (per user request)
+const GENERAL_REQUEST_STATUS_OPTIONS: Status[] = ['Active', 'Rejected', 'Resolved'];
 
 // ─── Document helpers ─────────────────────────────────────────────────────────
 
@@ -469,18 +465,19 @@ function ConfirmDialog({
   );
 }
 
-// ─── Status Dropdown ─────────────────────────────────────────────────────────
+// ─── Status Dropdown (now accepts custom options) ────────────────────────────
 
 function StatusDropdown({
   status,
   onStatusChange,
   disabled,
+  options = FULL_STATUS_OPTIONS, // default full list
 }: {
   status: string;
   onStatusChange: (status: Status) => void;
   disabled?: boolean;
+  options?: Status[];
 }) {
-  const options = getStatusOptions();
   return (
     <div className="inline-flex items-center gap-1.5">
       <span className="text-stone-500">{getStatusIcon(status)}</span>
@@ -1984,7 +1981,13 @@ function MedicalClaimsTab() {
   );
 }
 
-// ─── General Requests Tab (UPDATED - fixed email error) ─────────────────────
+// ─── General Requests Tab (UPDATED to include Firearm Type) ────────────────
+
+// Extended type to include the new fields (matching the slice)
+interface ExtendedGeneralRequest extends GeneralRequest {
+  rank?: string;
+  reporting_date?: string;
+}
 
 function GeneralRequestsTab() {
   const dispatch = useAppDispatch();
@@ -1996,7 +1999,6 @@ function GeneralRequestsTab() {
   const [editingItem, setEditingItem] = useState<GeneralRequest | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  // ─── Status Change (without email, as it's not stored) ─────────────────
   const handleStatusChange = async (id: string, status: Status) => {
     await dispatch(updateGeneralRequestStatus({ id, status }));
     await dispatch(fetchGeneralRequests({}));
@@ -2042,100 +2044,104 @@ function GeneralRequestsTab() {
                 <th className="px-3 py-2 font-medium">S/No.</th>
                 <th className="px-3 py-2 font-medium">Ticket #</th>
                 <th className="px-3 py-2 font-medium">Judge</th>
+                <th className="px-3 py-2 font-medium">Station</th>
                 <th className="px-3 py-2 font-medium">Type</th>
-                <th className="px-3 py-2 font-medium">Category</th>
-                <th className="px-3 py-2 font-medium">Request</th>
+                <th className="px-3 py-2 font-medium">Firearm Type</th>  {/* NEW */}
+                <th className="px-3 py-2 font-medium">Officer</th>
+                <th className="px-3 py-2 font-medium">Rank</th>
+                <th className="px-3 py-2 font-medium">Force No.</th>
+                <th className="px-3 py-2 font-medium">Request Date</th>
+                <th className="px-3 py-2 font-medium">Reporting Date</th>
                 <th className="px-3 py-2 font-medium">Date Recv'd</th>
-                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">Officer Assigned</th>
+                <th className="px-3 py-2 font-medium">Assigned To</th>
+                <th className="px-3 py-2 font-medium">Remark Type</th>
                 <th className="px-3 py-2 font-medium">Remarks</th>
+                <th className="px-3 py-2 font-medium">Status</th>
                 <th className="px-3 py-2 text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="px-3 py-8 text-center">
+                  <td colSpan={18} className="px-3 py-8 text-center">
                     <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c] mx-auto" />
                   </td>
                 </tr>
               ) : data.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-3 py-8 text-center text-stone-400">
+                  <td colSpan={18} className="px-3 py-8 text-center text-stone-400">
                     No records found. Click 'Add' to create one.
                   </td>
                 </tr>
               ) : (
-                data.map((item) => (
-                  <tr key={item.id} className="hover:bg-stone-50 transition-colors">
-                    <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-                    <td className="px-3 py-2 font-mono text-xs text-stone-500">{item.ticket_number || '—'}</td>
-                    <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
-                    <td className="px-3 py-2">
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
-                          REQUEST_TYPE_COLORS[item.request_type as RequestType] || 'bg-stone-50 text-stone-600 border-stone-200'
-                        }`}
-                      >
-                        {item.request_type ? REQUEST_TYPE_LABELS[item.request_type as RequestType] : '—'}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2">
-                      {item.category ? (
+                data.map((item) => {
+                  // Cast to extended type to safely access new fields
+                  const extended = item as ExtendedGeneralRequest;
+                  return (
+                    <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+                      <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-stone-500">{item.ticket_number || '—'}</td>
+                      <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
+                      <td className="px-3 py-2 text-stone-600">{item.location || '—'}</td>
+                      <td className="px-3 py-2">
                         <span
                           className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
-                            CATEGORY_COLORS[item.category as GeneralRequestCategory] || 'bg-stone-50 text-stone-600 border-stone-200'
+                            REQUEST_TYPE_COLORS[item.request_type as RequestType] || 'bg-stone-50 text-stone-600 border-stone-200'
                           }`}
                         >
-                          {CATEGORY_LABELS[item.category as GeneralRequestCategory] || item.category}
+                          {item.request_type ? REQUEST_TYPE_LABELS[item.request_type as RequestType] : '—'}
                         </span>
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-stone-600 max-w-xs truncate" title={item.request}>
-                      {item.request}
-                    </td>
-                    <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
-                    <td className="px-3 py-2 text-center">
-                      <StatusDropdown
-                        status={item.status}
-                        onStatusChange={(s) => handleStatusChange(item.id, s)}
-                        disabled={mutating}
-                      />
-                    </td>
-                    <td className="px-3 py-2 text-stone-600 max-w-xs truncate" title={item.remarks || ''}>
-                      {item.remarks || '—'}
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => handleEdit(item)}
+                      </td>
+                      <td className="px-3 py-2 text-stone-600">{item.firearm_type || '—'}</td> {/* NEW */}
+                      <td className="px-3 py-2 text-stone-600">{item.officer_name || '—'}</td>
+                      <td className="px-3 py-2 text-stone-600">{extended.rank || '—'}</td>
+                      <td className="px-3 py-2 text-stone-600">{item.force_number || '—'}</td>
+                      <td className="px-3 py-2 text-stone-600">{formatDate(item.request_date)}</td>
+                      <td className="px-3 py-2 text-stone-600">
+                        {extended.reporting_date ? formatDate(extended.reporting_date) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
+                      <td className="px-3 py-2 text-stone-600">{item.officer_assigned || '—'}</td>
+                      <td className="px-3 py-2 text-stone-600">{item.assigned_to || '—'}</td>
+                      <td className="px-3 py-2 text-stone-600">
+                        {item.remark_type ? REMARK_TYPE_LABELS[item.remark_type as RemarkType] : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-stone-600 max-w-xs truncate" title={item.remarks || ''}>
+                        {item.remarks || '—'}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        {/* Use the limited status options for General Requests */}
+                        <StatusDropdown
+                          status={item.status}
+                          onStatusChange={(s) => handleStatusChange(item.id, s)}
                           disabled={mutating}
-                          className="rounded p-1 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50"
-                          title="Edit"
-                        >
-                          <Edit className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(item.id)}
-                          disabled={mutating}
-                          className="rounded p-1 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                          title="Delete"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                        {item.remark_type && (
-                          <span
-                            className="text-[10px] text-stone-400"
-                            title={`Remark type: ${REMARK_TYPE_LABELS[item.remark_type as RemarkType] || item.remark_type}`}
+                          options={GENERAL_REQUEST_STATUS_OPTIONS}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => handleEdit(item)}
+                            disabled={mutating}
+                            className="rounded p-1 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50"
+                            title="Edit"
                           >
-                            <Tag className="h-3 w-3" />
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                            <Edit className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setDeleteTarget(item.id)}
+                            disabled={mutating}
+                            className="rounded p-1 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

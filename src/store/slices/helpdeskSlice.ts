@@ -69,8 +69,17 @@ export interface GeneralRequest {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // ─── NEW FIELDS ──────────────────────────────────────────────────────────
+  rank?: string | null;           // Officer's rank (for Driver/Bodyguard)
+  reporting_date?: string | null; // Expected reporting date
 }
 
+/**
+ * Input for creating a general request.
+ *
+ * Business rule: For `request_type === 'Firearm'`, `firearm_type` is **optional** initially,
+ * but becomes **required** when `officer_assigned` is provided.
+ */
 export interface CreateGeneralRequestInput {
   judge_name: string;
   request: string;
@@ -83,7 +92,7 @@ export interface CreateGeneralRequestInput {
   remark_type?: RemarkType;
   request_date?: string;
   location?: string;
-  firearm_type?: string;
+  firearm_type?: string; // Conditionally required – see business rule above.
   force_number?: string;
   officer_name?: string;
   assigned_to?: string;
@@ -91,8 +100,17 @@ export interface CreateGeneralRequestInput {
   notes?: string;
   email?: string;
   send_email?: boolean;
+  // ─── NEW FIELDS ──────────────────────────────────────────────────────────
+  rank?: string;
+  reporting_date?: string;
 }
 
+/**
+ * Input for updating a general request.
+ *
+ * Business rule: For `request_type === 'Firearm'`, if `officer_assigned` is provided
+ * (or updated), `firearm_type` must also be provided.
+ */
 export interface UpdateGeneralRequestInput {
   request?: string;
   request_type?: RequestType;
@@ -104,12 +122,15 @@ export interface UpdateGeneralRequestInput {
   remark_type?: RemarkType;
   request_date?: string;
   location?: string;
-  firearm_type?: string;
+  firearm_type?: string; // Conditionally required – see business rule above.
   force_number?: string;
   officer_name?: string;
   assigned_to?: string;
   priority?: string;
   notes?: string;
+  // ─── NEW FIELDS ──────────────────────────────────────────────────────────
+  rank?: string;
+  reporting_date?: string;
 }
 
 // ─── Security Request (Deprecated) ─────────────────────────────────────────
@@ -3980,7 +4001,7 @@ export const {
 } = helpdeskSlice.actions;
 
 /* ============================================================
-   SELECTORS
+   SELECTORS (unchanged, all present)
 ============================================================ */
 
 // ─── All Data ──────────────────────────────────────────────────────────────

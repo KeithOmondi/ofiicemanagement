@@ -1,5 +1,5 @@
 // src/components/modals/RequestModal.tsx
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   createMedicalClaim,
@@ -24,6 +24,11 @@ import {
   deleteSignature,
 } from '../../store/slices/userSlice';
 import {
+  searchJudges,
+  selectAllJudges,
+  selectJudgesLoading,
+} from '../../store/slices/JudgesSlice';
+import {
   X,
   Loader2,
   Save,
@@ -33,7 +38,6 @@ import {
   Briefcase,
   Stethoscope,
   FileText,
-  Users,
   CreditCard,
   Mail,
   Shield,
@@ -50,74 +54,60 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
-import { generateMemoDocx } from '../../utils/generateMemoDocx';
-import { generateMemoPdf } from '../../utils/generateMemoPdf';
 import {
   uploadHelpdeskDocument,
   linkHelpdeskDocument,
   type DocumentEntityType,
   type DocumentFormat,
 } from '../../store/slices/helpdeskDocumentsSlice';
+import type { Judge } from '../../types/judges.types';
+
+// ─── Import memo generators ────────────────────────────────────────────────
+// Medical claims
+import { generateMemoDocx } from '../../utils/generateMemoDocx';
+import { generateMemoPdf } from '../../utils/generateMemoPdf';
+// General requests (Driver, Bodyguard, Firearm, etc.)
+import { generateGRMemoDocx } from '../../utils/generateGRMemoDocx';
+import { generateGRMemoPdf } from '../../utils/generateGRMemoPdf';
+import type { GRMemoParams } from '../../utils/generateGRMemoPdf';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1781759596/JOB_LOGO_ubls4m.jpg';
-const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
+const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784363826/ORHC_L_crclut.jpg';
+const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784364354/ORHC_EMBLEM_wzmp94.jpg';
 
-const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
+// Updated request type labels & suggestions
+const REQUEST_TYPE_LABELS: Record<string, string> = {
   Driver: 'Driver',
   Bodyguard: 'Bodyguard',
+  'Residence Sentry': 'Residence Sentry',
   Firearm: 'Firearm',
-  'Current Station': 'Current Station',
-  'Force Number': 'Force Number',
-  'Residence Security': 'Residence Security',
-  Sentry: 'Sentry',
 };
 
-// Maps request type to the role phrase used in the letter
-const REQUEST_ROLE_PHRASE: Record<RequestType, string> = {
-  Driver: 'driver',
-  Bodyguard: 'close escort',
-  Firearm: 'firearm handler',
-  'Current Station': 'station officer',
-  'Force Number': 'force number officer',
-  'Residence Security': 'residence security officer',
-  Sentry: 'sentry',
-};
+const REQUEST_TYPE_SUGGESTIONS: string[] = ['Driver', 'Bodyguard', 'Residence Sentry', 'Firearm'];
 
-// Suggested request types (surfaced via a <datalist> — the field itself is free text)
-const REQUEST_TYPE_SUGGESTIONS: RequestType[] = [
-  'Driver',
-  'Bodyguard',
-  'Firearm',
-  'Current Station',
-  'Force Number',
-  'Residence Security',
-  'Sentry',
-];
-
-// Request types that trigger the officer sub-fields (Name / Current Station / Force Number)
-const OFFICER_DETAIL_TYPES = new Set(['Driver', 'Bodyguard']);
+// Types that trigger officer details (Name, Rank, Force Number, Station)
+const OFFICER_DETAIL_TYPES = new Set(['Driver', 'Bodyguard', 'Residence Sentry']);
 
 const REMARK_TYPE_LABELS: Record<RemarkType, string> = {
   Onboarding: 'Onboarding',
   Release: 'Release',
 };
 
-// Police service is no longer a user-facing field — everything defaults to Kenya Police
-// Service. Flip this default (or re-expose the picker) if Administration Police requests
-// become common again.
-const DEFAULT_POLICE_SERVICE: 'kenya' | 'administration' = 'kenya';
-
-const POLICE_SERVICE_LABELS: Record<string, string> = {
+/*const POLICE_SERVICE_LABELS: Record<string, string> = {
   kenya: 'Kenya Police Service',
   administration: 'Administration Police Service',
-};
+};*/
 
 const POLICE_SERVICE_ADDRESS: Record<string, string> = {
   kenya: 'The Deputy Inspector General,\nKenya Police Service,\nVigilance House,\nP.O. BOX 53258-00200-00100\nNAIROBI.',
   administration: 'The Deputy Inspector General,\nAdministration Police Service,\nJogoo House,\nP.O. BOX 53258-00200-00100\nNAIROBI.',
 };
+
+const DEFAULT_POLICE_SERVICE: 'kenya' | 'administration' = 'kenya';
+
+// Allowed statuses – we now only use these three
+const ALLOWED_STATUSES: Status[] = ['Active', 'Rejected', 'Resolved'];
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -130,26 +120,16 @@ interface RequestModalProps {
   editingItem?: MedicalClaim | GeneralRequest | null;
 }
 
-// Extended general form with local UI fields.
-//
-// Field re-purposing notes (kept this way so we don't have to touch the backend schema
-// or CreateGeneralRequestInput type):
-//   - `location`       -> now used at the TOP as the Judge's Station (was "Current Station")
-//   - `assigned_to`    -> now used as the officer's Current Station, only shown when the
-//                          request type is Driver or Bodyguard
-//   - `officer_assigned` -> repurposed as the internal department staff handling the
-//                          request (unchanged field name, new meaning/label)
-//   - `request_type`   -> now free text (with suggestions), not restricted to the enum
-//   - `request`        -> no longer user-facing; auto-generated on submit since the API
-//                          type still requires it
-//   - `category` / `police_service` / `firearm_type` / `priority` / `notes` -> dropped
-//                          from the UI, sent as undefined / defaulted
+// Extended general form – updated fields
 interface ExtendedGeneralForm extends Omit<CreateGeneralRequestInput, 'request_type' | 'request'> {
   request_type: string;
   request?: string;
   email?: string;
   send_email?: boolean;
   police_service: 'kenya' | 'administration';
+  rank?: string;
+  reporting_date?: string;
+  officer_station?: string; // officer's current posting, distinct from the judge's station
 }
 
 // ─── UI Helpers ──────────────────────────────────────────────────────────────
@@ -319,6 +299,12 @@ interface BasicInfoFormProps {
   generalForm: ExtendedGeneralForm;
   onMedicalChange: (field: keyof CreateMedicalClaimInput, value: string | number) => void;
   onGeneralChange: (field: keyof ExtendedGeneralForm | 'email' | 'send_email', value: string | number | boolean) => void;
+  // Judge autocomplete props
+  judgeSearchTerm: string;
+  onJudgeSearchTermChange: (term: string) => void;
+  judgeSuggestions: Judge[];
+  judgeSearchLoading: boolean;
+  onJudgeSelect: (judge: Judge) => void;
 }
 
 const BasicInfoForm: React.FC<BasicInfoFormProps> = ({
@@ -327,6 +313,11 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({
   generalForm,
   onMedicalChange,
   onGeneralChange,
+  judgeSearchTerm,
+  onJudgeSearchTermChange,
+  judgeSuggestions,
+  judgeSearchLoading,
+  onJudgeSelect,
 }) => {
   if (mode === 'medical') {
     return (
@@ -397,16 +388,12 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({
               <div className="relative">
                 <Briefcase size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                 <select
-                  value={medicalForm.status || 'Pending'}
+                  value={medicalForm.status || 'Active'}
                   onChange={(e) => onMedicalChange('status', e.target.value as Status)}
                   className={`${inputClasses} pl-9 appearance-none bg-white`}
                 >
-                  <option value="Pending">Pending</option>
-                  <option value="Signed">Signed</option>
-                  <option value="Rejected">Rejected</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Completed">Completed</option>
                   <option value="Active">Active</option>
+                  <option value="Rejected">Rejected</option>
                   <option value="Resolved">Resolved</option>
                 </select>
               </div>
@@ -417,31 +404,56 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({
     );
   }
 
-  // Unified General Request (includes security/personnel) — trimmed layout
+  // ─── General / Security Request (updated layout) ────────────────────────
+
   const showOfficerDetails = OFFICER_DETAIL_TYPES.has(generalForm.request_type.trim());
+  const isFirearm = generalForm.request_type.trim() === 'Firearm';
 
   return (
     <div className="space-y-4">
-      {/* Section 1: Judge + Station */}
+      {/* Section 1: Judge Info */}
       <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
         <div className="flex items-center gap-2 mb-3">
           <User size={16} className="text-[#c9a84c]" />
-          <h4 className="text-sm font-semibold text-stone-800">Judge</h4>
+          <h4 className="text-sm font-semibold text-stone-800">Judge Info</h4>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
+          <div className="relative">
             <FieldLabel required>Judge's Name</FieldLabel>
             <div className="relative">
               <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
               <input
                 type="text"
-                value={generalForm.judge_name || ''}
-                onChange={(e) => onGeneralChange('judge_name', e.target.value)}
-                placeholder="e.g. Hon. Lady Justice Anne Mary A. Okutoyi"
+                value={judgeSearchTerm}
+                onChange={(e) => onJudgeSearchTermChange(e.target.value)}
+                placeholder="Search judge by name..."
                 className={`${inputClasses} pl-9`}
-                required
+                autoComplete="off"
               />
+              {judgeSearchLoading && (
+                <Loader2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-stone-400" />
+              )}
+              {/* Suggestions dropdown */}
+              {judgeSuggestions.length > 0 && judgeSearchTerm.trim() !== '' && (
+                <ul className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md border border-stone-200 bg-white shadow-lg">
+                  {judgeSuggestions.map((judge) => (
+                    <li
+                      key={judge.id}
+                      className="cursor-pointer px-4 py-2 text-sm text-stone-800 hover:bg-stone-100"
+                      onMouseDown={(e) => {
+                        e.preventDefault(); // prevent blur before click
+                        onJudgeSelect(judge);
+                      }}
+                    >
+                      {judge.name} {judge.pj_number && `(${judge.pj_number})`}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
+            <p className="mt-1 text-[10px] text-stone-400">
+              Type to search from the judges list, or enter a name manually.
+            </p>
           </div>
           <div>
             <FieldLabel>Station</FieldLabel>
@@ -465,42 +477,54 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({
           <FileText size={16} className="text-[#c9a84c]" />
           <h4 className="text-sm font-semibold text-stone-800">Request Details</h4>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="md:col-span-2">
+        <div className="grid grid-cols-1 gap-4">
+          <div>
             <FieldLabel required>Type of Request</FieldLabel>
             <div className="relative">
               <Briefcase size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-              <input
-                type="text"
-                list="request-type-suggestions"
+              <select
                 value={generalForm.request_type || ''}
                 onChange={(e) => onGeneralChange('request_type', e.target.value)}
-                placeholder="e.g. Driver, Bodyguard, or describe the request"
-                className={`${inputClasses} pl-9`}
+                className={`${inputClasses} pl-9 appearance-none bg-white`}
                 required
-              />
-              <datalist id="request-type-suggestions">
-                {REQUEST_TYPE_SUGGESTIONS.map((t) => (
-                  <option key={t} value={t} />
+              >
+                <option value="">Select request type...</option>
+                {REQUEST_TYPE_SUGGESTIONS.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
                 ))}
-              </datalist>
+              </select>
             </div>
             <p className="mt-1 text-[10px] text-stone-400">
-              Pick Driver or Bodyguard to attach officer details, or type your own request.
+              For Driver, Bodyguard, or Residence Sentry, please fill in the officer details below.
             </p>
           </div>
 
           {showOfficerDetails && (
-            <>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-2 border-t border-stone-200 pt-4">
               <div>
-                <FieldLabel>Name</FieldLabel>
+                <FieldLabel>Name of Officer</FieldLabel>
                 <div className="relative">
                   <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                   <input
                     type="text"
                     value={generalForm.officer_name || ''}
                     onChange={(e) => onGeneralChange('officer_name', e.target.value)}
-                    placeholder="e.g. CPL. Leonard Michubu Julius"
+                    placeholder="e.g. CPL. Leonard Michubu"
+                    className={`${inputClasses} pl-9`}
+                  />
+                </div>
+              </div>
+              <div>
+                <FieldLabel>Rank</FieldLabel>
+                <div className="relative">
+                  <Shield size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                  <input
+                    type="text"
+                    value={generalForm.rank || ''}
+                    onChange={(e) => onGeneralChange('rank', e.target.value)}
+                    placeholder="e.g. Corporal"
                     className={`${inputClasses} pl-9`}
                   />
                 </div>
@@ -518,43 +542,71 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({
                   />
                 </div>
               </div>
-              <div className="md:col-span-2">
-                <FieldLabel>Current Station</FieldLabel>
+              <div>
+                <FieldLabel>Officer's Current Station</FieldLabel>
                 <div className="relative">
                   <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                   <input
                     type="text"
-                    value={generalForm.assigned_to || ''}
-                    onChange={(e) => onGeneralChange('assigned_to', e.target.value)}
-                    placeholder="e.g. Embakasi B Campus"
+                    value={generalForm.officer_station || ''}
+                    onChange={(e) => onGeneralChange('officer_station', e.target.value)}
+                    placeholder="e.g. Embakasi B. Campus"
                     className={`${inputClasses} pl-9`}
                   />
                 </div>
               </div>
-            </>
+            </div>
+          )}
+
+          {/* ── Firearm details ── */}
+          {isFirearm && (
+            <div className="mt-2 border-t border-stone-200 pt-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <FieldLabel>Officer Assigned</FieldLabel>
+                  <div className="relative">
+                    <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                    <input
+                      type="text"
+                      value={generalForm.officer_assigned || ''}
+                      onChange={(e) => onGeneralChange('officer_assigned', e.target.value)}
+                      placeholder="Name of officer assigned (e.g., CPL. Otieno)"
+                      className={`${inputClasses} pl-9`}
+                    />
+                  </div>
+                  <p className="mt-1 text-[10px] text-stone-400">
+                    If an officer is assigned, the firearm type becomes required.
+                  </p>
+                </div>
+                <div>
+                  <FieldLabel required={!!generalForm.officer_assigned}>Firearm Type</FieldLabel>
+                  <div className="relative">
+                    <Shield size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                    <input
+                      type="text"
+                      value={generalForm.firearm_type || ''}
+                      onChange={(e) => onGeneralChange('firearm_type', e.target.value)}
+                      placeholder="e.g., G19, AK47, Shotgun"
+                      className={`${inputClasses} pl-9 ${generalForm.officer_assigned ? 'border-emerald-300 focus:border-emerald-500 focus:ring-emerald-500' : ''}`}
+                    />
+                  </div>
+                  {generalForm.officer_assigned && !generalForm.firearm_type?.trim() && (
+                    <p className="mt-1 text-[10px] text-red-500">Firearm type is required when an officer is assigned.</p>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </div>
 
-      {/* Section 3: Dates + internal ownership */}
+      {/* Section 3: Tracking */}
       <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
         <div className="flex items-center gap-2 mb-3">
           <Calendar size={16} className="text-[#c9a84c]" />
           <h4 className="text-sm font-semibold text-stone-800">Tracking</h4>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <FieldLabel>Date Received</FieldLabel>
-            <div className="relative">
-              <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-              <input
-                type="date"
-                value={generalForm.date_received || ''}
-                onChange={(e) => onGeneralChange('date_received', e.target.value)}
-                className={`${inputClasses} pl-9`}
-              />
-            </div>
-          </div>
           <div>
             <FieldLabel>Request Date</FieldLabel>
             <div className="relative">
@@ -567,23 +619,37 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({
               />
             </div>
           </div>
-          <div className="md:col-span-2">
-            <FieldLabel>Officer Assigned (Department)</FieldLabel>
+          <div>
+            <FieldLabel>Reporting Date</FieldLabel>
             <div className="relative">
-              <Users size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+              <Calendar size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
               <input
-                type="text"
-                value={generalForm.officer_assigned || ''}
-                onChange={(e) => onGeneralChange('officer_assigned', e.target.value)}
-                placeholder="Who in the department is handling this request?"
+                type="date"
+                value={generalForm.reporting_date || ''}
+                onChange={(e) => onGeneralChange('reporting_date', e.target.value)}
                 className={`${inputClasses} pl-9`}
               />
             </div>
           </div>
+          {!isFirearm && (
+            <div>
+              <FieldLabel>Officer Assigned (optional)</FieldLabel>
+              <div className="relative">
+                <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                <input
+                  type="text"
+                  value={generalForm.officer_assigned || ''}
+                  onChange={(e) => onGeneralChange('officer_assigned', e.target.value)}
+                  placeholder="Name of assigned officer"
+                  className={`${inputClasses} pl-9`}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Section 4: Remarks + status + email */}
+      {/* Section 4: Remarks + Email */}
       <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
         <div className="flex items-center gap-2 mb-3">
           <FileSignature size={16} className="text-[#c9a84c]" />
@@ -610,16 +676,12 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({
             <div className="relative">
               <Briefcase size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
               <select
-                value={generalForm.status || 'Pending'}
+                value={generalForm.status || 'Active'}
                 onChange={(e) => onGeneralChange('status', e.target.value as Status)}
                 className={`${inputClasses} pl-9 appearance-none bg-white`}
               >
-                <option value="Pending">Pending</option>
-                <option value="Signed">Signed</option>
-                <option value="Rejected">Rejected</option>
-                <option value="In Progress">In Progress</option>
-                <option value="Completed">Completed</option>
                 <option value="Active">Active</option>
+                <option value="Rejected">Rejected</option>
                 <option value="Resolved">Resolved</option>
               </select>
             </div>
@@ -705,12 +767,23 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   const dispatch = useAppDispatch();
   const currentUser = useAppSelector((state) => state.auth.user);
 
-  // ─── Memo data generation ────────────────────────────────────────────────
   const [creationDetails] = useState(() => {
     const now = new Date();
+    const day = now.getDate();
+    const ordinal = (n: number) => {
+      const v = n % 100;
+      if (v >= 11 && v <= 13) return 'th';
+      switch (n % 10) {
+        case 1: return 'st';
+        case 2: return 'nd';
+        case 3: return 'rd';
+        default: return 'th';
+      }
+    };
+    const monthYear = now.toLocaleDateString('en-KE', { month: 'long', year: 'numeric' });
     return {
-      dateStr: now.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' }),
-      refSuffix: (Date.now() % 1000).toString().padStart(3, '0')
+      dateStr: `${day}${ordinal(day)} ${monthYear}`,
+      refSuffix: (Date.now() % 1000).toString().padStart(3, '0'),
     };
   });
 
@@ -738,89 +811,70 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
       };
     }
 
-    // ─── Helper function for the full letter body ─────────────────────────
-    const generateFullBody = (): string => {
-      const requestTypeRaw = generalForm.request_type?.trim() || 'request';
-      const requestTypeLabel = REQUEST_TYPE_LABELS[requestTypeRaw as RequestType] || requestTypeRaw;
-      const rolePhrase = REQUEST_ROLE_PHRASE[requestTypeRaw as RequestType] || requestTypeLabel.toLowerCase();
-      const judge = generalForm.judge_name || 'the Judge';
-      const officer = generalForm.officer_name || '';
-      const force = generalForm.force_number || '';
-      // `assigned_to` doubles as the officer's current station for Driver/Bodyguard requests
-      const officerStation = generalForm.assigned_to || '';
-      const policeService = POLICE_SERVICE_LABELS[generalForm.police_service] || 'Kenya Police Service';
+    // ─── General / Security letter ──────────────────────────────────────
 
-      // Build the letter body exactly as in the samples
-      let body = `Greetings from the Office of the Registrar, High Court.\n\n`;
-      body += `Pursuant to the continued collaboration between the Judiciary and the ${policeService} in facilitating judicial functions, we wish to request the attachment of `;
+    const requestTypeRaw = generalForm.request_type?.trim() || 'request';
+    const requestTypeLabel = REQUEST_TYPE_LABELS[requestTypeRaw] || requestTypeRaw;
+    const requestTypeLower = requestTypeLabel.toLowerCase();
+    const judge = generalForm.judge_name || 'the Judge';
+    const station = generalForm.location || 'the High Court';
+    const officer = generalForm.officer_name || '';
+    const rank = generalForm.rank || '';
+    const force = generalForm.force_number || '';
+    const officerStation = generalForm.officer_station?.trim() || '';
+    //const policeService = POLICE_SERVICE_LABELS[generalForm.police_service] || 'Kenya Police Service';
 
-      if (officer && force) {
-        body += `${officer} (${force})`;
-      } else if (officer) {
-        body += officer;
-      } else {
-        body += 'an officer';
-      }
+    // ─── Build letter body with bold markers ──────────────────────────────
+    let body = `Greetings from the Office of the Registrar, High Court.\n\n`;
 
-      if (officerStation) {
-        body += `, currently stationed at ${officerStation}`;
-      }
+    body += `Pursuant to our continued collaboration in facilitating judicial functions, we kindly request the posting of a ${requestTypeLower} to the ${judge} of the High Court at ${station}.\n\n`;
 
-      body += `, to serve as a ${rolePhrase} to ${judge}, Judge of the High Court.\n\n`;
-
-      body += `The above-named officer has been identified as suitable for the assignment, and his/her attachment will greatly facilitate the efficient discharge of the Judge's official duties.\n\n`;
-      body += `We take this opportunity to thank you for your continued partnership and kindly request your favourable consideration of this matter.`;
-
-      return body;
-    };
-
-    // Unified General Request – produce letter format
-    const requestTypeRaw = generalForm.request_type?.trim() || 'Request';
-    const requestTypeLabel = REQUEST_TYPE_LABELS[requestTypeRaw as RequestType] || requestTypeRaw;
-    const remarkTypeLabel = generalForm.remark_type ? REMARK_TYPE_LABELS[generalForm.remark_type] : '';
-    const judgeName = generalForm.judge_name || 'JUDGE';
-    const officerName = generalForm.officer_name || '';
-    const forceNumber = generalForm.force_number || '';
-
-    // Build subject: "REQUEST FOR ATTACHMENT OF [OFFICER] ([FORCE]) AS A [ROLE] TO [JUDGE]"
-    let subject = `REQUEST FOR ATTACHMENT OF ${officerName}`;
-    if (forceNumber) {
-      subject += ` (${forceNumber})`;
+    if (officer || force) {
+      body += `In this regard, we propose that **`;
+      if (force) body += `No. ${force} `;
+      body += `${officer}**`;
+      if (rank) body += `, ${rank},`;
+      if (officerStation) body += ` currently stationed at ${officerStation},`;
+      body += ` be seconded to serve as the Judge's ${requestTypeLower}.\n\n`;
     }
-    const role = REQUEST_ROLE_PHRASE[requestTypeRaw as RequestType] || requestTypeLabel.toLowerCase();
-    subject += ` AS A ${role.toUpperCase()} TO ${judgeName.toUpperCase()}`;
 
-    // Generate body
-    const bodyText = generateFullBody();
-
-    // Build copy-to list
-    const copyTo = [];
-    if (judgeName) {
-      copyTo.push({ label: '1.', value: judgeName });
+    if (generalForm.reporting_date) {
+      body += `The officer is expected to report on ${generalForm.reporting_date}.\n\n`;
     }
-    copyTo.push({ label: '2.', value: 'In-Charge, Judiciary Police Unit' });
 
-    // Determine recipient address based on police service (defaulted, no longer user-facing)
+    body += `Your prompt consideration of this request will ensure continuity of essential judicial support services and the security of the Judge.\n\n`;
+    body += `Please accept the assurances of my highest consideration`;
+
+    // Subject — matches reference letter: type + judge + station, no officer name
+    let subject = `REQUEST FOR ${requestTypeLabel.toUpperCase()} FOR ${judge.toUpperCase()}`;
+    if (station) subject += ` – ${station.toUpperCase()}`;
+
+    // Copy-to list — judge entry carries the station on its own indented continuation line
+    const copyTo = [
+      { label: '1.', value: `${judge}\n${station}` },
+      { label: '2.', value: 'In-Charge, Judiciary Police Unit' },
+    ];
+
     const toAddress = POLICE_SERVICE_ADDRESS[generalForm.police_service] || POLICE_SERVICE_ADDRESS.kenya;
 
     return {
       to: toAddress,
-      from: 'OFFICE OF THE REGISTRAR, HIGH COURT',
-      ref: `RHC/10 ${dateStr}`,
+      from: 'REGISTRAR, HIGH COURT',
+      ref: `RHC/10`,
       date: dateStr,
       subject,
-      body: bodyText,
+      body,
       rows: [
         { label: 'Judge Name', value: generalForm.judge_name || 'N/A' },
         { label: 'Judge Station', value: generalForm.location || 'N/A' },
         { label: 'Request Type', value: requestTypeLabel },
-        { label: 'Date Received', value: generalForm.date_received || 'N/A' },
         { label: 'Request Date', value: generalForm.request_date || 'N/A' },
+        { label: 'Reporting Date', value: generalForm.reporting_date || 'N/A' },
         { label: 'Officer Name', value: generalForm.officer_name || 'N/A' },
+        { label: 'Rank', value: generalForm.rank || 'N/A' },
         { label: 'Force Number', value: generalForm.force_number || 'N/A' },
-        { label: 'Officer Current Station', value: generalForm.assigned_to || 'N/A' },
-        { label: 'Officer Assigned (Dept)', value: generalForm.officer_assigned || 'N/A' },
-        { label: 'Remark Type', value: remarkTypeLabel || 'N/A' },
+        { label: "Officer's Station", value: officerStation || 'N/A' },
+        { label: 'Remark Type', value: generalForm.remark_type ? REMARK_TYPE_LABELS[generalForm.remark_type] : 'N/A' },
         { label: 'Remarks', value: generalForm.remarks || 'N/A' },
       ],
       grandTotal: 0,
@@ -830,7 +884,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
     };
   }, [mode, medicalForm, generalForm, currentUser?.full_name, creationDetails]);
 
-  // ─── Editable fields ──────────────────────────────────────────────────────
+  // ─── Editable fields ────────────────────────────────────────────────────
   const [toField, setToField] = useState(() => memoData.to);
   const [fromField, setFromField] = useState(() => memoData.from);
   const [refField, setRefField] = useState(() => memoData.ref);
@@ -873,23 +927,46 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
 
       let blob: Blob | null = null;
 
-      if (format === 'docx') {
-        blob = await generateMemoDocx({
-          ...shared,
+      // ─── Choose generator based on mode ──────────────────────────────
+      if (mode === 'medical') {
+        // Medical claims use the generic memo generator with tables
+        if (format === 'docx') {
+          blob = await generateMemoDocx({
+            ...shared,
+            crestUrl: JUDICIARY_CREST_SRC,
+            signatureUrl: signatureUrl || undefined,
+          });
+        } else if (format === 'pdf') {
+          blob = await generateMemoPdf({
+            ...shared,
+            crestUrl: JUDICIARY_CREST_SRC,
+            signatureUrl: signatureUrl || undefined,
+          });
+        }
+      } else {
+        // General / Security requests use the formal letter generator
+        const grParams: GRMemoParams = {
+          to: toField,
+          from: fromField,
+          ref: refField,
+          date: dateField,
+          subject: subjectField,
+          bodyText: bodyText,
+          copyTo: memoData.copyTo, // already array of { label, value }
+          signatoryName: signatoryName,
           crestUrl: JUDICIARY_CREST_SRC,
           signatureUrl: signatureUrl || undefined,
-        });
-      } else if (format === 'pdf') {
-        blob = await generateMemoPdf({
-          ...shared,
-          crestUrl: JUDICIARY_CREST_SRC,
-          signatureUrl: signatureUrl || undefined,
-        });
+          fromDepartment: fromField,
+        };
+
+        if (format === 'docx') {
+          blob = await generateGRMemoDocx(grParams);
+        } else if (format === 'pdf') {
+          blob = await generateGRMemoPdf(grParams);
+        }
       }
 
-      if (!blob) {
-        throw new Error('Generator returned no blob');
-      }
+      if (!blob) throw new Error('Generator returned no blob');
 
       const safeRef = (refField || 'memo').replace(/[\\/:*?"<>|]/g, '-');
       const filename = `${safeRef}.${format}`;
@@ -915,7 +992,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
       ).unwrap();
 
       onDocumentUploaded?.(result.id);
-
       toast.success(`${format.toUpperCase()} document saved to the system.`);
     } catch (err) {
       console.error(`Failed to generate/upload memo:`, err);
@@ -933,7 +1009,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   // ─── Render ──────────────────────────────────────────────────────────────
 
   if (mode === 'medical') {
-    // Internal memo layout for medical claims
+    // Medical memo preview (unchanged)
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -945,7 +1021,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
             <GhostButton onClick={onEdit} icon={<Edit size={12} />}>
               Edit Info
             </GhostButton>
-
             <div className="relative">
               <GoldButton
                 size="sm"
@@ -956,7 +1031,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
                 {downloadingFormat ? downloadLabels[downloadingFormat] : 'Download'}
                 {!downloadingFormat && <ChevronDown size={12} />}
               </GoldButton>
-
               {showDownloadMenu && (
                 <>
                   <div className="fixed inset-0 z-0" onClick={() => setShowDownloadMenu(false)} />
@@ -981,8 +1055,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
             </div>
           </div>
         </div>
-
-        {/* Internal memo layout */}
+        {/* Internal memo layout (unchanged) */}
         <div className="border border-stone-300 bg-white shadow-sm font-serif text-black" style={{ minHeight: '297mm' }}>
           <div className="flex flex-col" style={{ minHeight: '297mm' }}>
             <div className="p-10">
@@ -990,75 +1063,18 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
                 <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-20 w-auto object-contain" />
               </div>
               <div className="text-center mb-6">
-                <p className="text-lg font-bold uppercase leading-snug">
-                  OFFICE OF THE REGISTRAR HIGH COURT
-                </p>
-                <p className="text-lg font-bold uppercase leading-snug border-b-2 border-black inline-block pb-2 px-1">
-                  INTERNAL MEMO
-                </p>
+                <p className="text-lg font-bold uppercase leading-snug">OFFICE OF THE REGISTRAR HIGH COURT</p>
+                <p className="text-lg font-bold uppercase leading-snug border-b-2 border-black inline-block pb-2 px-1">INTERNAL MEMO</p>
               </div>
-
               <div className="space-y-3 text-sm font-bold mb-8">
-                <div className="flex">
-                  <span className="w-24 shrink-0">TO</span>
-                  <span className="w-4 shrink-0">:</span>
-                  <input
-                    type="text"
-                    value={toField}
-                    onChange={(e) => setToField(e.target.value)}
-                    className={`${editableLineClasses} uppercase`}
-                  />
-                </div>
-                <div className="flex">
-                  <span className="w-24 shrink-0">FROM</span>
-                  <span className="w-4 shrink-0">:</span>
-                  <input
-                    type="text"
-                    value={fromField}
-                    onChange={(e) => setFromField(e.target.value)}
-                    className={`${editableLineClasses} uppercase`}
-                  />
-                </div>
-                <div className="flex">
-                  <span className="w-24 shrink-0">REF</span>
-                  <span className="w-4 shrink-0">:</span>
-                  <input
-                    type="text"
-                    value={refField}
-                    onChange={(e) => setRefField(e.target.value)}
-                    className={editableLineClasses}
-                  />
-                </div>
-                <div className="flex">
-                  <span className="w-24 shrink-0">DATE</span>
-                  <span className="w-4 shrink-0">:</span>
-                  <input
-                    type="text"
-                    value={dateField}
-                    onChange={(e) => setDateField(e.target.value)}
-                    className={editableLineClasses}
-                  />
-                </div>
-                <div className="flex border-b-2 border-black pb-3">
-                  <span className="w-24 shrink-0">SUBJECT</span>
-                  <span className="w-4 shrink-0">:</span>
-                  <input
-                    type="text"
-                    value={subjectField}
-                    onChange={(e) => setSubjectField(e.target.value)}
-                    className={`${editableLineClasses} uppercase`}
-                  />
-                </div>
+                <div className="flex"><span className="w-24 shrink-0">TO</span><span className="w-4 shrink-0">:</span><input type="text" value={toField} onChange={(e) => setToField(e.target.value)} className={`${editableLineClasses} uppercase`} /></div>
+                <div className="flex"><span className="w-24 shrink-0">FROM</span><span className="w-4 shrink-0">:</span><input type="text" value={fromField} onChange={(e) => setFromField(e.target.value)} className={`${editableLineClasses} uppercase`} /></div>
+                <div className="flex"><span className="w-24 shrink-0">REF</span><span className="w-4 shrink-0">:</span><input type="text" value={refField} onChange={(e) => setRefField(e.target.value)} className={editableLineClasses} /></div>
+                <div className="flex"><span className="w-24 shrink-0">DATE</span><span className="w-4 shrink-0">:</span><input type="text" value={dateField} onChange={(e) => setDateField(e.target.value)} className={editableLineClasses} /></div>
+                <div className="flex border-b-2 border-black pb-3"><span className="w-24 shrink-0">SUBJECT</span><span className="w-4 shrink-0">:</span><input type="text" value={subjectField} onChange={(e) => setSubjectField(e.target.value)} className={`${editableLineClasses} uppercase`} /></div>
               </div>
-
               <div className="space-y-4 text-sm">
-                <textarea
-                  value={bodyText}
-                  onChange={(e) => setBodyText(e.target.value)}
-                  rows={6}
-                  className={`${editableLineClasses} block w-full resize-none leading-relaxed`}
-                />
-
+                <textarea value={bodyText} onChange={(e) => setBodyText(e.target.value)} rows={6} className={`${editableLineClasses} block w-full resize-none leading-relaxed`} />
                 {memoData.rows.length > 0 && (
                   <div className="mt-4">
                     <p className="text-sm font-semibold mb-2">Claim Details:</p>
@@ -1067,9 +1083,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
                         <tbody>
                           {memoData.rows.map((row, index) => (
                             <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-stone-50'}>
-                              <td className="px-3 py-1.5 font-medium text-stone-600 border-r border-stone-200 w-1/3">
-                                {row.label}
-                              </td>
+                              <td className="px-3 py-1.5 font-medium text-stone-600 border-r border-stone-200 w-1/3">{row.label}</td>
                               <td className="px-3 py-1.5 text-stone-800">{row.value}</td>
                             </tr>
                           ))}
@@ -1077,44 +1091,20 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
                       </table>
                     </div>
                     {memoData.grandTotal > 0 && (
-                      <div className="mt-2 text-right font-bold text-[#1a3d1c]">
-                        Total: KES {memoData.grandTotal.toLocaleString()}
-                      </div>
+                      <div className="mt-2 text-right font-bold text-[#1a3d1c]">Total: KES {memoData.grandTotal.toLocaleString()}</div>
                     )}
                   </div>
                 )}
-
-                <div className="mt-6 pt-4 border-t border-stone-200">
-                  <p className="text-sm font-bold mt-4">Yours sincerely,</p>
-                </div>
+                <div className="mt-6 pt-4 border-t border-stone-200"><p className="text-sm font-bold mt-4">Yours sincerely,</p></div>
               </div>
             </div>
-
             <div className="flex-1"></div>
             <div className="p-10 pt-0">
               <div className="space-y-1">
-                <input
-                  type="text"
-                  value={signatoryName}
-                  onChange={(e) => setSignatoryName(e.target.value)}
-                  placeholder="Signatory name"
-                  className={`${editableLineClasses} block text-sm font-bold`}
-                />
-
-                {signatureUrl && (
-                  <div className="py-1">
-                    <img src={signatureUrl} alt="Signature" className="max-h-12 w-auto object-contain" />
-                  </div>
-                )}
-
-                <input
-                  type="text"
-                  value={fromField}
-                  onChange={(e) => setFromField(e.target.value)}
-                  className={`${editableLineClasses} block text-sm font-bold underline uppercase`}
-                />
+                <input type="text" value={signatoryName} onChange={(e) => setSignatoryName(e.target.value)} placeholder="Signatory name" className={`${editableLineClasses} block text-sm font-bold`} />
+                {signatureUrl && <div className="py-1"><img src={signatureUrl} alt="Signature" className="max-h-12 w-auto object-contain" /></div>}
+                <input type="text" value={fromField} onChange={(e) => setFromField(e.target.value)} className={`${editableLineClasses} block text-sm font-bold underline uppercase`} />
               </div>
-
               <div className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3">
                 <img src={FOOTER_EMBLEM_SRC} alt="" className="h-10 w-auto object-contain shrink-0" />
                 <div className="text-[10px] leading-tight text-stone-700 text-right">
@@ -1130,7 +1120,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
     );
   }
 
-  // ─── Standard Letter layout for general / security requests ─────────────
+  // ─── Standard Letter layout (general) ──────────────────────────────────
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -1139,10 +1129,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
           Memo Preview
         </h4>
         <div className="flex gap-2">
-          <GhostButton onClick={onEdit} icon={<Edit size={12} />}>
-            Edit Info
-          </GhostButton>
-
+          <GhostButton onClick={onEdit} icon={<Edit size={12} />}>Edit Info</GhostButton>
           <div className="relative">
             <GoldButton
               size="sm"
@@ -1153,24 +1140,15 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
               {downloadingFormat ? downloadLabels[downloadingFormat] : 'Download'}
               {!downloadingFormat && <ChevronDown size={12} />}
             </GoldButton>
-
             {showDownloadMenu && (
               <>
                 <div className="fixed inset-0 z-0" onClick={() => setShowDownloadMenu(false)} />
                 <div className="absolute right-0 z-10 mt-1 w-44 overflow-hidden rounded-lg border border-stone-200 bg-white py-1 shadow-lg">
-                  <button
-                    onClick={() => handleDownload('docx')}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50"
-                  >
-                    <FileText size={14} className="text-blue-600" />
-                    Word (.docx)
+                  <button onClick={() => handleDownload('docx')} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50">
+                    <FileText size={14} className="text-blue-600" /> Word (.docx)
                   </button>
-                  <button
-                    onClick={() => handleDownload('pdf')}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50"
-                  >
-                    <FileText size={14} className="text-red-600" />
-                    PDF (.pdf)
+                  <button onClick={() => handleDownload('pdf')} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50">
+                    <FileText size={14} className="text-red-600" /> PDF (.pdf)
                   </button>
                 </div>
               </>
@@ -1179,146 +1157,42 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         </div>
       </div>
 
-      {/* Letter preview */}
-      <div 
-        className="border border-stone-300 bg-white shadow-sm text-black" 
-        style={{ 
-          minHeight: '297mm',
-          fontFamily: '"Tahoma", sans-serif'
-        }}
-      >
+      <div className="border border-stone-300 bg-white shadow-sm text-black" style={{ minHeight: '297mm', fontFamily: '"Tahoma", sans-serif' }}>
         <div className="flex flex-col" style={{ minHeight: '297mm' }}>
           <div className="p-12">
-            {/* Letterhead: Logo on left, text beside it - Arial font */}
-            <div 
-              className="flex items-center gap-4 mb-6"
-              style={{ fontFamily: '"Arial", sans-serif' }}
-            >
-              <div className="flex-shrink-0">
-                <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-20 w-auto object-contain" />
-              </div>
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-stone-700">THE JUDICIARY</p>
-                <p className="text-base font-bold uppercase leading-tight tracking-wide whitespace-nowrap">
-                  OFFICE OF THE REGISTRAR HIGH COURT
-                </p>
-              </div>
+            <div className="flex items-center gap-4 mb-6" style={{ fontFamily: '"Arial", sans-serif' }}>
+              <div className="flex-shrink-0"><img src={JUDICIARY_CREST_SRC} alt="Judiciary crest" className="h-20 w-auto object-contain" /></div>
+              <div><p className="text-xs font-bold uppercase tracking-wider text-stone-700">THE JUDICIARY</p><p className="text-base font-bold uppercase leading-tight tracking-wide whitespace-nowrap">OFFICE OF THE REGISTRAR HIGH COURT</p></div>
             </div>
-
-            {/* Ref and Date */}
-            <div 
-              className="flex justify-between text-sm font-medium mb-6"
-              style={{ fontFamily: '"Tahoma", sans-serif' }}
-            >
-              <div>
-                Ref: <input
-                  type="text"
-                  value={refField}
-                  onChange={(e) => setRefField(e.target.value)}
-                  className={`${editableLineClasses} inline w-auto`}
-                />
-              </div>
-              <div>
-                <input
-                  type="text"
-                  value={dateField}
-                  onChange={(e) => setDateField(e.target.value)}
-                  className={`${editableLineClasses} inline w-auto`}
-                />
-              </div>
+            <div className="flex justify-between text-sm font-medium mb-6" style={{ fontFamily: '"Tahoma", sans-serif' }}>
+              <div>Ref: <input type="text" value={refField} onChange={(e) => setRefField(e.target.value)} className={`${editableLineClasses} inline w-auto`} /></div>
+              <div><input type="text" value={dateField} onChange={(e) => setDateField(e.target.value)} className={`${editableLineClasses} inline w-auto`} /></div>
             </div>
-
-            {/* Recipient Address */}
-            <div 
-              className="mb-8 whitespace-pre-line text-sm leading-relaxed"
-              style={{ fontFamily: '"Tahoma", sans-serif' }}
-            >
-              <textarea
-                value={toField}
-                onChange={(e) => setToField(e.target.value)}
-                rows={4}
-                className={`${editableLineClasses} block w-full resize-none leading-relaxed`}
-              />
+            <div className="mb-8 whitespace-pre-line text-sm leading-relaxed" style={{ fontFamily: '"Tahoma", sans-serif' }}>
+              <textarea value={toField} onChange={(e) => setToField(e.target.value)} rows={4} className={`${editableLineClasses} block w-full resize-none leading-relaxed`} />
             </div>
-
-            {/* Subject */}
-            <div 
-              className="mb-8"
-              style={{ fontFamily: '"Tahoma", sans-serif' }}
-            >
-              <p className="text-sm font-bold underline">
-                RE: <input
-                  type="text"
-                  value={subjectField}
-                  onChange={(e) => setSubjectField(e.target.value)}
-                  className={`${editableLineClasses} inline w-full underline`}
-                />
-              </p>
+            <div className="mb-8" style={{ fontFamily: '"Tahoma", sans-serif' }}>
+              <p className="text-sm font-bold underline">RE: <input type="text" value={subjectField} onChange={(e) => setSubjectField(e.target.value)} className={`${editableLineClasses} inline w-full underline`} /></p>
             </div>
-
-            {/* Body */}
-            <div 
-              className="space-y-4 text-sm leading-relaxed mb-10"
-              style={{ fontFamily: '"Tahoma", sans-serif' }}
-            >
-              <textarea
-                value={bodyText}
-                onChange={(e) => setBodyText(e.target.value)}
-                rows={10}
-                className={`${editableLineClasses} block w-full resize-none leading-relaxed`}
-              />
+            <div className="space-y-4 text-sm leading-relaxed mb-10" style={{ fontFamily: '"Tahoma", sans-serif' }}>
+              <textarea value={bodyText} onChange={(e) => setBodyText(e.target.value)} rows={10} className={`${editableLineClasses} block w-full resize-none leading-relaxed`} />
             </div>
-
-            {/* Closing */}
-            <div 
-              className="mt-10"
-              style={{ fontFamily: '"Tahoma", sans-serif' }}
-            >
+            <div className="mt-10" style={{ fontFamily: '"Tahoma", sans-serif' }}>
               <p className="text-sm font-bold">Yours sincerely,</p>
               <div className="mt-10 space-y-1">
-                <input
-                  type="text"
-                  value={signatoryName}
-                  onChange={(e) => setSignatoryName(e.target.value)}
-                  placeholder="Signatory name"
-                  className={`${editableLineClasses} block text-sm font-bold`}
-                />
-                {signatureUrl && (
-                  <div className="py-1">
-                    <img src={signatureUrl} alt="Signature" className="max-h-12 w-auto object-contain" />
-                  </div>
-                )}
-                <input
-                  type="text"
-                  value={fromField}
-                  onChange={(e) => setFromField(e.target.value)}
-                  className={`${editableLineClasses} block text-sm font-bold underline uppercase`}
-                />
+                <input type="text" value={signatoryName} onChange={(e) => setSignatoryName(e.target.value)} placeholder="Signatory name" className={`${editableLineClasses} block text-sm font-bold`} />
+                {signatureUrl && <div className="py-1"><img src={signatureUrl} alt="Signature" className="max-h-12 w-auto object-contain" /></div>}
+                <input type="text" value={fromField} onChange={(e) => setFromField(e.target.value)} className={`${editableLineClasses} block text-sm font-bold uppercase`} />
               </div>
             </div>
-
-            {/* Copy to */}
-            <div 
-              className="mt-16 pt-6 border-t border-stone-200"
-              style={{ fontFamily: '"Tahoma", sans-serif' }}
-            >
-              <p className="text-sm font-semibold mb-2">Copy to:</p>
-              <textarea
-                value={copyToList}
-                onChange={(e) => setCopyToList(e.target.value)}
-                rows={3}
-                className={`${editableLineClasses} block w-full resize-none text-sm`}
-              />
+            <div className="mt-16 pt-6 border-t border-stone-200" style={{ fontFamily: '"Tahoma", sans-serif' }}>
+              <p className="text-sm font-semibold mb-2">Copy to.</p>
+              <textarea value={copyToList} onChange={(e) => setCopyToList(e.target.value)} rows={4} className={`${editableLineClasses} block w-full resize-none text-sm`} />
             </div>
           </div>
-
-          {/* Footer */}
           <div className="flex-1"></div>
           <div className="p-12 pt-0">
-            <div 
-              className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3"
-              style={{ fontFamily: '"Tahoma", sans-serif' }}
-            >
+            <div className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3" style={{ fontFamily: '"Tahoma", sans-serif' }}>
               <img src={FOOTER_EMBLEM_SRC} alt="" className="h-10 w-auto object-contain shrink-0" />
               <div className="text-[10px] leading-tight text-stone-700 text-right">
                 <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
@@ -1333,24 +1207,36 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   );
 };
 
-// ─── Main Request Modal ─────────────────────────────────────────────────────
+// ─── Helper: normalise status to one of the three allowed ──────────────
 
+function normaliseStatus(status?: Status): Status {
+  if (status && ALLOWED_STATUSES.includes(status)) {
+    return status;
+  }
+  return 'Active';
+}
+
+// ─── Main Request Modal ─────────────────────────────────────────────────────
 const EMPTY_GENERAL_FORM: ExtendedGeneralForm = {
   judge_name: '',
   request_type: '',
   date_received: '',
   officer_assigned: '',
-  status: 'Pending',
+  status: 'Active',
   remarks: '',
   remark_type: undefined,
   request_date: '',
-  location: '', // Judge's Station (top)
+  location: '',
   force_number: '',
+  firearm_type: '',
   officer_name: '',
-  assigned_to: '', // Officer's Current Station (conditional)
+  assigned_to: '',
   email: '',
   send_email: false,
   police_service: DEFAULT_POLICE_SERVICE,
+  rank: '',
+  reporting_date: '',
+  officer_station: '',
 };
 
 export const RequestModal: React.FC<RequestModalProps> = ({
@@ -1364,22 +1250,44 @@ export const RequestModal: React.FC<RequestModalProps> = ({
   const currentUser = useAppSelector(selectCurrentUser);
   const signatureLoading = useAppSelector(selectUsersSignatureLoading);
 
+  // Judges autocomplete state
+  const [judgeSearchTerm, setJudgeSearchTerm] = useState('');
+  const judgeSuggestions = useAppSelector(selectAllJudges);
+  const judgeSearchLoading = useAppSelector(selectJudgesLoading);
+
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
 
-  // Medical Claim Form
   const [medicalForm, setMedicalForm] = useState<CreateMedicalClaimInput>({
     officer_name: '',
     claim_amount: 0,
     date_forwarded_dhr: '',
-    status: 'Pending',
+    status: 'Active',
     remarks: '',
   });
 
-  // Unified General Request Form (extended with local fields)
   const [generalForm, setGeneralForm] = useState<ExtendedGeneralForm>({ ...EMPTY_GENERAL_FORM });
 
   const [pendingDocumentId, setPendingDocumentId] = useState<string | undefined>();
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+
+  // Debounced search for judges
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    if (judgeSearchTerm.trim().length >= 2) {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+      debounceTimer.current = setTimeout(() => {
+        dispatch(searchJudges(judgeSearchTerm.trim()));
+      }, 300);
+    } else {
+      // Clear suggestions if search term is too short
+      // We could clear the suggestions, but we keep the current list to avoid flickering.
+      // Optionally, we can dispatch an action to clear, but we'll leave it.
+    }
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [judgeSearchTerm, dispatch]);
 
   // Reset/Load editing item
   if (isOpen !== prevIsOpen) {
@@ -1392,7 +1300,7 @@ export const RequestModal: React.FC<RequestModalProps> = ({
           officer_name: item.officer_name || '',
           claim_amount: item.claim_amount || 0,
           date_forwarded_dhr: item.date_forwarded_dhr || '',
-          status: item.status || 'Pending',
+          status: normaliseStatus(item.status),
           remarks: item.remarks || '',
         });
         setCurrentStep(2);
@@ -1403,18 +1311,24 @@ export const RequestModal: React.FC<RequestModalProps> = ({
           request_type: item.request_type || '',
           date_received: item.date_received || '',
           officer_assigned: item.officer_assigned || '',
-          status: item.status || 'Pending',
+          status: normaliseStatus(item.status),
           remarks: item.remarks || '',
           remark_type: item.remark_type || undefined,
           request_date: item.request_date || '',
           location: item.location || '',
           force_number: item.force_number || '',
+          firearm_type: item.firearm_type || '',
           officer_name: item.officer_name || '',
           assigned_to: item.assigned_to || '',
           email: '',
           send_email: false,
           police_service: DEFAULT_POLICE_SERVICE,
+          rank: item.rank || '',
+          reporting_date: item.reporting_date || '',
+          officer_station: (item as unknown as { officer_station?: string }).officer_station || '',
         });
+        // Set judge search term to the judge name so it appears in the input
+        setJudgeSearchTerm(item.judge_name || '');
         setCurrentStep(2);
       }
     } else if (isOpen && !editingItem) {
@@ -1422,10 +1336,11 @@ export const RequestModal: React.FC<RequestModalProps> = ({
         officer_name: '',
         claim_amount: 0,
         date_forwarded_dhr: '',
-        status: 'Pending',
+        status: 'Active',
         remarks: '',
       });
       setGeneralForm({ ...EMPTY_GENERAL_FORM });
+      setJudgeSearchTerm('');
       setCurrentStep(1);
     }
     setPendingDocumentId(undefined);
@@ -1436,10 +1351,11 @@ export const RequestModal: React.FC<RequestModalProps> = ({
       officer_name: '',
       claim_amount: 0,
       date_forwarded_dhr: '',
-      status: 'Pending',
+      status: 'Active',
       remarks: '',
     });
     setGeneralForm({ ...EMPTY_GENERAL_FORM });
+    setJudgeSearchTerm('');
     setCurrentStep(1);
     setPendingDocumentId(undefined);
   };
@@ -1450,6 +1366,27 @@ export const RequestModal: React.FC<RequestModalProps> = ({
 
   const handleGeneralChange = (field: keyof ExtendedGeneralForm | 'email' | 'send_email', value: string | number | boolean) => {
     setGeneralForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // Handle judge selection from autocomplete
+  const handleJudgeSelect = (judge: Judge) => {
+    setJudgeSearchTerm(judge.name);
+    setGeneralForm((prev) => ({
+      ...prev,
+      judge_name: judge.name,
+      // Optionally, if judge has a station field, set it here, but we don't have it.
+    }));
+  };
+
+  // When the user types in the judge field, we update the search term,
+  // and also update the generalForm.judge_name to allow free-text entry.
+  const handleJudgeSearchTermChange = (term: string) => {
+    setJudgeSearchTerm(term);
+    // Update the judge_name in the form so that it's always in sync
+    setGeneralForm((prev) => ({
+      ...prev,
+      judge_name: term,
+    }));
   };
 
   const handleSignatureUpload = async (file: File) => {
@@ -1475,6 +1412,18 @@ export const RequestModal: React.FC<RequestModalProps> = ({
     setPendingDocumentId(docId);
   };
 
+  // ─── Validation helper for Firearm rule ──────────────────────────────
+  const validateFirearmRule = (): boolean => {
+    if (generalForm.request_type === 'Firearm') {
+      const assigned = generalForm.officer_assigned?.trim();
+      if (assigned && !generalForm.firearm_type?.trim()) {
+        toast.error('Firearm type is required because an officer has been assigned.');
+        return false;
+      }
+    }
+    return true;
+  };
+
   const handleNextStep = () => {
     if (currentStep === 1) {
       if (mode === 'medical') {
@@ -1483,12 +1432,13 @@ export const RequestModal: React.FC<RequestModalProps> = ({
           return;
         }
       } else {
+        // General validation
         if (!generalForm.judge_name?.trim()) {
           toast.error('Please enter judge name.');
           return;
         }
         if (!generalForm.request_type?.trim()) {
-          toast.error('Please enter the type of request.');
+          toast.error('Please select the type of request.');
           return;
         }
         if (generalForm.send_email && !generalForm.email?.trim()) {
@@ -1502,6 +1452,8 @@ export const RequestModal: React.FC<RequestModalProps> = ({
             return;
           }
         }
+        // Firearm rule
+        if (!validateFirearmRule()) return;
       }
       setCurrentStep(2);
     }
@@ -1513,6 +1465,9 @@ export const RequestModal: React.FC<RequestModalProps> = ({
 
   const handleCreate = async () => {
     try {
+      // Validate again before submit
+      if (mode !== 'medical' && !validateFirearmRule()) return;
+
       let createdId: string | undefined;
 
       if (mode === 'medical') {
@@ -1529,14 +1484,15 @@ export const RequestModal: React.FC<RequestModalProps> = ({
           officer_name: medicalForm.officer_name.trim(),
           claim_amount: medicalForm.claim_amount,
           date_forwarded_dhr: medicalForm.date_forwarded_dhr || undefined,
-          status: medicalForm.status,
+          status: medicalForm.status || 'Active',
           remarks: medicalForm.remarks?.trim() || undefined,
         };
 
         if (editingItem) {
+          // Update status – ensure status is a string, cast as Status
           await dispatch(updateMedicalClaimStatus({
             id: editingItem.id,
-            status: 'Signed' as Status,
+            status: input.status as Status,
           })).unwrap();
           toast.success('Medical claim updated successfully.');
           createdId = editingItem.id;
@@ -1548,14 +1504,16 @@ export const RequestModal: React.FC<RequestModalProps> = ({
 
         await dispatch(fetchMedicalClaims({}));
       } else {
+        // General / Security
         if (!generalForm.judge_name?.trim()) {
           toast.error('Please enter the judge name.');
           return;
         }
         if (!generalForm.request_type?.trim()) {
-          toast.error('Please enter the type of request.');
+          toast.error('Please select the type of request.');
           return;
         }
+
         if (generalForm.send_email && !generalForm.email?.trim()) {
           toast.error('Please enter a recipient email address.');
           return;
@@ -1568,8 +1526,6 @@ export const RequestModal: React.FC<RequestModalProps> = ({
           }
         }
 
-        // `request` (free-form description) is no longer a form field, but the API type
-        // still requires it — derive a short summary so nothing downstream breaks.
         const derivedRequest =
           generalForm.request?.trim() ||
           `${generalForm.request_type.trim()} request for ${generalForm.judge_name.trim()}`;
@@ -1580,16 +1536,21 @@ export const RequestModal: React.FC<RequestModalProps> = ({
           request_type: generalForm.request_type.trim() as unknown as RequestType,
           date_received: generalForm.date_received || undefined,
           officer_assigned: generalForm.officer_assigned?.trim() || undefined,
-          status: generalForm.status,
+          status: generalForm.status || 'Active',
           remarks: generalForm.remarks?.trim() || undefined,
           remark_type: generalForm.remark_type || undefined,
           request_date: generalForm.request_date || undefined,
           location: generalForm.location?.trim() || undefined,
           force_number: generalForm.force_number?.trim() || undefined,
+          firearm_type: generalForm.firearm_type?.trim() || undefined,
           officer_name: generalForm.officer_name?.trim() || undefined,
           assigned_to: generalForm.assigned_to?.trim() || undefined,
           email: generalForm.send_email ? generalForm.email?.trim() : undefined,
           send_email: generalForm.send_email,
+          rank: generalForm.rank || undefined,
+          reporting_date: generalForm.reporting_date || undefined,
+          // @ts-expect-error — officer_station not yet added to CreateGeneralRequestInput; add it in helpdeskSlice.ts
+          officer_station: generalForm.officer_station?.trim() || undefined,
         };
 
         if (editingItem) {
@@ -1708,22 +1669,16 @@ export const RequestModal: React.FC<RequestModalProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <div className={`flex items-center gap-2 ${currentStep >= 1 ? 'text-[#1a3d1c]' : 'text-stone-400'}`}>
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${currentStep >= 1 ? 'bg-[#c9a84c] text-[#1a3d1c]' : 'bg-stone-200 text-stone-500'}`}>
-                    1
-                  </div>
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${currentStep >= 1 ? 'bg-[#c9a84c] text-[#1a3d1c]' : 'bg-stone-200 text-stone-500'}`}>1</div>
                   <span className="text-xs font-medium">Details</span>
                 </div>
                 <div className={`h-0.5 w-8 ${currentStep >= 2 ? 'bg-[#c9a84c]' : 'bg-stone-200'}`} />
                 <div className={`flex items-center gap-2 ${currentStep >= 2 ? 'text-[#1a3d1c]' : 'text-stone-400'}`}>
-                  <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${currentStep >= 2 ? 'bg-[#c9a84c] text-[#1a3d1c]' : 'bg-stone-200 text-stone-500'}`}>
-                    2
-                  </div>
+                  <div className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${currentStep >= 2 ? 'bg-[#c9a84c] text-[#1a3d1c]' : 'bg-stone-200 text-stone-500'}`}>2</div>
                   <span className="text-xs font-medium">Preview</span>
                 </div>
               </div>
-              <span className="text-xs text-stone-400">
-                Step {currentStep} of 2
-              </span>
+              <span className="text-xs text-stone-400">Step {currentStep} of 2</span>
             </div>
           </div>
 
@@ -1734,6 +1689,11 @@ export const RequestModal: React.FC<RequestModalProps> = ({
               generalForm={generalForm}
               onMedicalChange={handleMedicalChange}
               onGeneralChange={handleGeneralChange}
+              judgeSearchTerm={judgeSearchTerm}
+              onJudgeSearchTermChange={handleJudgeSearchTermChange}
+              judgeSuggestions={judgeSuggestions}
+              judgeSearchLoading={judgeSearchLoading}
+              onJudgeSelect={handleJudgeSelect}
             />
           )}
 
@@ -1745,7 +1705,6 @@ export const RequestModal: React.FC<RequestModalProps> = ({
                 onRemove={handleSignatureRemove}
                 isLoading={signatureLoading}
               />
-
               <MemoPreview
                 mode={mode}
                 medicalForm={medicalForm}
@@ -1767,13 +1726,9 @@ export const RequestModal: React.FC<RequestModalProps> = ({
             )}
           </div>
           <div className="flex gap-2">
-            <GhostButton onClick={handleClose}>
-              Cancel
-            </GhostButton>
+            <GhostButton onClick={handleClose}>Cancel</GhostButton>
             {currentStep < 2 ? (
-              <GoldButton onClick={handleNextStep} icon={<ArrowRight size={14} />}>
-                Next
-              </GoldButton>
+              <GoldButton onClick={handleNextStep} icon={<ArrowRight size={14} />}>Next</GoldButton>
             ) : (
               <GoldButton
                 onClick={handleCreate}
