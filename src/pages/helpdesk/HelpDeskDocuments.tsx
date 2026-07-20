@@ -56,13 +56,17 @@ interface PreviewTarget {
 
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const styles: Record<string, { bg: string; text: string; label: string; icon: React.ReactNode }> = {
-    marked:         { bg: 'bg-violet-50',  text: 'text-violet-700',  label: 'Marked',        icon: <Clock       size={12} className="text-violet-500"  /> },
-    in_progress:    { bg: 'bg-blue-50',    text: 'text-blue-700',    label: 'In Progress',   icon: <Clock       size={12} className="text-blue-500"    /> },
-    completed:      { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Completed',     icon: <CheckCircle size={12} className="text-emerald-500" /> },
     draft:          { bg: 'bg-stone-50',   text: 'text-stone-600',   label: 'Draft',         icon: <FileText    size={12} className="text-stone-400"   /> },
     uploaded:       { bg: 'bg-blue-50',    text: 'text-blue-700',    label: 'Uploaded',      icon: <FileText    size={12} className="text-blue-500"    /> },
     pending_review: { bg: 'bg-amber-50',   text: 'text-amber-700',   label: 'Pending Review',icon: <Clock       size={12} className="text-amber-500"   /> },
+    dept_assigned:  { bg: 'bg-violet-50',  text: 'text-violet-700',  label: 'Dept Assigned', icon: <Users       size={12} className="text-violet-500"  /> },
+    user_assigned:  { bg: 'bg-indigo-50',  text: 'text-indigo-700',  label: 'User Assigned', icon: <User       size={12} className="text-indigo-500"  /> },
+    marked:         { bg: 'bg-violet-50',  text: 'text-violet-700',  label: 'Marked',        icon: <Clock       size={12} className="text-violet-500"  /> },
+    in_progress:    { bg: 'bg-blue-50',    text: 'text-blue-700',    label: 'In Progress',   icon: <Clock       size={12} className="text-blue-500"    /> },
+    completed:      { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Completed',     icon: <CheckCircle size={12} className="text-emerald-500" /> },
     filed:          { bg: 'bg-stone-50',   text: 'text-stone-600',   label: 'Filed',         icon: <FileText    size={12} className="text-stone-400"   /> },
+    ready_to_release: { bg: 'bg-amber-50', text: 'text-amber-700',   label: 'Ready to Release', icon: <Clock   size={12} className="text-amber-500" /> },
+    released:       { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Released',      icon: <CheckCircle size={12} className="text-emerald-500" /> },
   };
 
   const style = styles[status] || styles.draft;
@@ -515,9 +519,9 @@ const DocumentCard: React.FC<DocumentCardProps> = ({
   };
 
   const mark = document.active_mark;
-  const isPendingAcknowledge = document.status === 'marked'      && mark?.assigned_to === document.assigned_to;
+  const isPendingAcknowledge = (document.status === 'marked' || document.status === 'user_assigned') && mark?.assigned_to === document.assigned_to;
   const isInProgress         = document.status === 'in_progress' && mark?.assigned_to === document.assigned_to;
-  const canDelegate = isDeptHead && !!mark && mark.assigned_to === document.assigned_to;
+  const canDelegate = isDeptHead && !!mark && (document.status === 'user_assigned' || document.status === 'in_progress');
 
   return (
     <div className="bg-white rounded-xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow p-4">
@@ -553,7 +557,9 @@ const DocumentCard: React.FC<DocumentCardProps> = ({
             <div className="mt-2 pl-9">
               <div className="rounded-lg bg-stone-50 border border-stone-100 p-2.5 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-stone-700">Marked to:</span>
+                  <span className="font-medium text-stone-700">
+                    {document.status === 'dept_assigned' ? 'Assigned to' : 'Marked to'}:
+                  </span>
                   <span className="text-stone-600">{mark.marked_to_dept_name}</span>
                   {mark.assigned_to_name && (
                     <>
@@ -1230,8 +1236,8 @@ const HelpDeskDocuments: React.FC = () => {
                 document={document}
                 onView={() => handleViewDocument(document)}
                 onPreviewFile={document.file_url ? () => handlePreviewFile(document) : undefined}
-                onAcknowledge={document.status === 'marked'      ? () => handleAcknowledge(document.id) : undefined}
-                onComplete={document.status    === 'in_progress' ? () => handleComplete(document.id)    : undefined}
+                onAcknowledge={document.status === 'marked' || document.status === 'user_assigned' ? () => handleAcknowledge(document.id) : undefined}
+                onComplete={document.status === 'in_progress' ? () => handleComplete(document.id) : undefined}
                 onDelegate={isDeptHead ? () => openDelegateModal(document) : undefined}
                 isActionInProgress={isAcknowledging || isCompleting || isDelegatingDoc}
                 isDeptHead={isDeptHead}
@@ -1259,6 +1265,8 @@ const HelpDeskDocuments: React.FC = () => {
             <div className="space-y-3">
               {departmentDocs.map((doc: Document) => {
                 const isMarkingThis = isMarking && markDocumentTarget?.id === doc.id;
+                // Show Mark button only for statuses that indicate department assignment (dept_assigned or marked legacy)
+                const showMarkButton = doc.status === 'dept_assigned' || doc.status === 'marked';
 
                 return (
                   <div
@@ -1294,7 +1302,9 @@ const HelpDeskDocuments: React.FC = () => {
                         </div>
                         {doc.active_mark && (
                           <div className="mt-2 pl-9 text-xs text-stone-500">
-                            <span className="font-medium">Marked to:</span> {doc.active_mark.marked_to_dept_name}
+                            <span className="font-medium">
+                              {doc.status === 'dept_assigned' ? 'Assigned to' : 'Marked to'}:
+                            </span> {doc.active_mark.marked_to_dept_name}
                             {doc.active_mark.assigned_to_name && ` (Assigned: ${doc.active_mark.assigned_to_name})`}
                           </div>
                         )}
@@ -1302,20 +1312,21 @@ const HelpDeskDocuments: React.FC = () => {
                       <div className="flex flex-wrap items-center gap-2 shrink-0">
                         <StatusBadge status={doc.status} />
 
-                        {/* ── Mark button ALWAYS enabled ── */}
-                        <button
-                          onClick={() => openMarkModal(doc)}
-                          disabled={isMarkingThis}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1d3331] text-white text-[10px] font-bold hover:bg-emerald-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Mark this document to a user"
-                        >
-                          {isMarkingThis ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : (
-                            <UserPlus size={14} />
-                          )}
-                          Mark
-                        </button>
+                        {showMarkButton && (
+                          <button
+                            onClick={() => openMarkModal(doc)}
+                            disabled={isMarkingThis}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1d3331] text-white text-[10px] font-bold hover:bg-emerald-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Mark this document to a user"
+                          >
+                            {isMarkingThis ? (
+                              <Loader2 size={14} className="animate-spin" />
+                            ) : (
+                              <UserPlus size={14} />
+                            )}
+                            Mark
+                          </button>
+                        )}
 
                         {/* Preview and Details */}
                         {doc.file_url && (

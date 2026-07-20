@@ -1,5 +1,4 @@
 // src/pages/MemoandLetters.tsx
-
 import React, { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import { useAppDispatch, useAppSelector } from "../../store/hook";
 import {
@@ -48,7 +47,9 @@ const STATUS_STYLES: Record<DocumentStatus, string> = {
   draft: "bg-stone-100 text-stone-500 border border-stone-200",
   uploaded: "bg-blue-50 text-blue-700 border border-blue-100",
   pending_review: "bg-amber-50 text-amber-700 border border-amber-100",
-  marked: "bg-violet-50 text-violet-700 border border-violet-100",
+  dept_assigned: "bg-violet-50 text-violet-700 border border-violet-100",   // NEW
+  user_assigned: "bg-indigo-50 text-indigo-700 border border-indigo-100",   // NEW
+  marked: "bg-violet-50 text-violet-700 border border-violet-100",          // legacy
   in_progress: "bg-indigo-50 text-indigo-700 border border-indigo-100",
   completed: "bg-emerald-50 text-emerald-700 border border-emerald-100",
   filed: "bg-stone-100 text-stone-500 border border-stone-200",
@@ -60,7 +61,9 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
   draft: "DRAFT",
   uploaded: "UPLOADED",
   pending_review: "PENDING",
-  marked: "MARKED",
+  dept_assigned: "DEPT ASSIGNED",   // NEW
+  user_assigned: "USER ASSIGNED",   // NEW
+  marked: "MARKED",                 // legacy
   in_progress: "IN PROGRESS",
   completed: "COMPLETED",
   filed: "FILED",
@@ -126,7 +129,7 @@ const Spinner: React.FC<{ className?: string }> = ({
   </svg>
 );
 
-// (5) StickyNote
+// (5) StickyNote (unchanged)
 interface StickyNoteProps {
   authorName: string;
   initialText: string;
@@ -449,113 +452,118 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   );
 };
 
-// (6) ListItem
+// (6) ListItem – updated to show mark info for new statuses
 const ListItem: React.FC<{
   document: Document;
   selected: boolean;
   onSelect: () => void;
   hasResponse?: boolean;
-}> = ({ document, selected, onSelect, hasResponse = false }) => (
-  <div
-    onClick={onSelect}
-    className={`flex items-start gap-2.5 px-3 py-2.5 cursor-pointer transition-colors ${
-      selected
-        ? "bg-[#1E4620]/5 border-l-2 border-[#1E4620]"
-        : hasResponse
-          ? "hover:bg-blue-50/50 border-l-2 border-blue-300/50 bg-blue-50/20"
-          : "hover:bg-stone-50 border-l-2 border-transparent"
-    }`}
-  >
-    <div className="mt-0.5 flex-shrink-0">
-      <DocIcon type={document.type} className="h-4 w-4" />
-    </div>
+}> = ({ document, selected, onSelect, hasResponse = false }) => {
+  const mark = document.active_mark;
+  const showMarkInfo = mark && (document.status === "marked" || document.status === "dept_assigned" || document.status === "user_assigned");
 
-    <div className="flex-1 min-w-0">
-      <div className="flex items-start justify-between gap-1.5">
-        <p
-          className={`text-xs font-semibold leading-snug truncate ${selected ? "text-[#1E4620]" : "text-stone-800"}`}
-        >
-          {document.title}
-        </p>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {hasResponse && (
-            <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[8px] font-medium text-blue-700 border border-blue-200">
-              <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
-                <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
-              </svg>
-              {document.response_count || 1}
-            </span>
-          )}
-          <StatusBadge status={document.status} />
-        </div>
+  return (
+    <div
+      onClick={onSelect}
+      className={`flex items-start gap-2.5 px-3 py-2.5 cursor-pointer transition-colors ${
+        selected
+          ? "bg-[#1E4620]/5 border-l-2 border-[#1E4620]"
+          : hasResponse
+            ? "hover:bg-blue-50/50 border-l-2 border-blue-300/50 bg-blue-50/20"
+            : "hover:bg-stone-50 border-l-2 border-transparent"
+      }`}
+    >
+      <div className="mt-0.5 flex-shrink-0">
+        <DocIcon type={document.type} className="h-4 w-4" />
       </div>
 
-      <div className="mt-0.5 flex items-center gap-1 text-[10px] text-stone-400 flex-wrap">
-        <span>
-          {document.created_at
-            ? format(new Date(document.created_at), "yyyy-MM-dd")
-            : "—"}
-        </span>
-        {document.file_size_bytes && (
-          <>
-            <span>·</span>
-            <span>{formatFileSize(document.file_size_bytes)}</span>
-          </>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-1.5">
+          <p
+            className={`text-xs font-semibold leading-snug truncate ${selected ? "text-[#1E4620]" : "text-stone-800"}`}
+          >
+            {document.title}
+          </p>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {hasResponse && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[8px] font-medium text-blue-700 border border-blue-200">
+                <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
+                  <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
+                </svg>
+                {document.response_count || 1}
+              </span>
+            )}
+            <StatusBadge status={document.status} />
+          </div>
+        </div>
+
+        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-stone-400 flex-wrap">
+          <span>
+            {document.created_at
+              ? format(new Date(document.created_at), "yyyy-MM-dd")
+              : "—"}
+          </span>
+          {document.file_size_bytes && (
+            <>
+              <span>·</span>
+              <span>{formatFileSize(document.file_size_bytes)}</span>
+            </>
+          )}
+          <span>·</span>
+          <span className="truncate">
+            {document.reference_no || document.created_by_name || "RHC"}
+          </span>
+        </div>
+
+        {document.is_signed && (
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-emerald-600">
+            <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                clipRule="evenodd"
+              />
+            </svg>
+            Signed
+            {document.is_sent && <span className="ml-1 text-blue-500">· Sent</span>}
+          </div>
         )}
-        <span>·</span>
-        <span className="truncate">
-          {document.reference_no || document.created_by_name || "RHC"}
-        </span>
+
+        {showMarkInfo && (
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-violet-600">
+            <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
+                clipRule="evenodd"
+              />
+            </svg>
+            Marked to: {mark.marked_to_dept_name}
+            {mark.assigned_to_name && (
+              <span className="ml-1">→ {mark.assigned_to_name}</span>
+            )}
+          </div>
+        )}
+
+        {document.status === "ready_to_release" && (
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-600">
+            <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                clipRule="evenodd"
+              />
+            </svg>
+            Ready for release
+          </div>
+        )}
       </div>
-
-      {document.is_signed && (
-        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-emerald-600">
-          <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
-            <path
-              fillRule="evenodd"
-              d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-              clipRule="evenodd"
-            />
-          </svg>
-          Signed
-          {document.is_sent && <span className="ml-1 text-blue-500">· Sent</span>}
-        </div>
-      )}
-
-      {document.active_mark && document.status === "marked" && (
-        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-violet-600">
-          <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
-            <path
-              fillRule="evenodd"
-              d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-              clipRule="evenodd"
-            />
-          </svg>
-          Marked to: {document.active_mark.marked_to_dept_name}
-          {document.active_mark.assigned_to_name && (
-            <span className="ml-1">→ {document.active_mark.assigned_to_name}</span>
-          )}
-        </div>
-      )}
-
-      {document.status === "ready_to_release" && (
-        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-amber-600">
-          <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
-            <path
-              fillRule="evenodd"
-              d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-              clipRule="evenodd"
-            />
-          </svg>
-          Ready for release
-        </div>
-      )}
     </div>
-  </div>
-);
+  );
+};
 
-// (7) AnnotationCard
+// (7) AnnotationCard (unchanged)
 const AnnotationCard: React.FC<{
   title: string;
   department: string;
@@ -601,7 +609,7 @@ const AnnotationCard: React.FC<{
   </div>
 );
 
-// (8) AnnotationsPanel
+// (8) AnnotationsPanel (unchanged)
 const AnnotationsPanel: React.FC<{ document: Document }> = ({
   document: doc,
 }) => (
@@ -644,7 +652,7 @@ const AnnotationsPanel: React.FC<{ document: Document }> = ({
   </div>
 );
 
-// (9) DocumentFallback
+// (9) DocumentFallback (unchanged)
 const DocumentFallback: React.FC<{ document: Document }> = ({
   document: doc,
 }) => (
@@ -680,7 +688,7 @@ const DocumentFallback: React.FC<{ document: Document }> = ({
   </div>
 );
 
-// (10) FilePreview
+// (10) FilePreview (unchanged)
 const FilePreview: React.FC<{ document: Document }> = ({ document: doc }) => {
   const fileUrl = doc.file_url;
 
@@ -746,7 +754,7 @@ const FilePreview: React.FC<{ document: Document }> = ({ document: doc }) => {
   );
 };
 
-// (11) ResponsesPanel
+// (11) ResponsesPanel (unchanged)
 const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
   const dispatch = useAppDispatch();
   const responses = useAppSelector((state) => state.documents.responses);
@@ -851,7 +859,7 @@ const toISODateInput = (value: string | Date | null | undefined): string => {
   return d.toISOString().split('T')[0];
 };
 
-// ─── Draggable Signature Box ──────────────────────────────────────────────
+// ─── Draggable Signature Box (unchanged) ──────────────────────────────────
 
 interface SignatureBoxProps {
   position: { x: number; y: number; width: number; height: number };
@@ -970,7 +978,7 @@ export interface DisplayHandle {
   getSignaturePosition: () => { x: number; y: number; width: number; height: number } | null;
 }
 
-// ─── MemoDisplay ───────────────────────────────────────────────────────────
+// ─── MemoDisplay (unchanged) ──────────────────────────────────────────────
 
 interface MemoDisplayProps {
   document: Document;
@@ -1206,7 +1214,7 @@ const MemoDisplay = forwardRef<DisplayHandle, MemoDisplayProps>(({
 
 MemoDisplay.displayName = 'MemoDisplay';
 
-// ─── LetterDisplay ─────────────────────────────────────────────────────────
+// ─── LetterDisplay (unchanged) ─────────────────────────────────────────
 
 interface LetterDisplayProps {
   document: Document;
@@ -1690,9 +1698,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   };
 
   const toggleEditMode = () => {
-    // Prevent entering edit mode if the document is released
     if (isReleased) return;
-
     if (isEditMode) {
       finishEditing();
     } else {
@@ -1787,20 +1793,10 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
   const displayRef = useRef<DisplayHandle>(null);
 
-  // Auto-position the signature box when it becomes visible.
-  // NOTE: when the document already has a generated file_url, the visible
-  // pane renders <FilePreview /> (an <iframe>/gview embed) instead of the
-  // MemoDisplay/LetterDisplay component, so `displayRef` would never mount
-  // and this effect would silently no-op, leaving the signature box at its
-  // stale default position. To fix that we also render a hidden, identically
-  // sized measurement copy of the display component (see below) whenever
-  // showSignatureBox is true and a file_url is present, purely so this
-  // effect has something to measure against.
   useEffect(() => {
     if (showSignatureBox && displayRef.current?.getSignaturePosition && onAutoSignaturePosition) {
       const pos = displayRef.current.getSignaturePosition();
       if (pos) {
-        // Adjust position to be right above the signature block with some padding
         onAutoSignaturePosition({
           x: pos.x + 10,
           y: pos.y - 15,
@@ -1811,10 +1807,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   }, [showSignatureBox, onAutoSignaturePosition]);
 
-  // Whether we need to render a hidden measurement copy of the display
-  // component to compute an accurate signature position when the visible
-  // pane is showing FilePreview (i.e. document.file_url is set) instead of
-  // the live MemoDisplay/LetterDisplay.
   const needsHiddenMeasurer =
     isComposed && !!document.file_url && showSignatureBox && !isEditMode;
 
@@ -1841,7 +1833,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
-          {/** Edit button hidden when document is released */}
           {!isReleased && showEditControls && (
             <button
               onClick={toggleEditMode}
@@ -1927,7 +1918,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
-          {onMark && !document.active_mark && (
+          {/* ─── Mark button – always shown for SuperAdmin ────────────── */}
+          {onMark && document.status !== "filed" && (
             <button
               onClick={onMark}
               className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 transition-colors whitespace-nowrap"
@@ -2177,16 +2169,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           </div>
         )}
 
-        {/*
-          Hidden measurement copy: only rendered when the visible pane shows
-          FilePreview (document.file_url is set) but we still need to know
-          where the signature block would sit in the composed layout. It is
-          invisible and non-interactive, but shares the exact same width and
-          content as the real document so displayRef.getSignaturePosition()
-          returns a position that actually matches where the signature
-          belongs — right above the signatory's name — instead of leaving
-          the signature box at its stale default coordinates.
-        */}
         {needsHiddenMeasurer && (
           <div
             className="absolute inset-0 opacity-0 pointer-events-none overflow-hidden"
@@ -2346,7 +2328,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   );
 };
 
-// ─── MarkModal ─────────────────────────────────────────────────────────────
+// ─── MarkModal (unchanged) ─────────────────────────────────────────────
 
 interface MarkModalProps {
   document: Document;
@@ -2535,7 +2517,7 @@ const MarkModal: React.FC<MarkModalProps> = ({
   );
 };
 
-// ─── OtpModal ─────────────────────────────────────────────────────────────
+// ─── OtpModal (unchanged) ─────────────────────────────────────────────
 
 interface OtpModalProps {
   isSigningInProgress: boolean;
@@ -2667,7 +2649,7 @@ const OtpModal: React.FC<OtpModalProps> = ({
   </div>
 );
 
-// ─── ReleaseConfirmationModal ─────────────────────────────────────────────
+// ─── ReleaseConfirmationModal (unchanged) ─────────────────────────────
 
 interface ReleaseConfirmationModalProps {
   document: Document;
@@ -3214,11 +3196,12 @@ const MemoandLetters: React.FC = () => {
             >
               <span>✉️</span> New Letter
             </button>
+            {/* ─── Mark button – always enabled for SuperAdmin ─────────── */}
             <button
               onClick={() => selectedDocument && setShowMarkModal(true)}
-              disabled={!selectedDocument || !!selectedDocument.active_mark}
+              disabled={!selectedDocument || !canAdmin}
               className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 sm:px-3 py-1.5 text-xs font-semibold transition-colors ${
-                !selectedDocument || !!selectedDocument.active_mark
+                !selectedDocument || !canAdmin
                   ? "border-stone-200 bg-stone-50 text-stone-400 cursor-not-allowed"
                   : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
               }`}
@@ -3375,20 +3358,21 @@ const MemoandLetters: React.FC = () => {
                   ? () => handleSend(selectedDocument.id)
                   : undefined
               }
+              // ─── Always allow marking for SuperAdmin ─────────────
               onMark={
-                canAdmin && selectedDocument.status !== "filed" && !selectedDocument.active_mark
+                canAdmin && selectedDocument.status !== "filed"
                   ? () => setShowMarkModal(true)
                   : undefined
               }
               onAcknowledge={
-                selectedDocument.status === "marked" &&
-                selectedDocument.assigned_to === user?.id
+                (selectedDocument.status === "marked" || selectedDocument.status === "user_assigned") &&
+                (selectedDocument.assigned_to === user?.id || isSuperAdmin)
                   ? () => handleAcknowledge(selectedDocument.id)
                   : undefined
               }
               onComplete={
                 selectedDocument.status === "in_progress" &&
-                selectedDocument.assigned_to === user?.id
+                (selectedDocument.assigned_to === user?.id || isSuperAdmin)
                   ? () => handleComplete(selectedDocument.id)
                   : undefined
               }

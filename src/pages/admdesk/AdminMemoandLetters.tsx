@@ -1,3 +1,4 @@
+// src/pages/admin/AdminMemoandLetters.tsx (or wherever this component lives)
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useAppDispatch, useAppSelector } from "../../store/hook";
 import {
@@ -35,16 +36,18 @@ import TemplateComposerModal from "../../components/templates/TemplateComposerMo
 
 // ─── All the helper components ──────────────────────────────────────────────
 
-// (1) StatusBadge
+// (1) StatusBadge – updated to support new statuses
 const STATUS_STYLES: Record<DocumentStatus, string> = {
   draft: "bg-stone-100 text-stone-500 border border-stone-200",
   uploaded: "bg-blue-50 text-blue-700 border border-blue-100",
   pending_review: "bg-amber-50 text-amber-700 border border-amber-100",
-  marked: "bg-violet-50 text-violet-700 border border-violet-100",
+  dept_assigned: "bg-violet-50 text-violet-700 border border-violet-100",   // NEW
+  user_assigned: "bg-indigo-50 text-indigo-700 border border-indigo-100",   // NEW
+  marked: "bg-violet-50 text-violet-700 border border-violet-100",          // legacy
   in_progress: "bg-indigo-50 text-indigo-700 border border-indigo-100",
   completed: "bg-emerald-50 text-emerald-700 border border-emerald-100",
   filed: "bg-stone-100 text-stone-500 border border-stone-200",
-  ready_to_release: "bg-amber-50 text-amber-700 border border-amber-200",  // ✅ Added
+  ready_to_release: "bg-amber-50 text-amber-700 border border-amber-200",
   released: "bg-emerald-50 text-emerald-700 border border-emerald-200",
 };
 
@@ -52,11 +55,13 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
   draft: "DRAFT",
   uploaded: "UPLOADED",
   pending_review: "PENDING",
-  marked: "MARKED",
+  dept_assigned: "DEPT ASSIGNED",   // NEW
+  user_assigned: "USER ASSIGNED",   // NEW
+  marked: "MARKED",                 // legacy
   in_progress: "IN PROGRESS",
   completed: "COMPLETED",
   filed: "FILED",
-  ready_to_release: "READY TO RELEASE",  // ✅ Added
+  ready_to_release: "READY TO RELEASE",
   released: "RELEASED",
 };
 
@@ -68,7 +73,7 @@ const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => (
   </span>
 );
 
-// (2) DocIcon
+// (2) DocIcon (unchanged)
 const DOC_ICON_COLORS: Record<DocumentType, string> = {
   memo: "text-amber-500",
   letter: "text-stone-400",
@@ -101,14 +106,14 @@ const DocIcon: React.FC<{ type: DocumentType; className?: string }> = ({
   </svg>
 );
 
-// (3) formatFileSize
+// (3) formatFileSize (unchanged)
 const formatFileSize = (bytes: number | null): string => {
   if (!bytes) return "";
   const kb = bytes / 1024;
   return kb < 1024 ? `${Math.round(kb)}KB` : `${(kb / 1024).toFixed(1)}MB`;
 };
 
-// (4) StickyNote
+// (4) StickyNote (unchanged)
 interface StickyNoteProps {
   authorName: string;
   initialText: string;
@@ -433,104 +438,109 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   );
 };
 
-// (5) ListItem
+// (5) ListItem – updated to show mark info for new statuses
 const ListItem: React.FC<{
   document: Document;
   selected: boolean;
   onSelect: () => void;
   hasResponse?: boolean;
-}> = ({ document, selected, onSelect, hasResponse = false }) => (
-  <div
-    onClick={onSelect}
-    className={`flex items-start gap-2.5 px-3 py-2.5 cursor-pointer transition-colors ${
-      selected
-        ? "bg-[#1E4620]/5 border-l-2 border-[#1E4620]"
-        : hasResponse
-          ? "hover:bg-blue-50/50 border-l-2 border-blue-300/50 bg-blue-50/20"
-          : "hover:bg-stone-50 border-l-2 border-transparent"
-    }`}
-  >
-    <div className="mt-0.5 flex-shrink-0">
-      <DocIcon type={document.type} className="h-4 w-4" />
-    </div>
+}> = ({ document, selected, onSelect, hasResponse = false }) => {
+  const mark = document.active_mark;
+  const showMarkInfo = mark && (document.status === "marked" || document.status === "dept_assigned" || document.status === "user_assigned");
 
-    <div className="flex-1 min-w-0">
-      <div className="flex items-start justify-between gap-1.5">
-        <p
-          className={`text-xs font-semibold leading-snug truncate ${selected ? "text-[#1E4620]" : "text-stone-800"}`}
-        >
-          {document.title}
-        </p>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {hasResponse && (
-            <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[8px] font-medium text-blue-700 border border-blue-200">
-              <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
-                <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
-              </svg>
-              {document.response_count || 1}
-            </span>
-          )}
-          <StatusBadge status={document.status} />
-        </div>
+  return (
+    <div
+      onClick={onSelect}
+      className={`flex items-start gap-2.5 px-3 py-2.5 cursor-pointer transition-colors ${
+        selected
+          ? "bg-[#1E4620]/5 border-l-2 border-[#1E4620]"
+          : hasResponse
+            ? "hover:bg-blue-50/50 border-l-2 border-blue-300/50 bg-blue-50/20"
+            : "hover:bg-stone-50 border-l-2 border-transparent"
+      }`}
+    >
+      <div className="mt-0.5 flex-shrink-0">
+        <DocIcon type={document.type} className="h-4 w-4" />
       </div>
 
-      <div className="mt-0.5 flex items-center gap-1 text-[10px] text-stone-400 flex-wrap">
-        <span>
-          {document.created_at
-            ? format(new Date(document.created_at), "yyyy-MM-dd")
-            : "—"}
-        </span>
-        {document.file_size_bytes && (
-          <>
-            <span>·</span>
-            <span>{formatFileSize(document.file_size_bytes)}</span>
-          </>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-1.5">
+          <p
+            className={`text-xs font-semibold leading-snug truncate ${selected ? "text-[#1E4620]" : "text-stone-800"}`}
+          >
+            {document.title}
+          </p>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {hasResponse && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[8px] font-medium text-blue-700 border border-blue-200">
+                <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
+                  <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
+                </svg>
+                {document.response_count || 1}
+              </span>
+            )}
+            <StatusBadge status={document.status} />
+          </div>
+        </div>
+
+        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-stone-400 flex-wrap">
+          <span>
+            {document.created_at
+              ? format(new Date(document.created_at), "yyyy-MM-dd")
+              : "—"}
+          </span>
+          {document.file_size_bytes && (
+            <>
+              <span>·</span>
+              <span>{formatFileSize(document.file_size_bytes)}</span>
+            </>
+          )}
+          <span>·</span>
+          <span className="truncate">
+            {document.reference_no || document.created_by_name || "RHC"}
+          </span>
+        </div>
+
+        {document.is_signed && (
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-emerald-600">
+            <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                clipRule="evenodd"
+              />
+            </svg>
+            Signed
+            {document.is_sent && (
+              <span className="ml-1 text-blue-500">· Sent</span>
+            )}
+          </div>
         )}
-        <span>·</span>
-        <span className="truncate">
-          {document.reference_no || document.created_by_name || "RHC"}
-        </span>
+
+        {showMarkInfo && (
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-violet-600">
+            <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
+                clipRule="evenodd"
+              />
+            </svg>
+            Marked to: {mark.marked_to_dept_name}
+            {mark.assigned_to_name && (
+              <span className="ml-1">
+                → {mark.assigned_to_name}
+              </span>
+            )}
+          </div>
+        )}
       </div>
-
-      {document.is_signed && (
-        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-emerald-600">
-          <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
-            <path
-              fillRule="evenodd"
-              d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-              clipRule="evenodd"
-            />
-          </svg>
-          Signed
-          {document.is_sent && (
-            <span className="ml-1 text-blue-500">· Sent</span>
-          )}
-        </div>
-      )}
-
-      {document.active_mark && document.status === "marked" && (
-        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-violet-600">
-          <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
-            <path
-              fillRule="evenodd"
-              d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-              clipRule="evenodd"
-            />
-          </svg>
-          Marked to: {document.active_mark.marked_to_dept_name}
-          {document.active_mark.assigned_to_name && (
-            <span className="ml-1">
-              → {document.active_mark.assigned_to_name}
-            </span>
-          )}
-        </div>
-      )}
     </div>
-  </div>
-);
+  );
+};
 
-// (6) AnnotationCard
+// (6) AnnotationCard (unchanged)
 const AnnotationCard: React.FC<{
   title: string;
   department: string;
@@ -578,7 +588,7 @@ const AnnotationCard: React.FC<{
   </div>
 );
 
-// (7) AnnotationsPanel
+// (7) AnnotationsPanel (unchanged)
 const AnnotationsPanel: React.FC<{ document: Document }> = ({
   document: doc,
 }) => (
@@ -621,7 +631,7 @@ const AnnotationsPanel: React.FC<{ document: Document }> = ({
   </div>
 );
 
-// (8) DocumentFallback
+// (8) DocumentFallback (unchanged)
 const DocumentFallback: React.FC<{ document: Document }> = ({
   document: doc,
 }) => (
@@ -657,7 +667,7 @@ const DocumentFallback: React.FC<{ document: Document }> = ({
   </div>
 );
 
-// (9) FilePreview
+// (9) FilePreview (unchanged)
 const FilePreview: React.FC<{ document: Document }> = ({ document: doc }) => {
   const fileUrl = doc.file_url;
 
@@ -723,7 +733,7 @@ const FilePreview: React.FC<{ document: Document }> = ({ document: doc }) => {
   );
 };
 
-// (10) Spinner
+// (10) Spinner (unchanged)
 const Spinner: React.FC<{ className?: string }> = ({
   className = "h-3.5 w-3.5",
 }) => (
@@ -733,7 +743,7 @@ const Spinner: React.FC<{ className?: string }> = ({
   </svg>
 );
 
-// (11) ResponsesPanel
+// (11) ResponsesPanel (unchanged)
 const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
   const dispatch = useAppDispatch();
   const responses = useAppSelector((state) => state.documents.responses);
@@ -817,20 +827,7 @@ const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
   );
 };
 
-// (12) MemoDisplay - For displaying/editing memos.
-//
-// FIX: this used to read `document.assigned_to_name` / `document.department_name`
-// as the TO / FROM values — those are unrelated workflow fields (who the
-// document is currently assigned to, and its department), NOT what the user
-// typed into the TO/FROM inputs in TemplateComposerModal. The actual typed
-// values live in `document.to_recipient` / `document.from_sender` (populated
-// by generateMemo()/saveDocument() on the backend, and read correctly by
-// regeneratePdf() for the PDF). This component simply never looked at them.
-//
-// It now (a) reads the correct columns for display, and (b) — mirroring
-// LetterDisplay — accepts lifted field state so a super admin can edit
-// TO/FROM directly, with edits saved back via the same
-// to_recipient/from_sender columns instead of being silently dropped.
+// (12) MemoDisplay - updated to support editable TO/FROM for super admin
 interface MemoFields {
   to: string;
   from: string;
@@ -864,9 +861,6 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
   handleManualSave,
   currentUserName,
 }) => {
-  // Everything except to/from (which now come from lifted `fields` state,
-  // sourced from document.to_recipient/from_sender) still falls back to
-  // sensible defaults the same way it did before.
   const memoMeta = useMemo(() => {
     return {
       ref: document.reference_no || 'RHC/AIE/0000',
@@ -880,29 +874,25 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
 
   return (
     <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col">
-      {/* Header - Crest */}
       <div className="flex justify-center mb-3">
-        <img 
-          src="/JOB_LOGO.jpg" 
-          alt="Judiciary of Kenya crest" 
+        <img
+          src="/JOB_LOGO.jpg"
+          alt="Judiciary of Kenya crest"
           className="h-[78px] w-auto object-contain"
           onError={(e) => {
-            // Fallback if image doesn't load
             (e.target as HTMLImageElement).style.display = 'none';
           }}
         />
       </div>
-      
-      {/* Title */}
+
       <div className="text-center mt-4 mb-2">
         <p className="text-[19px] font-bold uppercase leading-snug">
           OFFICE OF THE REGISTRAR HIGH COURT<br />INTERNAL MEMO
         </p>
       </div>
-      
+
       <div className="border-t-[2.5px] border-black mb-2.5" />
-      
-      {/* Fields - TO, FROM, REF, DATE, SUBJECT */}
+
       <div className="mt-2">
         <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
           <span className="w-24 shrink-0 uppercase">TO</span>
@@ -948,10 +938,9 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
           <span className="flex-1">{memoMeta.subject}</span>
         </div>
       </div>
-      
+
       <div className="border-t-[2.5px] border-black mt-3 mb-10" />
-      
-      {/* Body - Editable content */}
+
       <div
         ref={editorRef}
         contentEditable={isEditable}
@@ -962,8 +951,7 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
         className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
         dangerouslySetInnerHTML={{ __html: memoMeta.body || '' }}
       />
-      
-      {/* Signatory section - properly separated from FROM field */}
+
       <div className="mt-10">
         <div className="font-bold uppercase text-[13.5px]">
           {memoMeta.signatureName}
@@ -972,8 +960,7 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
           {memoMeta.signatureTitle}
         </div>
       </div>
-      
-      {/* Footer - Default High Court Support Office details */}
+
       <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
         <div className="flex-1 text-[10px] leading-tight text-stone-700">
           <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
@@ -985,15 +972,7 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
   );
 };
 
-// (13) LetterDisplay – For displaying/editing letters with the full
-// letterhead field set (Ref, Date, To, RE:, body, Signatory, CC,
-// Enclosures). Previously the letter view only ever showed a generic
-// static header/footer and the body; the other fields the composer
-// actually collects (to/cc/enclosures/signatory) were silently
-// dropped once a letter was saved. This renders them for everyone,
-// and — when `canEditFields` is true (super admins only) — as live
-// inputs whose values are lifted up via `onFieldChange` so the parent
-// can include them in the save payload alongside the body.
+// (13) LetterDisplay – updated for field editing (unchanged except using correct column names)
 const GOLD = '#C29B38';
 
 interface LetterFields {
@@ -1176,7 +1155,7 @@ const LetterDisplay: React.FC<LetterDisplayProps> = ({
   );
 };
 
-// (14) DocumentEditor – main editor component
+// (14) DocumentEditor – updated Mark button condition
 type SaveState = "idle" | "saving" | "saved" | "unsaved" | "error";
 
 const SAVE_LABEL: Record<SaveState, string> = {
@@ -1187,12 +1166,6 @@ const SAVE_LABEL: Record<SaveState, string> = {
   error: "Failed to save · click Save to retry",
 };
 
-// FIX: `to` renamed to `to_recipient` and `from_sender` added, to match the
-// column names UpdateDocumentInput/DocumentService.update() actually read
-// on the backend (see documents.service.ts: `input.to_recipient`,
-// `input.from_sender`). The previous key `to` was never recognized there,
-// so any TO edit was silently ignored — it looked like it saved (no error
-// was thrown) but never persisted.
 interface DocumentUpdatePayload {
   body?: string;
   reference_no?: string;
@@ -1238,11 +1211,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const isEditable = !!onSave && !isFileBased;
   const isLetter = document.type === "letter";
   const isMemo = document.type === "memo";
-  // Super admins can edit the full letter field set (Ref/To/CC/Enclosures/
-  // Signatory), not just the body — everyone else only ever sees the body
-  // as editable, matching the previous behaviour.
   const canEditLetterFields = isSuperAdmin && isLetter && isEditable;
-  // Same idea for memos: TO/FROM are editable by super admins only.
   const canEditMemoFields = isSuperAdmin && isMemo && isEditable;
   const formattedDate = document.created_at
     ? format(new Date(document.created_at), "dd MMM yyyy")
@@ -1258,7 +1227,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     ? (document.created_by_name ?? currentUserName)
     : currentUserName;
 
-  // Editing state
   const editorRef = useRef<HTMLDivElement>(null);
   const lastSavedHtml = useRef(document.body ?? "");
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1269,18 +1237,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     document.body ? document.body.split(/\s+/).filter(Boolean).length : 0,
   );
 
-  // Memo TO/FROM field state (super-admin editable). Sourced from the
-  // actual persisted columns — document.to_recipient / document.from_sender
-  // — not assigned_to_name/department_name, with the same defaults the
-  // composer (TemplateComposerModal) starts new memos with.
   const [memoFields, setMemoFields] = useState<MemoFields>(() => ({
     to: document.to_recipient || 'REGISTRAR, HIGH COURT / ORHC AIE HOLDER',
     from: document.from_sender || 'HIGH COURT SUPPORT OFFICE',
   }));
 
-  // Letter metadata field state (super-admin editable). Falls back to
-  // whatever the document already has, or sensible defaults matching
-  // what the composer used at creation time.
   const [letterFields, setLetterFields] = useState<LetterFields>(() => ({
     ref: document.reference_no ?? "",
     date: formattedDate,
@@ -1318,10 +1279,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     [onSave, document.id],
   );
 
-  // Builds the extra-fields portion of the save payload for whichever
-  // document type is currently being edited, using the correct backend
-  // column names (to_recipient/from_sender) rather than the mismatched
-  // `to` key the letter path used previously.
   const extraFieldsPayload = useCallback((): DocumentUpdatePayload | undefined => {
     if (canEditMemoFields) {
       return {
@@ -1368,9 +1325,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     persist(editorRef.current.innerHTML, extraFieldsPayload());
   }, [persist, extraFieldsPayload]);
 
-  // Field edits (TO/FROM, Ref/CC/Enclosures/Signatory) save on blur rather
-  // than per-keystroke, since they're plain inputs rather than the
-  // debounced contentEditable body.
   const handleFieldBlur = useCallback(() => {
     if (!editorRef.current) return;
     persist(editorRef.current.innerHTML, extraFieldsPayload());
@@ -1531,7 +1485,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
-          {onMark && !document.active_mark && (
+          {/* ─── Mark button – always shown for SuperAdmin ─────────────── */}
+          {onMark && document.status !== "filed" && (
             <button
               onClick={onMark}
               className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 transition-colors whitespace-nowrap"
@@ -1770,7 +1725,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
               <DocumentFallback document={document} />
             ) : (
               document.type === 'memo' ? (
-                <MemoDisplay 
+                <MemoDisplay
                   document={document}
                   isEditable={isEditable}
                   canEditFields={canEditMemoFields}
@@ -1843,7 +1798,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   );
 };
 
-// (15) MarkModal
+// (15) MarkModal (unchanged)
 interface MarkModalProps {
   document: Document;
   onClose: () => void;
@@ -2046,8 +2001,8 @@ const AdminMemoandLetters: React.FC = () => {
   const [showComposer, setShowComposer] = useState<"memo" | "letter" | null>(null);
   const [isCreating] = useState(false);
 
-  const canUpload = hasRole(user, "staff");
-  const canAdmin = hasRole(user, "dept_head");
+  const canUpload = hasRole(user, "staff") || hasRole(user, "super_admin");
+  const canAdmin = hasRole(user, "dept_head") || hasRole(user, "super_admin");
   const isSuperAdmin = hasRole(user, "super_admin");
   const canView = !!user;
 
@@ -2104,13 +2059,7 @@ const AdminMemoandLetters: React.FC = () => {
     dispatch(fetchDocuments(params));
   };
 
-  // Accepts the body plus, for super admins editing a memo's TO/FROM or a
-  // letter's field set, the extra reference/to_recipient/from_sender/cc/
-  // enclosures/signature fields. All are just spread into the update
-  // input — the backend's UpdateDocumentInput is a partial patch, so
-  // omitted fields are left untouched. Field names here (to_recipient,
-  // from_sender) match documents.service.ts's UPDATE column names exactly;
-  // previously this used `to`, which the backend silently ignored.
+  // Accepts the body plus extra fields for super admin
   const handleSaveBody = async (
     id: string,
     updates: {
@@ -2215,11 +2164,12 @@ const AdminMemoandLetters: React.FC = () => {
             >
               <span>✉️</span> New Letter
             </button>
+            {/* ─── Mark button – always enabled for SuperAdmin ─────────── */}
             <button
               onClick={() => selectedDocument && setShowMarkModal(true)}
-              disabled={!selectedDocument || !!selectedDocument.active_mark}
+              disabled={!selectedDocument || !canAdmin}
               className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 sm:px-3 py-1.5 text-xs font-semibold transition-colors ${
-                !selectedDocument || !!selectedDocument.active_mark
+                !selectedDocument || !canAdmin
                   ? "border-stone-200 bg-stone-50 text-stone-400 cursor-not-allowed"
                   : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
               }`}
@@ -2375,20 +2325,21 @@ const AdminMemoandLetters: React.FC = () => {
                   ? () => handleSend(selectedDocument.id)
                   : undefined
               }
+              // ─── Always allow marking for SuperAdmin ─────────────
               onMark={
-                canAdmin && selectedDocument.status !== "filed" && !selectedDocument.active_mark
+                canAdmin && selectedDocument.status !== "filed"
                   ? () => setShowMarkModal(true)
                   : undefined
               }
               onAcknowledge={
-                selectedDocument.status === "marked" &&
-                selectedDocument.assigned_to === user?.id
+                (selectedDocument.status === "marked" || selectedDocument.status === "user_assigned") &&
+                (selectedDocument.assigned_to === user?.id || isSuperAdmin)
                   ? () => handleAcknowledge(selectedDocument.id)
                   : undefined
               }
               onComplete={
                 selectedDocument.status === "in_progress" &&
-                selectedDocument.assigned_to === user?.id
+                (selectedDocument.assigned_to === user?.id || isSuperAdmin)
                   ? () => handleComplete(selectedDocument.id)
                   : undefined
               }

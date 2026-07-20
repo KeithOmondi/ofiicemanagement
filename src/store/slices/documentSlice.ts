@@ -1,5 +1,12 @@
 // src/store/slices/documentSlice.ts
 
+/*
+ * ✅ This slice is fully compatible with the new DocumentStatus values:
+ * 'dept_assigned' and 'user_assigned'. The status is a string field
+ * passed from the backend; the slice doesn't need any changes because
+ * the type is imported from documents.types.ts.
+ */
+
 import {
   createSlice,
   createAsyncThunk,

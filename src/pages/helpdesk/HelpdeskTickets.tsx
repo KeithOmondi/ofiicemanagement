@@ -1,4 +1,5 @@
 // src/features/tickets/HelpdeskTickets.tsx
+
 import React, { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -102,7 +103,55 @@ import { generateAirTicketMemoExcel } from '../../utils/generateAirTicketMemoExc
 const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1781759596/JOB_LOGO_ubls4m.jpg';
 const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
 
-// ── Helper: status badge style ──────────────────────────────────────────────
+// ── Types ──────────────────────────────────────────────────────────────────
+
+interface ScheduleRow {
+  name: string;
+  route: string;
+  date: string;
+  time: string;
+}
+
+type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
+
+interface TicketFormData {
+  department_id: string;
+  date_of_travel: string;
+  return_date: string;
+  departure_from: string;
+  destination: string;
+  preferred_flight_time: FlightTimePreference;
+  remarks: string;
+  judge_name: string;
+  pj_number: string;
+  travel_class: TravelClass;
+  number_of_passengers: number;
+  special_requests: string;
+  priority: TicketPriority;
+  assigned_to: string;
+  is_draft: boolean;
+}
+
+interface AirTicketParams {
+  to: string;
+  from: string;
+  ref: string;
+  date: string;
+  subject: string;
+  bodyText: string;
+  scheduleRows: {
+    name: string;
+    date: string;
+    route: string;
+    preferredTime: string;
+  }[];
+  signatoryName: string;
+  crestUrl: string;
+  signatureUrl?: string;
+  fromDepartment: string;
+}
+
+// ── Helper Functions ──────────────────────────────────────────────────────
 
 const statusColor = (status: TicketStatus): string => {
   const map: Record<TicketStatus, string> = {
@@ -140,12 +189,6 @@ const priorityColor = (priority: TicketPriority): string => {
   return map[priority] || 'text-stone-500';
 };
 
-// ── Helper: document status badge style ─────────────────────────────────────
-//
-// Separate from ticket status — a HelpdeskDocument (the generated memo PDF/
-// docx/xlsx) has its own approval workflow via helpdeskDocumentsSlice, and
-// can be in flight independently of whatever the parent ticket's status is.
-
 const documentStatusColor = (status: DocumentStatus): string => {
   const map: Record<DocumentStatus, string> = {
     draft: 'bg-stone-100 text-stone-600 ring-stone-200',
@@ -163,7 +206,35 @@ const documentFormatIcon = (format: DocumentFormat) => {
   return <FileText size={16} className="text-red-600" />;
 };
 
-// ── Shared UI primitives ─────────────────────────────────────────────────────
+const flightTimeLabels: Record<FlightTimePreference, string> = {
+  morning: 'Morning',
+  afternoon: 'Afternoon',
+  evening: 'Evening',
+  night: 'Night',
+  any: 'Any Time',
+};
+
+// ─── Type-safe Error Helpers ──────────────────────────────────────────────
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return 'An unknown error occurred';
+}
+
+function getErrorResponse(error: unknown): unknown {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const errorObj = error as { response: { data: unknown } };
+    return errorObj.response.data;
+  }
+  return null;
+}
+
+// ── Shared UI Primitives ──────────────────────────────────────────────────
 
 const inputClasses =
   'w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-800 placeholder:text-stone-400 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] transition-colors';
@@ -374,7 +445,7 @@ function SignatureSection({ userSignature, onUpload, onRemove, isLoading }: Sign
   );
 }
 
-// ── Judge name autocomplete ──────────────────────────────────────────────
+// ── Judge Search Field ─────────────────────────────────────────────────────
 
 function JudgeSearchField({
   nameValue,
@@ -471,26 +542,6 @@ interface TicketMemoPreviewProps {
   onDocumentUploaded?: (documentId: string) => void;
 }
 
-type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
-
-// One row of the fixed schedule table (Name / Date / Preferred Time), styled
-// after the sample memo: the traveller's name only appears once, on the
-// first leg; the return leg repeats just the date/route/time.
-interface ScheduleRow {
-  name: string;
-  route: string;
-  date: string;
-  time: string;
-}
-
-const flightTimeLabels: Record<FlightTimePreference, string> = {
-  morning: 'Morning',
-  afternoon: 'Afternoon',
-  evening: 'Evening',
-  night: 'Night',
-  any: 'Any Time',
-};
-
 const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
   ticketData,
   referenceNo,
@@ -504,13 +555,12 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const [downloadingFormat, setDownloadingFormat] = useState<DownloadFormat | null>(null);
 
-  const formatDate = (dateStr: string) => {
+  const formatDate = (dateStr: string): string => {
     if (!dateStr) return '—';
     const d = new Date(dateStr);
     return d.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
-  // ── Fixed (non-editable) schedule rows, built straight from ticket data ──
   const scheduleRows: ScheduleRow[] = [];
   const travellerName = ticketData.judge_name || '—';
   const timeLabel = flightTimeLabels[ticketData.preferred_flight_time] || 'Any Time';
@@ -525,14 +575,13 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
   }
   if (ticketData.return_date) {
     scheduleRows.push({
-      name: '', // matches the sample: name only shown once, on the first leg
+      name: '',
       route: `${ticketData.destination} - ${ticketData.departure_from}`,
       date: formatDate(ticketData.return_date),
       time: timeLabel,
     });
   }
 
-  // Editable fields
   const [toField, setToField] = useState('REGISTRAR, HIGH COURT/AIE HOLDER');
   const [fromField, setFromField] = useState('HIGH COURT SUPPORT OFFICE');
   const [refField, setRefField] = useState(() => referenceNo || 'RHC/AIE/000');
@@ -540,34 +589,43 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
     new Date().toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' })
   );
   const [subjectField, setSubjectField] = useState('REQUEST AIR TICKET');
-
-  // Narrative paragraph — styled after the sample memo's prose (traveller,
-  // purpose, and a pointer to the schedule table below), not a bullet list.
   const [bodyText, setBodyText] = useState(() => {
     const who = ticketData.judge_name ? `Hon. Justice ${ticketData.judge_name}` : 'The traveller named below';
     return `${who} is scheduled to travel to ${ticketData.destination || '[destination]'} on official duty. In view of the above, kindly approve procurement of an air ticket to facilitate the travel as per the schedule below:`;
   });
-
   const [signatoryName, setSignatoryName] = useState(() => currentUser?.full_name || '');
 
   const editableLineClasses =
     'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none';
 
-  const handleDownload = async (format: DownloadFormat) => {
+ const handleDownload = async (format: DownloadFormat): Promise<void> => {
+    console.log('🚀 [handleDownload] Triggered with format:', format);
+    console.log('🚀 [handleDownload] Current state snapshot:', {
+      toField,
+      fromField,
+      refField,
+      dateField,
+      subjectField,
+      signatoryName,
+      ticketId,
+      scheduleRowCount: scheduleRows.length,
+      hasSignatureUrl: !!signatureUrl,
+    });
+
     setShowDownloadMenu(false);
     setDownloadingFormat(format);
 
     try {
-      // Build schedule rows for air ticket
-      const airTicketScheduleRows = scheduleRows.map(row => ({
+      const airTicketScheduleRows = scheduleRows.map((row) => ({
         name: row.name || '—',
         date: row.date,
         route: row.route,
         preferredTime: row.time,
       }));
 
-      // Use air ticket specific params
-      const airTicketParams = {
+      console.log('📋 [handleDownload] Mapped schedule rows:', airTicketScheduleRows);
+
+      const airTicketParams: AirTicketParams = {
         to: toField,
         from: fromField,
         ref: refField,
@@ -581,45 +639,89 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
         fromDepartment: fromField,
       };
 
+      console.log('🧾 [handleDownload] Built AirTicketParams:', airTicketParams);
+
       let blob: Blob | null = null;
 
-      if (format === 'docx') {
-        blob = await generateAirTicketMemoDocx(airTicketParams);
-      } else if (format === 'pdf') {
-        blob = await generateAirTicketMemoPdf(airTicketParams);
-      } else if (format === 'xlsx') {
-        blob = generateAirTicketMemoExcel(airTicketParams);
+      console.log(`⚙️ [handleDownload] Dispatching generator for format: ${format}`);
+
+      switch (format) {
+        case 'docx':
+          blob = await generateAirTicketMemoDocx(airTicketParams);
+          console.log('✅ [handleDownload] docx generator returned blob:', blob);
+          break;
+        case 'pdf':
+          blob = await generateAirTicketMemoPdf(airTicketParams);
+          console.log('✅ [handleDownload] pdf generator returned blob:', blob);
+          break;
+        case 'xlsx':
+          blob = generateAirTicketMemoExcel(airTicketParams);
+          console.log('✅ [handleDownload] xlsx generator returned blob:', blob);
+          break;
+        default:
+          console.error('❌ [handleDownload] Unsupported format requested:', format);
+          throw new Error(`Unsupported format: ${format}`);
       }
 
-      if (!blob) throw new Error('Generator returned no blob');
+      if (!blob) {
+        console.error('❌ [handleDownload] Generator returned null/undefined blob for format:', format);
+        throw new Error('Generator returned no blob');
+      }
+
+      console.log('📦 [handleDownload] Blob details:', {
+        size: blob.size,
+        type: blob.type,
+      });
 
       const safeRef = refField.replace(/[\\/:*?"<>|]/g, '-');
       const filename = `${safeRef}.${format}`;
+      const file = new File([blob], filename, { type: blob.type });
 
-      const uploaded = await dispatch(
-        uploadHelpdeskDocument({
-          blob,
-          filename,
-          ref: refField,
-          subject: subjectField,
-          entity_type: 'ticket' as DocumentEntityType,
-          // Links the generated document back to the ticket it belongs to
-          // (when editing an existing ticket — brand-new tickets don't have
-          // an id yet at this point in the wizard, so this stays undefined
-          // for the create flow). We capture the resulting document's id
-          // below and hand it up to the parent so it can be linked to the
-          // ticket once that ticket actually has an id.
-          entity_id: ticketId,
-          format: format as DocumentFormat,
-        })
-      ).unwrap();
+      console.log('📁 [handleDownload] Constructed file:', {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        safeRef,
+      });
+
+      const uploadPayload = {
+        blob: file,
+        filename: filename,
+        ref: refField,
+        subject: subjectField,
+        entity_type: 'ticket' as DocumentEntityType,
+        entity_id: ticketId,
+        format: format as DocumentFormat,
+      };
+
+      console.log('📤 [handleDownload] Dispatching uploadHelpdeskDocument with payload:', {
+        ...uploadPayload,
+        blob: `[File: ${file.name}, ${file.size} bytes, ${file.type}]`,
+      });
+
+      // ✅ FIXED: Use the correct upload payload structure
+      const uploaded = await dispatch(uploadHelpdeskDocument(uploadPayload)).unwrap();
+
+      console.log('✅ [handleDownload] Upload succeeded, server response:', uploaded);
 
       onDocumentUploaded?.(uploaded.id);
       toast.success(`${format.toUpperCase()} document saved to the system.`);
+
+      console.log(`🎉 [handleDownload] Completed successfully for format: ${format}, document id: ${uploaded.id}`);
     } catch (err) {
-      console.error(`Failed to generate/upload ${format} memo:`, err);
-      toast.error('Failed to save document. Please try again.');
+      console.error(`❌ [handleDownload] Failed to generate/upload ${format} memo:`, err);
+
+      const errorResponse = getErrorResponse(err);
+      if (errorResponse) {
+        console.error('❌ [handleDownload] Server error response:', errorResponse);
+      }
+
+      const errorMessage = getErrorMessage(err);
+      console.error('❌ [handleDownload] Resolved error message:', errorMessage);
+
+      toast.error(`Failed to save document: ${errorMessage}`);
     } finally {
+      console.log(`🏁 [handleDownload] Finished handling format: ${format}, resetting downloadingFormat state`);
       setDownloadingFormat(null);
     }
   };
@@ -757,7 +859,6 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
             </div>
 
             <div className="space-y-4 text-sm">
-              {/* Narrative paragraph — editable, mirrors the sample memo's prose */}
               <textarea
                 value={bodyText}
                 onChange={(e) => setBodyText(e.target.value)}
@@ -765,8 +866,6 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
                 className={`${editableLineClasses} block w-full resize-none leading-relaxed`}
               />
 
-              {/* Fixed schedule table — NOT editable, mirrors the sample memo's
-                  Name / Date / Preferred Time table exactly. */}
               <table className="w-full border-collapse border border-black text-sm">
                 <thead>
                   <tr>
@@ -839,26 +938,6 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
   );
 };
 
-// ── Ticket Form Data ───────────────────────────────────────────────────────
-
-interface TicketFormData {
-  department_id: string;
-  date_of_travel: string;
-  return_date: string;
-  departure_from: string;
-  destination: string;
-  preferred_flight_time: FlightTimePreference;
-  remarks: string;
-  judge_name: string;
-  pj_number: string;
-  travel_class: TravelClass;
-  number_of_passengers: number;
-  special_requests: string;
-  priority: TicketPriority;
-  assigned_to: string;
-  is_draft: boolean;
-}
-
 // ── Ticket Form Modal ──────────────────────────────────────────────────────
 
 interface TicketFormModalProps {
@@ -905,18 +984,15 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
     is_draft: false,
   }));
 
-  // Fetch judges + departments on mount
   useEffect(() => {
     dispatch(fetchJudges({}));
     dispatch(fetchDepartments({}));
   }, [dispatch]);
 
-  // Effective department for dept_head
   const effectiveDepartmentId = isDeptHead
     ? currentUser?.department_id ?? ''
     : formData.department_id;
 
-  // Fetch users for department
   useEffect(() => {
     if (effectiveDepartmentId) {
       dispatch(fetchUsers({ department_id: effectiveDepartmentId, is_active: true, limit: 100 }));
@@ -927,7 +1003,6 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
     ? departmentUsers.filter((u) => u.department_id === effectiveDepartmentId)
     : [];
 
-  // Handlers
   const handleChange = (
     e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
@@ -961,7 +1036,8 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
       await dispatch(uploadSignature(file)).unwrap();
       toast.success('Signature uploaded successfully.');
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to upload signature.');
+      const errorMessage = getErrorMessage(err);
+      toast.error(errorMessage);
     }
   };
 
@@ -971,13 +1047,13 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
       await dispatch(deleteSignature()).unwrap();
       toast.success('Signature removed successfully.');
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to remove signature.');
+      const errorMessage = getErrorMessage(err);
+      toast.error(errorMessage);
     }
   };
 
   const handleNextStep = () => {
     if (currentStep === 1) {
-      // Validate required fields
       if (!formData.date_of_travel || !formData.departure_from || !formData.destination) {
         toast.error('Please fill in all required fields (Travel Date, Departure, Destination)');
         return;
@@ -994,13 +1070,9 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
     if (currentStep === 2) setCurrentStep(1);
   };
 
-  // `e` is optional: this is called both as a form onSubmit handler (with an
-  // event, e.g. pressing Enter in a field) and directly from the "Create" /
-  // "Update" button's onClick on step 2, which has no event to pass.
   const handleSubmit = (e?: FormEvent) => {
     e?.preventDefault();
 
-    // Build payload
     const derivedTitle =
       initialData?.title ??
       `${formData.judge_name ? `${formData.judge_name} — ` : ''}${formData.departure_from} to ${formData.destination} (${formData.date_of_travel})`;
@@ -1026,7 +1098,6 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
     onSubmit(payload, pendingDocumentId);
   };
 
-  // Reset form when modal closes
   const handleClose = () => {
     setCurrentStep(1);
     setPendingDocumentId(undefined);
@@ -1046,7 +1117,6 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
         </div>
 
         <div className="max-h-[65vh] overflow-y-auto p-4">
-          {/* Step Indicator */}
           <div className="mb-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1070,7 +1140,6 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
 
           {currentStep === 1 && (
             <form className="space-y-5" onSubmit={handleSubmit}>
-              {/* Department + Assigned To */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelClasses}>
@@ -1124,7 +1193,6 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
                 </div>
               </div>
 
-              {/* Travel Details */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelClasses}>Date of Travel *</label>
@@ -1234,7 +1302,6 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
                 </div>
               </div>
 
-              {/* Judge */}
               <div className="grid grid-cols-2 gap-4">
                 <JudgeSearchField
                   nameValue={formData.judge_name}
@@ -1376,17 +1443,9 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
   onDeleteComment,
 }) => {
   const [newComment, setNewComment] = useState('');
+  //const [newDocumentFile, setNewDocumentFile] = useState<File | null>(null);
   const dispatch = useAppDispatch();
 
-  // ── Supporting document (the generated memo) ──────────────────────────────
-  //
-  // Fetches whatever HelpdeskDocument(s) are linked to this ticket
-  // (entity_type: 'ticket', entity_id: ticket.id), lets the user attach one
-  // if none exists yet — either by uploading a fresh file from their machine,
-  // or by linking a document that already exists in the system (e.g. one
-  // generated during ticket creation before the ticket had an id, and so
-  // never got its entity_id set) — and lets them send it straight to the
-  // super admin for approval, all from this same modal.
   const allDocuments = useAppSelector(selectAllHelpdeskDocuments);
   const documentsLoading = useAppSelector(selectDocumentsFetchLoading);
   const documentsUploading = useAppSelector(selectDocumentsUploading);
@@ -1395,13 +1454,12 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
   const isLinking = useAppSelector(selectDocumentLinking);
   const documentFileInputRef = useRef<HTMLInputElement>(null);
   const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
 
   useEffect(() => {
     dispatch(fetchHelpdeskDocuments({ entity_type: 'ticket', entity_id: ticket.id }));
   }, [dispatch, ticket.id]);
 
-  // Only pull the unlinked-documents list when the picker is actually opened,
-  // so we're not fetching it on every ticket detail view.
   useEffect(() => {
     if (showLinkPicker) {
       dispatch(fetchHelpdeskDocuments({ unlinked: true }));
@@ -1426,7 +1484,9 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
       return;
     }
 
+    setUploadingDocument(true);
     try {
+      // ✅ FIXED: Use the correct upload payload structure
       await dispatch(
         uploadHelpdeskDocument({
           blob: file,
@@ -1435,13 +1495,15 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
           subject: ticket.title,
           entity_type: 'ticket',
           entity_id: ticket.id,
-          format,
+          format: format,
         })
       ).unwrap();
       toast.success('Document attached to this ticket.');
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to attach document.');
+      const errorMessage = getErrorMessage(err);
+      toast.error(errorMessage);
     } finally {
+      setUploadingDocument(false);
       e.target.value = '';
     }
   };
@@ -1449,12 +1511,17 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
   const handleLinkExisting = async (documentId: string) => {
     try {
       await dispatch(
-        linkHelpdeskDocument({ id: documentId, entity_type: 'ticket', entity_id: ticket.id })
+        linkHelpdeskDocument({
+          id: documentId,
+          entity_type: 'ticket',
+          entity_id: ticket.id,
+        })
       ).unwrap();
       toast.success('Document linked to this ticket.');
       setShowLinkPicker(false);
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to link document.');
+      const errorMessage = getErrorMessage(err);
+      toast.error(errorMessage);
     }
   };
 
@@ -1463,7 +1530,8 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
       await dispatch(submitDocumentForApproval({ id: documentId })).unwrap();
       toast.success('Document sent to the super admin for approval.');
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
+      const errorMessage = getErrorMessage(err);
+      toast.error(errorMessage);
     }
   };
 
@@ -1543,10 +1611,10 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
             <ActionPill tone="danger" onClick={onDelete}>Delete</ActionPill>
           </div>
 
-          {/* ── Supporting Document ─────────────────────────────────────────── */}
+          {/* Supporting Documents */}
           <div className="mt-6">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-stone-800">Supporting Document</h3>
+              <h3 className="text-sm font-semibold text-stone-800">Supporting Documents</h3>
               <div className="flex gap-2">
                 <GhostButton
                   onClick={() => setShowLinkPicker((v) => !v)}
@@ -1560,20 +1628,20 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                   accept=".pdf,.docx,.xlsx"
                   onChange={handleAttachDocument}
                   className="hidden"
-                  disabled={documentsUploading}
+                  disabled={documentsUploading || uploadingDocument}
                 />
                 <GhostButton
                   onClick={() => documentFileInputRef.current?.click()}
-                  disabled={documentsUploading}
-                  icon={documentsUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  disabled={documentsUploading || uploadingDocument}
+                  icon={documentsUploading || uploadingDocument ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
                 >
-                  {documentsUploading ? 'Uploading…' : 'Attach Document'}
+                  {documentsUploading || uploadingDocument ? 'Uploading…' : 'Attach Document'}
                 </GhostButton>
               </div>
             </div>
 
             {showLinkPicker && (
-              <div className="mt-2 rounded-lg border border-stone-200 bg-white p-2">
+              <div className="mt-2 rounded-lg border border-stone-200 bg-white p-2 max-h-48 overflow-y-auto">
                 {unlinkedDocuments.length === 0 ? (
                   <p className="px-2 py-2 text-xs text-stone-400 italic">No unlinked documents found.</p>
                 ) : (
@@ -1600,10 +1668,10 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
             )}
 
             {documentsLoading && linkedDocuments.length === 0 ? (
-              <p className="mt-2 text-xs text-stone-400 italic">Checking for an attached document…</p>
+              <p className="mt-2 text-xs text-stone-400 italic">Checking for attached documents…</p>
             ) : linkedDocuments.length === 0 ? (
               <p className="mt-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-3 text-xs text-stone-400">
-                No document attached yet. Generate one from the memo step when editing this ticket, link an existing one, or attach a file here.
+                No documents attached yet. Generate one from the memo step when editing this ticket, link an existing one, or attach a file here.
               </p>
             ) : (
               <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
@@ -1622,6 +1690,12 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                             {doc.status.replace('_', ' ')}
                           </span>
                           <span className="text-[11px] text-stone-400">{doc.ref}</span>
+                          {doc.rank && (
+                            <span className="text-[11px] text-stone-400">Rank: {doc.rank}</span>
+                          )}
+                          {doc.reporting_date && (
+                            <span className="text-[11px] text-stone-400">Reporting: {new Date(doc.reporting_date).toLocaleDateString()}</span>
+                          )}
                         </div>
                         {doc.status === 'rejected' && doc.rejection_reason && (
                           <p className="mt-1 text-[11px] text-red-600">Reason: {doc.rejection_reason}</p>
@@ -1629,8 +1703,8 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      
-                       <a href={doc.file_url}
+                      <a
+                        href={doc.file_url}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
@@ -1725,7 +1799,6 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
 const HelpdeskTickets: React.FC = () => {
   const dispatch = useAppDispatch();
 
-  // Redux state
   const tickets = useAppSelector(selectAllTickets);
   const selectedTicket = useAppSelector(selectSelectedTicket);
   const status = useAppSelector(selectTicketStatus);
@@ -1734,18 +1807,15 @@ const HelpdeskTickets: React.FC = () => {
   const filters = useAppSelector(selectTicketFilters);
   const actionsLoading = useAppSelector(selectTicketActions);
 
-  // Local UI state
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
 
-  // Fetch tickets when filters change
   useEffect(() => {
     dispatch(fetchTickets(filters));
   }, [dispatch, filters]);
 
-  // Fetch detailed ticket when selectedId changes
   useEffect(() => {
     if (selectedId) {
       dispatch(fetchTicketById(selectedId));
@@ -1754,7 +1824,6 @@ const HelpdeskTickets: React.FC = () => {
     }
   }, [dispatch, selectedId]);
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
   const handleFilterChange = (key: keyof TicketFilters, value: string | undefined) => {
     dispatch(setFilters({ [key]: value }));
   };
@@ -1786,10 +1855,6 @@ const HelpdeskTickets: React.FC = () => {
     setEditingTicket(null);
   };
 
-  // After a brand-new ticket is created, if a memo was generated during the
-  // wizard (before the ticket had a real id), its HelpdeskDocument was
-  // uploaded with entity_id left undefined. Link it to the freshly-created
-  // ticket now that we have a real id, so it doesn't stay orphaned.
   const handleCreateSubmit = (data: CreateTicketRequest, pendingDocumentId?: string) => {
     dispatch(createTicket(data))
       .unwrap()
@@ -1803,23 +1868,30 @@ const HelpdeskTickets: React.FC = () => {
             })
           )
             .unwrap()
-            .catch(() => {
-              toast.error('Ticket created, but the memo could not be linked. Attach it manually from the ticket.');
+            .catch((err) => {
+              const errorMessage = getErrorMessage(err);
+              toast.error(`Ticket created, but the memo could not be linked: ${errorMessage}`);
             });
         }
         handleCloseCreate();
       })
-      .catch(() => {
-        // createTicket's rejection already surfaces via ticketSlice's error
-        // state; nothing extra needed here.
+      .catch((err) => {
+        const errorMessage = getErrorMessage(err);
+        toast.error(`Failed to create ticket: ${errorMessage}`);
       });
   };
 
   const handleUpdateSubmit = (id: string, data: UpdateTicketRequest) => {
-    dispatch(updateTicket({ id, data })).then(() => {
-      handleCloseCreate();
-      if (selectedId === id) dispatch(fetchTicketById(id));
-    });
+    dispatch(updateTicket({ id, data }))
+      .unwrap()
+      .then(() => {
+        handleCloseCreate();
+        if (selectedId === id) dispatch(fetchTicketById(id));
+      })
+      .catch((err) => {
+        const errorMessage = getErrorMessage(err);
+        toast.error(`Failed to update ticket: ${errorMessage}`);
+      });
   };
 
   const handleViewTicket = (id: string) => {
@@ -1834,67 +1906,150 @@ const HelpdeskTickets: React.FC = () => {
   };
 
   const handleSubmitForApproval = (id: string) => {
-    dispatch(submitTicketForApproval(id)).then(() => {
-      if (selectedId === id) dispatch(fetchTicketById(id));
-    });
+    dispatch(submitTicketForApproval(id))
+      .unwrap()
+      .then(() => {
+        if (selectedId === id) dispatch(fetchTicketById(id));
+        toast.success('Ticket submitted for approval.');
+      })
+      .catch((err) => {
+        const errorMessage = getErrorMessage(err);
+        toast.error(`Failed to submit ticket: ${errorMessage}`);
+      });
   };
 
   const handleApprove = (id: string, comments?: string) => {
-    dispatch(approveTicket({ id, comments })).then(() => {
-      if (selectedId === id) dispatch(fetchTicketById(id));
-    });
+    dispatch(approveTicket({ id, comments }))
+      .unwrap()
+      .then(() => {
+        if (selectedId === id) dispatch(fetchTicketById(id));
+        toast.success('Ticket approved successfully.');
+      })
+      .catch((err) => {
+        const errorMessage = getErrorMessage(err);
+        toast.error(`Failed to approve ticket: ${errorMessage}`);
+      });
   };
 
   const handleReject = (id: string, reason: string) => {
-    dispatch(rejectTicket({ id, reason })).then(() => {
-      if (selectedId === id) dispatch(fetchTicketById(id));
-    });
+    if (!reason) {
+      toast.error('Rejection reason is required.');
+      return;
+    }
+    dispatch(rejectTicket({ id, reason }))
+      .unwrap()
+      .then(() => {
+        if (selectedId === id) dispatch(fetchTicketById(id));
+        toast.success('Ticket rejected.');
+      })
+      .catch((err) => {
+        const errorMessage = getErrorMessage(err);
+        toast.error(`Failed to reject ticket: ${errorMessage}`);
+      });
   };
 
   const handleReturn = (id: string, reason: string, instructions?: string) => {
-    dispatch(returnTicket({ id, reason, instructions })).then(() => {
-      if (selectedId === id) dispatch(fetchTicketById(id));
-    });
+    if (!reason) {
+      toast.error('Return reason is required.');
+      return;
+    }
+    dispatch(returnTicket({ id, reason, instructions }))
+      .unwrap()
+      .then(() => {
+        if (selectedId === id) dispatch(fetchTicketById(id));
+        toast.success('Ticket returned for revision.');
+      })
+      .catch((err) => {
+        const errorMessage = getErrorMessage(err);
+        toast.error(`Failed to return ticket: ${errorMessage}`);
+      });
   };
 
   const handleBook = (id: string, booking_reference: string, comments?: string) => {
-    dispatch(bookTicket({ id, booking_reference, comments })).then(() => {
-      if (selectedId === id) dispatch(fetchTicketById(id));
-    });
+    if (!booking_reference) {
+      toast.error('Booking reference is required.');
+      return;
+    }
+    dispatch(bookTicket({ id, booking_reference, comments }))
+      .unwrap()
+      .then(() => {
+        if (selectedId === id) dispatch(fetchTicketById(id));
+        toast.success('Ticket booked successfully.');
+      })
+      .catch((err) => {
+        const errorMessage = getErrorMessage(err);
+        toast.error(`Failed to book ticket: ${errorMessage}`);
+      });
   };
 
   const handleCancel = (id: string) => {
     if (window.confirm('Are you sure you want to cancel this ticket?')) {
-      dispatch(cancelTicket(id)).then(() => {
-        if (selectedId === id) dispatch(fetchTicketById(id));
-      });
+      dispatch(cancelTicket(id))
+        .unwrap()
+        .then(() => {
+          if (selectedId === id) dispatch(fetchTicketById(id));
+          toast.success('Ticket cancelled.');
+        })
+        .catch((err) => {
+          const errorMessage = getErrorMessage(err);
+          toast.error(`Failed to cancel ticket: ${errorMessage}`);
+        });
     }
   };
 
   const handleComplete = (id: string) => {
-    dispatch(completeTicket(id)).then(() => {
-      if (selectedId === id) dispatch(fetchTicketById(id));
-    });
+    dispatch(completeTicket(id))
+      .unwrap()
+      .then(() => {
+        if (selectedId === id) dispatch(fetchTicketById(id));
+        toast.success('Ticket completed.');
+      })
+      .catch((err) => {
+        const errorMessage = getErrorMessage(err);
+        toast.error(`Failed to complete ticket: ${errorMessage}`);
+      });
   };
 
   const handleDelete = (id: string) => {
     if (window.confirm('Are you sure you want to delete this ticket?')) {
-      dispatch(deleteTicket(id));
-      if (selectedId === id) handleCloseDetail();
+      dispatch(deleteTicket(id))
+        .unwrap()
+        .then(() => {
+          if (selectedId === id) handleCloseDetail();
+          toast.success('Ticket deleted.');
+        })
+        .catch((err) => {
+          const errorMessage = getErrorMessage(err);
+          toast.error(`Failed to delete ticket: ${errorMessage}`);
+        });
     }
   };
 
   const handleAddComment = (id: string, comment: string, isInternal: boolean) => {
-    dispatch(addTicketComment({ id, comment, isInternal }));
+    dispatch(addTicketComment({ id, comment, isInternal }))
+      .unwrap()
+      .then(() => {
+        toast.success('Comment added.');
+      })
+      .catch((err) => {
+        const errorMessage = getErrorMessage(err);
+        toast.error(`Failed to add comment: ${errorMessage}`);
+      });
   };
 
   const handleDeleteComment = (id: string, commentId: string) => {
     if (window.confirm('Delete this comment?')) {
-      dispatch(deleteTicketComment({ id, commentId }));
+      dispatch(deleteTicketComment({ id, commentId }))
+        .unwrap()
+        .then(() => {
+          toast.success('Comment deleted.');
+        })
+        .catch((err) => {
+          const errorMessage = getErrorMessage(err);
+          toast.error(`Failed to delete comment: ${errorMessage}`);
+        });
     }
   };
-
-  // ── Render ────────────────────────────────────────────────────────────────
 
   if (status === 'loading' && tickets.length === 0) {
     return (
@@ -1941,7 +2096,7 @@ const HelpdeskTickets: React.FC = () => {
       />
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {/* ── Page Header ──────────────────────────────────────────────── */}
+        {/* Page Header */}
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-xl font-semibold text-[#1a3d1c]">Helpdesk Tickets</h1>
@@ -1954,7 +2109,7 @@ const HelpdeskTickets: React.FC = () => {
           </PrimaryButton>
         </div>
 
-        {/* ── Filter Bar ───────────────────────────────────────────────── */}
+        {/* Filter Bar */}
         <div className="mb-4 rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6">
             <input
@@ -2014,7 +2169,7 @@ const HelpdeskTickets: React.FC = () => {
           </div>
         </div>
 
-        {/* ── Ticket Table ─────────────────────────────────────────────── */}
+        {/* Ticket Table */}
         <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[900px] text-sm">
@@ -2090,7 +2245,7 @@ const HelpdeskTickets: React.FC = () => {
             </table>
           </div>
 
-          {/* ── Pagination ─────────────────────────────────────────────── */}
+          {/* Pagination */}
           <div className="flex flex-col gap-3 border-t border-stone-100 bg-stone-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-xs text-stone-500">
               Showing {(pagination.page - 1) * pagination.limit + 1} to{' '}
@@ -2128,7 +2283,7 @@ const HelpdeskTickets: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Create / Edit Modal ────────────────────────────────────────────── */}
+      {/* Create / Edit Modal */}
       {showCreateModal && (
         <TicketFormModal
           key={editingTicket?.id ?? 'new'}
@@ -2145,7 +2300,7 @@ const HelpdeskTickets: React.FC = () => {
         />
       )}
 
-      {/* ── Detail Modal ───────────────────────────────────────────────────── */}
+      {/* Detail Modal */}
       {showDetailModal && selectedTicket && (
         <TicketDetailModal
           ticket={selectedTicket}

@@ -323,6 +323,7 @@ interface HelpdeskDocumentsState {
         bulkLink: boolean;
         bulkUpdate: boolean;
         stats: boolean;
+        hardDelete: boolean; // Added for hard delete
     };
     error: string | null;
     deletingId: string | null;
@@ -350,6 +351,7 @@ const initialState: HelpdeskDocumentsState = {
         bulkLink: false,
         bulkUpdate: false,
         stats: false,
+        hardDelete: false,
     },
     error: null,
     deletingId: null,
@@ -441,6 +443,10 @@ export const fetchHelpdeskDocumentById = createAsyncThunk<
     }
 );
 
+// src/store/slices/helpdeskDocumentsSlice.ts
+
+// ─── UPLOAD HELP DESK DOCUMENT ─────────────────────────────────────────────
+
 export const uploadHelpdeskDocument = createAsyncThunk<
     HelpdeskDocument,
     UploadHelpdeskDocumentPayload,
@@ -449,32 +455,83 @@ export const uploadHelpdeskDocument = createAsyncThunk<
     'helpdeskDocuments/upload',
     async (payload, { rejectWithValue }) => {
         try {
-            const form = new FormData();
-            form.append('file', payload.blob, payload.filename);
-            form.append('ref', payload.ref);
-            form.append('subject', payload.subject);
-            form.append('entity_type', payload.entity_type);
-            form.append('format', payload.format);
-            if (payload.entity_id) form.append('entity_id', payload.entity_id);
-            if (payload.status) form.append('status', payload.status);
+            const formData = new FormData();
+            
+            // ✅ CRITICAL: The field name MUST match multer's expected field name
+            formData.append('file', payload.blob, payload.filename);
+            
+            // ✅ All fields must be appended as form-data
+            formData.append('ref', payload.ref);
+            formData.append('subject', payload.subject);
+            formData.append('entity_type', payload.entity_type);
+            formData.append('format', payload.format);
+            
+            // Optional fields
+            if (payload.entity_id) formData.append('entity_id', payload.entity_id);
+            if (payload.status) formData.append('status', payload.status);
+            if (payload.request_type) formData.append('request_type', payload.request_type);
+            if (payload.judge_name) formData.append('judge_name', payload.judge_name);
+            if (payload.rank) formData.append('rank', payload.rank);
+            if (payload.reporting_date) formData.append('reporting_date', payload.reporting_date);
 
-            // Unified General Request fields
-            if (payload.request_type) form.append('request_type', payload.request_type);
-            if (payload.judge_name) form.append('judge_name', payload.judge_name);
-            if (payload.remark_type) form.append('remark_type', payload.remark_type);
-            if (payload.category_type) form.append('category_type', payload.category_type);
-
-            // ─── NEW FIELDS ──────────────────────────────────────────────────
-            if (payload.rank) form.append('rank', payload.rank);
-            if (payload.reporting_date) form.append('reporting_date', payload.reporting_date);
-
-            const { data } = await axiosClient.post('/helpdesk/documents/upload', form, {
-                headers: { 'Content-Type': 'multipart/form-data' },
+            // ✅ Log what we're sending for debugging
+            console.log('📤 Uploading document with form data:', {
+                ref: payload.ref,
+                subject: payload.subject,
+                entity_type: payload.entity_type,
+                format: payload.format,
+                filename: payload.filename,
+                size: payload.blob.size,
+                hasEntityId: !!payload.entity_id,
+                hasStatus: !!payload.status,
+                hasRequestType: !!payload.request_type,
+                hasJudgeName: !!payload.judge_name,
+                hasRank: !!payload.rank,
+                hasReportingDate: !!payload.reporting_date,
             });
 
+            const { data } = await axiosClient.post('/helpdesk/documents/upload', formData, {
+                headers: { 
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
+
+            console.log('✅ Upload successful:', data);
             return data.data as HelpdeskDocument;
         } catch (err) {
-            return rejectWithValue(getErrorMessage(err, 'Upload failed'));
+            const error = err as AxiosError<{ message?: string; errors?: unknown }>;
+            
+            // ✅ Detailed error logging
+            console.error('❌ Upload failed:', {
+                status: error.response?.status,
+                statusText: error.response?.statusText,
+                data: error.response?.data,
+                config: {
+                    url: error.config?.url,
+                    method: error.config?.method,
+                    headers: error.config?.headers,
+                },
+            });
+            
+            // Try to extract a meaningful error message
+            let message = 'Upload failed';
+            if (error.response?.data) {
+                if (typeof error.response.data === 'string') {
+                    message = error.response.data;
+                } else if (error.response.data.message) {
+                    message = error.response.data.message;
+                } else if (error.response.data.errors) {
+                    // Zod validation errors
+                    const errors = error.response.data.errors;
+                    if (Array.isArray(errors)) {
+                        message = errors.map((e: { message: string }) => e.message).join(', ');
+                    } else if (typeof errors === 'object') {
+                        message = Object.values(errors).flat().join(', ');
+                    }
+                }
+            }
+            
+            return rejectWithValue(message);
         }
     }
 );
@@ -655,24 +712,26 @@ export const addComment = createAsyncThunk<
 );
 
 export const deleteComment = createAsyncThunk<
-    string,
+    { documentId: string; commentId: string },
     DeleteCommentPayload,
     { rejectValue: string }
 >(
     'helpdeskDocuments/deleteComment',
     async ({ id, commentId }, { rejectWithValue }) => {
         try {
-            await axiosClient.delete(`/helpdesk/documents/${id}/comments/${commentId}`);
-            return commentId;
+            await axiosClient.delete(`/helpdesk/documents/comments/${commentId}`);
+            return { documentId: id, commentId };
         } catch (err) {
             return rejectWithValue(getErrorMessage(err, 'Failed to delete comment'));
         }
     }
 );
 
+// ─── Delete Document Thunks ──────────────────────────────────────────────────
+
 export const deleteHelpdeskDocument = createAsyncThunk<
-    string,
-    string,
+    string, // Returns the deleted document ID
+    string, // Input: document ID
     { rejectValue: string }
 >(
     'helpdeskDocuments/delete',
@@ -681,7 +740,30 @@ export const deleteHelpdeskDocument = createAsyncThunk<
             await axiosClient.delete(`/helpdesk/documents/${id}`);
             return id;
         } catch (err) {
-            return rejectWithValue(getErrorMessage(err, 'Delete failed'));
+            const error = err as AxiosError<{ message?: string }>;
+            return rejectWithValue(
+                error.response?.data?.message || 'Failed to delete document'
+            );
+        }
+    }
+);
+
+// Hard delete - permanent removal (admin only)
+export const hardDeleteHelpdeskDocument = createAsyncThunk<
+    string,
+    string,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/hardDelete',
+    async (id, { rejectWithValue }) => {
+        try {
+            await axiosClient.delete(`/helpdesk/documents/${id}/permanent`);
+            return id;
+        } catch (err) {
+            const error = err as AxiosError<{ message?: string }>;
+            return rejectWithValue(
+                error.response?.data?.message || 'Failed to permanently delete document'
+            );
         }
     }
 );
@@ -761,6 +843,20 @@ const helpdeskDocumentsSlice = createSlice({
         clearStats(state) {
             state.stats = null;
             state.summary = null;
+        },
+        // Optimistic update for delete
+        optimisticDelete(state, action: PayloadAction<string>) {
+            state.items = state.items.filter(d => d.id !== action.payload);
+            if (state.selectedDocument?.id === action.payload) {
+                state.selectedDocument = null;
+            }
+        },
+        // Restore document if delete fails
+        restoreDocument(state, action: PayloadAction<HelpdeskDocument>) {
+            const exists = state.items.some(d => d.id === action.payload.id);
+            if (!exists) {
+                state.items.push(action.payload);
+            }
         },
     },
     extraReducers: (builder) => {
@@ -915,7 +1011,7 @@ const helpdeskDocumentsSlice = createSlice({
             })
             .addCase(bulkLinkDocuments.fulfilled, (state, action) => {
                 state.loading.bulkLink = false;
-                // Refresh items after bulk operation
+                // Remove successfully linked documents from the list
                 state.items = state.items.filter(d => !action.payload.success.includes(d.id));
             })
             .addCase(bulkLinkDocuments.rejected, (state, action) => {
@@ -1048,8 +1144,8 @@ const helpdeskDocumentsSlice = createSlice({
                 state.loading.comment = false;
                 if (state.selectedDocument) {
                     state.selectedDocument.comments = [
-                        action.payload,
                         ...(state.selectedDocument.comments || []),
+                        action.payload,
                     ];
                 }
             })
@@ -1060,12 +1156,28 @@ const helpdeskDocumentsSlice = createSlice({
 
         // ── deleteComment ────────────────────────────────────────────────────
         builder
-            .addCase(deleteComment.fulfilled, (state, action: PayloadAction<string>) => {
+            .addCase(deleteComment.pending, (state) => {
+                state.loading.comment = true;
+                state.error = null;
+            })
+            .addCase(deleteComment.fulfilled, (state, action: PayloadAction<{ documentId: string; commentId: string }>) => {
+                state.loading.comment = false;
                 if (state.selectedDocument) {
                     state.selectedDocument.comments = state.selectedDocument.comments.filter(
-                        c => c.id !== action.payload
+                        c => c.id !== action.payload.commentId
                     );
                 }
+                // Also update in items list if needed
+                const itemIndex = state.items.findIndex(d => d.id === action.payload.documentId);
+                if (itemIndex !== -1) {
+                    state.items[itemIndex].comments = state.items[itemIndex].comments.filter(
+                        c => c.id !== action.payload.commentId
+                    );
+                }
+            })
+            .addCase(deleteComment.rejected, (state, action) => {
+                state.loading.comment = false;
+                state.error = action.payload as string;
             });
 
         // ── deleteHelpdeskDocument ──────────────────────────────────────────
@@ -1088,6 +1200,27 @@ const helpdeskDocumentsSlice = createSlice({
                 state.deletingId = null;
                 state.error = action.payload as string;
             });
+
+        // ── hardDeleteHelpdeskDocument ──────────────────────────────────────
+        builder
+            .addCase(hardDeleteHelpdeskDocument.pending, (state, action) => {
+                state.loading.hardDelete = true;
+                state.deletingId = action.meta.arg;
+                state.error = null;
+            })
+            .addCase(hardDeleteHelpdeskDocument.fulfilled, (state, action: PayloadAction<string>) => {
+                state.loading.hardDelete = false;
+                state.deletingId = null;
+                state.items = state.items.filter((d) => d.id !== action.payload);
+                if (state.selectedDocument?.id === action.payload) {
+                    state.selectedDocument = null;
+                }
+            })
+            .addCase(hardDeleteHelpdeskDocument.rejected, (state, action) => {
+                state.loading.hardDelete = false;
+                state.deletingId = null;
+                state.error = action.payload as string;
+            });
     },
 });
 
@@ -1098,6 +1231,8 @@ export const {
     clearSelectedDocument,
     clearActionLoading,
     clearStats,
+    optimisticDelete,
+    restoreDocument,
 } = helpdeskDocumentsSlice.actions;
 
 // ─── Selectors ───────────────────────────────────────────────────────────────
@@ -1107,6 +1242,7 @@ export const selectSelectedHelpdeskDocument = (state: RootState) => state.helpde
 export const selectDocumentsFetchLoading = (state: RootState) => state.helpdeskDocuments.loading.fetch;
 export const selectDocumentsUploading = (state: RootState) => state.helpdeskDocuments.loading.upload;
 export const selectDocumentDeleting = (state: RootState) => state.helpdeskDocuments.loading.delete;
+export const selectDocumentHardDeleting = (state: RootState) => state.helpdeskDocuments.loading.hardDelete;
 export const selectDeletingDocumentId = (state: RootState) => state.helpdeskDocuments.deletingId;
 export const selectDocumentError = (state: RootState) => state.helpdeskDocuments.error;
 export const selectDocumentActionLoading = (state: RootState) => state.helpdeskDocuments.actionLoading;

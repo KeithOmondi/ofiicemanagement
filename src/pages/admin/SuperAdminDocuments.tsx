@@ -1,5 +1,4 @@
 // src/pages/documents/SuperAdminDocuments.tsx
-
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useAppDispatch, useAppSelector } from "../../store/hook";
 import {
@@ -37,7 +36,6 @@ import type {
   RefType,
 } from "../../types/documents.types";
 import { format } from "date-fns";
-//import toast from "react-hot-toast";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,11 +52,13 @@ const STATUS_STYLES: Record<DocumentStatus, string> = {
   draft: "bg-stone-100 text-stone-500 border border-stone-200",
   uploaded: "bg-blue-50 text-blue-700 border border-blue-100",
   pending_review: "bg-amber-50 text-amber-700 border border-amber-100",
+  dept_assigned: "bg-violet-50 text-violet-700 border border-violet-100",
+  user_assigned: "bg-indigo-50 text-indigo-700 border border-indigo-100",
   marked: "bg-violet-50 text-violet-700 border border-violet-100",
   in_progress: "bg-indigo-50 text-indigo-700 border border-indigo-100",
   completed: "bg-emerald-50 text-emerald-700 border border-emerald-100",
   filed: "bg-stone-100 text-stone-500 border border-stone-200",
-  ready_to_release: "bg-amber-50 text-amber-700 border border-amber-200",  // ✅ Added
+  ready_to_release: "bg-amber-50 text-amber-700 border border-amber-200",
   released: "bg-emerald-50 text-emerald-700 border border-emerald-200",
 };
 
@@ -66,11 +66,13 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
   draft: "DRAFT",
   uploaded: "UPLOADED",
   pending_review: "PENDING",
+  dept_assigned: "DEPT ASSIGNED",
+  user_assigned: "USER ASSIGNED",
   marked: "MARKED",
   in_progress: "IN PROGRESS",
   completed: "COMPLETED",
   filed: "FILED",
-  ready_to_release: "READY TO RELEASE",  // ✅ Added
+  ready_to_release: "READY TO RELEASE",
   released: "RELEASED",
 };
 
@@ -124,7 +126,7 @@ const formatFileSize = (bytes: number | null): string => {
   return kb < 1024 ? `${Math.round(kb)}KB` : `${(kb / 1024).toFixed(1)}MB`;
 };
 
-// ─── Sticky Note (updated with calendar icon for quick date change) ────────
+// ─── Sticky Note ─────────────────────────────────────────────────────────────
 
 interface StickyNoteProps {
   authorName: string;
@@ -141,12 +143,11 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   canEdit,
   onSave,
 }) => {
-  // ── Normalize date to YYYY-MM-DD ──────────────────────────────────────────
   const normalizeDate = (dateStr: string | null | undefined): string | null => {
     if (!dateStr) return null;
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return null;
-    return d.toISOString().split("T")[0]; // YYYY-MM-DD
+    return d.toISOString().split("T")[0];
   };
 
   const [text, setText] = useState(initialText);
@@ -200,14 +201,12 @@ const StickyNote: React.FC<StickyNoteProps> = ({
     setEditing(false);
   };
 
-  // Quick date change – save the new date without exiting edit mode
   const handleQuickDateChange = (newDate: string | null) => {
     setDate(newDate);
     setShowDatePicker(false);
     onSave?.(text, newDate);
   };
 
-  // ── Safe date formatting and comparisons ──────────────────────────────────
   const parseDate = (dateStr: string | null | undefined): Date | null => {
     if (!dateStr) return null;
     const d = new Date(dateStr);
@@ -242,10 +241,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({
     return d.getTime() === today.getTime();
   };
 
-  // Show only if date is valid
   const showDateChip = date && parseDate(date) !== null;
-
-  // ── Render ──────────────────────────────────────────────────────────────────
 
   if (minimized) {
     return (
@@ -434,7 +430,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({
                 )}
               </p>
 
-              {/* ─── Date chip (only if valid) ─── */}
               {showDateChip && (
                 <div
                   className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium border ${
@@ -450,7 +445,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({
                 </div>
               )}
 
-              {/* ─── Quick date picker ─── */}
               {showDatePicker && canEdit && (
                 <div
                   className="mt-2 p-2 bg-white rounded border border-[#E8A840] shadow-sm"
@@ -497,7 +491,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({
     </div>
   );
 };
-
 
 // ─── Empty State ──────────────────────────────────────────────────────────────
 
@@ -550,96 +543,99 @@ const ListItem: React.FC<{
   selected: boolean;
   onSelect: () => void;
   hasResponse?: boolean;
-}> = ({ document, selected, onSelect, hasResponse = false }) => (
-  <div
-    onClick={onSelect}
-    className={`flex items-start gap-2.5 px-3 py-2.5 cursor-pointer transition-colors ${
-      selected
-        ? "bg-[#1E4620]/5 border-l-2 border-[#1E4620]"
-        : hasResponse
-          ? "hover:bg-blue-50/50 border-l-2 border-blue-300/50 bg-blue-50/20"
-          : "hover:bg-stone-50 border-l-2 border-transparent"
-    }`}
-  >
-    <div className="mt-0.5 flex-shrink-0">
-      <DocIcon type={document.type} className="h-4 w-4" />
-    </div>
+}> = ({ document, selected, onSelect, hasResponse = false }) => {
+  const mark = document.active_mark;
+  const showMarkInfo = mark && (document.status === "marked" || document.status === "dept_assigned" || document.status === "user_assigned");
 
-    <div className="flex-1 min-w-0">
-      <div className="flex items-start justify-between gap-1.5">
-        <p
-          className={`text-xs font-semibold leading-snug truncate ${selected ? "text-[#1E4620]" : "text-stone-800"}`}
-        >
-          {document.title}
-        </p>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {hasResponse && (
-            <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[8px] font-medium text-blue-700 border border-blue-200">
-              <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
-                <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
-              </svg>
-              {document.response_count || 1}
-            </span>
-          )}
-          <StatusBadge status={document.status} />
-        </div>
+  return (
+    <div
+      onClick={onSelect}
+      className={`flex items-start gap-2.5 px-3 py-2.5 cursor-pointer transition-colors ${
+        selected
+          ? "bg-[#1E4620]/5 border-l-2 border-[#1E4620]"
+          : hasResponse
+            ? "hover:bg-blue-50/50 border-l-2 border-blue-300/50 bg-blue-50/20"
+            : "hover:bg-stone-50 border-l-2 border-transparent"
+      }`}
+    >
+      <div className="mt-0.5 flex-shrink-0">
+        <DocIcon type={document.type} className="h-4 w-4" />
       </div>
 
-      <div className="mt-0.5 flex items-center gap-1 text-[10px] text-stone-400 flex-wrap">
-        <span>
-          {document.created_at
-            ? format(new Date(document.created_at), "yyyy-MM-dd")
-            : "—"}
-        </span>
-        {document.file_size_bytes && (
-          <>
-            <span>·</span>
-            <span>{formatFileSize(document.file_size_bytes)}</span>
-          </>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-1.5">
+          <p
+            className={`text-xs font-semibold leading-snug truncate ${selected ? "text-[#1E4620]" : "text-stone-800"}`}
+          >
+            {document.title}
+          </p>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {hasResponse && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[8px] font-medium text-blue-700 border border-blue-200">
+                <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
+                  <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
+                </svg>
+                {document.response_count || 1}
+              </span>
+            )}
+            <StatusBadge status={document.status} />
+          </div>
+        </div>
+
+        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-stone-400 flex-wrap">
+          <span>
+            {document.created_at
+              ? format(new Date(document.created_at), "yyyy-MM-dd")
+              : "—"}
+          </span>
+          {document.file_size_bytes && (
+            <>
+              <span>·</span>
+              <span>{formatFileSize(document.file_size_bytes)}</span>
+            </>
+          )}
+          <span>·</span>
+          <span className="truncate">
+            {document.reference_no || document.created_by_name || "RHC"}
+          </span>
+        </div>
+
+        {document.is_signed && (
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-emerald-600">
+            <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                clipRule="evenodd"
+              />
+            </svg>
+            Signed
+            {document.is_sent && (
+              <span className="ml-1">· Sent</span>
+            )}
+          </div>
         )}
-        <span>·</span>
-        <span className="truncate">
-          {document.reference_no || document.created_by_name || "RHC"}
-        </span>
+
+        {showMarkInfo && (
+          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-violet-600">
+            <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
+                clipRule="evenodd"
+              />
+            </svg>
+            {document.status === "dept_assigned" ? "Assigned to" : "Marked to"}: {mark.marked_to_dept_name}
+            {mark.assigned_to_name && (
+              <span className="ml-1">→ {mark.assigned_to_name}</span>
+            )}
+          </div>
+        )}
       </div>
-
-      {document.is_signed && (
-        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-emerald-600">
-          <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
-            <path
-              fillRule="evenodd"
-              d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-              clipRule="evenodd"
-            />
-          </svg>
-          Signed
-          {document.is_sent && (
-            <span className="ml-1 text-blue-500">· Sent</span>
-          )}
-        </div>
-      )}
-
-      {document.active_mark && document.status === "marked" && (
-        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-violet-600">
-          <svg className="h-2.5 w-2.5" fill="currentColor" viewBox="0 0 20 20">
-            <path
-              fillRule="evenodd"
-              d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-              clipRule="evenodd"
-            />
-          </svg>
-          Marked to: {document.active_mark.marked_to_dept_name}
-          {document.active_mark.assigned_to_name && (
-            <span className="ml-1">
-              → {document.active_mark.assigned_to_name}
-            </span>
-          )}
-        </div>
-      )}
     </div>
-  </div>
-);
+  );
+};
 
 // ─── Annotation Card ──────────────────────────────────────────────────────────
 
@@ -651,6 +647,7 @@ const AnnotationCard: React.FC<{
   urgent: boolean;
   visibleInSummary: boolean;
   timestamp: string;
+  status: DocumentStatus;  // added status prop
 }> = ({
   title,
   department,
@@ -659,6 +656,7 @@ const AnnotationCard: React.FC<{
   urgent,
   visibleInSummary,
   timestamp,
+  status,
 }) => (
   <div className="rounded-lg border border-stone-200 bg-stone-50 p-2.5 text-[10px]">
     <div className="flex items-start justify-between gap-2 mb-1">
@@ -668,7 +666,7 @@ const AnnotationCard: React.FC<{
       )}
     </div>
     <p className="text-stone-500 mb-1">
-      Marked to: <span className="text-stone-700">{department}</span>
+      {status === "dept_assigned" ? "Assigned to" : "Marked to"}: <span className="text-stone-700">{department}</span>
     </p>
     {assignee !== "—" && (
       <p className="text-stone-500 mb-1">
@@ -722,6 +720,7 @@ const AnnotationsPanel: React.FC<{ document: Document }> = ({
                   )
                 : ""
             }
+            status={doc.status} // pass status
           />
         </div>
       ) : (
@@ -993,7 +992,7 @@ interface DocumentEditorProps {
   onSign?: () => void;
   isSigning?: boolean;
   onSend?: () => void;
-  onMark?: () => void;
+  onMark?: () => void;      // This is actually "Assign" for SuperAdmin
   onAcknowledge?: () => void;
   onComplete?: () => void;
   onUpdateMark?: (markId: string, text: string, date: string | null) => void;
@@ -1237,8 +1236,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
-          {/* Mark button – hidden if document already has a mark */}
-          {onMark && !document.active_mark && (
+          {/* ─── "Assign" button for SuperAdmin ───────────────────────────── */}
+          {onMark && (
             <button
               onClick={onMark}
               className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 transition-colors whitespace-nowrap"
@@ -1256,7 +1255,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
                 />
               </svg>
-              Mark
+              Assign
             </button>
           )}
 
@@ -1626,7 +1625,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   );
 };
 
-// ─── Mark Modal ───────────────────────────────────────────────────────────────
+// ─── Mark Modal (renamed to "Assign Modal" for SuperAdmin) ──────────────────
 
 interface MarkModalProps {
   document: Document;
@@ -1694,7 +1693,7 @@ const MarkModal: React.FC<MarkModalProps> = ({
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-4 sm:p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm sm:text-base font-bold text-stone-900 flex items-center gap-2">
-            <span className="text-red-500">📌</span> Mark Document to Department
+            <span className="text-red-500">📌</span> Assign Document to Department
           </h2>
           <button
             onClick={onClose}
@@ -1809,7 +1808,7 @@ const MarkModal: React.FC<MarkModalProps> = ({
               type="submit"
               className="rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a18] flex items-center justify-center gap-1.5 order-1 sm:order-2"
             >
-              <span className="text-red-400">📌</span> Mark Document
+              <span className="text-red-400">📌</span> Assign Document
             </button>
           </div>
         </form>
@@ -2371,7 +2370,7 @@ const SuperAdminDocuments: React.FC = () => {
             Document Management
           </h1>
           <p className="text-[11px] sm:text-xs text-stone-400 mt-0.5 hidden sm:block">
-            Upload, annotate and mark documents
+            Upload, annotate and assign documents to departments
           </p>
         </div>
 
@@ -2397,12 +2396,12 @@ const SuperAdminDocuments: React.FC = () => {
               <span className="hidden sm:inline">Upload</span>
             </button>
 
-            {/* ─── Mark button (disabled if selected doc already marked) ─── */}
+            {/* Assign button – enabled for any selected document */}
             <button
               onClick={() => selectedDocument && setShowMarkModal(true)}
-              disabled={!selectedDocument || !!selectedDocument.active_mark}
+              disabled={!selectedDocument}
               className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 sm:px-3 py-1.5 text-xs font-semibold transition-colors ${
-                !selectedDocument || !!selectedDocument.active_mark
+                !selectedDocument
                   ? "border-stone-200 bg-stone-50 text-stone-400 cursor-not-allowed"
                   : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
               }`}
@@ -2420,7 +2419,7 @@ const SuperAdminDocuments: React.FC = () => {
                   d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
                 />
               </svg>
-              <span className="hidden sm:inline">Mark</span>
+              <span className="hidden sm:inline">Assign</span>
             </button>
           </div>
         )}
@@ -2679,8 +2678,9 @@ const SuperAdminDocuments: React.FC = () => {
                   ? () => handleSend(selectedDocument.id)
                   : undefined
               }
+              // Always show Assign button for SuperAdmin
               onMark={
-                canAdmin && selectedDocument.status !== "filed" && !selectedDocument.active_mark
+                canAdmin && selectedDocument.status !== "filed"
                   ? () => setShowMarkModal(true)
                   : undefined
               }

@@ -6,11 +6,24 @@ export type DocumentType =
   | 'memo' | 'letter' | 'judgment' | 'ruling'
   | 'order' | 'correspondence' | 'upload' | 'ticket';
 
+/**
+ * Document status lifecycle:
+ * - `draft` → `uploaded`/`pending_review` → `dept_assigned` (Super Admin assigns to department)
+ * - `dept_assigned` → `user_assigned` (Department Head assigns to a specific user)
+ * - `user_assigned` → `in_progress` (User acknowledges and starts working)
+ * - `in_progress` → `completed` (User finishes)
+ * - `completed` → `ready_to_release` or `filed`
+ * - `ready_to_release` → `released`
+ *
+ * The legacy `marked` status is kept for backward compatibility and maps to `dept_assigned`.
+ */
 export type DocumentStatus =
   | 'draft'
   | 'uploaded'
   | 'pending_review'
-  | 'marked'
+  | 'dept_assigned'   // Super Admin → department
+  | 'user_assigned'   // Department Head → specific user
+  | 'marked'          // Legacy – same as dept_assigned, kept for compatibility
   | 'in_progress'
   | 'completed'
   | 'filed'
@@ -44,38 +57,38 @@ export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 export interface DocumentRequestDetails {
   // Type of request
   request_type: RequestType | null;
-  
+
   // Driver specific fields
   driver_name?: string | null;
   driver_license?: string | null;
   driver_vehicle?: string | null;
   driver_contact?: string | null;
-  
+
   // Bodyguard specific fields
   bodyguard_name?: string | null;
   bodyguard_badge?: string | null;
   bodyguard_unit?: string | null;
   bodyguard_contact?: string | null;
-  
+
   // Firearm specific fields
   firearm_type?: string | null;
   firearm_serial?: string | null;
   firearm_caliber?: string | null;
   firearm_owner?: string | null;
   firearm_license?: string | null;
-  
+
   // Current station specific fields
   current_station_name?: string | null;
   current_station_location?: string | null;
   current_station_contact?: string | null;
   current_station_head?: string | null;
-  
+
   // Force number specific fields
   force_number_value?: string | null;
   force_number_rank?: string | null;
   force_number_unit?: string | null;
   force_number_issue_date?: string | null;
-  
+
   // Residence Security / Sentry specific fields
   residence_address?: string | null;
   residence_city?: string | null;
@@ -85,7 +98,7 @@ export interface DocumentRequestDetails {
   security_equipment?: string | null;
   sentry_post_location?: string | null;
   sentry_instructions?: string | null;
-  
+
   // Common request fields
   request_date?: string | null;
   request_reason?: string | null;

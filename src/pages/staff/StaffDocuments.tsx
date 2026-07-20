@@ -32,7 +32,7 @@ import { toast } from 'react-hot-toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type StatusFilter = 'all' | 'marked' | 'in_progress' | 'completed';
+type StatusFilter = 'all' | 'marked' | 'in_progress' | 'completed' | 'dept_assigned' | 'user_assigned';
 
 interface PreviewTarget {
   url: string;
@@ -44,6 +44,8 @@ interface PreviewTarget {
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const styles: Record<string, { bg: string; text: string; label: string; icon: React.ReactNode }> = {
     marked:         { bg: 'bg-violet-50',  text: 'text-violet-700',  label: 'Marked',        icon: <Clock       size={12} className="text-violet-500"  /> },
+    dept_assigned:  { bg: 'bg-violet-50',  text: 'text-violet-700',  label: 'Dept Assigned', icon: <Clock       size={12} className="text-violet-500"  /> },
+    user_assigned:  { bg: 'bg-indigo-50',  text: 'text-indigo-700',  label: 'Assigned',      icon: <Clock       size={12} className="text-indigo-500"  /> },
     in_progress:    { bg: 'bg-blue-50',    text: 'text-blue-700',    label: 'In Progress',   icon: <Clock       size={12} className="text-blue-500"    /> },
     completed:      { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Completed',     icon: <CheckCircle size={12} className="text-emerald-500" /> },
     draft:          { bg: 'bg-stone-50',   text: 'text-stone-600',   label: 'Draft',         icon: <FileText    size={12} className="text-stone-400"   /> },
@@ -79,9 +81,6 @@ const PriorityBadge: React.FC<{ priority: string }> = ({ priority }) => {
 };
 
 // ─── Inline File Preview Modal ────────────────────────────────────────────────
-// Renders Cloudinary files directly — no stream proxy, same approach as
-// SuperAdminDocuments > FilePreview. PDFs use a plain iframe, images use <img>,
-// Office files use Google Docs viewer.
 
 interface InlineFilePreviewModalProps {
   url: string;
@@ -125,7 +124,6 @@ const InlineFilePreviewModal: React.FC<InlineFilePreviewModalProps> = ({ url, fi
       );
     }
 
-    // Unsupported type — offer open / download links
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 p-8">
         <FileText size={48} className="text-stone-300" />
@@ -156,7 +154,6 @@ const InlineFilePreviewModal: React.FC<InlineFilePreviewModalProps> = ({ url, fi
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-stone-100 shrink-0">
           <p className="text-sm font-semibold text-stone-800 truncate pr-4">{fileName}</p>
           <div className="flex items-center gap-2 shrink-0">
@@ -178,7 +175,6 @@ const InlineFilePreviewModal: React.FC<InlineFilePreviewModalProps> = ({ url, fi
           </div>
         </div>
 
-        {/* Content */}
         <div className="flex-1 overflow-hidden">
           {renderContent()}
         </div>
@@ -216,8 +212,14 @@ const DocumentCard: React.FC<DocumentCardProps> = ({
   };
 
   const mark = document.active_mark;
-  const isPendingAcknowledge = document.status === 'marked'      && mark?.assigned_to === document.assigned_to;
-  const isInProgress         = document.status === 'in_progress' && mark?.assigned_to === document.assigned_to;
+  
+  // Check if the current user needs to acknowledge (status is dept_assigned or marked)
+  const needsAcknowledge = (document.status === 'dept_assigned' || document.status === 'marked') && 
+    mark?.assigned_to === document.assigned_to;
+  
+  // Check if the current user needs to complete (status is user_assigned or in_progress)
+  const needsComplete = (document.status === 'user_assigned' || document.status === 'in_progress') && 
+    mark?.assigned_to === document.assigned_to;
 
   return (
     <div className="bg-white rounded-xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow p-4">
@@ -289,7 +291,7 @@ const DocumentCard: React.FC<DocumentCardProps> = ({
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <StatusBadge status={document.status} />
 
-          {isPendingAcknowledge && onAcknowledge && (
+          {needsAcknowledge && onAcknowledge && (
             <button
               onClick={onAcknowledge}
               disabled={isActionInProgress}
@@ -300,14 +302,14 @@ const DocumentCard: React.FC<DocumentCardProps> = ({
             </button>
           )}
 
-          {isInProgress && onComplete && (
+          {needsComplete && onComplete && (
             <button
               onClick={onComplete}
               disabled={isActionInProgress}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[10px] font-bold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isActionInProgress ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={14} />}
-              Complete
+              {document.status === 'user_assigned' ? 'Start Work' : 'Complete'}
             </button>
           )}
 
@@ -365,7 +367,6 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
-        {/* Header */}
         <div className="px-6 py-4 border-b border-stone-100 flex items-center justify-between">
           <div>
             <h3 className="text-base font-bold text-stone-900">{document.title}</h3>
@@ -381,15 +382,12 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
           </button>
         </div>
 
-        {/* Content */}
         <div className="p-6 space-y-4 overflow-y-auto max-h-[calc(90vh-140px)]">
-          {/* Status */}
           <div className="flex flex-wrap items-center gap-2">
             <StatusBadge status={document.status} />
             {mark && <PriorityBadge priority={mark.priority} />}
           </div>
 
-          {/* Meta Info */}
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Created By</p>
@@ -407,7 +405,6 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             )}
           </div>
 
-          {/* Attached file — preview trigger for uploaded (non-composed) documents */}
           {document.file_url && onPreviewFile && (
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">Attached File</p>
@@ -424,7 +421,6 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             </div>
           )}
 
-          {/* Body (composed memo/letter) */}
           {document.body && (
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">Body</p>
@@ -434,7 +430,6 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             </div>
           )}
 
-          {/* Mark Details */}
           {mark && (
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">Mark Details</p>
@@ -468,7 +463,6 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             </div>
           )}
 
-          {/* Signature */}
           {document.is_signed && (
             <div className="rounded-lg bg-emerald-50 border border-emerald-100 p-3">
               <p className="text-sm font-medium text-emerald-700">✓ Signed</p>
@@ -505,7 +499,6 @@ const StaffDocuments: React.FC = () => {
   const [previewTarget,    setPreviewTarget]    = useState<PreviewTarget | null>(null);
 
   // ── Effects ───────────────────────────────────────────────────────────────
-  // Fetches documents currently marked to the logged-in staff member.
   useEffect(() => {
     let cancelled = false;
 
@@ -532,10 +525,6 @@ const StaffDocuments: React.FC = () => {
     }
   };
 
-  // Opens the inline PDF/image preview for a document's attached file.
-  // Composed memo/letter documents have no file_url, so the Preview action
-  // never shows for those — only for uploaded judgments/rulings/orders/etc.
-  // Files are served directly from Cloudinary (no stream proxy).
   const handlePreviewFile = (document: Document | DocumentWithAnnotations) => {
     if (!document.file_url) return;
     setPreviewTarget({
@@ -576,7 +565,17 @@ const StaffDocuments: React.FC = () => {
       doc.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (doc.reference_no?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false);
 
-    const matchesStatus = statusFilter === 'all' || doc.status === statusFilter;
+    let matchesStatus = true;
+    if (statusFilter !== 'all') {
+      // Map status filter to actual document statuses
+      if (statusFilter === 'marked') {
+        matchesStatus = doc.status === 'marked' || doc.status === 'dept_assigned';
+      } else if (statusFilter === 'in_progress') {
+        matchesStatus = doc.status === 'in_progress' || doc.status === 'user_assigned';
+      } else {
+        matchesStatus = doc.status === statusFilter;
+      }
+    }
 
     return matchesSearch && matchesStatus;
   });
@@ -585,8 +584,8 @@ const StaffDocuments: React.FC = () => {
 
   const stats = {
     total:      myMarked?.length || 0,
-    marked:     (myMarked || []).filter((d: Document) => d.status === 'marked').length,
-    inProgress: (myMarked || []).filter((d: Document) => d.status === 'in_progress').length,
+    marked:     (myMarked || []).filter((d: Document) => d.status === 'marked' || d.status === 'dept_assigned').length,
+    inProgress: (myMarked || []).filter((d: Document) => d.status === 'in_progress' || d.status === 'user_assigned').length,
     completed:  (myMarked || []).filter((d: Document) => d.status === 'completed').length,
   };
 
@@ -710,8 +709,16 @@ const StaffDocuments: React.FC = () => {
                 document={document}
                 onView={() => handleViewDocument(document)}
                 onPreviewFile={document.file_url ? () => handlePreviewFile(document) : undefined}
-                onAcknowledge={document.status === 'marked'      ? () => handleAcknowledge(document.id) : undefined}
-                onComplete={document.status    === 'in_progress' ? () => handleComplete(document.id)    : undefined}
+                onAcknowledge={
+                  (document.status === 'marked' || document.status === 'dept_assigned') 
+                    ? () => handleAcknowledge(document.id) 
+                    : undefined
+                }
+                onComplete={
+                  (document.status === 'in_progress' || document.status === 'user_assigned') 
+                    ? () => handleComplete(document.id) 
+                    : undefined
+                }
                 isActionInProgress={isAcknowledging || isCompleting}
               />
             );
@@ -729,7 +736,7 @@ const StaffDocuments: React.FC = () => {
         }
       />
 
-      {/* Inline File Preview Modal — serves Cloudinary files directly (no stream proxy) */}
+      {/* Inline File Preview Modal */}
       {previewTarget && (
         <InlineFilePreviewModal
           url={previewTarget.url}
