@@ -1,16 +1,22 @@
-// src/pages/staff/StaffDocuments.tsx
-import React, { useState, useEffect } from 'react';
+// src/pages/helpdesk/HelpDeskDocuments.tsx
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   fetchMyMarked,
   fetchDocumentById,
   acknowledgeMark,
   completeMark,
+  markDocument,
   selectMyMarked,
   selectLoading,
   selectActionInProgress,
 } from '../../store/slices/documentSlice';
-import type { Document, DocumentWithAnnotations } from '../../types/documents.types';
+import {
+  fetchUsers,
+  selectCurrentUser,
+  selectIsDeptHead,
+} from '../../store/slices/userSlice';
+import type { Document, DocumentWithAnnotations, MarkDocumentInput } from '../../types/documents.types';
 import {
   Search,
   FileText,
@@ -27,6 +33,7 @@ import {
   ExternalLink,
   Download,
   Users,
+  UserPlus,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { toast } from 'react-hot-toast';
@@ -79,7 +86,7 @@ const PriorityBadge: React.FC<{ priority: string }> = ({ priority }) => {
   );
 };
 
-// ─── Inline File Preview Modal ────────────────────────────────────────────────
+// ─── Inline File Preview Modal ──────────────────────────────────────────────
 
 interface InlineFilePreviewModalProps {
   url: string;
@@ -185,6 +192,139 @@ const InlineFilePreviewModal: React.FC<InlineFilePreviewModalProps> = ({ url, fi
   );
 };
 
+// ─── Delegate Modal ──────────────────────────────────────────────────────────
+
+interface DelegateModalProps {
+  isOpen: boolean;
+  document: Document | null;
+  departmentUsers: { id: string; name: string }[];
+  onClose: () => void;
+  onDelegate: (userId: string, instructions: string, priority: string) => void;
+  isSubmitting: boolean;
+}
+
+const DelegateModal: React.FC<DelegateModalProps> = ({
+  isOpen,
+  document,
+  departmentUsers,
+  onClose,
+  onDelegate,
+  isSubmitting,
+}) => {
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [instructions, setInstructions] = useState('');
+  const [priority, setPriority] = useState<'low' | 'normal' | 'urgent'>('normal');
+
+  // Reset state when modal opens (not via effect, but by parent resetting on close)
+  // We'll reset in the parent's onClose handler, so we don't need a useEffect here.
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) {
+      toast.error('Please select a user');
+      return;
+    }
+    onDelegate(selectedUserId, instructions, priority);
+  };
+
+  if (!isOpen || !document) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="px-6 py-4 border-b border-stone-100 flex items-center justify-between">
+          <h3 className="text-base font-bold text-stone-900">Delegate Document</h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-full hover:bg-stone-100 transition-colors text-stone-400"
+            disabled={isSubmitting}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+              Document
+            </label>
+            <p className="text-sm font-medium text-stone-800 truncate">{document.title}</p>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+              Assign to User *
+            </label>
+            <select
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+              className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm outline-none focus:border-[#1d3331] transition-colors"
+              required
+              disabled={isSubmitting || departmentUsers.length === 0}
+            >
+              <option value="">Select a user</option>
+              {departmentUsers.map((user) => (
+                <option key={user.id} value={user.id}>{user.name}</option>
+              ))}
+            </select>
+            {departmentUsers.length === 0 && (
+              <p className="text-xs text-amber-600 mt-1">No users found in your department</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+              Instructions (optional)
+            </label>
+            <textarea
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm outline-none focus:border-[#1d3331] transition-colors resize-none"
+              placeholder="Add instructions for the user..."
+              disabled={isSubmitting}
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+              Priority
+            </label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as 'low' | 'normal' | 'urgent')}
+              className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm outline-none focus:border-[#1d3331] transition-colors"
+              disabled={isSubmitting}
+            >
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg border border-stone-200 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
+              disabled={isSubmitting}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1d3331] text-white text-sm font-bold hover:bg-emerald-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isSubmitting || departmentUsers.length === 0}
+            >
+              {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
+              Delegate
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 // ─── Document Card ────────────────────────────────────────────────────────────
 
 interface DocumentCardProps {
@@ -193,7 +333,9 @@ interface DocumentCardProps {
   onPreviewFile?: () => void;
   onAcknowledge?: () => void;
   onComplete?: () => void;
+  onDelegate?: () => void;
   isActionInProgress?: boolean;
+  isDeptHead?: boolean;
 }
 
 const DocumentCard: React.FC<DocumentCardProps> = ({
@@ -202,7 +344,9 @@ const DocumentCard: React.FC<DocumentCardProps> = ({
   onPreviewFile,
   onAcknowledge,
   onComplete,
+  onDelegate,
   isActionInProgress,
+  isDeptHead,
 }) => {
   const formatDate = (date: Date | string) => {
     try {
@@ -216,6 +360,7 @@ const DocumentCard: React.FC<DocumentCardProps> = ({
   const mark = document.active_mark;
   const isPendingAcknowledge = document.status === 'marked'      && mark?.assigned_to === document.assigned_to;
   const isInProgress         = document.status === 'in_progress' && mark?.assigned_to === document.assigned_to;
+  const canDelegate = isDeptHead && !!mark && mark.assigned_to === document.assigned_to;
 
   return (
     <div className="bg-white rounded-xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow p-4">
@@ -309,6 +454,17 @@ const DocumentCard: React.FC<DocumentCardProps> = ({
             </button>
           )}
 
+          {canDelegate && onDelegate && (
+            <button
+              onClick={onDelegate}
+              disabled={isActionInProgress}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 text-white text-[10px] font-bold hover:bg-amber-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <UserPlus size={14} />
+              Delegate
+            </button>
+          )}
+
           {onPreviewFile && (
             <button
               onClick={onPreviewFile}
@@ -387,7 +543,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             {mark && <PriorityBadge priority={mark.priority} />}
           </div>
 
-          {/* Meta Info - Updated with Marked By */}
+          {/* Meta Info */}
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400">Created By</p>
@@ -404,7 +560,6 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
               </p>
             </div>
             
-            {/* Marked By - New Field */}
             {mark && (
               <>
                 <div>
@@ -437,7 +592,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             )}
           </div>
 
-          {/* Attached file — preview trigger for uploaded (non-composed) documents */}
+          {/* Attached file preview */}
           {document.file_url && onPreviewFile && (
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">Attached File</p>
@@ -454,7 +609,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             </div>
           )}
 
-          {/* Body (composed memo/letter) */}
+          {/* Body */}
           {document.body && (
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">Body</p>
@@ -464,7 +619,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             </div>
           )}
 
-          {/* Mark Details - Enhanced with Marked By info */}
+          {/* Mark Details */}
           {mark && (
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">Mark Details</p>
@@ -539,6 +694,10 @@ const HelpDeskDocuments: React.FC = () => {
   const myMarked        = useAppSelector(selectMyMarked);
   const loading         = useAppSelector(selectLoading);
   const actionInProgress = useAppSelector(selectActionInProgress);
+  const currentUser     = useAppSelector(selectCurrentUser);
+  const isDeptHead      = useAppSelector(selectIsDeptHead);
+  //const allUsers        = useAppSelector(selectAllUsers);
+  //const usersLoading    = useAppSelector(selectUsersListLoading);
 
   // ── Local State ────────────────────────────────────────────────────────────
   const [searchTerm,       setSearchTerm]       = useState('');
@@ -547,6 +706,12 @@ const HelpDeskDocuments: React.FC = () => {
   const [isModalOpen,      setIsModalOpen]      = useState(false);
   const [fetchError,       setFetchError]       = useState<string | null>(null);
   const [previewTarget,    setPreviewTarget]    = useState<PreviewTarget | null>(null);
+
+  // Delegate state
+  const [delegateModalOpen, setDelegateModalOpen] = useState(false);
+  const [delegateDocument, setDelegateDocument] = useState<Document | null>(null);
+  const [departmentUsers, setDepartmentUsers] = useState<{ id: string; name: string }[]>([]);
+  const [isDelegating, setIsDelegating] = useState(false);
 
   // ── Effects ───────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -603,31 +768,93 @@ const HelpDeskDocuments: React.FC = () => {
     }
   };
 
+  // ── Delegate handlers ─────────────────────────────────────────────────────
+
+  const openDelegateModal = async (document: Document) => {
+    if (!isDeptHead || !currentUser?.department_id) {
+      toast.error('You are not authorized to delegate');
+      return;
+    }
+
+    setDelegateDocument(document);
+    setDelegateModalOpen(true);
+
+    // Fetch users in the department
+    try {
+      const result = await dispatch(fetchUsers({
+        department_id: currentUser.department_id,
+        limit: 100,
+      })).unwrap();
+
+      // Map to { id, name }
+      const users = result.data.map(u => ({ id: u.id, name: u.full_name }));
+      setDepartmentUsers(users);
+    } catch {
+      toast.error('Failed to load department users');
+      setDelegateModalOpen(false);
+    }
+  };
+
+  const handleDelegate = async (userId: string, instructions: string, priority: string) => {
+    if (!delegateDocument || !currentUser?.department_id) return;
+
+    setIsDelegating(true);
+    try {
+      const input: MarkDocumentInput = {
+        department_id: currentUser.department_id,
+        assigned_to: userId,
+        instructions: instructions || undefined,
+        priority: priority as 'low' | 'normal' | 'urgent',
+      };
+
+      await dispatch(markDocument({ id: delegateDocument.id, input })).unwrap();
+      toast.success('Document delegated successfully');
+      // Reset and close
+      setDelegateModalOpen(false);
+      setDelegateDocument(null);
+      setDepartmentUsers([]);
+      dispatch(fetchMyMarked()); // Refresh list
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to delegate document');
+    } finally {
+      setIsDelegating(false);
+    }
+  };
+
   const closeModal = () => {
     setIsModalOpen(false);
     setSelectedDocument(null);
   };
 
+  const closeDelegateModal = () => {
+    setDelegateModalOpen(false);
+    setDelegateDocument(null);
+    setDepartmentUsers([]);
+    // Reset form state in the modal is handled by parent; the modal's internal state will be reset on next open because we re-render with new props
+  };
+
   // ── Filtering ──────────────────────────────────────────────────────────────
 
-  const filteredDocuments = (myMarked || []).filter((doc: Document) => {
-    const matchesSearch =
-      doc.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (doc.reference_no?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false);
+  const filteredDocuments = useMemo(() => {
+    return (myMarked || []).filter((doc: Document) => {
+      const matchesSearch =
+        doc.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (doc.reference_no?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false);
 
-    const matchesStatus = statusFilter === 'all' || doc.status === statusFilter;
+      const matchesStatus = statusFilter === 'all' || doc.status === statusFilter;
 
-    return matchesSearch && matchesStatus;
-  });
+      return matchesSearch && matchesStatus;
+    });
+  }, [myMarked, searchTerm, statusFilter]);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
 
-  const stats = {
+  const stats = useMemo(() => ({
     total:      myMarked?.length || 0,
     marked:     (myMarked || []).filter((d: Document) => d.status === 'marked').length,
     inProgress: (myMarked || []).filter((d: Document) => d.status === 'in_progress').length,
     completed:  (myMarked || []).filter((d: Document) => d.status === 'completed').length,
-  };
+  }), [myMarked]);
 
   // ── Loading State ──────────────────────────────────────────────────────────
 
@@ -742,6 +969,7 @@ const HelpDeskDocuments: React.FC = () => {
           {filteredDocuments.map((document: Document) => {
             const isAcknowledging = actionInProgress?.acknowledging === document.id;
             const isCompleting    = actionInProgress?.completing    === document.id;
+            const isDelegatingDoc = isDelegating && delegateDocument?.id === document.id;
 
             return (
               <DocumentCard
@@ -751,7 +979,9 @@ const HelpDeskDocuments: React.FC = () => {
                 onPreviewFile={document.file_url ? () => handlePreviewFile(document) : undefined}
                 onAcknowledge={document.status === 'marked'      ? () => handleAcknowledge(document.id) : undefined}
                 onComplete={document.status    === 'in_progress' ? () => handleComplete(document.id)    : undefined}
-                isActionInProgress={isAcknowledging || isCompleting}
+                onDelegate={isDeptHead ? () => openDelegateModal(document) : undefined}
+                isActionInProgress={isAcknowledging || isCompleting || isDelegatingDoc}
+                isDeptHead={isDeptHead}
               />
             );
           })}
@@ -776,6 +1006,16 @@ const HelpDeskDocuments: React.FC = () => {
           onClose={() => setPreviewTarget(null)}
         />
       )}
+
+      {/* Delegate Modal */}
+      <DelegateModal
+        isOpen={delegateModalOpen}
+        document={delegateDocument}
+        departmentUsers={departmentUsers}
+        onClose={closeDelegateModal}
+        onDelegate={handleDelegate}
+        isSubmitting={isDelegating}
+      />
     </div>
   );
 };
