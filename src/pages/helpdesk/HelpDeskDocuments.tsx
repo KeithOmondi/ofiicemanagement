@@ -10,12 +10,17 @@ import {
   selectMyMarked,
   selectLoading,
   selectActionInProgress,
+  fetchDocuments,
 } from '../../store/slices/documentSlice';
 import {
   fetchUsers,
   selectCurrentUser,
   selectIsDeptHead,
 } from '../../store/slices/userSlice';
+import {
+  fetchDepartments,
+  selectAllDepartments,
+} from '../../store/slices/departmentsSlice';
 import type { Document, DocumentWithAnnotations, MarkDocumentInput } from '../../types/documents.types';
 import {
   Search,
@@ -215,9 +220,6 @@ const DelegateModal: React.FC<DelegateModalProps> = ({
   const [instructions, setInstructions] = useState('');
   const [priority, setPriority] = useState<'low' | 'normal' | 'urgent'>('normal');
 
-  // Reset state when modal opens (not via effect, but by parent resetting on close)
-  // We'll reset in the parent's onClose handler, so we don't need a useEffect here.
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedUserId) {
@@ -317,6 +319,161 @@ const DelegateModal: React.FC<DelegateModalProps> = ({
             >
               {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
               Delegate
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ─── Mark Modal ──────────────────────────────────────────────────────────────
+
+interface MarkModalProps {
+  isOpen: boolean;
+  document: Document | null;
+  departments: { id: string; name: string }[];
+  departmentUsers: { id: string; name: string }[];
+  defaultDepartmentId: string;
+  onClose: () => void;
+  onMark: (userId: string, instructions: string, priority: string) => void;
+  isSubmitting: boolean;
+}
+
+const MarkModal: React.FC<MarkModalProps> = ({
+  isOpen,
+  document,
+  departments,
+  departmentUsers,
+  defaultDepartmentId,
+  onClose,
+  onMark,
+  isSubmitting,
+}) => {
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [instructions, setInstructions] = useState('');
+  const [priority, setPriority] = useState<'low' | 'normal' | 'urgent'>('normal');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedUserId) {
+      toast.error('Please select a user');
+      return;
+    }
+    onMark(selectedUserId, instructions, priority);
+  };
+
+  if (!isOpen || !document) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="px-6 py-4 border-b border-stone-100 flex items-center justify-between">
+          <h3 className="text-base font-bold text-stone-900">Mark Document</h3>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-full hover:bg-stone-100 transition-colors text-stone-400"
+            disabled={isSubmitting}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+              Document
+            </label>
+            <p className="text-sm font-medium text-stone-800 truncate">{document.title}</p>
+          </div>
+
+          {/* Department dropdown (disabled for Dept Head) */}
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+              Department *
+            </label>
+            <select
+              value={defaultDepartmentId}
+              disabled
+              className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm outline-none cursor-not-allowed"
+            >
+              {departments.map((dept) => (
+                <option key={dept.id} value={dept.id}>
+                  {dept.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-stone-400 mt-0.5">
+              You can only mark to your own department.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+              Assign to User *
+            </label>
+            <select
+              value={selectedUserId}
+              onChange={(e) => setSelectedUserId(e.target.value)}
+              className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm outline-none focus:border-[#1d3331] transition-colors"
+              required
+              disabled={isSubmitting || departmentUsers.length === 0}
+            >
+              <option value="">Select a user</option>
+              {departmentUsers.map((user) => (
+                <option key={user.id} value={user.id}>{user.name}</option>
+              ))}
+            </select>
+            {departmentUsers.length === 0 && (
+              <p className="text-xs text-amber-600 mt-1">No users found in this department</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+              Instructions (optional)
+            </label>
+            <textarea
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm outline-none focus:border-[#1d3331] transition-colors resize-none"
+              placeholder="Add instructions for the user..."
+              disabled={isSubmitting}
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+              Priority
+            </label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as 'low' | 'normal' | 'urgent')}
+              className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm outline-none focus:border-[#1d3331] transition-colors"
+              disabled={isSubmitting}
+            >
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg border border-stone-200 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
+              disabled={isSubmitting}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1d3331] text-white text-sm font-bold hover:bg-emerald-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isSubmitting || departmentUsers.length === 0}
+            >
+              {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
+              Mark
             </button>
           </div>
         </form>
@@ -691,29 +848,43 @@ const HelpDeskDocuments: React.FC = () => {
   const dispatch = useAppDispatch();
 
   // ── Selectors ──────────────────────────────────────────────────────────────
-  const myMarked        = useAppSelector(selectMyMarked);
-  const loading         = useAppSelector(selectLoading);
-  const actionInProgress = useAppSelector(selectActionInProgress);
-  const currentUser     = useAppSelector(selectCurrentUser);
-  const isDeptHead      = useAppSelector(selectIsDeptHead);
-  //const allUsers        = useAppSelector(selectAllUsers);
-  //const usersLoading    = useAppSelector(selectUsersListLoading);
+  const myMarked          = useAppSelector(selectMyMarked);
+  const loading           = useAppSelector(selectLoading);
+  const actionInProgress  = useAppSelector(selectActionInProgress);
+  const currentUser       = useAppSelector(selectCurrentUser);
+  const isDeptHead        = useAppSelector(selectIsDeptHead);
+  const allDepartments    = useAppSelector(selectAllDepartments);
 
   // ── Local State ────────────────────────────────────────────────────────────
-  const [searchTerm,       setSearchTerm]       = useState('');
-  const [statusFilter,     setStatusFilter]     = useState<StatusFilter>('all');
-  const [selectedDocument, setSelectedDocument] = useState<DocumentWithAnnotations | null>(null);
-  const [isModalOpen,      setIsModalOpen]      = useState(false);
-  const [fetchError,       setFetchError]       = useState<string | null>(null);
-  const [previewTarget,    setPreviewTarget]    = useState<PreviewTarget | null>(null);
+  const [searchTerm,         setSearchTerm]         = useState('');
+  const [statusFilter,       setStatusFilter]       = useState<StatusFilter>('all');
+  const [selectedDocument,   setSelectedDocument]   = useState<DocumentWithAnnotations | null>(null);
+  const [isModalOpen,        setIsModalOpen]        = useState(false);
+  const [fetchError,         setFetchError]         = useState<string | null>(null);
+  const [previewTarget,      setPreviewTarget]      = useState<PreviewTarget | null>(null);
 
   // Delegate state
-  const [delegateModalOpen, setDelegateModalOpen] = useState(false);
-  const [delegateDocument, setDelegateDocument] = useState<Document | null>(null);
+  const [delegateModalOpen,  setDelegateModalOpen]  = useState(false);
+  const [delegateDocument,   setDelegateDocument]   = useState<Document | null>(null);
+  const [isDelegating,       setIsDelegating]       = useState(false);
+  const [delegateModalKey,   setDelegateModalKey]   = useState(0);
+
+  // Mark state
+  const [markModalOpen,      setMarkModalOpen]      = useState(false);
+  const [markDocumentTarget, setMarkDocumentTarget] = useState<Document | null>(null);
+  const [isMarking,          setIsMarking]          = useState(false);
+  const [markModalKey,       setMarkModalKey]       = useState(0);
+
+  // Department documents (local state)
+  const [departmentDocs,     setDepartmentDocs]     = useState<Document[]>([]);
+  const [deptDocsLoading,    setDeptDocsLoading]    = useState(false);
+
+  // Shared department users list (fetched once for both modals)
   const [departmentUsers, setDepartmentUsers] = useState<{ id: string; name: string }[]>([]);
-  const [isDelegating, setIsDelegating] = useState(false);
 
   // ── Effects ───────────────────────────────────────────────────────────────
+
+  // 1. Fetch my marked documents
   useEffect(() => {
     let cancelled = false;
 
@@ -727,6 +898,50 @@ const HelpDeskDocuments: React.FC = () => {
       cancelled = true;
     };
   }, [dispatch]);
+
+  // 2. Fetch department documents if user is Dept Head
+  useEffect(() => {
+    if (!isDeptHead || !currentUser?.department_id) return;
+
+    const fetchDeptDocs = async () => {
+      setDeptDocsLoading(true);
+      try {
+        const result = await dispatch(
+          fetchDocuments({ department_id: currentUser.department_id ?? undefined, limit: 100 })
+        ).unwrap();
+        setDepartmentDocs(result.data);
+      } catch (err) {
+        toast.error(typeof err === 'string' ? err : 'Failed to load department documents');
+      } finally {
+        setDeptDocsLoading(false);
+      }
+    };
+
+    fetchDeptDocs();
+  }, [dispatch, isDeptHead, currentUser?.department_id]);
+
+  // 3. Fetch departments (active) for the Mark Modal dropdown
+  useEffect(() => {
+    if (isDeptHead) {
+      dispatch(fetchDepartments({ is_active: true }));
+    }
+  }, [dispatch, isDeptHead]);
+
+  // 4. Fetch department users once when component mounts and user is Dept Head
+  useEffect(() => {
+    if (isDeptHead && currentUser?.department_id) {
+      dispatch(fetchUsers({
+        department_id: currentUser.department_id ?? undefined,
+        limit: 100,
+      }))
+        .unwrap()
+        .then((result) => {
+          const users = result.data.map(u => ({ id: u.id, name: u.full_name }));
+          setDepartmentUsers(users);
+        })
+        .catch(() => toast.error('Failed to load department users'));
+    }
+  }, [dispatch, isDeptHead, currentUser?.department_id]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -770,29 +985,14 @@ const HelpDeskDocuments: React.FC = () => {
 
   // ── Delegate handlers ─────────────────────────────────────────────────────
 
-  const openDelegateModal = async (document: Document) => {
+  const openDelegateModal = (document: Document) => {
     if (!isDeptHead || !currentUser?.department_id) {
       toast.error('You are not authorized to delegate');
       return;
     }
-
     setDelegateDocument(document);
+    setDelegateModalKey((k) => k + 1);
     setDelegateModalOpen(true);
-
-    // Fetch users in the department
-    try {
-      const result = await dispatch(fetchUsers({
-        department_id: currentUser.department_id,
-        limit: 100,
-      })).unwrap();
-
-      // Map to { id, name }
-      const users = result.data.map(u => ({ id: u.id, name: u.full_name }));
-      setDepartmentUsers(users);
-    } catch {
-      toast.error('Failed to load department users');
-      setDelegateModalOpen(false);
-    }
   };
 
   const handleDelegate = async (userId: string, instructions: string, priority: string) => {
@@ -809,11 +1009,15 @@ const HelpDeskDocuments: React.FC = () => {
 
       await dispatch(markDocument({ id: delegateDocument.id, input })).unwrap();
       toast.success('Document delegated successfully');
-      // Reset and close
       setDelegateModalOpen(false);
       setDelegateDocument(null);
-      setDepartmentUsers([]);
-      dispatch(fetchMyMarked()); // Refresh list
+      dispatch(fetchMyMarked());
+      if (isDeptHead && currentUser.department_id) {
+        const result = await dispatch(
+          fetchDocuments({ department_id: currentUser.department_id ?? undefined, limit: 100 })
+        ).unwrap();
+        setDepartmentDocs(result.data);
+      }
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to delegate document');
     } finally {
@@ -821,16 +1025,61 @@ const HelpDeskDocuments: React.FC = () => {
     }
   };
 
-  const closeModal = () => {
-    setIsModalOpen(false);
-    setSelectedDocument(null);
-  };
-
   const closeDelegateModal = () => {
     setDelegateModalOpen(false);
     setDelegateDocument(null);
-    setDepartmentUsers([]);
-    // Reset form state in the modal is handled by parent; the modal's internal state will be reset on next open because we re-render with new props
+  };
+
+  // ── Mark handlers ──────────────────────────────────────────────────────────
+
+  const openMarkModal = (document: Document) => {
+    if (!isDeptHead || !currentUser?.department_id) {
+      toast.error('You are not authorized to mark documents');
+      return;
+    }
+    setMarkDocumentTarget(document);
+    setMarkModalKey((k) => k + 1);
+    setMarkModalOpen(true);
+  };
+
+  const handleMark = async (userId: string, instructions: string, priority: string) => {
+    if (!markDocumentTarget || !currentUser?.department_id) return;
+
+    setIsMarking(true);
+    try {
+      const input: MarkDocumentInput = {
+        department_id: currentUser.department_id,
+        assigned_to: userId,
+        instructions: instructions || undefined,
+        priority: priority as 'low' | 'normal' | 'urgent',
+      };
+
+      await dispatch(markDocument({ id: markDocumentTarget.id, input })).unwrap();
+      toast.success('Document marked successfully');
+      setMarkModalOpen(false);
+      setMarkDocumentTarget(null);
+      dispatch(fetchMyMarked());
+      if (isDeptHead && currentUser.department_id) {
+        const result = await dispatch(
+          fetchDocuments({ department_id: currentUser.department_id ?? undefined, limit: 100 })
+        ).unwrap();
+        setDepartmentDocs(result.data);
+      }
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to mark document');
+    } finally {
+      setIsMarking(false);
+    }
+  };
+
+  const closeMarkModal = () => {
+    setMarkModalOpen(false);
+    setMarkDocumentTarget(null);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setSelectedDocument(null);
   };
 
   // ── Filtering ──────────────────────────────────────────────────────────────
@@ -878,6 +1127,10 @@ const HelpDeskDocuments: React.FC = () => {
       </div>
     );
   }
+
+  // ── Prepare department list for Mark Modal ────────────────────────────────
+  const userDepartment = allDepartments.find(d => d.id === currentUser?.department_id);
+  const departmentsForModal = userDepartment ? [userDepartment] : [];
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -950,7 +1203,7 @@ const HelpDeskDocuments: React.FC = () => {
         </div>
       </div>
 
-      {/* Empty State */}
+      {/* Empty State for My Documents */}
       {!loading && filteredDocuments.length === 0 && (
         <div className="bg-white rounded-2xl border border-stone-200 p-12 text-center">
           <FileText size={48} className="mx-auto text-stone-300 mb-4" />
@@ -963,7 +1216,7 @@ const HelpDeskDocuments: React.FC = () => {
         </div>
       )}
 
-      {/* Document List */}
+      {/* My Documents List */}
       {!loading && filteredDocuments.length > 0 && (
         <div className="space-y-3">
           {filteredDocuments.map((document: Document) => {
@@ -988,6 +1241,116 @@ const HelpDeskDocuments: React.FC = () => {
         </div>
       )}
 
+      {/* ─── Department Documents Section (for Dept Head) ──────────────── */}
+      {isDeptHead && (
+        <div className="mt-10">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-serif font-bold text-[#1d3331]">Department Documents</h2>
+            <span className="text-sm text-stone-500">
+              {departmentDocs?.length || 0} documents
+            </span>
+          </div>
+
+          {deptDocsLoading && (!departmentDocs || departmentDocs.length === 0) ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="animate-spin text-[#1d3331]" size={24} />
+            </div>
+          ) : departmentDocs && departmentDocs.length > 0 ? (
+            <div className="space-y-3">
+              {departmentDocs.map((doc: Document) => {
+                const isMarkingThis = isMarking && markDocumentTarget?.id === doc.id;
+
+                return (
+                  <div
+                    key={doc.id}
+                    className="bg-white rounded-xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow p-4"
+                  >
+                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start gap-2">
+                          <div className="p-2 rounded-xl bg-[#1d3331]/5 text-[#1d3331] shrink-0 mt-0.5">
+                            <FileText size={16} />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-bold text-stone-900 truncate">{doc.title}</h3>
+                            <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-stone-500">
+                              <span className="flex items-center gap-1">
+                                <User size={12} />
+                                {doc.created_by_name}
+                              </span>
+                              <span className="text-stone-300">•</span>
+                              <span className="flex items-center gap-1">
+                                <Calendar size={12} />
+                                {format(new Date(doc.created_at), 'dd MMM yyyy')}
+                              </span>
+                              {doc.reference_no && (
+                                <>
+                                  <span className="text-stone-300">•</span>
+                                  <span className="font-mono text-[10px] text-stone-400">{doc.reference_no}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        {doc.active_mark && (
+                          <div className="mt-2 pl-9 text-xs text-stone-500">
+                            <span className="font-medium">Marked to:</span> {doc.active_mark.marked_to_dept_name}
+                            {doc.active_mark.assigned_to_name && ` (Assigned: ${doc.active_mark.assigned_to_name})`}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <StatusBadge status={doc.status} />
+
+                        {/* ── Mark button ALWAYS enabled ── */}
+                        <button
+                          onClick={() => openMarkModal(doc)}
+                          disabled={isMarkingThis}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1d3331] text-white text-[10px] font-bold hover:bg-emerald-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Mark this document to a user"
+                        >
+                          {isMarkingThis ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <UserPlus size={14} />
+                          )}
+                          Mark
+                        </button>
+
+                        {/* Preview and Details */}
+                        {doc.file_url && (
+                          <button
+                            onClick={() => handlePreviewFile(doc)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 text-[10px] font-bold hover:bg-stone-50 transition-colors"
+                          >
+                            <Eye size={14} />
+                            Preview
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleViewDocument(doc)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 text-[10px] font-bold hover:bg-stone-50 transition-colors"
+                        >
+                          <Info size={14} />
+                          Details
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="bg-white rounded-2xl border border-stone-200 p-8 text-center">
+              <FileText size={32} className="mx-auto text-stone-300 mb-2" />
+              <p className="text-sm text-stone-400">No documents found in your department</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ─── Modals ──────────────────────────────────────────────────────── */}
+
       {/* Document Detail Modal */}
       <DocumentDetailModal
         document={selectedDocument}
@@ -1009,12 +1372,26 @@ const HelpDeskDocuments: React.FC = () => {
 
       {/* Delegate Modal */}
       <DelegateModal
+        key={delegateModalKey}
         isOpen={delegateModalOpen}
         document={delegateDocument}
         departmentUsers={departmentUsers}
         onClose={closeDelegateModal}
         onDelegate={handleDelegate}
         isSubmitting={isDelegating}
+      />
+
+      {/* Mark Modal */}
+      <MarkModal
+        key={markModalKey}
+        isOpen={markModalOpen}
+        document={markDocumentTarget}
+        departments={departmentsForModal}
+        departmentUsers={departmentUsers}
+        defaultDepartmentId={currentUser?.department_id ?? ''}
+        onClose={closeMarkModal}
+        onMark={handleMark}
+        isSubmitting={isMarking}
       />
     </div>
   );

@@ -13,7 +13,7 @@ import {
   clearError as clearRegistryError,
 } from '../../store/slices/registrySlice';
 import { fetchDocuments, clearError as clearDocumentError } from '../../store/slices/documentSlice';
-import { deleteStation } from '../../store/slices/stationsSlice'; // Import deleteStation
+import { deleteStation } from '../../store/slices/stationsSlice';
 import type { RootState } from '../../store/store';
 import type { RegistryPriority, RegistryEntry } from '../../types/registry.types';
 import type { StationType } from '../../store/slices/stationsSlice';
@@ -79,6 +79,13 @@ const SuperAdminRegistry = () => {
   // ── Delete confirmation state ──────────────────────────────────────────────
   const [stationToDelete, setStationToDelete] = useState<string | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+
+  // ── Document view state ────────────────────────────────────────────────────
+  const [selectedDocument, setSelectedDocument] = useState<RegistryEntry | null>(null);
+  const [isDocViewModalOpen, setIsDocViewModalOpen] = useState(false);
+  const [documentUrl, setDocumentUrl] = useState<string | null>(null);
+  const [documentLoading, setDocumentLoading] = useState(false);
+  const [documentError, setDocumentError] = useState<string | null>(null);
 
   // ── Initial data load ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -151,7 +158,11 @@ const SuperAdminRegistry = () => {
         sort_order: 'DESC'
       })).unwrap();
 
-      setStationEntries(result.data);
+      // Ensure unique entries by using a Map with document_id as key
+      const uniqueEntries = Array.from(
+        new Map(result.data.map(entry => [entry.document_id, entry])).values()
+      );
+      setStationEntries(uniqueEntries);
     } catch {
       toast.error('Failed to load station entries');
       setStationEntries([]);
@@ -170,7 +181,7 @@ const SuperAdminRegistry = () => {
 
   // ── Delete station handlers ──────────────────────────────────────────────────
   const handleDeleteClick = (e: React.MouseEvent, stationId: string) => {
-    e.stopPropagation(); // Prevent opening the station modal
+    e.stopPropagation();
     const station = stations.find(s => s.id === stationId);
     if (station && station.file_count > 0) {
       toast.error(`Cannot delete station "${station.name}" because it has ${station.file_count} file(s) on record.`);
@@ -188,7 +199,6 @@ const SuperAdminRegistry = () => {
       toast.success('Station deleted successfully');
       refreshCounts();
     } catch {
-      // Error is handled by the slice and surfaced via toast
       toast.error('Failed to delete station');
     } finally {
       setIsDeleteModalOpen(false);
@@ -201,6 +211,137 @@ const SuperAdminRegistry = () => {
     setStationToDelete(null);
   };
 
+  // ── Document view handlers ─────────────────────────────────────────────────
+  const handleViewDocument = async (entry: RegistryEntry) => {
+    setSelectedDocument(entry);
+    setIsDocViewModalOpen(true);
+    setDocumentLoading(true);
+    setDocumentUrl(null);
+    setDocumentError(null);
+
+    try {
+      // Since you don't have a dedicated content endpoint, 
+      // use the document ID to fetch the document from your documents list
+      const doc = documents.find(d => d.id === entry.document_id);
+      
+      if (!doc) {
+        throw new Error('Document not found in the system');
+      }
+
+      // If the document has a file_url, use it
+      if (doc.file_url) {
+        setDocumentUrl(doc.file_url);
+      } 
+      // If it has a file_public_id, construct the URL
+      else if (doc.file_public_id) {
+        // This depends on your file storage setup (Cloudinary, S3, etc.)
+        setDocumentUrl(`/api/documents/${entry.document_id}/file`);
+      } 
+      // If it's a composed document with body text, display the body
+      else if (doc.body) {
+        setDocumentUrl(doc.body);
+      } 
+      else {
+        // Try to fetch from the documents endpoint
+        const token = localStorage.getItem('token');
+        const response = await fetch(`/api/documents/${entry.document_id}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Error ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const documentData = data.data || data;
+        
+        if (documentData.file_url) {
+          setDocumentUrl(documentData.file_url);
+        } else if (documentData.body) {
+          setDocumentUrl(documentData.body);
+        } else {
+          throw new Error('Document content not available');
+        }
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load document';
+      setDocumentError(errorMessage);
+      toast.error(errorMessage);
+      console.error('Error fetching document:', error);
+    } finally {
+      setDocumentLoading(false);
+    }
+  };
+
+  const closeDocViewModal = () => {
+    setIsDocViewModalOpen(false);
+    setSelectedDocument(null);
+    setDocumentUrl(null);
+    setDocumentError(null);
+  };
+
+  // ── Document Download Handler ──────────────────────────────────────────────
+  const handleDownloadDocument = async () => {
+    if (!selectedDocument) return;
+    
+    try {
+      toast.success('Preparing document for download...');
+      
+      const token = localStorage.getItem('token');
+      
+      // Try to download the file
+      const response = await fetch(`/api/documents/${selectedDocument.document_id}/download`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        // If download endpoint doesn't exist, try to use the file URL
+        if (documentUrl && documentUrl.startsWith('http')) {
+          window.open(documentUrl, '_blank');
+          toast.success('Document opened in new tab');
+          return;
+        }
+        throw new Error('Failed to download document');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = `${selectedDocument.document_title || 'document'}`;
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+        if (filenameMatch && filenameMatch[1]) {
+          filename = filenameMatch[1];
+        }
+      }
+      
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      toast.success('Document downloaded successfully');
+    } catch (error) {
+      // If download fails but we have a URL, try to open it
+      if (documentUrl && documentUrl.startsWith('http')) {
+        window.open(documentUrl, '_blank');
+        toast.success('Document opened in new tab');
+      } else {
+        toast.error('Failed to download document');
+        console.error('Download error:', error);
+      }
+    }
+  };
+
   const routableDocuments = documents.filter((d) => d.status !== 'filed');
 
   const getStationName = (stationId: string | null) => {
@@ -209,7 +350,6 @@ const SuperAdminRegistry = () => {
     return station?.name || 'Unknown Station';
   };
 
-  // ✅ FIX: formatDate now accepts Date or string
   const formatDate = (date: Date | string): string => {
     const d = typeof date === 'string' ? new Date(date) : date;
     return d.toLocaleString('en-KE', {
@@ -221,6 +361,72 @@ const SuperAdminRegistry = () => {
     });
   };
 
+  // Helper to render the document based on content type
+  const renderDocument = () => {
+    if (!documentUrl) return null;
+
+    // Check if it's a base64 image
+    if (documentUrl.startsWith('data:image/')) {
+      return (
+        <div className="flex justify-center p-4">
+          <img src={documentUrl} alt={selectedDocument?.document_title || 'Document'} className="max-w-full max-h-[600px] object-contain" />
+        </div>
+      );
+    }
+    
+    // Check if it's a base64 PDF
+    if (documentUrl.startsWith('data:application/pdf')) {
+      return (
+        <iframe src={documentUrl} className="w-full h-[600px] border-0 rounded-lg" title="PDF Document" />
+      );
+    }
+    
+    // Check if it's a URL
+    if (documentUrl.startsWith('http://') || documentUrl.startsWith('https://')) {
+      // For PDF URLs
+      if (documentUrl.toLowerCase().includes('.pdf')) {
+        return (
+          <iframe src={documentUrl} className="w-full h-[600px] border-0 rounded-lg" title="PDF Document" />
+        );
+      }
+      // For image URLs
+      if (documentUrl.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i)) {
+        return (
+          <div className="flex justify-center p-4">
+            <img src={documentUrl} alt={selectedDocument?.document_title || 'Document'} className="max-w-full max-h-[600px] object-contain" />
+          </div>
+        );
+      }
+      // For other URLs (Google Docs, etc.)
+      return (
+        <iframe src={documentUrl} className="w-full h-[600px] border-0 rounded-lg" title="Document" />
+      );
+    }
+    
+    // If it's a blob URL
+    if (documentUrl.startsWith('blob:')) {
+      return (
+        <iframe src={documentUrl} className="w-full h-[600px] border-0 rounded-lg" title="Document" />
+      );
+    }
+
+    // If it looks like HTML content
+    if (documentUrl.includes('<html') || documentUrl.includes('<!DOCTYPE')) {
+      return (
+        <iframe srcDoc={documentUrl} className="w-full h-[600px] border-0 rounded-lg" title="Document" />
+      );
+    }
+
+    // Default: show as text
+    return (
+      <div className="bg-white rounded-lg p-6">
+        <pre className="whitespace-pre-wrap font-sans text-sm text-slate-700">
+          {documentUrl}
+        </pre>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <Toaster position="top-right" />
@@ -230,7 +436,6 @@ const SuperAdminRegistry = () => {
         <h2 className="text-sm font-medium text-slate-900 mb-4">Route Document</h2>
         <form onSubmit={handleRoute}>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-
             {/* Select Document */}
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Select Document</label>
@@ -393,7 +598,7 @@ const SuperAdminRegistry = () => {
       {/* ── Modal: View Station Files ─────────────────────────────────────────── */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] flex flex-col">
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <div>
@@ -401,7 +606,7 @@ const SuperAdminRegistry = () => {
                   {getStationName(selectedStationForModal)}
                 </h3>
                 <p className="text-sm text-slate-500">
-                  Documents and files routed to this station
+                  Routed Documents
                 </p>
               </div>
               <button
@@ -425,80 +630,53 @@ const SuperAdminRegistry = () => {
                 </div>
               ) : stationEntries.length === 0 ? (
                 <div className="py-16 text-center text-sm text-slate-400">
-                  No documents or files have been routed to this station yet.
+                  No documents have been routed to this station yet.
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-3">
                   {stationEntries.map((entry) => (
                     <div
                       key={entry.id}
-                      className="p-4 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition"
+                      className="p-4 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition flex items-center justify-between"
                     >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-sm font-medium text-slate-900 truncate">
-                              {entry.document_title}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-3 mb-1">
+                          <span className="text-sm font-medium text-slate-900 truncate">
+                            {entry.document_title}
+                          </span>
+                          {entry.document_ref_no && (
+                            <span className="text-xs text-slate-500 font-mono bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                              #{entry.document_ref_no}
                             </span>
-                            {entry.document_ref_no && (
-                              <span className="text-xs text-slate-500 font-mono bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
-                                #{entry.document_ref_no}
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                            <div className="flex items-center gap-1">
-                              <span className="text-slate-400">Priority:</span>
-                              <span className="font-medium capitalize">
-                                {entry.priority.replace(/_/g, ' ')}
-                              </span>
-                              {entry.priority === 'urgent' && (
-                                <span className="ml-1 text-red-500">🔴</span>
-                              )}
-                              {entry.priority === 'confidential' && (
-                                <span className="ml-1 text-amber-500">🔒</span>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-1">
-                              <span className="text-slate-400">Status:</span>
-                              <span className="font-medium capitalize">
-                                {entry.status.replace(/_/g, ' ')}
-                              </span>
-                            </div>
-
-                            {entry.routed_by_name && (
-                              <div className="flex items-center gap-1">
-                                <span className="text-slate-400">Routed by:</span>
-                                <span className="font-medium">{entry.routed_by_name}</span>
-                              </div>
-                            )}
-
-                            <div className="flex items-center gap-1">
-                              <span className="text-slate-400">Routed:</span>
-                              <span className="font-medium">{formatDate(entry.routed_at)}</span>
-                            </div>
-
-                            {entry.received_at && (
-                              <div className="flex items-center gap-1">
-                                <span className="text-slate-400">Received:</span>
-                                <span className="font-medium text-green-600">
-                                  {formatDate(entry.received_at)}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-
-                          {entry.note && (
-                            <div className="mt-2 p-2 bg-slate-50 rounded border border-slate-100">
-                              <span className="text-xs text-slate-500 italic">
-                                📝 {entry.note}
-                              </span>
-                            </div>
+                          )}
+                          {entry.priority === 'urgent' && (
+                            <span className="text-xs text-red-500 font-medium">🔴 Urgent</span>
+                          )}
+                          {entry.priority === 'confidential' && (
+                            <span className="text-xs text-amber-500 font-medium">🔒 Confidential</span>
+                          )}
+                        </div>
+                        
+                        <div className="flex items-center gap-4 text-xs text-slate-500">
+                          <span>
+                            Routed: {formatDate(entry.routed_at)}
+                          </span>
+                          {entry.routed_by_name && (
+                            <span>
+                              By: {entry.routed_by_name}
+                            </span>
                           )}
                         </div>
                       </div>
+
+                      {/* View Document Button */}
+                      <button
+                        onClick={() => handleViewDocument(entry)}
+                        className="ml-4 px-3 py-1.5 text-xs font-medium text-white rounded-md transition hover:opacity-80"
+                        style={{ background: '#8B6914' }}
+                      >
+                        View Document
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -509,13 +687,112 @@ const SuperAdminRegistry = () => {
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-500">
-                  {stationEntries.length} document{stationEntries.length !== 1 ? 's' : ''} found
+                  {stationEntries.length} document{stationEntries.length !== 1 ? 's' : ''} routed
                 </span>
                 <button
                   onClick={closeModal}
                   className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
                 >
                   Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Document View Modal ──────────────────────────────────────────────── */}
+      {isDocViewModalOpen && selectedDocument && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+            {/* Document View Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+              <div>
+                <h3 className="text-lg font-medium text-slate-900">
+                  {selectedDocument.document_title}
+                </h3>
+                <div className="flex items-center gap-3 mt-1">
+                  {selectedDocument.document_ref_no && (
+                    <span className="text-sm text-slate-500">
+                      Ref: #{selectedDocument.document_ref_no}
+                    </span>
+                  )}
+                  <span className="text-sm text-slate-500">
+                    Routed: {formatDate(selectedDocument.routed_at)}
+                  </span>
+                  {selectedDocument.routed_by_name && (
+                    <span className="text-sm text-slate-500">
+                      By: {selectedDocument.routed_by_name}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={closeDocViewModal}
+                className="text-slate-400 hover:text-slate-600 transition"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Document View Body */}
+            <div className="flex-1 overflow-y-auto px-6 py-4 bg-slate-50">
+              {documentLoading ? (
+                <div className="flex justify-center items-center h-[500px]">
+                  <div className="text-center">
+                    <svg className="animate-spin h-12 w-12 text-amber-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                    <p className="text-slate-500">Loading document...</p>
+                  </div>
+                </div>
+              ) : documentError ? (
+                <div className="flex justify-center items-center h-[500px]">
+                  <div className="text-center">
+                    <div className="text-6xl mb-4">⚠️</div>
+                    <p className="text-red-500 mb-4">{documentError}</p>
+                    <button
+                      onClick={() => handleViewDocument(selectedDocument)}
+                      className="px-4 py-2 text-sm text-white rounded-md hover:opacity-80"
+                      style={{ background: '#8B6914' }}
+                    >
+                      Retry
+                    </button>
+                  </div>
+                </div>
+              ) : documentUrl ? (
+                <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                  {renderDocument()}
+                </div>
+              ) : (
+                <div className="flex justify-center items-center h-[500px]">
+                  <div className="text-center">
+                    <div className="text-6xl mb-4">📄</div>
+                    <p className="text-slate-500">No document content available</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Document View Footer */}
+            <div className="px-6 py-4 border-t border-slate-200 bg-white rounded-b-xl">
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  onClick={closeDocViewModal}
+                  className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={handleDownloadDocument}
+                  disabled={documentLoading || !documentUrl}
+                  className="px-4 py-2 text-sm font-medium text-white rounded-md transition hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ background: '#8B6914' }}
+                >
+                  Download Document
                 </button>
               </div>
             </div>
