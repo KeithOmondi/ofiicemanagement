@@ -185,17 +185,16 @@ export interface CreateComposedDocumentInput {
 }
 
 export interface ComposeMemoInput {
-  title: string;               // subject
-  to: string;                  // recipient
-  date?: string;               // ISO date string, optional (backend defaults to now)
+  title: string;
+  to: string;
+  date?: string;
   body: string;
-  from?: string;               // sender department/office (e.g., "HIGH COURT SUPPORT OFFICE")
-  signatureName?: string;      // The actual person signing (e.g., "Keith Dennis")
-  signatureTitle?: string;     // e.g. "Registrar, High Court"
+  from?: string;
+  signatureName?: string;
+  signatureTitle?: string;
   department_id?: string;
-  reference_no?: string;       // optional user‑provided reference
+  reference_no?: string;
   fromFirst?: boolean;         // (unused, kept for compatibility)
-  // ── NEW: Request Details ──────────────────────────────────────────────
   request_details?: Partial<DocumentRequestDetails>;
 }
 

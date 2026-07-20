@@ -8,6 +8,7 @@ import {
   fetchAllProcurementRequests,
   fetchApprovedProcurement,
   fetchActivityLog,
+  fetchCategories,
   updateStoreRequest,
   updateProcurementRequest,
   markProcurementPurchased,
@@ -25,19 +26,23 @@ import {
   selectInventoryStatsLoading,
   selectPendingStoreRequests,
   selectPendingProcurementRequests,
-  type InventoryCategory,
+  selectCategories,
+  type Category,
+  type StoreRequestStatus,
   type StockStatus,
-  type RequestStatus,
   type Urgency,
   type InventoryItem,
   type StoreRequest,
   type ProcurementRequest,
   type ApprovedProcurementItem,
   type ActivityLogEntry,
+  type UpdateStoreRequestInput,
+  type UpdateProcurementRequestInput,
+  type ProcurementRequestStatus,
 } from "../../store/slices/inventorySlice";
 import { fetchUsers } from "../../store/slices/userSlice";
 import { format, parseISO } from "date-fns";
-import { Eye, X, Check, Loader2 } from "lucide-react";
+import { Eye, X, Check, Loader2, FileText } from "lucide-react";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -53,14 +58,27 @@ const STATUS_BADGE: Record<StockStatus, string> = {
   out_of_stock: "bg-red-100 text-red-700",
 };
 
-const REQUEST_BADGE: Record<RequestStatus, string> = {
+// Full store request statuses
+const STORE_REQUEST_BADGE: Record<StoreRequestStatus, string> = {
   Pending: "bg-amber-100 text-amber-700",
-  Approved: "bg-emerald-100 text-emerald-700",
+  Approved: "bg-blue-100 text-blue-700",
+  Issued: "bg-indigo-100 text-indigo-700",
+  Received: "bg-emerald-100 text-emerald-700",
   Rejected: "bg-red-100 text-red-700",
 };
 
-const STORE_REQUEST_BADGE: Record<RequestStatus, string> = {
+const STORE_REQUEST_LABEL: Record<StoreRequestStatus, string> = {
+  Pending: "Pending",
+  Approved: "Approved",
+  Issued: "Issued",
+  Received: "Received",
+  Rejected: "Rejected",
+};
+
+// Procurement request statuses – now includes Submitted
+const PROCUREMENT_REQUEST_BADGE: Record<ProcurementRequestStatus, string> = {
   Pending: "bg-amber-100 text-amber-700",
+  Submitted: "bg-blue-100 text-blue-700",
   Approved: "bg-emerald-100 text-emerald-700",
   Rejected: "bg-red-100 text-red-700",
 };
@@ -113,10 +131,9 @@ const StatCard: React.FC<{
 
 const CategoryPill: React.FC<{
   label: string;
-  icon?: string;
   active: boolean;
   onClick: () => void;
-}> = ({ label, icon, active, onClick }) => (
+}> = ({ label, active, onClick }) => (
   <button
     onClick={onClick}
     className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
@@ -125,7 +142,6 @@ const CategoryPill: React.FC<{
         : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
     }`}
   >
-    {icon && <span>{icon}</span>}
     {label}
   </button>
 );
@@ -137,8 +153,8 @@ const StoreInventoryTab: React.FC<{
   storeRequests: StoreRequest[];
   activityLog: ActivityLogEntry[];
   loading: boolean;
-  categories: InventoryCategory[];
-  onUpdateStoreRequest: (id: string, input: { status: RequestStatus; rejection_reason?: string }) => void;
+  categories: Category[];
+  onUpdateStoreRequest: (id: string, input: UpdateStoreRequestInput) => void;
   mutating: boolean;
 }> = ({
   items,
@@ -149,25 +165,22 @@ const StoreInventoryTab: React.FC<{
   onUpdateStoreRequest,
   mutating,
 }) => {
-  const [activeCategory, setActiveCategory] = useState<"All" | InventoryCategory>("All");
+  const [activeCategoryId, setActiveCategoryId] = useState<string | "All">("All");
   const [search, setSearch] = useState("");
 
-  const categoryIcons: Record<InventoryCategory, string> = {
-    Furniture: "🪑",
-    "Catering Items": "☕",
-    "Branded Materials": "🏷️",
-    Stationery: "✏️",
-    "Computer Accessories": "🖱️",
-    "ICT Equipment": "💻",
-  };
+  const categoryMap = useMemo(() => {
+    const map: Record<string, Category> = {};
+    categories.forEach(c => map[c.id] = c);
+    return map;
+  }, [categories]);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
-      const matchesCategory = activeCategory === "All" || item.category === activeCategory;
+      const matchesCategory = activeCategoryId === "All" || item.category_id === activeCategoryId;
       const matchesSearch = item.name.toLowerCase().includes(search.toLowerCase());
       return matchesCategory && matchesSearch;
     });
-  }, [items, activeCategory, search]);
+  }, [items, activeCategoryId, search]);
 
   const handleApproveStoreRequest = (id: string) => {
     if (window.confirm("Approve this store request?")) {
@@ -207,14 +220,17 @@ const StoreInventoryTab: React.FC<{
         </div>
 
         <div className="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 overflow-x-auto">
-          <CategoryPill label="All" active={activeCategory === "All"} onClick={() => setActiveCategory("All")} />
+          <CategoryPill
+            label="All"
+            active={activeCategoryId === "All"}
+            onClick={() => setActiveCategoryId("All")}
+          />
           {categories.map((cat) => (
             <CategoryPill
-              key={cat}
-              label={cat}
-              icon={categoryIcons[cat]}
-              active={activeCategory === cat}
-              onClick={() => setActiveCategory(cat)}
+              key={cat.id}
+              label={cat.name}
+              active={activeCategoryId === cat.id}
+              onClick={() => setActiveCategoryId(cat.id)}
             />
           ))}
         </div>
@@ -238,31 +254,34 @@ const StoreInventoryTab: React.FC<{
                   </td>
                 </tr>
               ) : (
-                filteredItems.map((item) => (
-                  <tr key={item.id} className="hover:bg-stone-50 transition-colors">
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-stone-800">{item.name}</p>
-                      {item.subtitle && <p className="text-[11px] text-stone-400">{item.subtitle}</p>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-block text-[11px] font-medium bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
-                        {item.category}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-stone-600">
-                      {item.qty_available} {item.unit}
-                    </td>
-                    <td className="px-4 py-3 text-stone-500 text-xs">
-                      <p>{formatDate(item.updated_at)}</p>
-                      {item.location && <p className="text-stone-400">{item.location}</p>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_BADGE[item.status]}`}>
-                        {STATUS_LABEL[item.status]}
-                      </span>
-                    </td>
-                  </tr>
-                ))
+                filteredItems.map((item) => {
+                  const category = categoryMap[item.category_id];
+                  return (
+                    <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-stone-800">{item.name}</p>
+                        {item.subtitle && <p className="text-[11px] text-stone-400">{item.subtitle}</p>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-block text-[11px] font-medium bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
+                          {category ? category.name : "Unknown"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-stone-600 font-semibold">
+                        {item.qty_available}
+                      </td>
+                      <td className="px-4 py-3 text-stone-500 text-xs">
+                        <p>{formatDate(item.updated_at)}</p>
+                        {item.location && <p className="text-stone-400">{item.location}</p>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_BADGE[item.status]}`}>
+                          {STATUS_LABEL[item.status]}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -291,7 +310,7 @@ const StoreInventoryTab: React.FC<{
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-stone-800">{req.item_name}</p>
                       <p className="text-[11px] text-stone-400">
-                        {req.quantity} {req.unit} · {req.requested_by_name || "Unknown"}
+                        {req.quantity} · {req.requested_by_name || "Unknown"}
                       </p>
                       {req.status === "Rejected" && req.rejection_reason && (
                         <p className="text-[11px] text-red-500 truncate" title={req.rejection_reason}>
@@ -301,7 +320,7 @@ const StoreInventoryTab: React.FC<{
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${STORE_REQUEST_BADGE[req.status]}`}>
-                        {req.status}
+                        {STORE_REQUEST_LABEL[req.status]}
                       </span>
                       {req.status === "Pending" && (
                         <div className="flex gap-1">
@@ -362,14 +381,21 @@ const StoreInventoryTab: React.FC<{
 
 const ProcurementRequestDetailModal: React.FC<{
   request: ProcurementRequest | null;
+  categories: Category[];
   isOpen: boolean;
   onClose: () => void;
   onApprove: (id: string) => void;
   onReject: (id: string) => void;
   mutating: boolean;
-}> = ({ request, isOpen, onClose, onApprove, onReject, mutating }) => {
+}> = ({ request, categories, isOpen, onClose, onApprove, onReject, mutating }) => {
   const [rejectionReason, setRejectionReason] = useState("");
   const [showRejectInput, setShowRejectInput] = useState(false);
+
+  const categoryMap = useMemo(() => {
+    const map: Record<string, Category> = {};
+    categories.forEach(c => map[c.id] = c);
+    return map;
+  }, [categories]);
 
   const handleReject = () => {
     if (showRejectInput && !rejectionReason.trim()) {
@@ -386,6 +412,11 @@ const ProcurementRequestDetailModal: React.FC<{
   };
 
   if (!isOpen || !request) return null;
+
+  const category = categoryMap[request.category_id];
+
+  // Determine if actions (Approve/Reject) should be shown
+  const canApprove = request.status === 'Pending' || request.status === 'Submitted';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -406,19 +437,22 @@ const ProcurementRequestDetailModal: React.FC<{
           {/* Status Banner */}
           <div className={`rounded-lg p-3 flex items-center gap-2 ${
             request.status === 'Pending' ? 'bg-amber-50 border border-amber-200' :
+            request.status === 'Submitted' ? 'bg-blue-50 border border-blue-200' :
             request.status === 'Approved' ? 'bg-emerald-50 border border-emerald-200' :
             'bg-red-50 border border-red-200'
           }`}>
             <span className={`text-sm ${
               request.status === 'Pending' ? 'text-amber-600' :
+              request.status === 'Submitted' ? 'text-blue-600' :
               request.status === 'Approved' ? 'text-emerald-600' :
               'text-red-600'
             }`}>
-              {request.status === 'Pending' ? '⏳' : request.status === 'Approved' ? '✅' : '❌'}
+              {request.status === 'Pending' ? '⏳' : request.status === 'Submitted' ? '📄' : request.status === 'Approved' ? '✅' : '❌'}
             </span>
             <span className="text-sm font-medium">
               Status: <span className={`${
                 request.status === 'Pending' ? 'text-amber-700' :
+                request.status === 'Submitted' ? 'text-blue-700' :
                 request.status === 'Approved' ? 'text-emerald-700' :
                 'text-red-700'
               }`}>{request.status}</span>
@@ -445,13 +479,17 @@ const ProcurementRequestDetailModal: React.FC<{
               <label className="text-xs font-medium text-stone-500">Category</label>
               <p className="text-sm text-stone-700">
                 <span className="inline-block text-[11px] font-medium bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
-                  {request.category}
+                  {category ? category.name : "Unknown"}
                 </span>
               </p>
             </div>
             <div>
               <label className="text-xs font-medium text-stone-500">Quantity</label>
-              <p className="text-sm font-semibold text-stone-900">{request.quantity} {request.unit}</p>
+              <p className="text-sm font-semibold text-stone-900">{request.quantity}</p>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-stone-500">Units Requested</label>
+              <p className="text-sm text-stone-700">{request.unit}</p>
             </div>
             <div>
               <label className="text-xs font-medium text-stone-500">Urgency</label>
@@ -472,12 +510,43 @@ const ProcurementRequestDetailModal: React.FC<{
                 {request.estimated_unit_cost ? formatKes(request.estimated_unit_cost * request.quantity) : 'N/A'}
               </p>
             </div>
+            <div>
+              <label className="text-xs font-medium text-stone-500">Restock?</label>
+              <p className="text-sm text-stone-700">
+                {request.is_restock ? (
+                  <span className="text-blue-600 font-medium">Yes (restock existing)</span>
+                ) : (
+                  <span className="text-stone-500">New item</span>
+                )}
+              </p>
+            </div>
+            {request.is_restock && request.inventory_item_id && (
+              <div>
+                <label className="text-xs font-medium text-stone-500">Inventory Item ID</label>
+                <p className="text-sm text-stone-700 font-mono text-[11px]">{request.inventory_item_id}</p>
+              </div>
+            )}
             <div className="col-span-2">
               <label className="text-xs font-medium text-stone-500">Justification</label>
               <p className="text-sm text-stone-700 bg-stone-50 p-3 rounded-lg border border-stone-100">
                 {request.justification}
               </p>
             </div>
+            {/* Memo URL section */}
+            {request.memo_url && (
+              <div className="col-span-2">
+                <label className="text-xs font-medium text-stone-500">Memo Document</label>
+                <a
+                  href={request.memo_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 text-sm text-blue-600 hover:underline"
+                >
+                  <FileText size={16} />
+                  View Memo
+                </a>
+              </div>
+            )}
             <div>
               <label className="text-xs font-medium text-stone-500">Requested By</label>
               <p className="text-sm text-stone-700">{request.requested_by_name || 'Unknown'}</p>
@@ -489,7 +558,7 @@ const ProcurementRequestDetailModal: React.FC<{
           </div>
 
           {/* Rejection Reason Input */}
-          {request.status === 'Pending' && (
+          {canApprove && (
             <div className="border-t border-stone-100 pt-4">
               {showRejectInput ? (
                 <div className="space-y-2">
@@ -515,7 +584,7 @@ const ProcurementRequestDetailModal: React.FC<{
           >
             Close
           </button>
-          {request.status === 'Pending' && (
+          {canApprove && (
             <div className="flex gap-2">
               {showRejectInput ? (
                 <>
@@ -572,11 +641,18 @@ const ProcurementRequestDetailModal: React.FC<{
 
 const ProcurementRequestsTab: React.FC<{
   requests: ProcurementRequest[];
-  onUpdateRequest: (id: string, input: { status: RequestStatus; rejection_reason?: string }) => void;
+  categories: Category[];
+  onUpdateRequest: (id: string, input: UpdateProcurementRequestInput) => void;
   mutating: boolean;
-}> = ({ requests, onUpdateRequest, mutating }) => {
+}> = ({ requests, categories, onUpdateRequest, mutating }) => {
   const [selectedRequest, setSelectedRequest] = useState<ProcurementRequest | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+
+  const categoryMap = useMemo(() => {
+    const map: Record<string, Category> = {};
+    categories.forEach(c => map[c.id] = c);
+    return map;
+  }, [categories]);
 
   const handleViewDetails = (request: ProcurementRequest) => {
     setSelectedRequest(request);
@@ -600,7 +676,7 @@ const ProcurementRequestsTab: React.FC<{
     setSelectedRequest(null);
   };
 
-  const pendingCount = requests.filter(r => r.status === "Pending").length;
+  const pendingCount = requests.filter(r => r.status === "Pending" || r.status === "Submitted").length;
 
   return (
     <>
@@ -625,86 +701,109 @@ const ProcurementRequestsTab: React.FC<{
           <div className="px-4 py-10 text-center text-stone-400 text-sm">No requests to show.</div>
         ) : (
           <div className="divide-y divide-stone-50">
-            {requests.map((req) => (
-              <div key={req.id} className="px-4 py-3 flex items-start justify-between gap-3 hover:bg-stone-50 transition-colors">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="font-medium text-stone-800 text-sm">{req.item_name}</p>
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${REQUEST_BADGE[req.status]}`}>
-                      {req.status}
-                    </span>
+            {requests.map((req) => {
+              const category = categoryMap[req.category_id];
+              const isPending = req.status === 'Pending';
+              const isSubmitted = req.status === 'Submitted';
+              return (
+                <div key={req.id} className="px-4 py-3 flex items-start justify-between gap-3 hover:bg-stone-50 transition-colors">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-stone-800 text-sm">{req.item_name}</p>
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${PROCUREMENT_REQUEST_BADGE[req.status]}`}>
+                        {req.status}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-400 mt-0.5">
+                      <span>{req.quantity}</span>
+                      <span>·</span>
+                      <span className="inline-block text-[11px] font-medium bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
+                        {category ? category.name : "Unknown"}
+                      </span>
+                      <span>·</span>
+                      <span className="flex items-center gap-1">
+                        <span className={`w-1.5 h-1.5 rounded-full ${URGENCY_DOT[req.urgency]}`} />
+                        {req.urgency}
+                      </span>
+                      {req.estimated_unit_cost && (
+                        <>
+                          <span>·</span>
+                          <span>{formatKes(req.estimated_unit_cost)}/unit</span>
+                        </>
+                      )}
+                      <span>·</span>
+                      <span className={req.is_restock ? "text-blue-600" : "text-stone-400"}>
+                        {req.is_restock ? "Restock" : "New"}
+                      </span>
+                      {req.memo_url && (
+                        <>
+                          <span>·</span>
+                          <a
+                            href={req.memo_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-600 hover:underline flex items-center gap-1"
+                          >
+                            <FileText size={12} />
+                            Memo
+                          </a>
+                        </>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-stone-400 mt-1 line-clamp-1 max-w-md">
+                      {req.justification}
+                    </p>
+                    <p className="text-[11px] text-stone-400 mt-0.5">
+                      Requested by {req.requested_by_name || "Unknown"} on {formatDate(req.created_at)}
+                    </p>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-stone-400 mt-0.5">
-                    <span>{req.quantity} {req.unit}</span>
-                    <span>·</span>
-                    <span className="inline-block text-[11px] font-medium bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
-                      {req.category}
-                    </span>
-                    <span>·</span>
-                    <span className="flex items-center gap-1">
-                      <span className={`w-1.5 h-1.5 rounded-full ${URGENCY_DOT[req.urgency]}`} />
-                      {req.urgency}
-                    </span>
-                    {req.estimated_unit_cost && (
-                      <>
-                        <span>·</span>
-                        <span>{formatKes(req.estimated_unit_cost)}/unit</span>
-                      </>
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <button
+                      onClick={() => handleViewDetails(req)}
+                      className="text-[10px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                    >
+                      <Eye size={14} />
+                      View
+                    </button>
+                    {(isPending || isSubmitted) && (
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => {
+                            if (window.confirm("Approve this procurement request?")) {
+                              onUpdateRequest(req.id, { status: "Approved" });
+                            }
+                          }}
+                          disabled={mutating}
+                          className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded hover:bg-emerald-200 disabled:opacity-50"
+                        >
+                          ✅ Approve
+                        </button>
+                        <button
+                          onClick={() => {
+                            const reason = window.prompt("Enter rejection reason:");
+                            if (reason !== null) {
+                              onUpdateRequest(req.id, { status: "Rejected", rejection_reason: reason || undefined });
+                            }
+                          }}
+                          disabled={mutating}
+                          className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded hover:bg-red-200 disabled:opacity-50"
+                        >
+                          ❌ Reject
+                        </button>
+                      </div>
+                    )}
+                    {req.status === "Approved" && (
+                      <span className="text-[10px] text-emerald-600 font-medium">✓ Approved</span>
+                    )}
+                    {req.status === "Rejected" && req.rejection_reason && (
+                      <span className="text-[10px] text-red-500 max-w-[150px] truncate" title={req.rejection_reason}>
+                        Reason: {req.rejection_reason}
+                      </span>
                     )}
                   </div>
-                  <p className="text-[11px] text-stone-400 mt-1 line-clamp-1 max-w-md">
-                    {req.justification}
-                  </p>
-                  <p className="text-[11px] text-stone-400 mt-0.5">
-                    Requested by {req.requested_by_name || "Unknown"} on {formatDate(req.created_at)}
-                  </p>
                 </div>
-                <div className="flex flex-col items-end gap-1.5 shrink-0">
-                  <button
-                    onClick={() => handleViewDetails(req)}
-                    className="text-[10px] text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
-                  >
-                    <Eye size={14} />
-                    View
-                  </button>
-                  {req.status === "Pending" && (
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => {
-                          if (window.confirm("Approve this procurement request?")) {
-                            onUpdateRequest(req.id, { status: "Approved" });
-                          }
-                        }}
-                        disabled={mutating}
-                        className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded hover:bg-emerald-200 disabled:opacity-50"
-                      >
-                        ✅ Approve
-                      </button>
-                      <button
-                        onClick={() => {
-                          const reason = window.prompt("Enter rejection reason:");
-                          if (reason !== null) {
-                            onUpdateRequest(req.id, { status: "Rejected", rejection_reason: reason || undefined });
-                          }
-                        }}
-                        disabled={mutating}
-                        className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded hover:bg-red-200 disabled:opacity-50"
-                      >
-                        ❌ Reject
-                      </button>
-                    </div>
-                  )}
-                  {req.status === "Approved" && (
-                    <span className="text-[10px] text-emerald-600 font-medium">✓ Approved</span>
-                  )}
-                  {req.status === "Rejected" && req.rejection_reason && (
-                    <span className="text-[10px] text-red-500 max-w-[150px] truncate" title={req.rejection_reason}>
-                      Reason: {req.rejection_reason}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -712,6 +811,7 @@ const ProcurementRequestsTab: React.FC<{
       {/* Detail Modal */}
       <ProcurementRequestDetailModal
         request={selectedRequest}
+        categories={categories}
         isOpen={isModalOpen}
         onClose={handleCloseModal}
         onApprove={handleApprove}
@@ -726,9 +826,16 @@ const ProcurementRequestsTab: React.FC<{
 
 const ProcurementListTab: React.FC<{
   rows: ApprovedProcurementItem[];
+  categories: Category[];
   onMarkPurchased: (id: string) => void;
   mutating: boolean;
-}> = ({ rows, onMarkPurchased, mutating }) => {
+}> = ({ rows, categories, onMarkPurchased, mutating }) => {
+  const categoryMap = useMemo(() => {
+    const map: Record<string, Category> = {};
+    categories.forEach(c => map[c.id] = c);
+    return map;
+  }, [categories]);
+
   const total = useMemo(
     () => rows.reduce((sum, r) => sum + r.total_cost_kes, 0),
     [rows]
@@ -776,42 +883,45 @@ const ProcurementListTab: React.FC<{
                 </td>
               </tr>
             ) : (
-              rows.map((row, idx) => (
-                <tr key={row.id} className="hover:bg-stone-50 transition-colors">
-                  <td className="px-4 py-3 text-stone-400">{idx + 1}</td>
-                  <td className="px-4 py-3 font-medium text-stone-800">{row.item_name}</td>
-                  <td className="px-4 py-3">
-                    <span className="inline-block text-[11px] font-medium bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
-                      {row.category}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-stone-600">{row.quantity}</td>
-                  <td className="px-4 py-3 text-stone-600">{row.unit}</td>
-                  <td className="px-4 py-3 text-stone-600">{row.unit_cost_kes.toLocaleString("en-KE")}</td>
-                  <td className="px-4 py-3 font-medium text-stone-800">
-                    {row.total_cost_kes.toLocaleString("en-KE")}
-                  </td>
-                  <td className="px-4 py-3 text-stone-500 text-xs">{row.requested_by_name || "Unknown"}</td>
-                  <td className="px-4 py-3">
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                      row.is_purchased ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
-                    }`}>
-                      {row.is_purchased ? "Purchased" : "Pending"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {!row.is_purchased && (
-                      <button
-                        onClick={() => onMarkPurchased(row.id)}
-                        disabled={mutating}
-                        className="text-xs bg-[#1E4620] text-white px-2 py-1 rounded hover:bg-[#163a18] disabled:opacity-50"
-                      >
-                        Mark Purchased
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))
+              rows.map((row, idx) => {
+                const category = categoryMap[row.category_id];
+                return (
+                  <tr key={row.id} className="hover:bg-stone-50 transition-colors">
+                    <td className="px-4 py-3 text-stone-400">{idx + 1}</td>
+                    <td className="px-4 py-3 font-medium text-stone-800">{row.item_name}</td>
+                    <td className="px-4 py-3">
+                      <span className="inline-block text-[11px] font-medium bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
+                        {category ? category.name : "Unknown"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-stone-600">{row.quantity}</td>
+                    <td className="px-4 py-3 text-stone-600">{row.unit}</td>
+                    <td className="px-4 py-3 text-stone-600">{row.unit_cost_kes.toLocaleString("en-KE")}</td>
+                    <td className="px-4 py-3 font-medium text-stone-800">
+                      {row.total_cost_kes.toLocaleString("en-KE")}
+                    </td>
+                    <td className="px-4 py-3 text-stone-500 text-xs">{row.requested_by_name || "Unknown"}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                        row.is_purchased ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                      }`}>
+                        {row.is_purchased ? "Purchased" : "Pending"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {!row.is_purchased && (
+                        <button
+                          onClick={() => onMarkPurchased(row.id)}
+                          disabled={mutating}
+                          className="text-xs bg-[#1E4620] text-white px-2 py-1 rounded hover:bg-[#163a18] disabled:opacity-50"
+                        >
+                          Mark Purchased
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
           {rows.length > 0 && (
@@ -836,15 +946,6 @@ const ProcurementListTab: React.FC<{
 
 type TabKey = "store" | "requests" | "list";
 
-const CATEGORIES: InventoryCategory[] = [
-  "Furniture",
-  "Catering Items",
-  "Branded Materials",
-  "Stationery",
-  "Computer Accessories",
-  "ICT Equipment",
-];
-
 const SuperAdminInventory: React.FC = () => {
   const dispatch = useAppDispatch();
 
@@ -854,6 +955,7 @@ const SuperAdminInventory: React.FC = () => {
   const procurementRequests = useAppSelector(selectProcurementRequests);
   const approvedProcurement = useAppSelector(selectApprovedProcurement);
   const activityLog = useAppSelector(selectActivityLog);
+  const categories = useAppSelector(selectCategories);
   const error = useAppSelector(selectInventoryError);
   const success = useAppSelector(selectInventorySuccess);
 
@@ -882,6 +984,7 @@ const SuperAdminInventory: React.FC = () => {
     dispatch(fetchApprovedProcurement());
     dispatch(fetchActivityLog(50));
     dispatch(fetchUsers({ limit: 100, is_active: true }));
+    dispatch(fetchCategories());
   }, [dispatch]);
 
   // ── Clear success/error ────────────────────────────────────────────────────
@@ -900,14 +1003,9 @@ const SuperAdminInventory: React.FC = () => {
   }, [error, dispatch]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
-
-  // Store requests: approve/reject. Mirrors the procurement-request handler
-  // below — both refresh stats + activity log so the dashboard stays in sync,
-  // since the slice only auto-recomputes pending counts locally, not totals
-  // that depend on cross-cutting stats.
   const handleUpdateStoreRequest = useCallback((
     id: string,
-    input: { status: RequestStatus; rejection_reason?: string }
+    input: UpdateStoreRequestInput
   ) => {
     dispatch(updateStoreRequest({ id, input })).unwrap().then(() => {
       dispatch(fetchAllStoreRequests());
@@ -918,7 +1016,7 @@ const SuperAdminInventory: React.FC = () => {
 
   const handleUpdateProcurementRequest = useCallback((
     id: string,
-    input: { status: RequestStatus; rejection_reason?: string }
+    input: UpdateProcurementRequestInput
   ) => {
     dispatch(updateProcurementRequest({ id, input })).unwrap().then(() => {
       dispatch(fetchAllProcurementRequests());
@@ -1070,7 +1168,7 @@ const SuperAdminInventory: React.FC = () => {
             storeRequests={storeRequests}
             activityLog={activityLog}
             loading={loadingItems}
-            categories={CATEGORIES}
+            categories={categories}
             onUpdateStoreRequest={handleUpdateStoreRequest}
             mutating={mutating}
           />
@@ -1078,6 +1176,7 @@ const SuperAdminInventory: React.FC = () => {
         {activeTab === "requests" && (
           <ProcurementRequestsTab
             requests={procurementRequests}
+            categories={categories}
             onUpdateRequest={handleUpdateProcurementRequest}
             mutating={mutating}
           />
@@ -1085,6 +1184,7 @@ const SuperAdminInventory: React.FC = () => {
         {activeTab === "list" && (
           <ProcurementListTab
             rows={approvedProcurement}
+            categories={categories}
             onMarkPurchased={handleMarkPurchased}
             mutating={mutating}
           />

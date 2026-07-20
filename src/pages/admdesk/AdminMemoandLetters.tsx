@@ -817,45 +817,64 @@ const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
   );
 };
 
-// (12) MemoDisplay - For displaying memos properly
+// (12) MemoDisplay - For displaying/editing memos.
+//
+// FIX: this used to read `document.assigned_to_name` / `document.department_name`
+// as the TO / FROM values — those are unrelated workflow fields (who the
+// document is currently assigned to, and its department), NOT what the user
+// typed into the TO/FROM inputs in TemplateComposerModal. The actual typed
+// values live in `document.to_recipient` / `document.from_sender` (populated
+// by generateMemo()/saveDocument() on the backend, and read correctly by
+// regeneratePdf() for the PDF). This component simply never looked at them.
+//
+// It now (a) reads the correct columns for display, and (b) — mirroring
+// LetterDisplay — accepts lifted field state so a super admin can edit
+// TO/FROM directly, with edits saved back via the same
+// to_recipient/from_sender columns instead of being silently dropped.
+interface MemoFields {
+  to: string;
+  from: string;
+}
+
 interface MemoDisplayProps {
   document: Document;
   isEditable: boolean;
+  canEditFields: boolean;
+  fields: MemoFields;
+  onFieldChange: (field: keyof MemoFields, value: string) => void;
+  onFieldBlur: () => void;
   editorRef: React.RefObject<HTMLDivElement | null>;
   handleInput: () => void;
   handleManualSave: () => void;
   currentUserName: string;
 }
 
+const memoEditableFieldClasses =
+  'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none';
+
 const MemoDisplay: React.FC<MemoDisplayProps> = ({
   document,
   isEditable,
+  canEditFields,
+  fields,
+  onFieldChange,
+  onFieldBlur,
   editorRef,
   handleInput,
   handleManualSave,
   currentUserName,
 }) => {
-  // Parse memo data from document body or use defaults
-  const memoData = useMemo(() => {
-    try {
-      // If the body contains JSON data, parse it
-      if (document.body?.startsWith('{')) {
-        return JSON.parse(document.body);
-      }
-    } catch {
-      // If parsing fails, use defaults
-    }
-    
-    // Default memo data structure
+  // Everything except to/from (which now come from lifted `fields` state,
+  // sourced from document.to_recipient/from_sender) still falls back to
+  // sensible defaults the same way it did before.
+  const memoMeta = useMemo(() => {
     return {
-      to: document.assigned_to_name || 'REGISTRAR, HIGH COURT / ORHC AIE HOLDER',
-      from: document.department_name || 'HIGH COURT SUPPORT OFFICE',
       ref: document.reference_no || 'RHC/AIE/0000',
       date: document.created_at ? format(new Date(document.created_at), "dd MMM yyyy") : format(new Date(), "dd MMM yyyy"),
       subject: document.title,
       body: document.body || '',
-      signatureName: currentUserName || 'HIGH COURT SUPPORT OFFICE',
-      signatureTitle: 'Registrar, High Court',
+      signatureName: document.signature_name || currentUserName || 'HIGH COURT SUPPORT OFFICE',
+      signatureTitle: document.signature_title || 'Registrar, High Court',
     };
   }, [document, currentUserName]);
 
@@ -888,27 +907,45 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
         <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
           <span className="w-24 shrink-0 uppercase">TO</span>
           <span className="w-5 shrink-0">:</span>
-          <span className="flex-1">{memoData.to}</span>
+          {canEditFields ? (
+            <input
+              value={fields.to}
+              onChange={(e) => onFieldChange('to', e.target.value)}
+              onBlur={onFieldBlur}
+              className={memoEditableFieldClasses}
+            />
+          ) : (
+            <span className="flex-1">{fields.to}</span>
+          )}
         </div>
         <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
           <span className="w-24 shrink-0 uppercase">FROM</span>
           <span className="w-5 shrink-0">:</span>
-          <span className="flex-1">{memoData.from}</span>
+          {canEditFields ? (
+            <input
+              value={fields.from}
+              onChange={(e) => onFieldChange('from', e.target.value)}
+              onBlur={onFieldBlur}
+              className={memoEditableFieldClasses}
+            />
+          ) : (
+            <span className="flex-1">{fields.from}</span>
+          )}
         </div>
         <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
           <span className="w-24 shrink-0 uppercase">REF</span>
           <span className="w-5 shrink-0">:</span>
-          <span className="flex-1">{memoData.ref}</span>
+          <span className="flex-1">{memoMeta.ref}</span>
         </div>
         <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
           <span className="w-24 shrink-0 uppercase">DATE</span>
           <span className="w-5 shrink-0">:</span>
-          <span className="flex-1">{memoData.date}</span>
+          <span className="flex-1">{memoMeta.date}</span>
         </div>
         <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
           <span className="w-24 shrink-0 uppercase">SUBJECT</span>
           <span className="w-5 shrink-0">:</span>
-          <span className="flex-1">{memoData.subject}</span>
+          <span className="flex-1">{memoMeta.subject}</span>
         </div>
       </div>
       
@@ -923,16 +960,16 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
         onBlur={handleManualSave}
         data-placeholder="Start typing the body of the memo…"
         className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
-        dangerouslySetInnerHTML={{ __html: memoData.body || '' }}
+        dangerouslySetInnerHTML={{ __html: memoMeta.body || '' }}
       />
       
-      {/* ✅ Signatory section - properly separated from FROM field */}
+      {/* Signatory section - properly separated from FROM field */}
       <div className="mt-10">
         <div className="font-bold uppercase text-[13.5px]">
-          {memoData.signatureName}
+          {memoMeta.signatureName}
         </div>
         <div className="font-bold underline uppercase text-[13.5px]">
-          {memoData.signatureTitle}
+          {memoMeta.signatureTitle}
         </div>
       </div>
       
@@ -1150,10 +1187,17 @@ const SAVE_LABEL: Record<SaveState, string> = {
   error: "Failed to save · click Save to retry",
 };
 
+// FIX: `to` renamed to `to_recipient` and `from_sender` added, to match the
+// column names UpdateDocumentInput/DocumentService.update() actually read
+// on the backend (see documents.service.ts: `input.to_recipient`,
+// `input.from_sender`). The previous key `to` was never recognized there,
+// so any TO edit was silently ignored — it looked like it saved (no error
+// was thrown) but never persisted.
 interface DocumentUpdatePayload {
   body?: string;
   reference_no?: string;
-  to?: string;
+  to_recipient?: string;
+  from_sender?: string;
   cc?: string;
   enclosures?: string;
   signature_name?: string;
@@ -1193,10 +1237,13 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const isComposed = (document.type === "memo" || document.type === "letter") && !isFileBased;
   const isEditable = !!onSave && !isFileBased;
   const isLetter = document.type === "letter";
+  const isMemo = document.type === "memo";
   // Super admins can edit the full letter field set (Ref/To/CC/Enclosures/
   // Signatory), not just the body — everyone else only ever sees the body
   // as editable, matching the previous behaviour.
   const canEditLetterFields = isSuperAdmin && isLetter && isEditable;
+  // Same idea for memos: TO/FROM are editable by super admins only.
+  const canEditMemoFields = isSuperAdmin && isMemo && isEditable;
   const formattedDate = document.created_at
     ? format(new Date(document.created_at), "dd MMM yyyy")
     : "—";
@@ -1222,22 +1269,32 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     document.body ? document.body.split(/\s+/).filter(Boolean).length : 0,
   );
 
+  // Memo TO/FROM field state (super-admin editable). Sourced from the
+  // actual persisted columns — document.to_recipient / document.from_sender
+  // — not assigned_to_name/department_name, with the same defaults the
+  // composer (TemplateComposerModal) starts new memos with.
+  const [memoFields, setMemoFields] = useState<MemoFields>(() => ({
+    to: document.to_recipient || 'REGISTRAR, HIGH COURT / ORHC AIE HOLDER',
+    from: document.from_sender || 'HIGH COURT SUPPORT OFFICE',
+  }));
+
   // Letter metadata field state (super-admin editable). Falls back to
   // whatever the document already has, or sensible defaults matching
   // what the composer used at creation time.
   const [letterFields, setLetterFields] = useState<LetterFields>(() => ({
     ref: document.reference_no ?? "",
     date: formattedDate,
-    to: (document as unknown as { to?: string }).to ?? "",
-    cc: (document as unknown as { cc?: string }).cc ?? "",
-    enclosures: (document as unknown as { enclosures?: string }).enclosures ?? "",
-    signatureName:
-      (document as unknown as { signature_name?: string }).signature_name ??
-      currentUserName,
-    signatureTitle:
-      (document as unknown as { signature_title?: string }).signature_title ??
-      "Registrar, High Court",
+    to: document.to_recipient ?? "",
+    cc: document.cc ?? "",
+    enclosures: document.enclosures ?? "",
+    signatureName: document.signature_name ?? currentUserName,
+    signatureTitle: document.signature_title ?? "Registrar, High Court",
   }));
+
+  const handleMemoFieldChange = (field: keyof MemoFields, value: string) => {
+    setMemoFields((prev) => ({ ...prev, [field]: value }));
+    setSaveState("unsaved");
+  };
 
   const handleLetterFieldChange = (field: keyof LetterFields, value: string) => {
     setLetterFields((prev) => ({ ...prev, [field]: value }));
@@ -1261,31 +1318,40 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     [onSave, document.id],
   );
 
-  const letterFieldPayload = useCallback(
-    (): DocumentUpdatePayload | undefined =>
-      canEditLetterFields
-        ? {
-            reference_no: letterFields.ref,
-            to: letterFields.to,
-            cc: letterFields.cc,
-            enclosures: letterFields.enclosures,
-            signature_name: letterFields.signatureName,
-            signature_title: letterFields.signatureTitle,
-          }
-        : undefined,
-    [canEditLetterFields, letterFields],
-  );
+  // Builds the extra-fields portion of the save payload for whichever
+  // document type is currently being edited, using the correct backend
+  // column names (to_recipient/from_sender) rather than the mismatched
+  // `to` key the letter path used previously.
+  const extraFieldsPayload = useCallback((): DocumentUpdatePayload | undefined => {
+    if (canEditMemoFields) {
+      return {
+        to_recipient: memoFields.to,
+        from_sender: memoFields.from,
+      };
+    }
+    if (canEditLetterFields) {
+      return {
+        reference_no: letterFields.ref,
+        to_recipient: letterFields.to,
+        cc: letterFields.cc,
+        enclosures: letterFields.enclosures,
+        signature_name: letterFields.signatureName,
+        signature_title: letterFields.signatureTitle,
+      };
+    }
+    return undefined;
+  }, [canEditMemoFields, memoFields, canEditLetterFields, letterFields]);
 
   const scheduleAutosave = useCallback(
     (html: string) => {
       setSaveState("unsaved");
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
       debounceTimer.current = setTimeout(
-        () => persist(html, letterFieldPayload()),
+        () => persist(html, extraFieldsPayload()),
         1500,
       );
     },
-    [persist, letterFieldPayload],
+    [persist, extraFieldsPayload],
   );
 
   const handleInput = () => {
@@ -1299,16 +1365,16 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const handleManualSave = useCallback(() => {
     if (!editorRef.current) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    persist(editorRef.current.innerHTML, letterFieldPayload());
-  }, [persist, letterFieldPayload]);
+    persist(editorRef.current.innerHTML, extraFieldsPayload());
+  }, [persist, extraFieldsPayload]);
 
-  // Field edits (Ref/To/CC/Enclosures/Signatory) save on blur rather than
-  // per-keystroke, since they're plain inputs rather than the debounced
-  // contentEditable body.
-  const handleLetterFieldBlur = useCallback(() => {
+  // Field edits (TO/FROM, Ref/CC/Enclosures/Signatory) save on blur rather
+  // than per-keystroke, since they're plain inputs rather than the
+  // debounced contentEditable body.
+  const handleFieldBlur = useCallback(() => {
     if (!editorRef.current) return;
-    persist(editorRef.current.innerHTML, letterFieldPayload());
-  }, [persist, letterFieldPayload]);
+    persist(editorRef.current.innerHTML, extraFieldsPayload());
+  }, [persist, extraFieldsPayload]);
 
   useEffect(() => {
     return () => {
@@ -1395,7 +1461,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
               {document.original_name}
             </span>
           )}
-          {canEditLetterFields && (
+          {(canEditLetterFields || canEditMemoFields) && (
             <span className="text-[9px] font-semibold text-[#1E4620] bg-[#1E4620]/10 px-1.5 py-0.5 rounded hidden sm:inline">
               Full edit access
             </span>
@@ -1707,6 +1773,10 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 <MemoDisplay 
                   document={document}
                   isEditable={isEditable}
+                  canEditFields={canEditMemoFields}
+                  fields={memoFields}
+                  onFieldChange={handleMemoFieldChange}
+                  onFieldBlur={handleFieldBlur}
                   editorRef={editorRef}
                   handleInput={handleInput}
                   handleManualSave={handleManualSave}
@@ -1719,7 +1789,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   canEditFields={canEditLetterFields}
                   fields={letterFields}
                   onFieldChange={handleLetterFieldChange}
-                  onFieldBlur={handleLetterFieldBlur}
+                  onFieldBlur={handleFieldBlur}
                   editorRef={editorRef}
                   handleInput={handleInput}
                   handleManualSave={handleManualSave}
@@ -2034,16 +2104,20 @@ const AdminMemoandLetters: React.FC = () => {
     dispatch(fetchDocuments(params));
   };
 
-  // Accepts the body plus, for super admins editing a letter's field set,
-  // the extra reference/to/cc/enclosures/signature fields. Both are just
-  // spread into the update input — the backend's UpdateDocumentInput is
-  // a partial patch, so omitted fields are left untouched.
+  // Accepts the body plus, for super admins editing a memo's TO/FROM or a
+  // letter's field set, the extra reference/to_recipient/from_sender/cc/
+  // enclosures/signature fields. All are just spread into the update
+  // input — the backend's UpdateDocumentInput is a partial patch, so
+  // omitted fields are left untouched. Field names here (to_recipient,
+  // from_sender) match documents.service.ts's UPDATE column names exactly;
+  // previously this used `to`, which the backend silently ignored.
   const handleSaveBody = async (
     id: string,
     updates: {
       body?: string;
       reference_no?: string;
-      to?: string;
+      to_recipient?: string;
+      from_sender?: string;
       cc?: string;
       enclosures?: string;
       signature_name?: string;

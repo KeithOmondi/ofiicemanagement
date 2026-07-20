@@ -6,23 +6,28 @@ import type { AxiosError } from 'axios';
    TYPES
 ============================================================ */
 
-export type InventoryCategory = 
-    | 'Furniture'
-    | 'Catering Items'
-    | 'Branded Materials'
-    | 'Stationery'
-    | 'Computer Accessories'
-    | 'ICT Equipment';
+export interface Category {
+    id: string;
+    name: string;
+    parent_id: string | null;
+    case_code: string | null;
+    colour: string | null;
+    description: string | null;
+    created_at: string;
+    updated_at: string;
+}
 
+export type StoreRequestStatus = 'Pending' | 'Approved' | 'Issued' | 'Received' | 'Rejected';
+export type ProcurementRequestStatus = 'Pending' | 'Submitted' | 'Approved' | 'Rejected';
 export type StockStatus = 'in_stock' | 'low_stock' | 'out_of_stock';
-export type RequestStatus = 'Pending' | 'Approved' | 'Rejected';
 export type Urgency = 'Normal' | 'Urgent' | 'Critical';
 
 export interface InventoryItem {
     id: string;
     name: string;
     subtitle: string | null;
-    category: InventoryCategory;
+    category_id: string;
+    category?: Category;
     qty_available: number;
     unit: string;
     location: string | null;
@@ -43,11 +48,17 @@ export interface StoreRequest {
     reason: string;
     requested_by: string;
     requested_by_name?: string;
-    status: RequestStatus;
+    status: StoreRequestStatus;
     approved_by: string | null;
     approved_by_name?: string;
     approved_at: string | null;
     rejection_reason: string | null;
+    issued_by: string | null;
+    issued_by_name?: string;
+    issued_at: string | null;
+    received_by: string | null;
+    received_by_name?: string;
+    received_at: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -55,7 +66,8 @@ export interface StoreRequest {
 export interface ProcurementRequest {
     id: string;
     item_name: string;
-    category: InventoryCategory;
+    category_id: string;
+    category?: Category;
     quantity: number;
     unit: string;
     estimated_unit_cost: number | null;
@@ -63,11 +75,15 @@ export interface ProcurementRequest {
     urgency: Urgency;
     requested_by: string;
     requested_by_name?: string;
-    status: RequestStatus;
+    status: ProcurementRequestStatus;
     approved_by: string | null;
     approved_by_name?: string;
     approved_at: string | null;
     rejection_reason: string | null;
+    is_restock: boolean;
+    inventory_item_id: string | null;
+    memo_url: string | null;
+    memo_uploaded_at: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -76,7 +92,8 @@ export interface ApprovedProcurementItem {
     id: string;
     procurement_request_id: string;
     item_name: string;
-    category: InventoryCategory;
+    category_id: string;
+    category?: Category;
     quantity: number;
     unit: string;
     unit_cost_kes: number;
@@ -118,7 +135,7 @@ export interface InventoryStats {
 export interface CreateInventoryItemInput {
     name: string;
     subtitle?: string;
-    category: InventoryCategory;
+    category_id: string;
     qty_available?: number;
     unit: string;
     location?: string;
@@ -128,7 +145,7 @@ export interface CreateInventoryItemInput {
 export interface UpdateInventoryItemInput {
     name?: string;
     subtitle?: string | null;
-    category?: InventoryCategory;
+    category_id?: string;
     qty_available?: number;
     unit?: string;
     location?: string | null;
@@ -144,22 +161,24 @@ export interface CreateStoreRequestInput {
 }
 
 export interface UpdateStoreRequestInput {
-    status?: RequestStatus;
+    status?: 'Approved' | 'Rejected';
     rejection_reason?: string;
 }
 
 export interface CreateProcurementRequestInput {
     item_name: string;
-    category: InventoryCategory;
+    category_id: string;
     quantity: number;
     unit: string;
     estimated_unit_cost?: number;
     justification: string;
     urgency?: Urgency;
+    is_restock?: boolean;
+    inventory_item_id?: string;
 }
 
 export interface UpdateProcurementRequestInput {
-    status?: RequestStatus;
+    status?: ProcurementRequestStatus;
     rejection_reason?: string;
     estimated_unit_cost?: number;
 }
@@ -170,9 +189,21 @@ export interface CreateApprovedProcurementInput {
     purchase_reference?: string;
 }
 
+export interface SubmitProcurementMemoInput {
+    to: string;
+    from: string;
+    ref: string;
+    date: string;
+    subject: string;
+    body: string;
+    signatoryName: string;
+    signatorySignature?: string;
+}
+
 interface InventoryState {
     items: InventoryItem[];
     selectedItem: InventoryItem | null;
+    categories: Category[];
     storeRequests: StoreRequest[];
     procurementRequests: ProcurementRequest[];
     approvedProcurement: ApprovedProcurementItem[];
@@ -185,23 +216,21 @@ interface InventoryState {
         approvedProcurement: boolean;
         activityLog: boolean;
         stats: boolean;
+        categories: boolean;
         mutating: boolean;
     };
     error: string | null;
     success: boolean;
     filters: {
-        category: string | null;
+        category_id: string | null;
         status: string | null;
     };
 }
 
-/* ============================================================
-   INITIAL STATE
-============================================================ */
-
 const initialState: InventoryState = {
     items: [],
     selectedItem: null,
+    categories: [],
     storeRequests: [],
     procurementRequests: [],
     approvedProcurement: [],
@@ -214,19 +243,16 @@ const initialState: InventoryState = {
         approvedProcurement: false,
         activityLog: false,
         stats: false,
+        categories: false,
         mutating: false,
     },
     error: null,
     success: false,
     filters: {
-        category: null,
+        category_id: null,
         status: null,
     },
 };
-
-/* ============================================================
-   HELPERS
-============================================================ */
 
 const extractError = (error: unknown): string => {
     const axiosError = error as AxiosError<{ message?: string }>;
@@ -234,7 +260,7 @@ const extractError = (error: unknown): string => {
 };
 
 /* ============================================================
-   THUNKS - STATS
+   THUNKS
 ============================================================ */
 
 export const fetchInventoryStats = createAsyncThunk(
@@ -249,10 +275,6 @@ export const fetchInventoryStats = createAsyncThunk(
     }
 );
 
-/* ============================================================
-   THUNKS - ACTIVITY LOG
-============================================================ */
-
 export const fetchActivityLog = createAsyncThunk(
     'inventory/fetchActivityLog',
     async (limit: number = 50, { rejectWithValue }) => {
@@ -265,15 +287,23 @@ export const fetchActivityLog = createAsyncThunk(
     }
 );
 
-/* ============================================================
-   THUNKS - INVENTORY ITEMS
-============================================================ */
+export const fetchCategories = createAsyncThunk(
+    'inventory/fetchCategories',
+    async (_, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.get('/inventory/categories');
+            return data.data as Category[];
+        } catch (err) {
+            return rejectWithValue(extractError(err));
+        }
+    }
+);
 
 export const fetchInventoryItems = createAsyncThunk(
     'inventory/fetchItems',
-    async ({ category }: { category?: string } = {}, { rejectWithValue }) => {
+    async ({ category_id }: { category_id?: string } = {}, { rejectWithValue }) => {
         try {
-            const url = category ? `/inventory/items?category=${encodeURIComponent(category)}` : '/inventory/items';
+            const url = category_id ? `/inventory/items?category_id=${encodeURIComponent(category_id)}` : '/inventory/items';
             const { data } = await axiosClient.get(url);
             return data.data as InventoryItem[];
         } catch (err) {
@@ -330,9 +360,7 @@ export const deleteInventoryItem = createAsyncThunk(
     }
 );
 
-/* ============================================================
-   THUNKS - STORE REQUESTS
-============================================================ */
+// ─── Store Requests ─────────────────────────────────────────────────────────
 
 export const fetchMyStoreRequests = createAsyncThunk(
     'inventory/fetchMyStoreRequests',
@@ -394,6 +422,30 @@ export const updateStoreRequest = createAsyncThunk(
     }
 );
 
+export const issueStoreRequest = createAsyncThunk(
+    'inventory/issueStoreRequest',
+    async (id: string, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.put(`/inventory/store-requests/${id}/issue`, {});
+            return data.data as StoreRequest;
+        } catch (err) {
+            return rejectWithValue(extractError(err));
+        }
+    }
+);
+
+export const receiveStoreRequest = createAsyncThunk(
+    'inventory/receiveStoreRequest',
+    async (id: string, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.put(`/inventory/store-requests/${id}/receive`, {});
+            return data.data as StoreRequest;
+        } catch (err) {
+            return rejectWithValue(extractError(err));
+        }
+    }
+);
+
 export const deleteStoreRequest = createAsyncThunk(
     'inventory/deleteStoreRequest',
     async (id: string, { rejectWithValue }) => {
@@ -406,9 +458,7 @@ export const deleteStoreRequest = createAsyncThunk(
     }
 );
 
-/* ============================================================
-   THUNKS - PROCUREMENT REQUESTS
-============================================================ */
+// ─── Procurement Requests ────────────────────────────────────────────────────
 
 export const fetchMyProcurementRequests = createAsyncThunk(
     'inventory/fetchMyProcurementRequests',
@@ -482,9 +532,21 @@ export const deleteProcurementRequest = createAsyncThunk(
     }
 );
 
-/* ============================================================
-   THUNKS - APPROVED PROCUREMENT
-============================================================ */
+// ─── Memo Submission ─────────────────────────────────────────────────────────
+
+export const submitProcurementMemo = createAsyncThunk(
+    'inventory/submitProcurementMemo',
+    async ({ id, memoData }: { id: string; memoData: SubmitProcurementMemoInput }, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.post(`/inventory/procurement-requests/${id}/memo`, memoData);
+            return data.data as { memoUrl: string; status: ProcurementRequestStatus };
+        } catch (err) {
+            return rejectWithValue(extractError(err));
+        }
+    }
+);
+
+// ─── Approved Procurement ────────────────────────────────────────────────────
 
 export const fetchApprovedProcurement = createAsyncThunk(
     'inventory/fetchApprovedProcurement',
@@ -546,11 +608,11 @@ const inventorySlice = createSlice({
             state.selectedItem = action.payload;
             state.error = null;
         },
-        setInventoryFilter(state, action: PayloadAction<{ category?: string | null; status?: string | null }>) {
+        setInventoryFilter(state, action: PayloadAction<{ category_id?: string | null; status?: string | null }>) {
             state.filters = { ...state.filters, ...action.payload };
         },
         clearInventoryFilters(state) {
-            state.filters = { category: null, status: null };
+            state.filters = { category_id: null, status: null };
         },
         clearError(state) {
             state.error = null;
@@ -575,11 +637,18 @@ const inventorySlice = createSlice({
         addStoreRequestLocally(state, action: PayloadAction<StoreRequest>) {
             state.storeRequests = [action.payload, ...state.storeRequests];
         },
-        updateStoreRequestStatusLocally(state, action: PayloadAction<{ id: string; status: RequestStatus }>) {
+        updateStoreRequestStatusLocally(state, action: PayloadAction<{ id: string; status: StoreRequestStatus }>) {
             const { id, status } = action.payload;
             const request = state.storeRequests.find(r => r.id === id);
             if (request) {
                 request.status = status;
+            }
+        },
+        // Local update for procurement request (e.g., after memo submission)
+        updateProcurementRequestLocally(state, action: PayloadAction<ProcurementRequest>) {
+            const index = state.procurementRequests.findIndex(r => r.id === action.payload.id);
+            if (index !== -1) {
+                state.procurementRequests[index] = action.payload;
             }
         },
     },
@@ -611,6 +680,24 @@ const inventorySlice = createSlice({
             })
             .addCase(fetchActivityLog.rejected, (state, action) => {
                 state.loading.activityLog = false;
+                state.error = action.payload as string;
+            });
+
+        /* ---------- FETCH CATEGORIES ---------- */
+        builder
+            .addCase(fetchCategories.pending, (state) => {
+                state.loading.categories = true;
+                state.error = null;
+            })
+            .addCase(fetchCategories.fulfilled, (state, action: PayloadAction<Category[]>) => {
+                state.loading.categories = false;
+                const uniqueCategories = Array.from(
+                    new Map(action.payload.map(c => [c.id, c])).values()
+                );
+                state.categories = uniqueCategories;
+            })
+            .addCase(fetchCategories.rejected, (state, action) => {
+                state.loading.categories = false;
                 state.error = action.payload as string;
             });
 
@@ -788,6 +875,63 @@ const inventorySlice = createSlice({
                 state.success = false;
             });
 
+        /* ---------- ISSUE STORE REQUEST ---------- */
+        builder
+            .addCase(issueStoreRequest.pending, (state) => {
+                state.loading.mutating = true;
+                state.error = null;
+                state.success = false;
+            })
+            .addCase(issueStoreRequest.fulfilled, (state, action: PayloadAction<StoreRequest>) => {
+                state.loading.mutating = false;
+                state.success = true;
+                const index = state.storeRequests.findIndex(r => r.id === action.payload.id);
+                if (index !== -1) {
+                    state.storeRequests[index] = action.payload;
+                }
+                const item = state.items.find(i => i.id === action.payload.item_id);
+                if (item) {
+                    const newQty = item.qty_available - action.payload.quantity;
+                    state.items = state.items.map(i =>
+                        i.id === item.id
+                            ? { ...i, qty_available: newQty, status: newQty <= 0 ? 'out_of_stock' : newQty < i.min_stock_threshold ? 'low_stock' : 'in_stock' }
+                            : i
+                    );
+                    if (state.selectedItem?.id === item.id) {
+                        state.selectedItem = { ...state.selectedItem, qty_available: newQty };
+                    }
+                }
+                if (state.stats) {
+                    state.stats.pending_store_requests = state.storeRequests.filter(r => r.status === 'Pending').length;
+                }
+            })
+            .addCase(issueStoreRequest.rejected, (state, action) => {
+                state.loading.mutating = false;
+                state.error = action.payload as string;
+                state.success = false;
+            });
+
+        /* ---------- RECEIVE STORE REQUEST ---------- */
+        builder
+            .addCase(receiveStoreRequest.pending, (state) => {
+                state.loading.mutating = true;
+                state.error = null;
+                state.success = false;
+            })
+            .addCase(receiveStoreRequest.fulfilled, (state, action: PayloadAction<StoreRequest>) => {
+                state.loading.mutating = false;
+                state.success = true;
+                const index = state.storeRequests.findIndex(r => r.id === action.payload.id);
+                if (index !== -1) {
+                    state.storeRequests[index] = action.payload;
+                }
+            })
+            .addCase(receiveStoreRequest.rejected, (state, action) => {
+                state.loading.mutating = false;
+                state.error = action.payload as string;
+                state.success = false;
+            });
+
         /* ---------- DELETE STORE REQUEST ---------- */
         builder
             .addCase(deleteStoreRequest.pending, (state) => {
@@ -899,6 +1043,33 @@ const inventorySlice = createSlice({
                 state.error = action.payload as string;
             });
 
+        /* ---------- SUBMIT PROCUREMENT MEMO ---------- */
+        builder
+            .addCase(submitProcurementMemo.pending, (state) => {
+                state.loading.mutating = true;
+                state.error = null;
+                state.success = false;
+            })
+            .addCase(submitProcurementMemo.fulfilled, (state, action) => {
+                state.loading.mutating = false;
+                state.success = true;
+                const { id } = action.meta.arg;
+                const request = state.procurementRequests.find(r => r.id === id);
+                if (request) {
+                    request.status = 'Submitted';
+                    request.memo_url = action.payload.memoUrl;
+                    request.memo_uploaded_at = new Date().toISOString();
+                }
+                if (state.stats) {
+                    state.stats.pending_procurement_requests = state.procurementRequests.filter(r => r.status === 'Pending').length;
+                }
+            })
+            .addCase(submitProcurementMemo.rejected, (state, action) => {
+                state.loading.mutating = false;
+                state.error = action.payload as string;
+                state.success = false;
+            });
+
         /* ---------- FETCH APPROVED PROCUREMENT ---------- */
         builder
             .addCase(fetchApprovedProcurement.pending, (state) => {
@@ -969,6 +1140,7 @@ export const {
     updateItemQuantityLocally,
     addStoreRequestLocally,
     updateStoreRequestStatusLocally,
+    updateProcurementRequestLocally,
 } = inventorySlice.actions;
 
 /* ============================================================
@@ -977,6 +1149,7 @@ export const {
 
 export const selectInventoryItems = (state: { inventory: InventoryState }) => state.inventory.items;
 export const selectSelectedItem = (state: { inventory: InventoryState }) => state.inventory.selectedItem;
+export const selectCategories = (state: { inventory: InventoryState }) => state.inventory.categories;
 export const selectStoreRequests = (state: { inventory: InventoryState }) => state.inventory.storeRequests;
 export const selectProcurementRequests = (state: { inventory: InventoryState }) => state.inventory.procurementRequests;
 export const selectApprovedProcurement = (state: { inventory: InventoryState }) => state.inventory.approvedProcurement;
@@ -992,10 +1165,11 @@ export const selectProcurementRequestsLoading = (state: { inventory: InventorySt
 export const selectApprovedProcurementLoading = (state: { inventory: InventoryState }) => state.inventory.loading.approvedProcurement;
 export const selectActivityLogLoading = (state: { inventory: InventoryState }) => state.inventory.loading.activityLog;
 export const selectInventoryStatsLoading = (state: { inventory: InventoryState }) => state.inventory.loading.stats;
+export const selectCategoriesLoading = (state: { inventory: InventoryState }) => state.inventory.loading.categories;
 export const selectInventoryMutating = (state: { inventory: InventoryState }) => state.inventory.loading.mutating;
 
-export const selectItemsByCategory = (category: InventoryCategory) => (state: { inventory: InventoryState }) =>
-    state.inventory.items.filter(i => i.category === category);
+export const selectItemsByCategoryId = (categoryId: string) => (state: { inventory: InventoryState }) =>
+    state.inventory.items.filter(i => i.category_id === categoryId);
 
 export const selectItemsByStatus = (status: StockStatus) => (state: { inventory: InventoryState }) =>
     state.inventory.items.filter(i => i.status === status);
@@ -1003,10 +1177,23 @@ export const selectItemsByStatus = (status: StockStatus) => (state: { inventory:
 export const selectPendingStoreRequests = (state: { inventory: InventoryState }) =>
     state.inventory.storeRequests.filter(r => r.status === 'Pending');
 
+export const selectApprovedStoreRequests = (state: { inventory: InventoryState }) =>
+    state.inventory.storeRequests.filter(r => r.status === 'Approved');
+
+export const selectIssuedStoreRequests = (state: { inventory: InventoryState }) =>
+    state.inventory.storeRequests.filter(r => r.status === 'Issued');
+
+export const selectReceivedStoreRequests = (state: { inventory: InventoryState }) =>
+    state.inventory.storeRequests.filter(r => r.status === 'Received');
+
 export const selectPendingProcurementRequests = (state: { inventory: InventoryState }) =>
     state.inventory.procurementRequests.filter(r => r.status === 'Pending');
 
 export const selectApprovedProcurementTotal = (state: { inventory: InventoryState }) =>
     state.inventory.approvedProcurement.reduce((sum, item) => sum + item.total_cost_kes, 0);
+
+// New selector: get a procurement request by ID
+export const selectProcurementRequestById = (id: string) => (state: { inventory: InventoryState }) =>
+    state.inventory.procurementRequests.find(r => r.id === id);
 
 export default inventorySlice.reducer;

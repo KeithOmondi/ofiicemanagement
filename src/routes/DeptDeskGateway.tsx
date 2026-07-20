@@ -67,17 +67,24 @@ import AdminMemoandLetters from '../pages/admdesk/AdminMemoandLetters';
 import HelpdeskStuff from '../pages/staff/HelpdeskStuff';
 import HelpdeskStuffTickets from '../pages/staff/HelpdeskStuffTickets';
 import { getStaffDeptFlags } from '../utils/staffDept';
+import JODashboard from '../pages/JO/JODashboard';
+import JudicialOfficerLayout from '../components/JO/JudicialOfficerLayout';
+import StoreLayout from "../components/store/StoreLayout"
+import StoreDashboard from "../pages/store/StoreDashboard"
+import StoreDocuments from '../pages/store/StoreDocuments';
+import StoreStock from '../pages/store/StoreStock';
 
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
 
-type DeskKey = 'finance' | 'procurement' | 'admin' | 'staff' | 'helpdesk';
+type DeskKey = 'finance' | 'procurement' | 'admin' | 'staff' | 'helpdesk' | 'jo' | 'store';
 
 const resolveDeskKey = (departmentName: string | null | undefined, userRole: string): DeskKey => {
   // If user is staff, they get staff view regardless of department
   if (userRole === 'staff' || userRole === 'viewer') {
     return 'staff';
   }
+
 
   // For department heads, use their department
   if (!departmentName) return 'admin';
@@ -86,6 +93,8 @@ const resolveDeskKey = (departmentName: string | null | undefined, userRole: str
 
   if (lowerName.includes('finance')) return 'finance';
   if (lowerName.includes('procurement')) return 'procurement';
+  if (lowerName.includes('store')) return 'store';
+  if (lowerName === 'jo' || lowerName.includes('judicial officer')) return 'jo';
   if (lowerName.includes('helpdesk') || lowerName.includes('help desk')) return 'helpdesk';
 
   // Default to admin for any other department
@@ -215,6 +224,18 @@ const DeptDeskGateway: React.FC = () => {
     );
   }
 
+  if (deskKey === 'jo') {
+  return (
+    <Routes>
+      <Route element={<JudicialOfficerLayout />}>
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<JODashboard />} />
+      </Route>
+      <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+    </Routes>
+  );
+}
+
   // ── Procurement desk ──────────────────────────────────────────────────────
   if (deskKey === 'procurement') {
     return (
@@ -236,6 +257,20 @@ const DeptDeskGateway: React.FC = () => {
     );
   }
 
+  //----------------------STORE MANAGEMENT---------------------
+if (deskKey === 'store') {
+    return (
+      <Routes>
+        <Route element={<StoreLayout />}>
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<StoreDashboard/>} />
+          <Route path="documents" element={<StoreDocuments/>} />
+          <Route path="inventory" element={<StoreStock/>} />
+        </Route>
+        <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+      </Routes>
+    );
+  }
   // ── Admin / Registry desk (default) ─────────────────────────────────────────
   // Department heads of admin, registry, etc.
   return (

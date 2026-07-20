@@ -8,33 +8,45 @@ import {
   fetchAllProcurementRequests,
   fetchApprovedProcurement,
   fetchActivityLog,
-  createInventoryItem,
-  updateInventoryItem,
-  createProcurementRequest,
-  updateProcurementRequest,  // ← ADD THIS LINE
+  fetchCategories,
+  createStoreRequest,
+  updateProcurementRequest,
+  markProcurementPurchased,
+  receiveStoreRequest,
+  submitProcurementMemo,
   clearError,
   clearSuccess,
-  updateItemQuantityLocally,
   selectInventoryItems,
   selectInventoryStats,
   selectStoreRequests,
   selectProcurementRequests,
+  selectApprovedProcurement,
   selectInventoryError,
   selectInventorySuccess,
   selectInventoryItemsLoading,
   selectInventoryMutating,
   selectInventoryStatsLoading,
   selectProcurementRequestsLoading,
-  type InventoryCategory,
-  type StockStatus,
+  selectCategories,
+  type Category,
+  type StoreRequestStatus,
   type InventoryItem,
   type Urgency,
-  type CreateInventoryItemInput,
-  type UpdateInventoryItemInput,
-  type CreateProcurementRequestInput,
+  type CreateStoreRequestInput,
+  type SubmitProcurementMemoInput,
+  type ProcurementRequestStatus,
 } from "../../store/slices/inventorySlice";
 import { hasRole } from "../../store/slices/authSlice";
 import { format } from "date-fns";
+import {
+  Check,
+  X,
+  Plus,
+  Loader2,
+  XCircle,
+  FileText,
+} from "lucide-react";
+import ProcurementMemoModal from "../../components/modals/Procurementmemomodal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,20 +54,38 @@ type TabKey = "inventory" | "requests" | "procurement";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const STATUS_LABEL: Record<StockStatus, string> = {
+const STATUS_LABEL: Record<"in_stock" | "low_stock" | "out_of_stock", string> = {
   in_stock: "In Stock",
   low_stock: "Low Stock",
   out_of_stock: "Out of Stock",
 };
 
-const STATUS_BADGE: Record<StockStatus, string> = {
+const STATUS_BADGE: Record<"in_stock" | "low_stock" | "out_of_stock", string> = {
   in_stock: "bg-emerald-100 text-emerald-700",
   low_stock: "bg-amber-100 text-amber-700",
   out_of_stock: "bg-red-100 text-red-700",
 };
 
-const REQUEST_BADGE: Record<"Pending" | "Approved" | "Rejected", string> = {
+const REQUEST_BADGE: Record<StoreRequestStatus, string> = {
   Pending: "bg-amber-100 text-amber-700",
+  Approved: "bg-blue-100 text-blue-700",
+  Issued: "bg-indigo-100 text-indigo-700",
+  Received: "bg-emerald-100 text-emerald-700",
+  Rejected: "bg-red-100 text-red-700",
+};
+
+const REQUEST_LABEL: Record<StoreRequestStatus, string> = {
+  Pending: "Pending",
+  Approved: "Approved",
+  Issued: "Issued",
+  Received: "Received",
+  Rejected: "Rejected",
+};
+
+// Procurement status badge (includes Submitted)
+const PROCUREMENT_BADGE: Record<ProcurementRequestStatus, string> = {
+  Pending: "bg-amber-100 text-amber-700",
+  Submitted: "bg-blue-100 text-blue-700",
   Approved: "bg-emerald-100 text-emerald-700",
   Rejected: "bg-red-100 text-red-700",
 };
@@ -66,27 +96,8 @@ const URGENCY_BADGE: Record<Urgency, string> = {
   Critical: "bg-red-100 text-red-700",
 };
 
-const CATEGORIES: InventoryCategory[] = [
-  "Furniture",
-  "Catering Items",
-  "Branded Materials",
-  "Stationery",
-  "Computer Accessories",
-  "ICT Equipment",
-];
-
-const CATEGORY_ICONS: Record<InventoryCategory, string> = {
-  Furniture: "🪑",
-  "Catering Items": "☕",
-  "Branded Materials": "🏷️",
-  Stationery: "✏️",
-  "Computer Accessories": "🖱️",
-  "ICT Equipment": "💻",
-};
-
-const URGENCY_OPTIONS: Urgency[] = ["Normal", "Urgent", "Critical"];
-
-const formatDate = (dateString: string) => {
+const formatDate = (dateString: string | null) => {
+  if (!dateString) return "—";
   try {
     return format(new Date(dateString), "dd MMM yyyy");
   } catch {
@@ -95,41 +106,26 @@ const formatDate = (dateString: string) => {
 };
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
-// Dept Head permissions: can add items, edit items, create procurement requests,
-// view all store requests, view all procurement requests
-// Cannot delete items (super_admin only)
+
 const selectCurrentUser = (state: { auth: { user: Parameters<typeof hasRole>[0] } }) =>
   state.auth.user;
 
-// ─── Sub-Components ──────────────────────────────────────────────────────────
+// ─── UI Helpers ──────────────────────────────────────────────────────────────
 
-const CategoryPill: React.FC<{
-  label: string;
-  icon?: string;
-  active: boolean;
-  onClick: () => void;
-}> = ({ label, icon, active, onClick }) => (
-  <button
-    onClick={onClick}
-    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
-      active
-        ? "bg-[#1E4620] text-white border-[#1E4620]"
-        : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
-    }`}
-  >
-    {icon && <span>{icon}</span>}
-    {label}
-  </button>
-);
-
-const StatusBadge: React.FC<{ status: StockStatus }> = ({ status }) => (
+const StatusBadge: React.FC<{ status: "in_stock" | "low_stock" | "out_of_stock" }> = ({ status }) => (
   <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_BADGE[status]}`}>
     {STATUS_LABEL[status]}
   </span>
 );
 
-const RequestStatusBadge: React.FC<{ status: "Pending" | "Approved" | "Rejected" }> = ({ status }) => (
+const RequestStatusBadge: React.FC<{ status: StoreRequestStatus }> = ({ status }) => (
   <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${REQUEST_BADGE[status]}`}>
+    {REQUEST_LABEL[status]}
+  </span>
+);
+
+const ProcurementStatusBadge: React.FC<{ status: ProcurementRequestStatus }> = ({ status }) => (
+  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${PROCUREMENT_BADGE[status]}`}>
     {status}
   </span>
 );
@@ -149,53 +145,79 @@ const Spinner: React.FC = () => (
 );
 
 const FieldLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <label className="block text-xs font-medium text-stone-500 uppercase tracking-wide mb-1">
+  <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-stone-500">
     {children}
   </label>
 );
+
+const inputClasses =
+  "w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-800 placeholder:text-stone-400 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]";
+
+const CategoryPill: React.FC<{
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}> = ({ label, active, onClick }) => (
+  <button
+    onClick={onClick}
+    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
+      active
+        ? "bg-[#1E4620] text-white border-[#1E4620]"
+        : "bg-white text-stone-600 border-stone-200 hover:bg-stone-50"
+    }`}
+  >
+    {label}
+  </button>
+);
+
+// ─── Shared Modal Component ─────────────────────────────────────────────────
 
 const ModalShell: React.FC<{
   title: string;
   onClose: () => void;
   children: React.ReactNode;
+  footer: React.ReactNode;
   maxWidth?: string;
-}> = ({ title, onClose, children, maxWidth = "max-w-md" }) => (
-  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-    <div className={`bg-white rounded-xl shadow-xl ${maxWidth} w-full p-6 max-h-[90vh] overflow-y-auto`}>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-bold text-stone-900">{title}</h3>
+}> = ({ title, onClose, children, footer, maxWidth = "max-w-lg" }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div className={`max-h-[90vh] w-full ${maxWidth} overflow-hidden rounded-xl bg-white`}>
+      <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
+        <h3 className="text-sm font-semibold text-[#1a3d1c]">{title}</h3>
         <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <X size={20} />
         </button>
       </div>
-      {children}
+      <div className="max-h-[65vh] space-y-4 overflow-y-auto p-4">{children}</div>
+      <div className="flex justify-end gap-2 border-t border-stone-100 px-4 py-3">{footer}</div>
     </div>
   </div>
 );
 
-// ─── Inventory Tab ────────────────────────────────────────────────────────────
+// ─── Inventory Tab ──────────────────────────────────────────────────────────
 
 const InventoryTab: React.FC<{
   items: InventoryItem[];
+  categories: Category[];
   loading: boolean;
-  canManage: boolean;
-  onAddItem: () => void;
-  onEditItem: (item: InventoryItem) => void;
-  onSendForProcurement: (item: InventoryItem) => void;
-}> = ({ items, loading, canManage, onAddItem, onEditItem, onSendForProcurement }) => {
-  const [activeCategory, setActiveCategory] = useState<"All" | InventoryCategory>("All");
+  onRequestItem: (item: InventoryItem) => void;
+}> = ({ items, categories, loading, onRequestItem }) => {
+  const [activeCategoryId, setActiveCategoryId] = useState<string | "All">("All");
   const [search, setSearch] = useState("");
+
+  const categoryMap = useMemo(() => {
+    const map: Record<string, Category> = {};
+    categories.forEach(c => map[c.id] = c);
+    return map;
+  }, [categories]);
 
   const filteredItems = useMemo(
     () =>
       items.filter((item) => {
-        const matchesCategory = activeCategory === "All" || item.category === activeCategory;
+        const matchesCategory = activeCategoryId === "All" || item.category_id === activeCategoryId;
         const matchesSearch = item.name.toLowerCase().includes(search.toLowerCase());
         return matchesCategory && matchesSearch;
       }),
-    [items, activeCategory, search]
+    [items, activeCategoryId, search]
   );
 
   if (loading && items.length === 0) return <Spinner />;
@@ -206,38 +228,27 @@ const InventoryTab: React.FC<{
         <h3 className="font-semibold text-stone-800 flex items-center gap-2">
           <span className="text-amber-500">📦</span> Store Inventory
         </h3>
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search items..."
-            className="w-48 rounded-lg border border-stone-200 px-3 py-1.5 text-xs focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-          />
-          {canManage && (
-            <button
-              onClick={onAddItem}
-              className="flex items-center gap-1 text-xs font-medium bg-[#1E4620] text-white px-3 py-1.5 rounded-lg hover:bg-[#163a18] transition-colors whitespace-nowrap"
-            >
-              <span>＋</span> Add Item
-            </button>
-          )}
-        </div>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search items..."
+          className="w-48 rounded-lg border border-stone-200 px-3 py-1.5 text-xs focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
+        />
       </div>
 
       <div className="px-4 py-2.5 border-b border-stone-100 flex items-center gap-2 overflow-x-auto">
         <CategoryPill
           label="All"
-          active={activeCategory === "All"}
-          onClick={() => setActiveCategory("All")}
+          active={activeCategoryId === "All"}
+          onClick={() => setActiveCategoryId("All")}
         />
-        {CATEGORIES.map((cat) => (
+        {categories.map((cat) => (
           <CategoryPill
-            key={cat}
-            label={cat}
-            icon={CATEGORY_ICONS[cat]}
-            active={activeCategory === cat}
-            onClick={() => setActiveCategory(cat)}
+            key={cat.id}
+            label={cat.name}
+            active={activeCategoryId === cat.id}
+            onClick={() => setActiveCategoryId(cat.id)}
           />
         ))}
       </div>
@@ -246,7 +257,7 @@ const InventoryTab: React.FC<{
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-stone-400 border-b border-stone-100">
-              {["Item Name", "Category", "Qty Available", "Unit", "Status", "Last Updated", "Actions"].map(
+              {["Item Name", "Category", "Quantity", "Status", "Last Updated", "Actions"].map(
                 (h) => (
                   <th key={h} className="px-4 py-2 font-semibold">{h}</th>
                 )
@@ -255,62 +266,47 @@ const InventoryTab: React.FC<{
           </thead>
           <tbody className="divide-y divide-stone-50">
             {filteredItems.length === 0 ? (
-              <TableEmptyRow colSpan={7} message="No items match this filter." />
+              <TableEmptyRow colSpan={6} message="No items match this filter." />
             ) : (
-              filteredItems.map((item) => (
-                <tr key={item.id} className="hover:bg-stone-50 transition-colors">
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-stone-800">{item.name}</p>
-                    {item.subtitle && (
-                      <p className="text-[11px] text-stone-400">{item.subtitle}</p>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-block text-[11px] font-medium bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
-                      {item.category}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 font-semibold text-stone-800">
-                    {item.qty_available}
-                  </td>
-                  <td className="px-4 py-3 text-stone-600">{item.unit}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={item.status} />
-                  </td>
-                  <td className="px-4 py-3 text-stone-500 text-xs">
-                    {formatDate(item.updated_at)}
-                    {item.location && (
-                      <p className="text-stone-400">{item.location}</p>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {canManage ? (
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => onEditItem(item)}
-                          className="text-xs bg-[#1E4620] text-white px-3 py-1 rounded-lg hover:bg-[#163a18] transition-colors"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => onSendForProcurement(item)}
-                          className={`text-xs px-3 py-1 rounded-lg border transition-colors ${
-                            item.status === "out_of_stock"
-                              ? "border-red-200 text-red-700 hover:bg-red-50"
-                              : item.status === "low_stock"
-                              ? "border-amber-200 text-amber-700 hover:bg-amber-50"
-                              : "border-stone-200 text-stone-600 hover:bg-stone-50"
-                          }`}
-                        >
-                          Send for Procurement
-                        </button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-stone-400">View only</span>
-                    )}
-                  </td>
-                </tr>
-              ))
+              filteredItems.map((item) => {
+                const category = categoryMap[item.category_id];
+                return (
+                  <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-stone-800">{item.name}</p>
+                      {item.subtitle && (
+                        <p className="text-[11px] text-stone-400">{item.subtitle}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-block text-[11px] font-medium bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
+                        {category ? category.name : "Unknown"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-stone-800">
+                      {item.qty_available}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={item.status} />
+                    </td>
+                    <td className="px-4 py-3 text-stone-500 text-xs">
+                      {formatDate(item.updated_at)}
+                      {item.location && (
+                        <p className="text-stone-400">{item.location}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => onRequestItem(item)}
+                        className="inline-flex items-center gap-1 rounded-lg bg-[#c9a84c] px-3 py-1.5 text-xs font-semibold text-[#1a3d1c] hover:bg-[#b8973f] transition-colors"
+                      >
+                        <Plus size={12} />
+                        Request
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -319,12 +315,15 @@ const InventoryTab: React.FC<{
   );
 };
 
-// ─── Store Requests Tab ──────────────────────────────────────────────────────
+// ─── Store Requests Tab ─────────────────────────────────────────────────────
 
 const StoreRequestsTab: React.FC<{
   requests: ReturnType<typeof selectStoreRequests>;
   loading: boolean;
-}> = ({ requests, loading }) => {
+  userId: string | null;
+  onReceive: (id: string) => void;
+  mutating: boolean;
+}> = ({ requests, loading, userId, onReceive, mutating }) => {
   if (loading && requests.length === 0) return <Spinner />;
 
   return (
@@ -338,32 +337,64 @@ const StoreRequestsTab: React.FC<{
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-stone-400 border-b border-stone-100">
-              {["Item", "Quantity", "Requested By", "Date", "Status"].map((h) => (
-                <th key={h} className="px-4 py-2 font-semibold">{h}</th>
-              ))}
+              {["Item", "Quantity", "Requester", "Status", "Approved By", "Issued By", "Received By", "Date", "Actions"].map(
+                (h) => (
+                  <th key={h} className="px-4 py-2 font-semibold">{h}</th>
+                )
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-50">
             {requests.length === 0 ? (
-              <TableEmptyRow colSpan={5} message="No store requests." />
+              <TableEmptyRow colSpan={9} message="No store requests." />
             ) : (
-              requests.map((req) => (
-                <tr key={req.id} className="hover:bg-stone-50 transition-colors">
-                  <td className="px-4 py-3 font-medium text-stone-800">{req.item_name}</td>
-                  <td className="px-4 py-3 text-stone-600">
-                    {req.quantity} {req.unit}
-                  </td>
-                  <td className="px-4 py-3 text-stone-600">
-                    {req.requested_by_name ?? "Unknown"}
-                  </td>
-                  <td className="px-4 py-3 text-stone-500 text-xs">
-                    {formatDate(req.created_at)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <RequestStatusBadge status={req.status} />
-                  </td>
-                </tr>
-              ))
+              requests.map((req) => {
+                const showReceive = userId === req.requested_by && req.status === "Issued";
+                return (
+                  <tr key={req.id} className="hover:bg-stone-50 transition-colors">
+                    <td className="px-4 py-3 font-medium text-stone-800">{req.item_name}</td>
+                    <td className="px-4 py-3 text-stone-600">{req.quantity}</td>
+                    <td className="px-4 py-3 text-stone-600">
+                      {req.requested_by_name ?? "Unknown"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <RequestStatusBadge status={req.status} />
+                    </td>
+                    <td className="px-4 py-3 text-stone-600 text-xs">
+                      {req.approved_by_name ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 text-stone-600 text-xs">
+                      {req.issued_by_name ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 text-stone-600 text-xs">
+                      {req.received_by_name ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 text-stone-500 text-xs">
+                      {formatDate(req.created_at)}
+                    </td>
+                    <td className="px-4 py-3">
+                      {showReceive && (
+                        <button
+                          onClick={() => onReceive(req.id)}
+                          disabled={mutating}
+                          className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded hover:bg-emerald-200 disabled:opacity-50"
+                        >
+                          Receive
+                        </button>
+                      )}
+                      {!showReceive && req.status !== "Pending" && (
+                        <span className="text-[10px] text-stone-400">—</span>
+                      )}
+                      {req.status === "Pending" && (
+                        <span className="text-[10px] text-amber-500">Awaiting approval</span>
+                      )}
+                      {req.status === "Approved" && (
+                        <span className="text-[10px] text-blue-500">Awaiting issuance</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -372,94 +403,157 @@ const StoreRequestsTab: React.FC<{
   );
 };
 
-// ─── Procurement Requests Tab ─────────────────────────────────────────────────
+// ─── Procurement Requests Tab ──────────────────────────────────────────────
 
 const ProcurementRequestsTab: React.FC<{
   requests: ReturnType<typeof selectProcurementRequests>;
+  categories: Category[];
   loading: boolean;
-  canManage: boolean;
-  onNewRequest: () => void;
-  onApproveRequest?: (id: string) => void;
-  onRejectRequest?: (id: string) => void;
-}> = ({ requests, loading, canManage, onNewRequest, onApproveRequest, onRejectRequest }) => {
+  canApprove: boolean;
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+  onGenerateMemo: (request: ReturnType<typeof selectProcurementRequests>[0]) => void;
+}> = ({ requests, categories, loading, canApprove, onApprove, onReject, onGenerateMemo }) => {
+  const categoryMap = useMemo(() => {
+    const map: Record<string, Category> = {};
+    categories.forEach(c => map[c.id] = c);
+    return map;
+  }, [categories]);
+
   if (loading && requests.length === 0) return <Spinner />;
 
   return (
     <div className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
-      <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between gap-4">
+      <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
         <h3 className="font-semibold text-stone-800 flex items-center gap-2">
-          <span className="text-stone-500">📝</span> Procurement Requests
+          <span className="text-stone-500">📋</span> Procurement Requests
         </h3>
-        {canManage && (
-          <button
-            onClick={onNewRequest}
-            className="flex items-center gap-1 text-xs font-medium bg-[#1E4620] text-white px-3 py-1.5 rounded-lg hover:bg-[#163a18] transition-colors whitespace-nowrap"
-          >
-            <span>＋</span> New Request
-          </button>
-        )}
+        <span className="text-xs text-stone-400">
+          Total: {requests.length}
+        </span>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wide text-stone-400 border-b border-stone-100">
-              {["Item", "Category", "Quantity", "Urgency", "Requested By", "Status", "Actions"].map((h) => (
-                <th key={h} className="px-4 py-2 font-semibold">{h}</th>
-              ))}
+              {["Item", "Category", "Quantity", "Urgency", "Restock", "Status", "Memo", "Requested By", "Actions"].map(
+                (h) => (
+                  <th key={h} className="px-4 py-2 font-semibold">{h}</th>
+                )
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-50">
             {requests.length === 0 ? (
-              <TableEmptyRow colSpan={7} message="No procurement requests." />
+              <TableEmptyRow colSpan={9} message="No procurement requests." />
             ) : (
-              requests.map((req) => (
-                <tr key={req.id} className="hover:bg-stone-50 transition-colors">
-                  <td className="px-4 py-3 font-medium text-stone-800">{req.item_name}</td>
-                  <td className="px-4 py-3">
-                    <span className="inline-block text-[11px] font-medium bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
-                      {req.category}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-stone-600">
-                    {req.quantity} {req.unit}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${URGENCY_BADGE[req.urgency]}`}>
-                      {req.urgency}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-stone-600">
-                    {req.requested_by_name ?? "Unknown"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <RequestStatusBadge status={req.status} />
-                  </td>
-                  <td className="px-4 py-3">
-                    {req.status === "Pending" && onApproveRequest && onRejectRequest && (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => onApproveRequest(req.id)}
-                          className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded hover:bg-emerald-200"
+              requests.map((req) => {
+                const category = categoryMap[req.category_id];
+                const isPending = req.status === "Pending";
+                const isSubmitted = req.status === "Submitted";
+                const canGenerateMemo = isPending && !req.memo_url;
+                const memoAvailable = !!req.memo_url;
+
+                return (
+                  <tr key={req.id} className="hover:bg-stone-50 transition-colors">
+                    <td className="px-4 py-3 font-medium text-stone-800">{req.item_name}</td>
+                    <td className="px-4 py-3">
+                      <span className="inline-block text-[11px] font-medium bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
+                        {category ? category.name : "Unknown"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-stone-600">{req.quantity}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${URGENCY_BADGE[req.urgency]}`}>
+                        {req.urgency}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-stone-600 text-xs">
+                      {req.is_restock ? (
+                        <span className="text-blue-600">Restock</span>
+                      ) : (
+                        <span className="text-stone-400">New</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <ProcurementStatusBadge status={req.status} />
+                    </td>
+                    <td className="px-4 py-3">
+                      {memoAvailable ? (
+                        <a
+                          href={req.memo_url!}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-blue-600 hover:underline flex items-center gap-1"
                         >
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => onRejectRequest(req.id)}
-                          className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded hover:bg-red-200"
-                        >
-                          Reject
-                        </button>
+                          <FileText size={12} />
+                          View Memo
+                        </a>
+                      ) : (
+                        <span className="text-xs text-stone-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-stone-600">
+                      {req.requested_by_name ?? "Unknown"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {isPending && canGenerateMemo && (
+                          <button
+                            onClick={() => onGenerateMemo(req)}
+                            className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded hover:bg-blue-200"
+                          >
+                            <FileText size={12} className="inline mr-1" />
+                            Memo
+                          </button>
+                        )}
+                        {isPending && canApprove && (
+                          <>
+                            <button
+                              onClick={() => onApprove(req.id)}
+                              className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded hover:bg-emerald-200"
+                            >
+                              <Check size={12} className="inline mr-1" />
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => onReject(req.id)}
+                              className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded hover:bg-red-200"
+                            >
+                              <X size={12} className="inline mr-1" />
+                              Reject
+                            </button>
+                          </>
+                        )}
+                        {isSubmitted && canApprove && (
+                          <>
+                            <button
+                              onClick={() => onApprove(req.id)}
+                              className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded hover:bg-emerald-200"
+                            >
+                              <Check size={12} className="inline mr-1" />
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => onReject(req.id)}
+                              className="text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded hover:bg-red-200"
+                            >
+                              <X size={12} className="inline mr-1" />
+                              Reject
+                            </button>
+                          </>
+                        )}
+                        {req.status === "Approved" && (
+                          <span className="text-[10px] text-emerald-600">✓ Approved</span>
+                        )}
+                        {req.status === "Rejected" && (
+                          <span className="text-[10px] text-red-600">✕ Rejected</span>
+                        )}
                       </div>
-                    )}
-                    {req.status === "Approved" && (
-                      <span className="text-[10px] text-emerald-600">✓ Approved</span>
-                    )}
-                    {req.status === "Rejected" && (
-                      <span className="text-[10px] text-red-600">✕ Rejected</span>
-                    )}
-                  </td>
-                </tr>
-              ))
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -468,536 +562,252 @@ const ProcurementRequestsTab: React.FC<{
   );
 };
 
-// ─── Add / Edit Item Modal ────────────────────────────────────────────────────
+// ─── Procurement List Tab ──────────────────────────────────────────────────
 
-interface ItemFormState {
-  name: string;
-  subtitle: string;
-  category: InventoryCategory;
-  qty_available: number;
-  unit: string;
-  location: string;
-  min_stock_threshold: number;
-}
+const ProcurementListTab: React.FC<{
+  items: ReturnType<typeof selectApprovedProcurement>;
+  categories: Category[];
+  loading: boolean;
+  onMarkPurchased: (id: string) => void;
+  mutating: boolean;
+}> = ({ items, categories, loading, onMarkPurchased, mutating }) => {
+  const categoryMap = useMemo(() => {
+    const map: Record<string, Category> = {};
+    categories.forEach(c => map[c.id] = c);
+    return map;
+  }, [categories]);
 
-const emptyItemForm: ItemFormState = {
-  name: "",
-  subtitle: "",
-  category: "Stationery",
-  qty_available: 0,
-  unit: "",
-  location: "",
-  min_stock_threshold: 5,
+  const totalCost = useMemo(() => {
+    return items.reduce((sum, item) => sum + item.total_cost_kes, 0);
+  }, [items]);
+
+  if (loading && items.length === 0) return <Spinner />;
+
+  return (
+    <div className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-stone-100 flex items-center justify-between">
+        <h3 className="font-semibold text-stone-800 flex items-center gap-2">
+          <span className="text-stone-500">🧾</span> Approved Procurement List
+        </h3>
+        <span className="text-xs font-medium text-stone-900">
+          Total: KES {totalCost.toLocaleString()}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[11px] uppercase tracking-wide text-stone-400 border-b border-stone-100">
+              {["Item", "Category", "Quantity", "Unit Cost", "Total", "Requested By", "Status", "Actions"].map(
+                (h) => (
+                  <th key={h} className="px-4 py-2 font-semibold">{h}</th>
+                )
+              )}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone-50">
+            {items.length === 0 ? (
+              <TableEmptyRow colSpan={8} message="No approved procurement items." />
+            ) : (
+              items.map((item) => {
+                const category = categoryMap[item.category_id];
+                return (
+                  <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+                    <td className="px-4 py-3 font-medium text-stone-800">{item.item_name}</td>
+                    <td className="px-4 py-3">
+                      <span className="inline-block text-[11px] font-medium bg-stone-100 text-stone-600 px-2 py-0.5 rounded-full">
+                        {category ? category.name : "Unknown"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-stone-600">{item.quantity}</td>
+                    <td className="px-4 py-3 text-stone-600">
+                      {item.unit_cost_kes.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 font-medium text-stone-800">
+                      {item.total_cost_kes.toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-stone-500 text-xs">
+                      {item.requested_by_name ?? "Unknown"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                        item.is_purchased ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+                      }`}>
+                        {item.is_purchased ? "Purchased" : "Pending"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {!item.is_purchased && (
+                        <button
+                          onClick={() => onMarkPurchased(item.id)}
+                          disabled={mutating}
+                          className="text-[10px] bg-[#1E4620] text-white px-2 py-1 rounded hover:bg-[#163a18] disabled:opacity-50"
+                        >
+                          Mark Purchased
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 };
 
-const ItemFormModalBody: React.FC<{
-  item: InventoryItem | null;
+// ─── Request Item Modal ─────────────────────────────────────────────────────
+
+interface RequestApiError {
+  message?: string;
+  field?: 'reason' | 'item_name' | 'quantity' | 'unit';
+}
+
+function isRequestApiError(err: unknown): err is RequestApiError {
+  return typeof err === 'object' && err !== null && ('message' in err || 'field' in err);
+}
+
+const RequestModal: React.FC<{
+  selectedItem: InventoryItem | null;
   onClose: () => void;
-  onCreate: (input: CreateInventoryItemInput) => void;
-  onUpdate: (id: string, input: UpdateInventoryItemInput) => void;
+  onSubmit: (input: CreateStoreRequestInput) => Promise<void>;
   loading: boolean;
-}> = ({ item, onClose, onCreate, onUpdate, loading }) => {
-  const isEdit = item !== null;
-  const [form, setForm] = useState<ItemFormState>(
-    item
+}> = ({ selectedItem, onClose, onSubmit, loading }) => {
+  const [form, setForm] = useState<CreateStoreRequestInput>(() =>
+    selectedItem
       ? {
-          name: item.name,
-          subtitle: item.subtitle ?? "",
-          category: item.category,
-          qty_available: item.qty_available,
-          unit: item.unit,
-          location: item.location ?? "",
-          min_stock_threshold: item.min_stock_threshold,
+          item_name: selectedItem.name,
+          quantity: 1,
+          unit: selectedItem.unit || '',
+          reason: '',
         }
-      : emptyItemForm
+      : {
+          item_name: '',
+          quantity: 1,
+          unit: '',
+          reason: '',
+        }
   );
+  const [errors, setErrors] = useState<{ reason?: string }>({});
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const setField = <K extends keyof ItemFormState>(key: K, value: ItemFormState[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
+  const handleSubmit = async () => {
+    setSubmitError(null);
+    if (!form.reason || form.reason.trim().length === 0) {
+      setErrors({ reason: 'A reason is required' });
+      return;
+    }
+    if (!form.item_name.trim() || form.quantity < 1) return;
 
-  const isValid = form.name.trim() !== "" && form.unit.trim() !== "";
-
-  const handleSubmit = () => {
-    if (!isValid) return;
-    if (isEdit && item) {
-      onUpdate(item.id, {
-        name: form.name.trim(),
-        subtitle: form.subtitle.trim() || null,
-        category: form.category,
-        qty_available: form.qty_available,
-        unit: form.unit.trim(),
-        location: form.location.trim() || null,
-        min_stock_threshold: form.min_stock_threshold,
+    try {
+      await onSubmit({
+        item_name: form.item_name.trim(),
+        quantity: form.quantity,
+        unit: form.unit?.trim() || undefined,
+        reason: form.reason.trim(),
       });
-    } else {
-      onCreate({
-        name: form.name.trim(),
-        subtitle: form.subtitle.trim() || undefined,
-        category: form.category,
-        qty_available: form.qty_available,
-        unit: form.unit.trim(),
-        location: form.location.trim() || undefined,
-        min_stock_threshold: form.min_stock_threshold,
-      });
+    } catch (err: unknown) {
+      const message = isRequestApiError(err) && err.message
+        ? err.message
+        : 'Failed to submit request. Please try again.';
+      setSubmitError(message);
+      if (isRequestApiError(err) && err.field === 'reason' && err.message) {
+        setErrors({ reason: err.message });
+      }
     }
   };
 
+  const isItemNameDisabled = !!selectedItem;
+  const isQuantityDisabled = !!selectedItem;
+
   return (
-    <ModalShell title={isEdit ? "Edit Item" : "Add Item"} onClose={onClose}>
-      <div className="space-y-4">
-        <div>
-          <FieldLabel>Item Name</FieldLabel>
-          <input
-            type="text"
-            value={form.name}
-            onChange={(e) => setField("name", e.target.value)}
-            placeholder="e.g. A4 Bond Paper"
-            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-          />
-        </div>
-
-        <div>
-          <FieldLabel>Subtitle (optional)</FieldLabel>
-          <input
-            type="text"
-            value={form.subtitle}
-            onChange={(e) => setField("subtitle", e.target.value)}
-            placeholder="e.g. 80gsm, ream of 500"
-            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <FieldLabel>Category</FieldLabel>
-            <select
-              value={form.category}
-              onChange={(e) => setField("category", e.target.value as InventoryCategory)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-            >
-              {CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>
-                  {CATEGORY_ICONS[cat]} {cat}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <FieldLabel>Unit</FieldLabel>
-            <input
-              type="text"
-              value={form.unit}
-              onChange={(e) => setField("unit", e.target.value)}
-              placeholder="e.g. pcs, reams, boxes"
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <FieldLabel>Quantity Available</FieldLabel>
-            <input
-              type="number"
-              min={0}
-              value={form.qty_available}
-              onChange={(e) => setField("qty_available", Number(e.target.value))}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-            />
-          </div>
-          <div>
-            <FieldLabel>Low Stock Threshold</FieldLabel>
-            <input
-              type="number"
-              min={0}
-              value={form.min_stock_threshold}
-              onChange={(e) => setField("min_stock_threshold", Number(e.target.value))}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-            />
-            <p className="text-xs text-stone-400 mt-1">Flags as "Low Stock" at or below this.</p>
-          </div>
-        </div>
-
-        <div>
-          <FieldLabel>Location (optional)</FieldLabel>
-          <input
-            type="text"
-            value={form.location}
-            onChange={(e) => setField("location", e.target.value)}
-            placeholder="e.g. Store Room B, Shelf 3"
-            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-          />
-        </div>
-
-        <div className="flex items-center gap-3 pt-2">
+    <ModalShell
+      title="Request Item"
+      onClose={onClose}
+      footer={
+        <>
           <button
-            type="button"
             onClick={onClose}
-            className="flex-1 rounded-lg border border-stone-200 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
+            className="rounded-lg border border-stone-200 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
           >
             Cancel
           </button>
           <button
-            type="button"
-            disabled={loading || !isValid}
             onClick={handleSubmit}
-            className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a18] transition-colors disabled:opacity-50"
+            disabled={loading || !form.item_name.trim() || form.quantity < 1}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#c9a84c] px-4 py-2 text-sm font-semibold text-[#1a3d1c] hover:bg-[#b8973f] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? "Saving…" : isEdit ? "Save Changes" : "Add Item"}
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus size={14} />}
+            Submit Request
           </button>
-        </div>
-      </div>
-    </ModalShell>
-  );
-};
-
-const ItemFormModal: React.FC<{
-  isOpen: boolean;
-  item: InventoryItem | null;
-  onClose: () => void;
-  onCreate: (input: CreateInventoryItemInput) => void;
-  onUpdate: (id: string, input: UpdateInventoryItemInput) => void;
-  loading: boolean;
-}> = ({ isOpen, item, onClose, onCreate, onUpdate, loading }) => {
-  if (!isOpen) return null;
-
-  return (
-    <ItemFormModalBody
-      key={item?.id ?? "new"}
-      item={item}
-      onClose={onClose}
-      onCreate={onCreate}
-      onUpdate={onUpdate}
-      loading={loading}
-    />
-  );
-};
-
-// ─── Send for Procurement Modal ───────────────────────────────────────────────
-
-interface ProcurementFormState {
-  item_name: string;
-  category: InventoryCategory;
-  quantity: number;
-  unit: string;
-  estimated_unit_cost: string;
-  justification: string;
-  urgency: Urgency;
-}
-
-const buildProcurementForm = (item: InventoryItem): ProcurementFormState => ({
-  item_name: item.name,
-  category: item.category,
-  quantity: Math.max(item.min_stock_threshold * 2 - item.qty_available, 1),
-  unit: item.unit,
-  estimated_unit_cost: "",
-  justification:
-    item.status === "out_of_stock"
-      ? `${item.name} is out of stock and needs restocking.`
-      : item.status === "low_stock"
-      ? `${item.name} is running low (currently ${item.qty_available} ${item.unit}, threshold ${item.min_stock_threshold}).`
-      : "",
-  urgency: item.status === "out_of_stock" ? "Critical" : item.status === "low_stock" ? "Urgent" : "Normal",
-});
-
-const ProcurementFormModalBody: React.FC<{
-  item: InventoryItem;
-  onClose: () => void;
-  onSubmit: (input: CreateProcurementRequestInput) => void;
-  loading: boolean;
-}> = ({ item, onClose, onSubmit, loading }) => {
-  const [form, setForm] = useState<ProcurementFormState>(buildProcurementForm(item));
-
-  const setField = <K extends keyof ProcurementFormState>(key: K, value: ProcurementFormState[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
-
-  const isValid = form.item_name.trim() !== "" && form.unit.trim() !== "" && form.quantity > 0 && form.justification.trim() !== "";
-
-  const handleSubmit = () => {
-    if (!isValid) return;
-    const parsedCost = form.estimated_unit_cost.trim() === "" ? undefined : Number(form.estimated_unit_cost);
-    onSubmit({
-      item_name: form.item_name.trim(),
-      category: form.category,
-      quantity: form.quantity,
-      unit: form.unit.trim(),
-      estimated_unit_cost: parsedCost,
-      justification: form.justification.trim(),
-      urgency: form.urgency,
-    });
-  };
-
-  return (
-    <ModalShell title="Send for Procurement" onClose={onClose}>
+        </>
+      }
+    >
       <div className="space-y-4">
-        <div className="rounded-lg bg-stone-50 border border-stone-100 px-3 py-2">
-          <p className="text-xs text-stone-500">From inventory item</p>
-          <p className="text-sm font-semibold text-stone-800">{item.name}</p>
-          <p className="text-xs text-stone-400">
-            Currently {item.qty_available} {item.unit} · <StatusBadge status={item.status} />
-          </p>
-        </div>
+        {submitError && (
+          <div className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+            {submitError}
+          </div>
+        )}
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <FieldLabel>Quantity Needed</FieldLabel>
-            <input
-              type="number"
-              min={1}
-              value={form.quantity}
-              onChange={(e) => setField("quantity", Number(e.target.value))}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-            />
+        {selectedItem && (
+          <div className="rounded-lg bg-stone-50 p-3">
+            <p className="text-xs text-stone-500">Selected Item</p>
+            <p className="text-sm font-semibold text-stone-900">{selectedItem.name}</p>
+            <p className="text-xs text-stone-400">
+              Available: {selectedItem.qty_available} {selectedItem.unit}
+            </p>
           </div>
-          <div>
-            <FieldLabel>Unit</FieldLabel>
-            <input
-              type="text"
-              value={form.unit}
-              onChange={(e) => setField("unit", e.target.value)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <FieldLabel>Urgency</FieldLabel>
-            <select
-              value={form.urgency}
-              onChange={(e) => setField("urgency", e.target.value as Urgency)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-            >
-              {URGENCY_OPTIONS.map((u) => (
-                <option key={u} value={u}>{u}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <FieldLabel>Est. Unit Cost (KES, optional)</FieldLabel>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={form.estimated_unit_cost}
-              onChange={(e) => setField("estimated_unit_cost", e.target.value)}
-              placeholder="0.00"
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-            />
-          </div>
-        </div>
-
+        )}
         <div>
-          <FieldLabel>Justification</FieldLabel>
-          <textarea
-            value={form.justification}
-            onChange={(e) => setField("justification", e.target.value)}
-            rows={3}
-            placeholder="Why is this procurement needed?"
-            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620] resize-none"
-          />
-        </div>
-
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 rounded-lg border border-stone-200 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={loading || !isValid}
-            onClick={handleSubmit}
-            className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a18] transition-colors disabled:opacity-50"
-          >
-            {loading ? "Sending…" : "Send for Procurement"}
-          </button>
-        </div>
-      </div>
-    </ModalShell>
-  );
-};
-
-const ProcurementFormModal: React.FC<{
-  isOpen: boolean;
-  item: InventoryItem | null;
-  onClose: () => void;
-  onSubmit: (input: CreateProcurementRequestInput) => void;
-  loading: boolean;
-}> = ({ isOpen, item, onClose, onSubmit, loading }) => {
-  if (!isOpen || !item) return null;
-
-  return (
-    <ProcurementFormModalBody
-      key={item.id}
-      item={item}
-      onClose={onClose}
-      onSubmit={onSubmit}
-      loading={loading}
-    />
-  );
-};
-
-// ─── Standalone "New Request" Modal ───────────────────────────────────────────
-
-const emptyProcurementForm: ProcurementFormState = {
-  item_name: "",
-  category: "Stationery",
-  quantity: 1,
-  unit: "",
-  estimated_unit_cost: "",
-  justification: "",
-  urgency: "Normal",
-};
-
-const NewProcurementModalBody: React.FC<{
-  onClose: () => void;
-  onSubmit: (input: CreateProcurementRequestInput) => void;
-  loading: boolean;
-}> = ({ onClose, onSubmit, loading }) => {
-  const [form, setForm] = useState<ProcurementFormState>(emptyProcurementForm);
-
-  const setField = <K extends keyof ProcurementFormState>(key: K, value: ProcurementFormState[K]) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
-
-  const isValid = form.item_name.trim() !== "" && form.unit.trim() !== "" && form.quantity > 0 && form.justification.trim() !== "";
-
-  const handleSubmit = () => {
-    if (!isValid) return;
-    const parsedCost = form.estimated_unit_cost.trim() === "" ? undefined : Number(form.estimated_unit_cost);
-    onSubmit({
-      item_name: form.item_name.trim(),
-      category: form.category,
-      quantity: form.quantity,
-      unit: form.unit.trim(),
-      estimated_unit_cost: parsedCost,
-      justification: form.justification.trim(),
-      urgency: form.urgency,
-    });
-  };
-
-  return (
-    <ModalShell title="New Procurement Request" onClose={onClose}>
-      <div className="space-y-4">
-        <div>
-          <FieldLabel>Item Name</FieldLabel>
+          <FieldLabel>Item Name *</FieldLabel>
           <input
             type="text"
             value={form.item_name}
-            onChange={(e) => setField("item_name", e.target.value)}
-            placeholder="e.g. Ergonomic Office Chairs"
-            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
+            onChange={(e) => setForm({ ...form, item_name: e.target.value })}
+            placeholder="Enter item name"
+            className={inputClasses}
+            disabled={isItemNameDisabled}
           />
         </div>
-
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <FieldLabel>Category</FieldLabel>
-            <select
-              value={form.category}
-              onChange={(e) => setField("category", e.target.value as InventoryCategory)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-            >
-              {CATEGORIES.map((cat) => (
-                <option key={cat} value={cat}>
-                  {CATEGORY_ICONS[cat]} {cat}
-                </option>
-              ))}
-            </select>
+            <FieldLabel>Quantity *</FieldLabel>
+            <input
+              type="number"
+              min={1}
+              value={form.quantity}
+              onChange={(e) => setForm({ ...form, quantity: parseInt(e.target.value) || 1 })}
+              className={inputClasses}
+              disabled={isQuantityDisabled}
+            />
           </div>
           <div>
             <FieldLabel>Unit</FieldLabel>
             <input
               type="text"
-              value={form.unit}
-              onChange={(e) => setField("unit", e.target.value)}
-              placeholder="e.g. pcs, reams, boxes"
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
+              value={form.unit || ''}
+              onChange={(e) => setForm({ ...form, unit: e.target.value })}
+              placeholder="e.g. pcs, boxes"
+              className={inputClasses}
             />
           </div>
         </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <FieldLabel>Quantity Needed</FieldLabel>
-            <input
-              type="number"
-              min={1}
-              value={form.quantity}
-              onChange={(e) => setField("quantity", Number(e.target.value))}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-            />
-          </div>
-          <div>
-            <FieldLabel>Urgency</FieldLabel>
-            <select
-              value={form.urgency}
-              onChange={(e) => setField("urgency", e.target.value as Urgency)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-            >
-              {URGENCY_OPTIONS.map((u) => (
-                <option key={u} value={u}>{u}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
         <div>
-          <FieldLabel>Est. Unit Cost (KES, optional)</FieldLabel>
-          <input
-            type="number"
-            min={0}
-            step="0.01"
-            value={form.estimated_unit_cost}
-            onChange={(e) => setField("estimated_unit_cost", e.target.value)}
-            placeholder="0.00"
-            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-          />
-        </div>
-
-        <div>
-          <FieldLabel>Justification</FieldLabel>
+          <FieldLabel>Reason *</FieldLabel>
           <textarea
-            value={form.justification}
-            onChange={(e) => setField("justification", e.target.value)}
+            value={form.reason || ''}
+            onChange={(e) => setForm({ ...form, reason: e.target.value })}
+            placeholder="Please explain why you need this item..."
             rows={3}
-            placeholder="Why is this procurement needed?"
-            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620] resize-none"
+            className={`${inputClasses} resize-none ${errors.reason ? 'border-red-300' : ''}`}
           />
-        </div>
-
-        <div className="flex items-center gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex-1 rounded-lg border border-stone-200 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={loading || !isValid}
-            onClick={handleSubmit}
-            className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a18] transition-colors disabled:opacity-50"
-          >
-            {loading ? "Sending…" : "Submit Request"}
-          </button>
+          {errors.reason && <p className="mt-1 text-xs text-red-600">{errors.reason}</p>}
         </div>
       </div>
     </ModalShell>
   );
-};
-
-const NewProcurementModal: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  onSubmit: (input: CreateProcurementRequestInput) => void;
-  loading: boolean;
-}> = ({ isOpen, onClose, onSubmit, loading }) => {
-  if (!isOpen) return null;
-  return <NewProcurementModalBody onClose={onClose} onSubmit={onSubmit} loading={loading} />;
 };
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -1006,52 +816,52 @@ const PInventory: React.FC = () => {
   const dispatch = useAppDispatch();
 
   // ── Selectors ────────────────────────────────────────────────────────────
-  const items               = useAppSelector(selectInventoryItems);
-  const stats                = useAppSelector(selectInventoryStats);
-  const storeRequests        = useAppSelector(selectStoreRequests);
-  const procurementRequests  = useAppSelector(selectProcurementRequests);
-  const error                = useAppSelector(selectInventoryError);
-  const success              = useAppSelector(selectInventorySuccess);
-  const loadingItems         = useAppSelector(selectInventoryItemsLoading);
-  const loadingStats         = useAppSelector(selectInventoryStatsLoading);
-  const loadingProc          = useAppSelector(selectProcurementRequestsLoading);
-  const mutating             = useAppSelector(selectInventoryMutating);
-  const currentUser          = useAppSelector(selectCurrentUser);
+  const items = useAppSelector(selectInventoryItems);
+  const stats = useAppSelector(selectInventoryStats);
+  const storeRequests = useAppSelector(selectStoreRequests);
+  const procurementRequests = useAppSelector(selectProcurementRequests);
+  const approvedProcurement = useAppSelector(selectApprovedProcurement);
+  const categories = useAppSelector(selectCategories);
+  const error = useAppSelector(selectInventoryError);
+  const success = useAppSelector(selectInventorySuccess);
+  const loadingItems = useAppSelector(selectInventoryItemsLoading);
+  const loadingStats = useAppSelector(selectInventoryStatsLoading);
+  const loadingProc = useAppSelector(selectProcurementRequestsLoading);
+  const mutating = useAppSelector(selectInventoryMutating);
+  const currentUser = useAppSelector(selectCurrentUser);
 
-  // Dept Head permissions: can add items, edit items, create procurement requests,
-  // view all store requests, view all procurement requests
-  // Cannot delete items (super_admin only)
-  const canManage = hasRole(currentUser, "dept_head");
   const canApprove = hasRole(currentUser, "super_admin");
+  const userId = currentUser?.id ?? null;
 
   // ── Refs ──────────────────────────────────────────────────────────────────
   const clearTimers = useRef<{ success?: ReturnType<typeof setTimeout>; error?: ReturnType<typeof setTimeout> }>({});
 
   // ── Local state ───────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabKey>("inventory");
+  const [procSubTab, setProcSubTab] = useState<"requests" | "list">("requests");
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
+  const [requestLoading, setRequestLoading] = useState(false);
 
-  const [itemModalOpen, setItemModalOpen] = useState(false);
-  const [itemBeingEdited, setItemBeingEdited] = useState<InventoryItem | null>(null);
+  // Memo modal
+  const [memoModalOpen, setMemoModalOpen] = useState(false);
+  const [selectedRequestForMemo, setSelectedRequestForMemo] = useState<typeof procurementRequests[0] | null>(null);
+  const [memoLoading, setMemoLoading] = useState(false);
 
-  const [procModalOpen, setProcModalOpen] = useState(false);
-  const [procSourceItem, setProcSourceItem] = useState<InventoryItem | null>(null);
-
-  const [newProcModalOpen, setNewProcModalOpen] = useState(false);
-
-  // ── Stats — prefer server values, fall back to derived ───────────────────
+  // ── Stats ─────────────────────────────────────────────────────────────────
   const statCards = useMemo(() => {
     if (stats) {
       return {
-        total:      stats.total_items,
-        inStock:    stats.in_stock,
-        lowStock:   stats.low_stock,
+        total: stats.total_items,
+        inStock: stats.in_stock,
+        lowStock: stats.low_stock,
         outOfStock: stats.out_of_stock,
       };
     }
     return {
-      total:      items.length,
-      inStock:    items.filter((i) => i.status === "in_stock").length,
-      lowStock:   items.filter((i) => i.status === "low_stock").length,
+      total: items.length,
+      inStock: items.filter((i) => i.status === "in_stock").length,
+      lowStock: items.filter((i) => i.status === "low_stock").length,
       outOfStock: items.filter((i) => i.status === "out_of_stock").length,
     };
   }, [stats, items]);
@@ -1060,12 +870,11 @@ const PInventory: React.FC = () => {
   useEffect(() => {
     dispatch(fetchInventoryItems({}));
     dispatch(fetchInventoryStats());
-    // Dept Head can view all store requests
     dispatch(fetchAllStoreRequests());
-    // Dept Head can view all procurement requests
     dispatch(fetchAllProcurementRequests());
     dispatch(fetchApprovedProcurement());
     dispatch(fetchActivityLog(20));
+    dispatch(fetchCategories());
   }, [dispatch]);
 
   // ── Auto-clear banners ────────────────────────────────────────────────────
@@ -1083,7 +892,6 @@ const PInventory: React.FC = () => {
     }
   }, [error, dispatch]);
 
-  // ── Schedule clear with proper cleanup ───────────────────────────────────
   const scheduleClear = useCallback(
     (type: "success" | "error", delay = type === "error" ? 5000 : 3000) => {
       if (clearTimers.current[type]) {
@@ -1098,7 +906,6 @@ const PInventory: React.FC = () => {
     [dispatch]
   );
 
-  // ── Clean up timers on unmount ───────────────────────────────────────────
   useEffect(() => {
     const { success: successTimer, error: errorTimer } = clearTimers.current;
     return () => {
@@ -1107,99 +914,65 @@ const PInventory: React.FC = () => {
     };
   }, []);
 
-  // ── Add / Edit Item handlers ─────────────────────────────────────────────
-  const handleOpenAddItem = useCallback(() => {
-    setItemBeingEdited(null);
-    setItemModalOpen(true);
-  }, []);
+  // ── Handlers ──────────────────────────────────────────────────────────────
 
-  const handleOpenEditItem = useCallback((item: InventoryItem) => {
-    setItemBeingEdited(item);
-    setItemModalOpen(true);
-  }, []);
+  const handleOpenRequestModal = (item?: InventoryItem) => {
+    setSelectedItem(item || null);
+    setShowRequestModal(true);
+  };
 
-  const handleCloseItemModal = useCallback(() => {
-    setItemModalOpen(false);
-    setItemBeingEdited(null);
-  }, []);
+  const handleCloseRequestModal = () => {
+    setShowRequestModal(false);
+    setSelectedItem(null);
+  };
 
-  const handleCreateItem = useCallback(
-    (input: CreateInventoryItemInput) => {
-      dispatch(createInventoryItem(input))
-        .unwrap()
-        .then(() => {
-          dispatch(fetchInventoryStats());
-          handleCloseItemModal();
-          scheduleClear("success");
-        })
-        .catch(() => {
-          scheduleClear("error");
-        });
-    },
-    [dispatch, handleCloseItemModal, scheduleClear]
-  );
+  const handleSubmitStoreRequest = async (input: CreateStoreRequestInput) => {
+    setRequestLoading(true);
+    try {
+      await dispatch(createStoreRequest(input)).unwrap();
+      await dispatch(fetchAllStoreRequests());
+      await dispatch(fetchInventoryStats());
+      scheduleClear("success");
+      handleCloseRequestModal();
+    } catch {
+      scheduleClear("error");
+    } finally {
+      setRequestLoading(false);
+    }
+  };
 
-  const handleUpdateItem = useCallback(
-    (id: string, input: UpdateInventoryItemInput) => {
-      if (input.qty_available !== undefined) {
-        dispatch(updateItemQuantityLocally({ itemId: id, quantity: input.qty_available }));
+  const handleReceive = useCallback(
+    (id: string) => {
+      if (window.confirm("Confirm you have received this item?")) {
+        dispatch(receiveStoreRequest(id))
+          .unwrap()
+          .then(() => {
+            dispatch(fetchAllStoreRequests());
+            scheduleClear("success");
+          })
+          .catch(() => scheduleClear("error"));
       }
-
-      dispatch(updateInventoryItem({ id, input }))
-        .unwrap()
-        .then(() => {
-          dispatch(fetchInventoryStats());
-          handleCloseItemModal();
-          scheduleClear("success");
-        })
-        .catch(() => {
-          dispatch(fetchInventoryItems({}));
-          scheduleClear("error");
-        });
     },
-    [dispatch, handleCloseItemModal, scheduleClear]
+    [dispatch, scheduleClear]
   );
 
-  // ── Send for Procurement (from an inventory row) ─────────────────────────
-  const handleOpenSendForProcurement = useCallback((item: InventoryItem) => {
-    setProcSourceItem(item);
-    setProcModalOpen(true);
-  }, []);
-
-  const handleCloseProcModal = useCallback(() => {
-    setProcModalOpen(false);
-    setProcSourceItem(null);
-  }, []);
-
-  const handleSubmitProcurement = useCallback(
-    (input: CreateProcurementRequestInput) => {
-      dispatch(createProcurementRequest(input))
-        .unwrap()
-        .then(() => {
-          handleCloseProcModal();
-          scheduleClear("success");
-        })
-        .catch(() => {
-          scheduleClear("error");
-        });
-    },
-    [dispatch, handleCloseProcModal, scheduleClear]
-  );
-
-  // ── Approve/Reject Procurement Requests (Super Admin only) ──────────────
   const handleApproveRequest = useCallback(
     (id: string) => {
       if (window.confirm("Approve this procurement request?")) {
-        dispatch(updateProcurementRequest({
-          id,
-          input: { status: "Approved" }
-        })).unwrap().then(() => {
-          dispatch(fetchAllProcurementRequests());
-          dispatch(fetchInventoryStats());
-          scheduleClear("success");
-        }).catch(() => {
-          scheduleClear("error");
-        });
+        dispatch(
+          updateProcurementRequest({
+            id,
+            input: { status: "Approved" },
+          })
+        )
+          .unwrap()
+          .then(() => {
+            dispatch(fetchAllProcurementRequests());
+            dispatch(fetchApprovedProcurement());
+            dispatch(fetchInventoryStats());
+            scheduleClear("success");
+          })
+          .catch(() => scheduleClear("error"));
       }
     },
     [dispatch, scheduleClear]
@@ -1209,99 +982,127 @@ const PInventory: React.FC = () => {
     (id: string) => {
       const reason = window.prompt("Enter rejection reason:");
       if (reason !== null) {
-        dispatch(updateProcurementRequest({
-          id,
-          input: { status: "Rejected", rejection_reason: reason || undefined }
-        })).unwrap().then(() => {
-          dispatch(fetchAllProcurementRequests());
-          dispatch(fetchInventoryStats());
-          scheduleClear("success");
-        }).catch(() => {
-          scheduleClear("error");
-        });
+        dispatch(
+          updateProcurementRequest({
+            id,
+            input: { status: "Rejected", rejection_reason: reason || undefined },
+          })
+        )
+          .unwrap()
+          .then(() => {
+            dispatch(fetchAllProcurementRequests());
+            dispatch(fetchInventoryStats());
+            scheduleClear("success");
+          })
+          .catch(() => scheduleClear("error"));
       }
     },
     [dispatch, scheduleClear]
   );
 
-  // ── New Procurement Request (standalone, from Procurement tab) ───────────
-  const handleOpenNewProcurement = useCallback(() => setNewProcModalOpen(true), []);
-  const handleCloseNewProcurement = useCallback(() => setNewProcModalOpen(false), []);
-
-  const handleSubmitNewProcurement = useCallback(
-    (input: CreateProcurementRequestInput) => {
-      dispatch(createProcurementRequest(input))
-        .unwrap()
-        .then(() => {
-          handleCloseNewProcurement();
-          scheduleClear("success");
-        })
-        .catch(() => {
-          scheduleClear("error");
-        });
+  const handleMarkPurchased = useCallback(
+    (id: string) => {
+      if (window.confirm("Mark this item as purchased? This will add it to inventory.")) {
+        dispatch(markProcurementPurchased({ id }))
+          .unwrap()
+          .then(() => {
+            dispatch(fetchApprovedProcurement());
+            dispatch(fetchInventoryItems({}));
+            dispatch(fetchInventoryStats());
+            scheduleClear("success");
+          })
+          .catch(() => scheduleClear("error"));
+      }
     },
-    [dispatch, handleCloseNewProcurement, scheduleClear]
+    [dispatch, scheduleClear]
   );
 
-  // ── Tab config ────────────────────────────────────────────────────────────
+  const handleOpenMemoModal = useCallback(
+    (request: typeof procurementRequests[0]) => {
+      setSelectedRequestForMemo(request);
+      setMemoModalOpen(true);
+    },
+    []
+  );
+
+  const handleCloseMemoModal = useCallback(() => {
+    setMemoModalOpen(false);
+    setSelectedRequestForMemo(null);
+  }, []);
+
+  const handleSubmitMemo = useCallback(
+    async (memoData: SubmitProcurementMemoInput) => {
+      if (!selectedRequestForMemo) return;
+      setMemoLoading(true);
+      try {
+        await dispatch(
+          submitProcurementMemo({
+            id: selectedRequestForMemo.id,
+            memoData,
+          })
+        ).unwrap();
+        await dispatch(fetchAllProcurementRequests());
+        scheduleClear("success");
+        handleCloseMemoModal();
+      } catch {
+        scheduleClear("error");
+      } finally {
+        setMemoLoading(false);
+      }
+    },
+    [dispatch, selectedRequestForMemo, scheduleClear, handleCloseMemoModal]
+  );
+
+  // ── Tabs ──────────────────────────────────────────────────────────────────
   const tabs: { key: TabKey; label: string; icon: string; count?: number }[] = [
-    { key: "inventory",   label: "Inventory",          icon: "📦", count: statCards.total },
-    { key: "requests",    label: "Store Requests",     icon: "🛒", count: storeRequests.length },
-    { key: "procurement", label: "Procurement",        icon: "📝", count: procurementRequests.length },
+    { key: "inventory", label: "Inventory", icon: "📦", count: statCards.total },
+    { key: "requests", label: "Store Requests", icon: "🛒", count: storeRequests.length },
+    { key: "procurement", label: "Procurement", icon: "📋", count: procurementRequests.length },
   ];
 
   return (
     <div className="p-6 space-y-6 bg-stone-50 min-h-full">
-      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-stone-900">Inventory Management</h1>
+        <h1 className="text-2xl font-bold text-stone-900">Procurement Management</h1>
         <p className="text-sm text-stone-500 mt-1">
-          Manage stock levels, requests, and procurement
+          Manage procurement requests, approved purchases, and request items from store
         </p>
       </div>
 
-      {/* Error banner */}
       {error && (
         <div className="rounded-lg bg-red-50 border border-red-100 px-4 py-3 text-sm text-red-700 flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => dispatch(clearError())} className="text-red-400 hover:text-red-600 ml-4 shrink-0">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <XCircle className="h-4 w-4" />
           </button>
         </div>
       )}
 
-      {/* Success banner */}
       {success && (
         <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-4 py-3 text-sm text-emerald-700 flex items-center justify-between">
           <span>✓ Done</span>
           <button onClick={() => dispatch(clearSuccess())} className="text-emerald-400 hover:text-emerald-600 ml-4 shrink-0">
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <XCircle className="h-4 w-4" />
           </button>
         </div>
       )}
 
-      {/* Role banner */}
       <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-4 py-2.5 text-sm text-emerald-700 flex items-center gap-2">
         <span>🧑‍💼</span>
         <span>
-          You are viewing as <span className="font-semibold">Department Head</span>. You can manage inventory, create procurement requests, and view all requests.
+          You are viewing as <span className="font-semibold">Procurement Officer</span>. You can generate memos for pending requests, approve/reject submitted requests, mark items as purchased, and also request items from the store.
           {!canApprove && (
             <span className="ml-1 text-amber-600">(Approvals require Super Admin)</span>
           )}
         </span>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {[
-          { label: "Total Items",   value: statCards.total,      color: "text-stone-900",   loading: loadingStats },
-          { label: "In Stock",      value: statCards.inStock,    color: "text-emerald-600", loading: loadingStats },
-          { label: "Low Stock",     value: statCards.lowStock,   color: "text-amber-600",   loading: loadingStats },
-          { label: "Out of Stock",  value: statCards.outOfStock, color: "text-red-600",     loading: loadingStats },
+          { label: "Total Items", value: statCards.total, color: "text-stone-900", loading: loadingStats },
+          { label: "In Stock", value: statCards.inStock, color: "text-emerald-600", loading: loadingStats },
+          { label: "Low Stock", value: statCards.lowStock, color: "text-amber-600", loading: loadingStats },
+          { label: "Out of Stock", value: statCards.outOfStock, color: "text-red-600", loading: loadingStats },
         ].map(({ label, value, color, loading: l }) => (
           <div key={label} className="bg-white rounded-xl border border-stone-200 p-4 shadow-sm">
             <p className="text-xs text-stone-500">{label}</p>
@@ -1314,7 +1115,6 @@ const PInventory: React.FC = () => {
         ))}
       </div>
 
-      {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-stone-200">
         {tabs.map((tab) => (
           <button
@@ -1337,60 +1137,88 @@ const PInventory: React.FC = () => {
         ))}
       </div>
 
-      {/* Tab content */}
       {activeTab === "inventory" && (
         <InventoryTab
           items={items}
+          categories={categories}
           loading={loadingItems}
-          canManage={canManage}
-          onAddItem={handleOpenAddItem}
-          onEditItem={handleOpenEditItem}
-          onSendForProcurement={handleOpenSendForProcurement}
+          onRequestItem={handleOpenRequestModal}
         />
       )}
       {activeTab === "requests" && (
         <StoreRequestsTab
           requests={storeRequests}
           loading={loadingItems}
+          userId={userId}
+          onReceive={handleReceive}
+          mutating={mutating}
         />
       )}
       {activeTab === "procurement" && (
-        <ProcurementRequestsTab
-          requests={procurementRequests}
-          loading={loadingProc}
-          canManage={canManage}
-          onNewRequest={handleOpenNewProcurement}
-          onApproveRequest={canApprove ? handleApproveRequest : undefined}
-          onRejectRequest={canApprove ? handleRejectRequest : undefined}
+        <div className="space-y-4">
+          <div className="flex gap-1 border-b border-stone-200">
+            <button
+              onClick={() => setProcSubTab("requests")}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                procSubTab === "requests"
+                  ? "border-[#1E4620] text-[#1E4620]"
+                  : "border-transparent text-stone-500 hover:text-stone-700"
+              }`}
+            >
+              Requests
+            </button>
+            <button
+              onClick={() => setProcSubTab("list")}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                procSubTab === "list"
+                  ? "border-[#1E4620] text-[#1E4620]"
+                  : "border-transparent text-stone-500 hover:text-stone-700"
+              }`}
+            >
+              Approved List
+            </button>
+          </div>
+
+          {procSubTab === "requests" ? (
+            <ProcurementRequestsTab
+              requests={procurementRequests}
+              categories={categories}
+              loading={loadingProc}
+              canApprove={canApprove}
+              onApprove={handleApproveRequest}
+              onReject={handleRejectRequest}
+              onGenerateMemo={handleOpenMemoModal}
+            />
+          ) : (
+            <ProcurementListTab
+              items={approvedProcurement}
+              categories={categories}
+              loading={loadingProc}
+              onMarkPurchased={handleMarkPurchased}
+              mutating={mutating}
+            />
+          )}
+        </div>
+      )}
+
+      {showRequestModal && (
+        <RequestModal
+          key={selectedItem?.id ?? "new"}
+          selectedItem={selectedItem}
+          onClose={handleCloseRequestModal}
+          onSubmit={handleSubmitStoreRequest}
+          loading={requestLoading}
         />
       )}
 
-      {/* Add / Edit Item Modal */}
-      <ItemFormModal
-        isOpen={itemModalOpen}
-        item={itemBeingEdited}
-        onClose={handleCloseItemModal}
-        onCreate={handleCreateItem}
-        onUpdate={handleUpdateItem}
-        loading={mutating}
-      />
-
-      {/* Send for Procurement Modal (from inventory row) */}
-      <ProcurementFormModal
-        isOpen={procModalOpen}
-        item={procSourceItem}
-        onClose={handleCloseProcModal}
-        onSubmit={handleSubmitProcurement}
-        loading={mutating}
-      />
-
-      {/* New Procurement Request Modal (standalone, from Procurement tab) */}
-      <NewProcurementModal
-        isOpen={newProcModalOpen}
-        onClose={handleCloseNewProcurement}
-        onSubmit={handleSubmitNewProcurement}
-        loading={mutating}
-      />
+      {memoModalOpen && selectedRequestForMemo && (
+        <ProcurementMemoModal
+          request={selectedRequestForMemo}
+          onClose={handleCloseMemoModal}
+          onSubmit={handleSubmitMemo}
+          loading={memoLoading}
+        />
+      )}
     </div>
   );
 };

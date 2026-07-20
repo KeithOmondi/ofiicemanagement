@@ -1103,6 +1103,218 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
   );
 };
 
+// ─── Reassign Modal ───────────────────────────────────────────────────────────
+// (Copied from SuperAdminDocuments.tsx and adjusted for this file)
+
+interface ReassignModalProps {
+  document: Document;
+  currentMark: {
+    id: string;
+    department_id: string;
+    assigned_to: string | null;
+    instructions: string;
+    priority: string;
+  };
+  onClose: () => void;
+  onReassign: (markId: string, data: {
+    department_id: string;
+    assigned_to: string | null;
+    instructions: string;
+    priority: string;
+    note?: string;
+  }) => void;
+  isReassigning: boolean;
+}
+
+const ReassignModal: React.FC<ReassignModalProps> = ({
+  document,
+  currentMark,
+  onClose,
+  onReassign,
+  isReassigning,
+}) => {
+  const dispatch = useAppDispatch();
+  const departments = useAppSelector(selectAllDepartments);
+  const deptsLoading = useAppSelector(selectDepartmentsListLoading);
+  const users = useAppSelector(selectAllUsers);
+  const usersLoading = useAppSelector(selectUsersListLoading);
+
+  const [deptId, setDeptId] = useState(currentMark.department_id);
+  const [userId, setUserId] = useState(currentMark.assigned_to || '');
+  const [instructions, setInstructions] = useState(currentMark.instructions);
+  const [priority, setPriority] = useState(currentMark.priority);
+  const [note, setNote] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    dispatch(fetchDepartments({ is_active: true }));
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (deptId) {
+      dispatch(fetchUsers({ is_active: true, department_id: deptId, limit: 100 }));
+    }
+  }, [dispatch, deptId]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deptId) {
+      setError('Please select a department');
+      return;
+    }
+    setError(null);
+    onReassign(currentMark.id, {
+      department_id: deptId,
+      assigned_to: userId || null,
+      instructions,
+      priority,
+      note: note || undefined,
+    });
+  };
+
+  const activeDepartments = departments.filter(d => d.is_active);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-3 sm:p-4">
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-4 sm:p-6 shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm sm:text-base font-bold text-stone-900 flex items-center gap-2">
+            <span className="text-amber-500">🔄</span> Re‑assign / Push Back
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-stone-400 hover:text-stone-600 text-lg leading-none flex-shrink-0"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+            <p><strong>Document:</strong> {document.title}</p>
+            <p className="mt-1"><strong>Current mark:</strong> {currentMark.instructions || '(no instruction)'}</p>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Department *
+            </label>
+            <select
+              value={deptId}
+              onChange={(e) => { setDeptId(e.target.value); setUserId(''); }}
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
+              required
+              disabled={deptsLoading}
+            >
+              <option value="">
+                {deptsLoading ? 'Loading…' : '— Select Department —'}
+              </option>
+              {activeDepartments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name} {d.code ? `(${d.code})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Assign to (Optional)
+            </label>
+            <select
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
+              disabled={usersLoading || !deptId}
+            >
+              <option value="">
+                {usersLoading
+                  ? 'Loading users…'
+                  : !deptId
+                    ? '— Select a department first —'
+                    : users.length === 0
+                      ? 'No active users in this department'
+                      : '— Assign to specific user (optional) —'}
+              </option>
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.full_name} — {u.pj_number}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Priority
+            </label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
+            >
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              New Instructions / Comment
+            </label>
+            <textarea
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              rows={3}
+              placeholder="Add new instructions or context for the reassignment..."
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
+            />
+          </div>
+
+          {/* ─── Follow‑up comment (visible to recipient) ─── */}
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Reason for push back <span className="font-normal text-stone-400 normal-case">(visible to recipient)</span>
+            </label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              placeholder="Why are you pushing this back?"
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
+            />
+          </div>
+
+          {error && (
+            <div className="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-200">
+              {error}
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-stone-500 hover:text-stone-800 order-2 sm:order-1"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isReassigning || !deptId}
+              className="rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a18] disabled:opacity-40 disabled:cursor-not-allowed order-1 sm:order-2 inline-flex items-center gap-2"
+            >
+              {isReassigning && <Spinner className="h-3.5 w-3.5" />}
+              {isReassigning ? 'Reassigning…' : 'Push Back'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 // ─── Document Editor ──────────────────────────────────────────────────────────
 
 interface DocumentEditorProps {
@@ -1119,6 +1331,9 @@ interface DocumentEditorProps {
   onUpdateMark?: (markId: string, text: string, date: string | null) => void;
   onDownload?: () => void;
   onOpenResponses?: () => void;
+  // ─── New props for Push Back ───────────────────────────────────
+  onReassign?: () => void;
+  isReassigning?: boolean;
 }
 
 const DocumentEditor: React.FC<DocumentEditorProps> = ({
@@ -1135,6 +1350,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onUpdateMark,
   onDownload,
   onOpenResponses,
+  onReassign,
+  isReassigning = false,
 }) => {
   const isComposed = document.type === 'memo' || document.type === 'letter';
   const formattedDate = document.created_at
@@ -1196,7 +1413,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
-          {/* Responses button - opens modal */}
+          {/* Responses button */}
           <button
             onClick={handleOpenResponses}
             className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
@@ -1239,6 +1456,22 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
               </svg>
               Mark
+            </button>
+          )}
+
+          {/* ─── Push Back button (only when document has an active mark) ─── */}
+          {onReassign && document.active_mark && (
+            <button
+              onClick={onReassign}
+              disabled={isReassigning}
+              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors whitespace-nowrap disabled:opacity-50"
+            >
+              {isReassigning ? <Spinner className="h-3 w-3" /> : (
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              )}
+              {isReassigning ? 'Pushing…' : 'Push Back'}
             </button>
           )}
 
@@ -1675,9 +1908,13 @@ const SuperAdminBringUp: React.FC = () => {
   const [signingDocId, setSigningDocId] = useState<string | null>(null);
   const [signToast, setSignToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Response modal state
+  // ─── Response modal state ───────────────────────────────────────────
   const [showResponseModal, setShowResponseModal] = useState(false);
   const [responseDocument, setResponseDocument] = useState<Document | null>(null);
+
+  // ─── Push Back state ─────────────────────────────────────────────────
+  const [showReassignModal, setShowReassignModal] = useState(false);
+  const [reassignLoading, setReassignLoading] = useState(false);
 
   // Fetch documents with bring-up date
   useEffect(() => {
@@ -1840,7 +2077,7 @@ const SuperAdminBringUp: React.FC = () => {
     window.open(selectedDocument.file_url, '_blank');
   };
 
-  // Open response modal for the currently selected document
+  // Open response modal
   const handleOpenResponses = () => {
     if (selectedDocument) {
       setResponseDocument(selectedDocument);
@@ -1858,6 +2095,37 @@ const SuperAdminBringUp: React.FC = () => {
       has_bring_up_date: true,
     };
     dispatch(fetchDocuments(params));
+  };
+
+  // ─── Push Back handlers ─────────────────────────────────────────────
+  const handleOpenReassign = () => {
+    setShowReassignModal(true);
+  };
+
+  const handleReassignSubmit = async (
+    markId: string,
+    data: {
+      department_id: string;
+      assigned_to: string | null;
+      instructions: string;
+      priority: string;
+      note?: string;
+    }
+  ) => {
+    setReassignLoading(true);
+    try {
+      // TODO: replace with dispatch(reassignMark({ markId, data })) when available
+      console.warn('reassignMark not implemented yet', { markId, data });
+      toast.error('Push back is not yet available. Please wait for the update.');
+      // Simulate closing the modal after a short delay
+      setTimeout(() => {
+        setShowReassignModal(false);
+        setReassignLoading(false);
+      }, 1000);
+    } catch {
+      toast.error('Something went wrong.');
+      setReassignLoading(false);
+    }
   };
 
   // ─── Render ─────────────────────────────────────────────────────────────────
@@ -1917,6 +2185,23 @@ const SuperAdminBringUp: React.FC = () => {
           />,
           document.body
         )}
+
+      {/* ─── Reassign Modal ─────────────────────────────────────────────── */}
+      {showReassignModal && selectedDocument && selectedDocument.active_mark && (
+        <ReassignModal
+          document={selectedDocument}
+          currentMark={{
+            id: selectedDocument.active_mark.id,
+            department_id: selectedDocument.active_mark.marked_to_dept,
+            assigned_to: selectedDocument.active_mark.assigned_to,
+            instructions: selectedDocument.active_mark.instructions || '',
+            priority: selectedDocument.active_mark.priority || 'normal',
+          }}
+          onClose={() => setShowReassignModal(false)}
+          onReassign={handleReassignSubmit}
+          isReassigning={reassignLoading}
+        />
+      )}
 
       {/* Main layout: left list / right editor */}
       <div className="flex flex-1 overflow-hidden relative">
@@ -2008,7 +2293,6 @@ const SuperAdminBringUp: React.FC = () => {
                   ? () => setShowMarkModal(true)
                   : undefined
               }
-              // ─── UPDATED CONDITIONS FOR ACKNOWLEDGE & COMPLETE ───
               onAcknowledge={
                 selectedDocument.status === 'marked' &&
                 (selectedDocument.assigned_to === user?.id || isSuperAdmin)
@@ -2024,6 +2308,9 @@ const SuperAdminBringUp: React.FC = () => {
               onUpdateMark={handleUpdateMark}
               onDownload={handleDownload}
               onOpenResponses={handleOpenResponses}
+              // ─── Pass Push Back props ────────────────────────────────────
+              onReassign={selectedDocument.active_mark ? handleOpenReassign : undefined}
+              isReassigning={reassignLoading}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center px-4">

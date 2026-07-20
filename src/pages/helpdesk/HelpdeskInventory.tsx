@@ -1,15 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   fetchInventoryItems,
   fetchInventoryStats,
   fetchMyStoreRequests,
   createStoreRequest,
+  fetchCategories,
   clearError,
   clearSuccess,
   selectInventoryItems,
   selectInventoryStats,
   selectStoreRequests,
+  selectCategories,
   selectInventoryItemsLoading,
   selectStoreRequestsLoading,
   selectInventoryStatsLoading,
@@ -18,6 +20,7 @@ import {
   selectInventorySuccess,
   selectPendingStoreRequests,
   type InventoryItem,
+  type StoreRequestStatus,
   type CreateStoreRequestInput,
 } from '../../store/slices/inventorySlice';
 import {
@@ -35,10 +38,12 @@ import {
 
 // ─── UI Helpers ──────────────────────────────────────────────────────────────
 
-const StatusBadge = ({ status }: { status: string }) => {
-  const styles: Record<string, { bg: string; text: string; label: string; icon: React.ReactNode }> = {
+const StatusBadge = ({ status }: { status: StoreRequestStatus }) => {
+  const styles: Record<StoreRequestStatus, { bg: string; text: string; label: string; icon: React.ReactNode }> = {
     Pending: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'Pending', icon: <Clock size={12} /> },
-    Approved: { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Approved', icon: <CheckCircle size={12} /> },
+    Approved: { bg: 'bg-blue-50', text: 'text-blue-700', label: 'Approved', icon: <CheckCircle size={12} /> },
+    Issued: { bg: 'bg-indigo-50', text: 'text-indigo-700', label: 'Issued', icon: <Package size={12} /> },
+    Received: { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Received', icon: <CheckCircle size={12} /> },
     Rejected: { bg: 'bg-red-50', text: 'text-red-700', label: 'Rejected', icon: <XCircle size={12} /> },
   };
   const { bg, text, label, icon } = styles[status] || styles.Pending;
@@ -201,6 +206,7 @@ const HelpdeskInventory: React.FC = () => {
   const items = useAppSelector(selectInventoryItems);
   const stats = useAppSelector(selectInventoryStats);
   const storeRequests = useAppSelector(selectStoreRequests);
+  const categories = useAppSelector(selectCategories);
   const itemsLoading = useAppSelector(selectInventoryItemsLoading);
   const storeRequestsLoading = useAppSelector(selectStoreRequestsLoading);
   const statsLoading = useAppSelector(selectInventoryStatsLoading);
@@ -223,7 +229,17 @@ const HelpdeskInventory: React.FC = () => {
   const [formErrors, setFormErrors] = useState<{ reason?: string }>({});
 
   // ── Derived Data ──────────────────────────────────────────────────────────
-  const categories = [...new Set(items.map(item => item.category))];
+  // Build a map of category_id -> name for display
+  const categoryMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    categories.forEach(c => map[c.id] = c.name);
+    return map;
+  }, [categories]);
+
+  // For filtering by category name (we'll use category_id in filter, but display names)
+  const categoryNames = useMemo(() => {
+    return categories.map(c => c.name);
+  }, [categories]);
 
   // ── Effects ──────────────────────────────────────────────────────────────
 
@@ -231,6 +247,7 @@ const HelpdeskInventory: React.FC = () => {
     dispatch(fetchInventoryItems({}));
     dispatch(fetchInventoryStats());
     dispatch(fetchMyStoreRequests());
+    dispatch(fetchCategories());
   }, [dispatch]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
@@ -292,9 +309,10 @@ const HelpdeskInventory: React.FC = () => {
   };
 
   const filteredItems = items.filter(item => {
+    const categoryName = categoryMap[item.category_id] || 'Unknown';
     const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (item.subtitle?.toLowerCase().includes(searchTerm.toLowerCase()) || false);
-    const matchesCategory = categoryFilter === 'all' || item.category === categoryFilter;
+    const matchesCategory = categoryFilter === 'all' || categoryName === categoryFilter;
     const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
     return matchesSearch && matchesCategory && matchesStatus;
   });
@@ -419,8 +437,8 @@ const HelpdeskInventory: React.FC = () => {
               className="h-10 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm text-stone-700 focus:outline-none focus:ring-2 focus:ring-[#C29B38]/40"
             >
               <option value="all">All Categories</option>
-              {categories.map((cat) => (
-                <option key={cat} value={cat}>{cat}</option>
+              {categoryNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
               ))}
             </select>
 
@@ -478,7 +496,7 @@ const HelpdeskInventory: React.FC = () => {
                       </td>
                       <td className="px-4 py-3">
                         <span className="inline-flex items-center rounded-full bg-stone-100 px-2.5 py-0.5 text-xs font-medium text-stone-600">
-                          {item.category}
+                          {categoryMap[item.category_id] || 'Unknown'}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center font-medium text-stone-700">
@@ -556,6 +574,16 @@ const HelpdeskInventory: React.FC = () => {
                             Approved by: {request.approved_by_name}
                           </p>
                         )}
+                        {request.status === 'Issued' && request.issued_by_name && (
+                          <p className="text-xs text-indigo-500">
+                            Issued by: {request.issued_by_name}
+                          </p>
+                        )}
+                        {request.status === 'Received' && request.received_by_name && (
+                          <p className="text-xs text-emerald-500">
+                            Received by: {request.received_by_name}
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-center font-medium text-stone-700">
                         {request.quantity}
@@ -607,7 +635,7 @@ const HelpdeskInventory: React.FC = () => {
                 <p className="text-xs text-stone-500">Selected Item</p>
                 <p className="text-sm font-semibold text-stone-900">{selectedItem.name}</p>
                 <p className="text-xs text-stone-400">
-                  Available: {selectedItem.qty_available} {selectedItem.unit} • {selectedItem.category}
+                  Available: {selectedItem.qty_available} {selectedItem.unit} • {categoryMap[selectedItem.category_id] || 'Unknown'}
                 </p>
               </div>
             )}
