@@ -34,6 +34,17 @@ import type {
   ComposeMemoInput,
   ComposeLetterInput,
   SendToUserInput,
+  // ── Follow-up types ──────────────────────────────────────────────
+  FollowUp,
+  FollowUpComment,
+  FollowUpPaginationResponse,
+  CreateFollowUpInput,
+  UpdateFollowUpInput,
+  CompleteFollowUpInput,
+  CancelFollowUpInput,
+  AddFollowUpCommentInput,
+  FollowUpFilters,
+  FollowUpWithComments,
 } from "../../types/documents.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -45,6 +56,16 @@ interface DocumentState {
   markHistory: DocumentMark[];
   flowHistory: DocumentFlowEntry[];
   responses: DocumentResponse[];
+  // ── Follow-up state ──────────────────────────────────────────────────────
+  followUps: FollowUp[];
+  currentFollowUp: FollowUpWithComments | null;
+  followUpComments: FollowUpComment[];
+  followUpPagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  } | null;
   lastFetchParams: DocumentFilters | null;
   loading: boolean;
   error: string | null;
@@ -74,6 +95,13 @@ interface DocumentState {
     redirectingToFolder?: string;
     removingFromFolder?: string;
     regeneratingPdf?: string;
+    // ── Follow-up actions ────────────────────────────────────────────────
+    creatingFollowUp?: boolean;
+    updatingFollowUp?: string;
+    completingFollowUp?: string;
+    cancellingFollowUp?: string;
+    addingFollowUpComment?: string;
+    fetchingFollowUps?: boolean;
   };
 }
 
@@ -84,6 +112,11 @@ const initialState: DocumentState = {
   markHistory: [],
   flowHistory: [],
   responses: [],
+  // ── Follow-up initial state ─────────────────────────────────────────────
+  followUps: [],
+  currentFollowUp: null,
+  followUpComments: [],
+  followUpPagination: null,
   loading: false,
   error: null,
   pagination: null,
@@ -716,6 +749,221 @@ export const regeneratePdf = createAsyncThunk(
   },
 );
 
+// ════════════════════════════════════════════════════════════════════════════
+//  FOLLOW-UP THUNKS
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── Fetch Follow-Ups ───────────────────────────────────────────────────────
+
+export const fetchFollowUps = createAsyncThunk(
+  "documents/fetchFollowUps",
+  async (filters: FollowUpFilters, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: FollowUpPaginationResponse;
+      }>("/documents/follow-ups", { params: filters });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Fetch Follow-Ups by Document ──────────────────────────────────────────
+
+export const fetchFollowUpsByDocument = createAsyncThunk(
+  "documents/fetchFollowUpsByDocument",
+  async (
+    { documentId, filters }: { documentId: string; filters?: Omit<FollowUpFilters, 'document_id'> },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: FollowUpPaginationResponse;
+      }>(`/documents/${documentId}/follow-ups`, { params: filters });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Fetch My Follow-Ups ────────────────────────────────────────────────────
+
+export const fetchMyFollowUps = createAsyncThunk(
+  "documents/fetchMyFollowUps",
+  async (
+    filters: Omit<FollowUpFilters, 'assigned_to'> = {},
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: FollowUpPaginationResponse;
+      }>("/documents/follow-ups/my", { params: filters });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Fetch Follow-Up by ID ──────────────────────────────────────────────────
+
+export const fetchFollowUpById = createAsyncThunk(
+  "documents/fetchFollowUpById",
+  async (followUpId: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: FollowUp;
+      }>(`/documents/follow-ups/${followUpId}`);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Fetch Follow-Up Thread (with comments) ─────────────────────────────────
+
+export const fetchFollowUpThread = createAsyncThunk(
+  "documents/fetchFollowUpThread",
+  async (followUpId: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: FollowUpWithComments;
+      }>(`/documents/follow-ups/${followUpId}/thread`);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Create Follow-Up ───────────────────────────────────────────────────────
+
+export const createFollowUp = createAsyncThunk(
+  "documents/createFollowUp",
+  async (input: CreateFollowUpInput, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: FollowUp;
+      }>("/documents/follow-ups", input);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Update Follow-Up ───────────────────────────────────────────────────────
+
+export const updateFollowUp = createAsyncThunk(
+  "documents/updateFollowUp",
+  async (
+    { followUpId, input }: { followUpId: string; input: UpdateFollowUpInput },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.put<{
+        success: boolean;
+        data: FollowUp;
+      }>(`/documents/follow-ups/${followUpId}`, input);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Complete Follow-Up ─────────────────────────────────────────────────────
+
+export const completeFollowUp = createAsyncThunk(
+  "documents/completeFollowUp",
+  async (
+    { followUpId, input }: { followUpId: string; input: CompleteFollowUpInput },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.patch<{
+        success: boolean;
+        data: FollowUp;
+      }>(`/documents/follow-ups/${followUpId}/complete`, input);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Cancel Follow-Up ───────────────────────────────────────────────────────
+
+export const cancelFollowUp = createAsyncThunk(
+  "documents/cancelFollowUp",
+  async (
+    { followUpId, input }: { followUpId: string; input: CancelFollowUpInput },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.patch<{
+        success: boolean;
+        data: FollowUp;
+      }>(`/documents/follow-ups/${followUpId}/cancel`, input);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Add Follow-Up Comment ──────────────────────────────────────────────────
+
+export const addFollowUpComment = createAsyncThunk(
+  "documents/addFollowUpComment",
+  async (
+    { followUpId, input, file }: { followUpId: string; input: AddFollowUpCommentInput; file?: File },
+    { rejectWithValue }
+  ) => {
+    const formData = new FormData();
+    formData.append("comment", input.comment);
+    if (file) formData.append("file", file);
+
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: FollowUpComment;
+      }>(`/documents/follow-ups/${followUpId}/comments`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return { followUpId, comment: response.data.data };
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Fetch Follow-Up Comments ──────────────────────────────────────────────
+
+export const fetchFollowUpComments = createAsyncThunk(
+  "documents/fetchFollowUpComments",
+  async (followUpId: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: FollowUpComment[];
+      }>(`/documents/follow-ups/${followUpId}/comments`);
+      return { followUpId, comments: response.data.data };
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
 // ─── Slice ────────────────────────────────────────────────────────────────────
 
 const documentSlice = createSlice({
@@ -736,6 +984,17 @@ const documentSlice = createSlice({
     },
     clearResponses: (state) => {
       state.responses = [];
+    },
+    // ── Follow-up reducers ──────────────────────────────────────────────────
+    clearFollowUps: (state) => {
+      state.followUps = [];
+      state.followUpPagination = null;
+    },
+    clearCurrentFollowUp: (state) => {
+      state.currentFollowUp = null;
+    },
+    clearFollowUpComments: (state) => {
+      state.followUpComments = [];
     },
     resetState: () => initialState,
   },
@@ -1443,6 +1702,271 @@ const documentSlice = createSlice({
       .addCase(fetchDocumentsByFolder.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
+      })
+
+      // ════════════════════════════════════════════════════════════════════════
+      //  FOLLOW-UP EXTRA REDUCERS
+      // ════════════════════════════════════════════════════════════════════════
+
+      // ── fetchFollowUps ──────────────────────────────────────────────────────
+      .addCase(fetchFollowUps.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.actionInProgress.fetchingFollowUps = true;
+      })
+      .addCase(fetchFollowUps.fulfilled, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.fetchingFollowUps = false;
+        state.followUps = action.payload.data;
+        state.followUpPagination = {
+          total: action.payload.total,
+          page: action.payload.page,
+          limit: action.payload.limit,
+          totalPages: action.payload.totalPages,
+        };
+      })
+      .addCase(fetchFollowUps.rejected, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.fetchingFollowUps = false;
+        state.error = action.payload as string;
+      })
+
+      // ── fetchFollowUpsByDocument ──────────────────────────────────────────
+      .addCase(fetchFollowUpsByDocument.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchFollowUpsByDocument.fulfilled, (state, action) => {
+        state.loading = false;
+        state.followUps = action.payload.data;
+        state.followUpPagination = {
+          total: action.payload.total,
+          page: action.payload.page,
+          limit: action.payload.limit,
+          totalPages: action.payload.totalPages,
+        };
+      })
+      .addCase(fetchFollowUpsByDocument.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ── fetchMyFollowUps ───────────────────────────────────────────────────
+      .addCase(fetchMyFollowUps.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchMyFollowUps.fulfilled, (state, action) => {
+        state.loading = false;
+        state.followUps = action.payload.data;
+        state.followUpPagination = {
+          total: action.payload.total,
+          page: action.payload.page,
+          limit: action.payload.limit,
+          totalPages: action.payload.totalPages,
+        };
+      })
+      .addCase(fetchMyFollowUps.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ── fetchFollowUpById ──────────────────────────────────────────────────
+      .addCase(fetchFollowUpById.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchFollowUpById.fulfilled, (state, action) => {
+        state.loading = false;
+        state.currentFollowUp = {
+          ...action.payload,
+          comments: [],
+        };
+      })
+      .addCase(fetchFollowUpById.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ── fetchFollowUpThread ────────────────────────────────────────────────
+      .addCase(fetchFollowUpThread.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchFollowUpThread.fulfilled, (state, action) => {
+        state.loading = false;
+        state.currentFollowUp = action.payload;
+        state.followUpComments = action.payload.comments || [];
+      })
+      .addCase(fetchFollowUpThread.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ── createFollowUp ──────────────────────────────────────────────────────
+      .addCase(createFollowUp.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.actionInProgress.creatingFollowUp = true;
+      })
+      .addCase(createFollowUp.fulfilled, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.creatingFollowUp = false;
+        state.followUps = [action.payload, ...state.followUps];
+        // Update the document's follow_ups array if it exists
+        if (state.currentDocument) {
+          state.currentDocument.follow_ups = [
+            action.payload,
+            ...(state.currentDocument.follow_ups || []),
+          ];
+        }
+      })
+      .addCase(createFollowUp.rejected, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.creatingFollowUp = false;
+        state.error = action.payload as string;
+      })
+
+      // ── updateFollowUp ──────────────────────────────────────────────────────
+      .addCase(updateFollowUp.pending, (state, action) => {
+        state.actionInProgress.updatingFollowUp = action.meta.arg.followUpId;
+        state.error = null;
+      })
+      .addCase(updateFollowUp.fulfilled, (state, action) => {
+        state.actionInProgress.updatingFollowUp = undefined;
+        const index = state.followUps.findIndex(
+          (f) => f.id === action.payload.id
+        );
+        if (index !== -1) state.followUps[index] = action.payload;
+        if (state.currentFollowUp?.id === action.payload.id) {
+          state.currentFollowUp = {
+            ...state.currentFollowUp,
+            ...action.payload,
+          };
+        }
+        // Update document's follow_ups
+        if (state.currentDocument) {
+          const docIndex = state.currentDocument.follow_ups?.findIndex(
+            (f) => f.id === action.payload.id
+          );
+          if (docIndex !== undefined && docIndex !== -1 && state.currentDocument.follow_ups) {
+            state.currentDocument.follow_ups[docIndex] = action.payload;
+          }
+        }
+      })
+      .addCase(updateFollowUp.rejected, (state, action) => {
+        state.actionInProgress.updatingFollowUp = undefined;
+        state.error = action.payload as string;
+      })
+
+      // ── completeFollowUp ────────────────────────────────────────────────────
+      .addCase(completeFollowUp.pending, (state, action) => {
+        state.actionInProgress.completingFollowUp = action.meta.arg.followUpId;
+        state.error = null;
+      })
+      .addCase(completeFollowUp.fulfilled, (state, action) => {
+        state.actionInProgress.completingFollowUp = undefined;
+        const index = state.followUps.findIndex(
+          (f) => f.id === action.payload.id
+        );
+        if (index !== -1) state.followUps[index] = action.payload;
+        if (state.currentFollowUp?.id === action.payload.id) {
+          state.currentFollowUp = {
+            ...state.currentFollowUp,
+            ...action.payload,
+          };
+        }
+        // Update document's follow_ups
+        if (state.currentDocument) {
+          const docIndex = state.currentDocument.follow_ups?.findIndex(
+            (f) => f.id === action.payload.id
+          );
+          if (docIndex !== undefined && docIndex !== -1 && state.currentDocument.follow_ups) {
+            state.currentDocument.follow_ups[docIndex] = action.payload;
+          }
+        }
+      })
+      .addCase(completeFollowUp.rejected, (state, action) => {
+        state.actionInProgress.completingFollowUp = undefined;
+        state.error = action.payload as string;
+      })
+
+      // ── cancelFollowUp ──────────────────────────────────────────────────────
+      .addCase(cancelFollowUp.pending, (state, action) => {
+        state.actionInProgress.cancellingFollowUp = action.meta.arg.followUpId;
+        state.error = null;
+      })
+      .addCase(cancelFollowUp.fulfilled, (state, action) => {
+        state.actionInProgress.cancellingFollowUp = undefined;
+        const index = state.followUps.findIndex(
+          (f) => f.id === action.payload.id
+        );
+        if (index !== -1) state.followUps[index] = action.payload;
+        if (state.currentFollowUp?.id === action.payload.id) {
+          state.currentFollowUp = {
+            ...state.currentFollowUp,
+            ...action.payload,
+          };
+        }
+        // Update document's follow_ups
+        if (state.currentDocument) {
+          const docIndex = state.currentDocument.follow_ups?.findIndex(
+            (f) => f.id === action.payload.id
+          );
+          if (docIndex !== undefined && docIndex !== -1 && state.currentDocument.follow_ups) {
+            state.currentDocument.follow_ups[docIndex] = action.payload;
+          }
+        }
+      })
+      .addCase(cancelFollowUp.rejected, (state, action) => {
+        state.actionInProgress.cancellingFollowUp = undefined;
+        state.error = action.payload as string;
+      })
+
+      // ── addFollowUpComment ──────────────────────────────────────────────────
+      .addCase(addFollowUpComment.pending, (state, action) => {
+        state.actionInProgress.addingFollowUpComment = action.meta.arg.followUpId;
+        state.error = null;
+      })
+      .addCase(addFollowUpComment.fulfilled, (state, action) => {
+        state.actionInProgress.addingFollowUpComment = undefined;
+        const { followUpId, comment } = action.payload;
+        state.followUpComments.push(comment);
+        if (state.currentFollowUp?.id === followUpId) {
+          state.currentFollowUp.comments = [
+            ...(state.currentFollowUp.comments || []),
+            comment,
+          ];
+        }
+        // Update comment count
+        const followUpIndex = state.followUps.findIndex(
+          (f) => f.id === followUpId
+        );
+        if (followUpIndex !== -1) {
+          state.followUps[followUpIndex].comment_count = 
+            (state.followUps[followUpIndex].comment_count || 0) + 1;
+        }
+      })
+      .addCase(addFollowUpComment.rejected, (state, action) => {
+        state.actionInProgress.addingFollowUpComment = undefined;
+        state.error = action.payload as string;
+      })
+
+      // ── fetchFollowUpComments ──────────────────────────────────────────────
+      .addCase(fetchFollowUpComments.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchFollowUpComments.fulfilled, (state, action) => {
+        state.loading = false;
+        state.followUpComments = action.payload.comments;
+        if (state.currentFollowUp?.id === action.payload.followUpId) {
+          state.currentFollowUp.comments = action.payload.comments;
+        }
+      })
+      .addCase(fetchFollowUpComments.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
       });
   },
 });
@@ -1453,6 +1977,9 @@ export const {
   clearMyMarked,
   clearFlowHistory,
   clearResponses,
+  clearFollowUps,
+  clearCurrentFollowUp,
+  clearFollowUpComments,
   resetState,
 } = documentSlice.actions;
 
@@ -1523,6 +2050,38 @@ export const selectIsSigning = (state: { documents: DocumentState }, documentId:
 
 export const selectIsReleasing = (state: { documents: DocumentState }, documentId: string) =>
   state.documents.actionInProgress.releasing === documentId;
+
+// ── Follow-up selectors ──────────────────────────────────────────────────────
+
+export const selectFollowUps = (state: { documents: DocumentState }) =>
+  state.documents.followUps;
+
+export const selectCurrentFollowUp = (state: { documents: DocumentState }) =>
+  state.documents.currentFollowUp;
+
+export const selectFollowUpComments = (state: { documents: DocumentState }) =>
+  state.documents.followUpComments;
+
+export const selectFollowUpPagination = (state: { documents: DocumentState }) =>
+  state.documents.followUpPagination;
+
+export const selectIsCreatingFollowUp = (state: { documents: DocumentState }) =>
+  state.documents.actionInProgress.creatingFollowUp || false;
+
+export const selectIsUpdatingFollowUp = (state: { documents: DocumentState }, followUpId: string) =>
+  state.documents.actionInProgress.updatingFollowUp === followUpId;
+
+export const selectIsCompletingFollowUp = (state: { documents: DocumentState }, followUpId: string) =>
+  state.documents.actionInProgress.completingFollowUp === followUpId;
+
+export const selectIsCancellingFollowUp = (state: { documents: DocumentState }, followUpId: string) =>
+  state.documents.actionInProgress.cancellingFollowUp === followUpId;
+
+export const selectIsAddingFollowUpComment = (state: { documents: DocumentState }, followUpId: string) =>
+  state.documents.actionInProgress.addingFollowUpComment === followUpId;
+
+export const selectIsFetchingFollowUps = (state: { documents: DocumentState }) =>
+  state.documents.actionInProgress.fetchingFollowUps || false;
 
 export type { DocumentState };
 

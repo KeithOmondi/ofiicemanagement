@@ -13,7 +13,6 @@ import {
   WidthType,
   VerticalAlign,
 } from 'docx';
-import { saveAs } from 'file-saver';
 import type { UtilityMemoData } from '../types/generateUtilityMemoTypes';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -79,7 +78,7 @@ function dataCell(text: string, widthPct: number, align: typeof AlignmentType[ke
 
 // ─── Main export ────────────────────────────────────────────────────────────
 
-export async function generateUtilityMemoDocx(data: UtilityMemoData): Promise<void> {
+export async function generateUtilityMemoDocx(data: UtilityMemoData): Promise<Blob> {
   const [crest, signature] = await Promise.all([
     fetchImage(data.crestUrl),
     data.signatureUrl ? fetchImage(data.signatureUrl) : Promise.resolve(null),
@@ -268,7 +267,9 @@ export async function generateUtilityMemoDocx(data: UtilityMemoData): Promise<vo
     ],
   });
 
-  const blob = await Packer.toBlob(doc);
-  const filename = `Utility_Memo_${data.date.replace(/\s+/g, '_')}.docx`;
-  saveAs(blob, filename);
+  // Return the generated Word document as a Blob instead of triggering a
+  // local download via saveAs(). The caller (UtilitiesMemoModal) is
+  // responsible for naming the file and deciding what to do with the
+  // blob (upload to the document system and/or offer a local download).
+  return Packer.toBlob(doc);
 }

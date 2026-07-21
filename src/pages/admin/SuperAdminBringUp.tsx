@@ -1,4 +1,5 @@
 // src/pages/documents/SuperAdminBringUp.tsx
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { toast, Toaster } from 'react-hot-toast';
@@ -15,6 +16,9 @@ import {
   updateMark,
   respondToDocument,
   fetchDocumentById,
+  createFollowUp,
+  completeFollowUp,
+  cancelFollowUp,
 } from '../../store/slices/documentSlice';
 import { hasRole } from '../../store/slices/authSlice';
 import {
@@ -32,8 +36,15 @@ import type {
   DocumentStatus,
   DocumentType,
   DocumentFilters,
+  FollowUp,
+  FollowUpStatus,
+  FollowUpPriority,
+  CreateFollowUpInput,
+  CompleteFollowUpInput,
+  CancelFollowUpInput,
 } from '../../types/documents.types';
 import { format } from 'date-fns';
+import FollowUpModal from './FollowUpModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -77,9 +88,9 @@ const STATUS_STYLES: Record<DocumentStatus, string> = {
   draft: 'bg-stone-100 text-stone-500 border border-stone-200',
   uploaded: 'bg-blue-50 text-blue-700 border border-blue-100',
   pending_review: 'bg-amber-50 text-amber-700 border border-amber-100',
-  dept_assigned: 'bg-violet-50 text-violet-700 border border-violet-100',   // NEW
-  user_assigned: 'bg-indigo-50 text-indigo-700 border border-indigo-100',   // NEW
-  marked: 'bg-violet-50 text-violet-700 border border-violet-100',          // legacy
+  dept_assigned: 'bg-violet-50 text-violet-700 border border-violet-100',
+  user_assigned: 'bg-indigo-50 text-indigo-700 border border-indigo-100',
+  marked: 'bg-violet-50 text-violet-700 border border-violet-100',
   in_progress: 'bg-indigo-50 text-indigo-700 border border-indigo-100',
   completed: 'bg-emerald-50 text-emerald-700 border border-emerald-100',
   filed: 'bg-stone-100 text-stone-500 border border-stone-200',
@@ -91,9 +102,9 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
   draft: 'DRAFT',
   uploaded: 'UPLOADED',
   pending_review: 'PENDING',
-  dept_assigned: 'DEPT ASSIGNED',   // NEW
-  user_assigned: 'USER ASSIGNED',   // NEW
-  marked: 'MARKED',                 // legacy
+  dept_assigned: 'DEPT ASSIGNED',
+  user_assigned: 'USER ASSIGNED',
+  marked: 'MARKED',
   in_progress: 'IN PROGRESS',
   completed: 'COMPLETED',
   filed: 'FILED',
@@ -106,6 +117,42 @@ const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => (
     className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${STATUS_STYLES[status]}`}
   >
     {STATUS_LABELS[status]}
+  </span>
+);
+
+// ─── Follow-Up Status Badge ───────────────────────────────────────────────────
+
+const FOLLOW_UP_STATUS_STYLES: Record<FollowUpStatus, string> = {
+  pending: 'bg-amber-100 text-amber-700 border border-amber-200',
+  in_progress: 'bg-blue-100 text-blue-700 border border-blue-200',
+  completed: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+  cancelled: 'bg-stone-100 text-stone-500 border border-stone-200',
+};
+
+const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
+  pending: 'PENDING',
+  in_progress: 'IN PROGRESS',
+  completed: 'COMPLETED',
+  cancelled: 'CANCELLED',
+};
+
+const FollowUpStatusBadge: React.FC<{ status: FollowUpStatus }> = ({ status }) => (
+  <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${FOLLOW_UP_STATUS_STYLES[status]}`}>
+    {FOLLOW_UP_STATUS_LABELS[status]}
+  </span>
+);
+
+// ─── Follow-Up Priority Badge ─────────────────────────────────────────────────
+
+const FOLLOW_UP_PRIORITY_STYLES: Record<FollowUpPriority, string> = {
+  low: 'bg-stone-100 text-stone-500',
+  normal: 'bg-blue-100 text-blue-700',
+  urgent: 'bg-red-100 text-red-700',
+};
+
+const FollowUpPriorityBadge: React.FC<{ priority: FollowUpPriority }> = ({ priority }) => (
+  <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${FOLLOW_UP_PRIORITY_STYLES[priority]}`}>
+    {priority.toUpperCase()}
   </span>
 );
 
@@ -173,7 +220,7 @@ const formatFileSize = (bytes: number | null): string => {
   return kb < 1024 ? `${Math.round(kb)}KB` : `${(kb / 1024).toFixed(1)}MB`;
 };
 
-// ─── List Item (clickable) ───────────────────────────────────────────────────
+// ─── List Item ───────────────────────────────────────────────────────────────
 
 interface ListItemProps {
   document: Document;
@@ -790,7 +837,11 @@ interface ResponseModalProps {
   onResponseSubmitted: () => void;
 }
 
-const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResponseSubmitted }) => {
+const ResponseModal: React.FC<ResponseModalProps> = ({
+  document,
+  onClose,
+  onResponseSubmitted,
+}) => {
   const dispatch = useAppDispatch();
   const currentUser = useAppSelector((state) => state.auth.user);
   const currentDocument = useAppSelector((state) => state.documents.currentDocument);
@@ -801,16 +852,24 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const responses = currentDocument?.id === document.id
+    ? currentDocument.responses ?? []
+    : [];
+
+  const isPendingResponse =
+    document.status === 'pending_review' &&
+    document.assigned_to === currentUser?.id;
+
+  const isFormValid = note.trim().length > 0;
+  const nextResponseNumber = responses.length + 1;
+
   useEffect(() => {
     dispatch(fetchDocumentById(document.id));
   }, [dispatch, document.id]);
 
-  const responses = currentDocument?.id === document.id ? currentDocument.responses ?? [] : [];
-  const isPendingResponse = document.status === 'pending_review' && document.assigned_to === currentUser?.id;
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!note.trim() || isSubmitting) return;
+    if (!isFormValid || isSubmitting) return;
 
     setIsSubmitting(true);
     try {
@@ -827,7 +886,7 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
 
-      dispatch(fetchDocumentById(document.id));
+      await dispatch(fetchDocumentById(document.id));
       onResponseSubmitted();
     } catch (error) {
       toast.error(typeof error === 'string' ? error : 'Failed to add response');
@@ -836,39 +895,27 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
     }
   };
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
     const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile) {
-      if (droppedFile.size > 25 * 1024 * 1024) {
-        toast.error('File size exceeds 25MB limit');
-        return;
-      }
-      setFile(droppedFile);
+    if (!droppedFile) return;
+    if (droppedFile.size > 25 * 1024 * 1024) {
+      toast.error('File size exceeds 25MB limit');
+      return;
     }
+    setFile(droppedFile);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      if (selectedFile.size > 25 * 1024 * 1024) {
-        toast.error('File size exceeds 25MB limit');
-        e.target.value = '';
-        return;
-      }
-      setFile(selectedFile);
+    if (!selectedFile) return;
+    if (selectedFile.size > 25 * 1024 * 1024) {
+      toast.error('File size exceeds 25MB limit');
+      e.target.value = '';
+      return;
     }
+    setFile(selectedFile);
   };
 
   const clearFile = () => {
@@ -885,15 +932,18 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
       minute: '2-digit',
     }).format(new Date(date));
 
-  const TYPE_BADGE: Record<string, string> = {
-    memo: 'bg-blue-100 text-blue-700',
-    letter: 'bg-indigo-100 text-indigo-700',
-    judgment: 'bg-purple-100 text-purple-700',
-    ruling: 'bg-pink-100 text-pink-700',
-    order: 'bg-amber-100 text-amber-700',
-    correspondence: 'bg-green-100 text-green-700',
-    upload: 'bg-gray-100 text-gray-700',
-    ticket: "text-purple-500",
+  const getTypeBadgeColor = (type: string): string => {
+    const colors: Record<string, string> = {
+      memo: 'bg-blue-100 text-blue-700',
+      letter: 'bg-indigo-100 text-indigo-700',
+      judgment: 'bg-purple-100 text-purple-700',
+      ruling: 'bg-pink-100 text-pink-700',
+      order: 'bg-amber-100 text-amber-700',
+      correspondence: 'bg-green-100 text-green-700',
+      upload: 'bg-gray-100 text-gray-700',
+      ticket: 'bg-purple-500 text-white',
+    };
+    return colors[type] ?? 'bg-slate-100 text-slate-700';
   };
 
   return (
@@ -915,7 +965,7 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
               </span>
             )}
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition p-1 rounded-lg hover:bg-slate-100">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -924,14 +974,14 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
 
         {/* Document Info */}
         <div className="px-6 py-3 bg-slate-50 border-b border-slate-100 shrink-0">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Document:</span>
             <span className="text-sm font-medium text-slate-900 truncate">{document.title}</span>
-            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${TYPE_BADGE[document.type] ?? 'bg-slate-100 text-slate-700'}`}>
+            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${getTypeBadgeColor(document.type)}`}>
               {document.type}
             </span>
           </div>
-          <div className="flex items-center gap-3 mt-1">
+          <div className="flex items-center gap-4 mt-1 flex-wrap">
             <span className="text-xs text-slate-500">
               Status: <span className={`font-medium ${document.status === 'pending_review' ? 'text-red-600' : 'text-slate-700'}`}>
                 {document.is_draft ? 'draft' : document.status.replace(/_/g, ' ')}
@@ -955,39 +1005,31 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
               <p className="text-xs text-slate-400 mt-1">Add your response below</p>
             </div>
           ) : (
-            responses.map((r) => (
-              <div key={r.id} className="flex gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
+            responses.map((response) => (
+              <div key={response.id} className="flex gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3 hover:bg-slate-100 transition-colors">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
-                  {r.response_number}
+                  {response.response_number}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                    <span className="text-xs font-semibold text-slate-700">{r.responded_by_name}</span>
-                    <span className="text-[11px] text-slate-400">{formatDateTime(r.created_at)}</span>
+                    <span className="text-xs font-semibold text-slate-700">{response.responded_by_name}</span>
+                    <span className="text-[11px] text-slate-400">{formatDateTime(response.created_at)}</span>
                   </div>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{r.note}</p>
-                  {r.file_url && (
-                    <div className="mt-2 flex items-center gap-2">
-                      <a
-                        href={r.file_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors"
-                      >
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{response.note}</p>
+                  {response.file_url && (
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      <a href={response.file_url} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors">
                         <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                             d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
-                        {r.original_name || 'View attachment'}
-                        {r.file_size_bytes && (
-                          <span className="text-[10px] text-slate-400">({formatFileSize(r.file_size_bytes)})</span>
+                        {response.original_name || 'View attachment'}
+                        {response.file_size_bytes && (
+                          <span className="text-[10px] text-slate-400">({formatFileSize(response.file_size_bytes)})</span>
                         )}
                       </a>
-                      <a
-                        href={r.file_url}
-                        download
-                        className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors"
-                      >
+                      <a href={response.file_url} download className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors">
                         Download
                       </a>
                     </div>
@@ -1007,7 +1049,7 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
                   d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
               </svg>
               <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
-                Add Response {responses.length > 0 ? `#${responses.length + 1}` : '#1'}
+                Add Response #{nextResponseNumber}
               </span>
             </div>
 
@@ -1018,23 +1060,22 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
               placeholder={isPendingResponse
                 ? 'Type your response to the request for more information…'
                 : 'Type your response…'}
-              className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
             />
 
-            {/* File Upload Area */}
             <div
               className={`mt-2 relative border-2 border-dashed rounded-lg p-3 transition-colors ${
                 isDragging
                   ? 'border-blue-500 bg-blue-50'
                   : file
                     ? 'border-green-500 bg-green-50'
-                    : 'border-slate-200 hover:border-blue-400'
+                    : 'border-slate-200 hover:border-blue-400 hover:bg-slate-50'
               }`}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
+              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+              onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+              onDrop={handleFileDrop}
             >
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 flex-shrink-0">
                     <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1042,12 +1083,7 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
                         d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                     </svg>
                     {file ? 'Change file' : 'Attach a file (optional)'}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      className="hidden"
-                      onChange={handleFileChange}
-                    />
+                    <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
                   </label>
                   {file && (
                     <>
@@ -1057,11 +1093,8 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
                       <span className="text-[10px] text-slate-400 flex-shrink-0">
                         ({(file.size / 1024).toFixed(1)} KB)
                       </span>
-                      <button
-                        type="button"
-                        onClick={clearFile}
-                        className="text-red-400 hover:text-red-600 flex-shrink-0"
-                      >
+                      <button type="button" onClick={clearFile}
+                        className="text-red-400 hover:text-red-600 flex-shrink-0 p-0.5 rounded hover:bg-red-50 transition-colors">
                         <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                         </svg>
@@ -1069,14 +1102,13 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
                     </>
                   )}
                 </div>
-                {isDragging && (
-                  <span className="text-xs font-medium text-blue-600 flex-shrink-0">Drop file here</span>
-                )}
-                {!file && !isDragging && (
-                  <span className="text-[10px] text-slate-400 flex-shrink-0">
-                    or drag & drop
-                  </span>
-                )}
+                <div className="flex-shrink-0">
+                  {isDragging ? (
+                    <span className="text-xs font-medium text-blue-600">Drop file here</span>
+                  ) : (
+                    !file && <span className="text-[10px] text-slate-400">or drag & drop</span>
+                  )}
+                </div>
               </div>
               <div className="text-[10px] text-slate-400 mt-1">
                 Max file size: 25 MB. Supported: PDF, DOCX, XLSX, JPG, PNG, MP4, MP3
@@ -1084,24 +1116,23 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
             </div>
 
             <div className="mt-3 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition"
-              >
+              <button type="button" onClick={onClose}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
                 Close
               </button>
-              <button
-                type="submit"
-                disabled={!note.trim() || isSubmitting}
+              <button type="submit" disabled={!isFormValid || isSubmitting}
                 className={`inline-flex items-center gap-2 px-6 py-2 text-sm font-medium text-white rounded-lg transition-colors ${
                   isPendingResponse
-                    ? 'bg-red-600 hover:bg-red-700'
-                    : 'bg-blue-600 hover:bg-blue-700'
-                } disabled:opacity-60`}
-              >
-                {isSubmitting && <Spinner />}
-                {isSubmitting ? 'Sending…' : isPendingResponse ? '📤 Send Response' : 'Send Response'}
+                    ? 'bg-red-600 hover:bg-red-700 focus:ring-2 focus:ring-red-500'
+                    : 'bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-500'
+                } disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none`}>
+                {isSubmitting ? (
+                  <><Spinner className="h-3.5 w-3.5" /> Sending…</>
+                ) : isPendingResponse ? (
+                  '📤 Send Response'
+                ) : (
+                  'Send Response'
+                )}
               </button>
             </div>
           </form>
@@ -1188,10 +1219,7 @@ const ReassignModal: React.FC<ReassignModalProps> = ({
           <h2 className="text-sm sm:text-base font-bold text-stone-900 flex items-center gap-2">
             <span className="text-amber-500">🔄</span> Re‑assign / Push Back
           </h2>
-          <button
-            onClick={onClose}
-            className="text-stone-400 hover:text-stone-600 text-lg leading-none flex-shrink-0"
-          >
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-lg leading-none flex-shrink-0">
             ✕
           </button>
         </div>
@@ -1299,18 +1327,12 @@ const ReassignModal: React.FC<ReassignModalProps> = ({
           )}
 
           <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-stone-500 hover:text-stone-800 order-2 sm:order-1"
-            >
+            <button type="button" onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-stone-500 hover:text-stone-800 order-2 sm:order-1">
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={isReassigning || !deptId}
-              className="rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a18] disabled:opacity-40 disabled:cursor-not-allowed order-1 sm:order-2 inline-flex items-center gap-2"
-            >
+            <button type="submit" disabled={isReassigning || !deptId}
+              className="rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a18] disabled:opacity-40 disabled:cursor-not-allowed order-1 sm:order-2 inline-flex items-center gap-2">
               {isReassigning && <Spinner className="h-3.5 w-3.5" />}
               {isReassigning ? 'Reassigning…' : 'Push Back'}
             </button>
@@ -1321,282 +1343,401 @@ const ReassignModal: React.FC<ReassignModalProps> = ({
   );
 };
 
-// ─── Document Editor ──────────────────────────────────────────────────────────
+// ─── Follow-Up Card ───────────────────────────────────────────────────────────
 
-interface DocumentEditorProps {
-  document: Document;
-  currentUserName: string;
+interface FollowUpCardProps {
+  followUp: FollowUp;
+  currentUserId: string;
   isSuperAdmin: boolean;
-  onBack: () => void;
-  onSign?: () => void;
-  isSigning?: boolean;
-  onSend?: () => void;
-  onMark?: () => void;
-  onAcknowledge?: () => void;
-  onComplete?: () => void;
-  onUpdateMark?: (markId: string, text: string, date: string | null) => void;
-  onDownload?: () => void;
-  onOpenResponses?: () => void;
-  onReassign?: () => void;
-  isReassigning?: boolean;
+  onViewDetails: (followUpId: string) => void;
+  onComplete: (followUpId: string, input: CompleteFollowUpInput) => Promise<void> | void;
+  onCancel: (followUpId: string, input: CancelFollowUpInput) => Promise<void> | void;
 }
 
-const DocumentEditor: React.FC<DocumentEditorProps> = ({
-  document,
-  currentUserName,
+const FollowUpCard: React.FC<FollowUpCardProps> = ({
+  followUp,
+  currentUserId,
   isSuperAdmin,
-  onBack,
-  onSign,
-  isSigning = false,
-  onSend,
-  onMark,
-  onAcknowledge,
+  onViewDetails,
   onComplete,
-  onUpdateMark,
-  onDownload,
-  onOpenResponses,
-  onReassign,
-  isReassigning = false,
+  onCancel,
 }) => {
-  const isComposed = document.type === 'memo' || document.type === 'letter';
-  const formattedDate = document.created_at
-    ? format(new Date(document.created_at), 'dd MMM yyyy')
-    : '—';
+  const isAssignedToMe = followUp.assigned_to === currentUserId;
+  const canComplete = isAssignedToMe || isSuperAdmin;
+  const canCancel = followUp.created_by === currentUserId || isAssignedToMe || isSuperAdmin;
+  const isCompleted = followUp.status === 'completed';
+  const isCancelled = followUp.status === 'cancelled';
+  const isActive = !isCompleted && !isCancelled;
 
-  const hasMarkNote = !!document.active_mark?.instructions;
-  const [showNote, setShowNote] = useState(hasMarkNote);
+  const dueDate = new Date(followUp.due_date);
+  const isOverdue = isActive && dueDate < new Date();
 
-  const stickyNoteText = document.active_mark?.instructions ?? '';
-  const stickyNoteDate = document.active_mark?.bring_up_date ?? null;
-  const noteAuthor = document.active_mark
-    ? (document.created_by_name ?? currentUserName)
-    : currentUserName;
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const handleStickyNoteSave = (text: string, date: string | null) => {
-    if (document.active_mark && onUpdateMark) {
-      onUpdateMark(document.active_mark.id, text, date);
+  const handleComplete = async () => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    try {
+      await onComplete(followUp.id, {});
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  const handleDownload = () => {
-    if (onDownload) {
-      onDownload();
-    } else if (document.file_url) {
-      window.open(document.file_url, '_blank');
-    } else {
-      toast.error('No file available to download');
-    }
-  };
-
-  const handleOpenResponses = () => {
-    if (onOpenResponses) {
-      onOpenResponses();
+  const handleCancelSubmit = async () => {
+    if (!cancelReason.trim() || isProcessing) return;
+    setIsProcessing(true);
+    try {
+      await onCancel(followUp.id, { cancellation_reason: cancelReason.trim() });
+      setShowCancelModal(false);
+      setCancelReason('');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Title bar */}
-      <div className="flex items-center justify-between gap-2 sm:gap-3 bg-white border-b border-stone-200 px-3 sm:px-4 py-2.5 flex-wrap">
-        <div className="flex items-center gap-2 min-w-0">
-          <button
-            onClick={onBack}
-            className="lg:hidden flex-shrink-0 rounded-md p-1 text-stone-500 hover:bg-stone-100 transition-colors -ml-1"
-            aria-label="Back to document list"
-          >
-            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <span className="text-sm font-semibold text-stone-900 truncate">
-            {document.title}
-          </span>
-          <span className="text-stone-300 text-xs hidden sm:inline">—</span>
-          <span className="text-xs text-stone-400 hidden sm:inline">
-            {formattedDate}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
-          {/* Responses button */}
-          <button
-            onClick={handleOpenResponses}
-            className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
-          >
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round"
-                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-4 4-4-4z" />
-            </svg>
-            Responses
-            {document.response_count && document.response_count > 0 && (
-              <span className="ml-0.5 rounded-full bg-[#1E4620]/20 px-1.5 py-0.5 text-[9px] font-bold text-[#1E4620]">
-                {document.response_count}
+    <>
+      <div className={`rounded-lg border p-3 transition-colors ${
+        isCompleted 
+          ? 'border-emerald-200 bg-emerald-50/30' 
+          : isCancelled
+            ? 'border-stone-200 bg-stone-50/30 opacity-60'
+            : isOverdue
+              ? 'border-red-200 bg-red-50/30'
+              : 'border-stone-200 bg-white hover:border-stone-300'
+      }`}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-sm font-semibold text-stone-800 truncate">
+                {followUp.title}
               </span>
+              <FollowUpStatusBadge status={followUp.status} />
+              <FollowUpPriorityBadge priority={followUp.priority} />
+              {isOverdue && (
+                <span className="inline-flex items-center gap-0.5 rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-bold text-red-700">
+                  ⚠️ OVERDUE
+                </span>
+              )}
+            </div>
+            {followUp.description && (
+              <p className="mt-1 text-xs text-stone-600 line-clamp-2">
+                {followUp.description}
+              </p>
             )}
-          </button>
-
-          {/* Note toggle */}
-          {(isSuperAdmin || hasMarkNote) && (
-            <button
-              onClick={() => setShowNote((v) => !v)}
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
-                showNote
-                  ? 'border-[#E8A840] bg-[#FEF08A] text-[#7A4E0D]'
-                  : 'border-stone-200 bg-white text-stone-500 hover:bg-stone-50'
-              }`}
-            >
-              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m0 0v3m0 0l3 3m-3-3h-3" />
-              </svg>
-              Note
-            </button>
-          )}
-
-          {/* ─── Mark button – always shown for SuperAdmin ─────────────── */}
-          {onMark && document.status !== 'filed' && (
-            <button
-              onClick={onMark}
-              className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 transition-colors whitespace-nowrap"
-            >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-              </svg>
-              Mark
-            </button>
-          )}
-
-          {/* ─── Push Back button (only when document has an active mark) ─── */}
-          {onReassign && document.active_mark && (
-            <button
-              onClick={onReassign}
-              disabled={isReassigning}
-              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors whitespace-nowrap disabled:opacity-50"
-            >
-              {isReassigning ? <Spinner className="h-3 w-3" /> : (
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
+            <div className="mt-1.5 flex items-center gap-2 text-[10px] text-stone-400 flex-wrap">
+              <span>
+                Assigned to: <span className="text-stone-600">{followUp.assigned_to_name || 'Unassigned'}</span>
+              </span>
+              <span>·</span>
+              <span>
+                Due: <span className={isOverdue ? 'text-red-600 font-medium' : 'text-stone-600'}>
+                  {format(dueDate, 'dd MMM yyyy')}
+                </span>
+              </span>
+              {followUp.comment_count !== undefined && followUp.comment_count > 0 && (
+                <>
+                  <span>·</span>
+                  <span className="flex items-center gap-0.5">
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                    {followUp.comment_count}
+                  </span>
+                </>
               )}
-              {isReassigning ? 'Pushing…' : 'Push Back'}
-            </button>
-          )}
-
-          {onAcknowledge && (
+            </div>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {isActive && canComplete && (
+              <button
+                onClick={handleComplete}
+                disabled={isProcessing}
+                className="inline-flex items-center gap-1 rounded bg-emerald-100 px-2 py-1 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-200 transition-colors disabled:opacity-50"
+              >
+                {isProcessing ? <Spinner className="h-2.5 w-2.5" /> : '✓ Complete'}
+              </button>
+            )}
+            {isActive && canCancel && (
+              <button
+                onClick={() => setShowCancelModal(true)}
+                className="inline-flex items-center gap-1 rounded bg-stone-100 px-2 py-1 text-[10px] font-semibold text-stone-600 hover:bg-stone-200 transition-colors"
+              >
+                ✕ Cancel
+              </button>
+            )}
             <button
-              onClick={onAcknowledge}
-              className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors whitespace-nowrap"
-            >
-              Acknowledge
-            </button>
-          )}
-
-          {onComplete && (
-            <button
-              onClick={onComplete}
-              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap"
-            >
-              Complete
-            </button>
-          )}
-
-          {onSign && (
-            <button
-              onClick={onSign}
-              disabled={isSigning}
-              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSigning ? (
-                <Spinner className="h-3 w-3" />
-              ) : (
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
-              )}
-              {isSigning ? 'Sending OTP…' : 'E-Sign'}
-            </button>
-          )}
-
-          {onSend && (
-            <button
-              onClick={onSend}
-              className="hidden sm:inline-flex items-center gap-1 rounded-md bg-[#1E4620] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap"
+              onClick={() => onViewDetails(followUp.id)}
+              className="inline-flex items-center gap-1 rounded bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700 hover:bg-blue-200 transition-colors"
             >
               <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
               </svg>
-              Convert to PDF & Send
+              Details
             </button>
-          )}
+          </div>
         </div>
       </div>
 
-      {/* Canvas (no toolbar) */}
-      <div className="flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6 relative">
-        {showNote && (
-          <StickyNote
-            key={document.id}
-            authorName={noteAuthor}
-            initialText={stickyNoteText}
-            initialDate={stickyNoteDate}
-            canEdit={isSuperAdmin}
-            onSave={handleStickyNoteSave}
-          />
-        )}
-
-        <div className="mx-auto max-w-[794px] w-full min-h-[600px] sm:min-h-[900px] bg-white shadow-sm rounded-sm">
-          {isComposed ? (
-            <DocumentFallback document={document} />
-          ) : (
-            <FilePreview document={document} />
-          )}
+      {/* Cancel Modal */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
+            <h3 className="text-sm font-bold text-stone-900">Cancel Follow-Up</h3>
+            <p className="text-xs text-stone-500 mt-1">
+              Are you sure you want to cancel "{followUp.title}"?
+            </p>
+            <div className="mt-4">
+              <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                Cancellation Reason *
+              </label>
+              <textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                rows={2}
+                placeholder="Why is this follow-up being cancelled?"
+                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => { setShowCancelModal(false); setCancelReason(''); }}
+                className="flex-1 rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCancelSubmit}
+                disabled={!cancelReason.trim() || isProcessing}
+                className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+              >
+                {isProcessing ? <Spinner className="h-3.5 w-3.5" /> : 'Confirm Cancel'}
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
+    </>
+  );
+};
 
-      {/* Footer bar */}
-      <div className="flex items-center justify-between gap-2 bg-white border-t border-stone-100 px-3 sm:px-4 py-1.5 flex-shrink-0 flex-wrap">
-        <span className="text-[10px] text-stone-400 whitespace-nowrap">
-          {document.is_signed
-            ? `✅ Signed${document.signed_by_name ? ` · ${document.signed_by_name}` : ''}`
-            : 'Not signed'}
-        </span>
-        <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto">
-          {(document.file_url || onDownload) && (
-            <button
-              onClick={handleDownload}
-              className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-blue-700 transition-colors whitespace-nowrap"
-            >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Download
-            </button>
-          )}
-          <button className="text-[10px] text-stone-400 hover:text-stone-600 transition-colors whitespace-nowrap">
-            🖨 Print
+// ─── Follow-Ups Panel ─────────────────────────────────────────────────────
+
+interface FollowUpsPanelProps {
+  document: Document;
+  currentUserId: string;
+  isSuperAdmin: boolean;
+  onViewDetails: (followUpId: string) => void;
+  onComplete: (followUpId: string, input: CompleteFollowUpInput) => Promise<void> | void;
+  onCancel: (followUpId: string, input: CancelFollowUpInput) => Promise<void> | void;
+}
+
+const FollowUpsPanel: React.FC<FollowUpsPanelProps> = ({
+  document,
+  currentUserId,
+  isSuperAdmin,
+  onViewDetails,
+  onComplete,
+  onCancel,
+}) => {
+  const followUps = document.follow_ups || [];
+
+  if (followUps.length === 0) {
+    return (
+      <div className="px-3 py-6 text-center">
+        <p className="text-xs text-stone-400">No follow-ups yet.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-3 py-3 space-y-2 max-h-[300px] overflow-y-auto">
+      {followUps.map((followUp) => (
+        <FollowUpCard
+          key={followUp.id}
+          followUp={followUp}
+          currentUserId={currentUserId}
+          isSuperAdmin={isSuperAdmin}
+          onViewDetails={onViewDetails}
+          onComplete={onComplete}
+          onCancel={onCancel}
+        />
+      ))}
+    </div>
+  );
+};
+
+// ─── Create Follow-Up Modal ──────────────────────────────────────────────────
+
+interface CreateFollowUpModalProps {
+  document: Document;
+  markId: string;
+  onClose: () => void;
+  onCreate: (input: CreateFollowUpInput) => void;
+}
+
+const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
+  document,
+  markId,
+  onClose,
+  onCreate,
+}) => {
+  const dispatch = useAppDispatch();
+  const users = useAppSelector(selectAllUsers);
+  const usersLoading = useAppSelector(selectUsersListLoading);
+
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [priority, setPriority] = useState<FollowUpPriority>('normal');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    dispatch(fetchUsers({ is_active: true, limit: 100 }));
+  }, [dispatch]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim() || !assignedTo || !dueDate) {
+      setError('Please fill in all required fields');
+      return;
+    }
+    setError(null);
+    onCreate({
+      document_id: document.id,
+      mark_id: markId,
+      title: title.trim(),
+      description: description.trim() || undefined,
+      assigned_to: assignedTo,
+      due_date: dueDate,
+      priority,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-bold text-stone-900 flex items-center gap-2">
+            <svg className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m0 0v3m0 0l3 3m-3-3h-3" />
+            </svg>
+            Create Follow-Up
+          </h2>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-lg leading-none">
+            ✕
           </button>
-          {onSign && (
-            <button
-              onClick={onSign}
-              disabled={isSigning}
-              className="inline-flex items-center gap-1 rounded bg-[#C29B38] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#a8832e] transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSigning && <Spinner className="h-2.5 w-2.5" />}
-              {isSigning ? 'Sending OTP…' : 'E-Sign'}
-            </button>
-          )}
-          {onSend && (
-            <button
-              onClick={onSend}
-              className="rounded bg-[#1E4620] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap"
-            >
-              Convert to PDF & Send
-            </button>
-          )}
         </div>
-      </div>
 
-      {/* Annotations panel */}
-      <AnnotationsPanel document={document} />
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Title *
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="What needs to be done?"
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
+              required
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Description <span className="font-normal text-stone-400 normal-case">(optional)</span>
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              placeholder="Additional details about this follow-up task..."
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Assign To *
+            </label>
+            <select
+              value={assignedTo}
+              onChange={(e) => setAssignedTo(e.target.value)}
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none disabled:bg-stone-50 disabled:text-stone-400"
+              required
+              disabled={usersLoading}
+            >
+              <option value="">
+                {usersLoading ? 'Loading users…' : '— Select User —'}
+              </option>
+              {users.filter(u => u.is_active).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.full_name} — {u.pj_number}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Due Date *
+            </label>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              min={new Date().toISOString().split('T')[0]}
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Priority
+            </label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as FollowUpPriority)}
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
+            >
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+
+          {error && (
+            <div className="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-200">
+              {error}
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors inline-flex items-center justify-center gap-2"
+            >
+              Create Follow-Up
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };
@@ -1892,6 +2033,454 @@ const OtpModal: React.FC<OtpModalProps> = ({
   </div>
 );
 
+// ─── Document Editor ──────────────────────────────────────────────────────────
+
+interface DocumentEditorProps {
+  document: Document;
+  currentUserName: string;
+  isSuperAdmin: boolean;
+  onBack: () => void;
+  onSign?: () => void;
+  isSigning?: boolean;
+  onSend?: () => void;
+  onMark?: () => void;
+  onAcknowledge?: () => void;
+  onComplete?: () => void;
+  onUpdateMark?: (markId: string, text: string, date: string | null) => void;
+  onDownload?: () => void;
+  onOpenResponses?: () => void;
+  onReassign?: () => void;
+  isReassigning?: boolean;
+  onAddFollowUp?: () => void;
+  onViewFollowUpDetails?: (followUpId: string) => void;
+  onCompleteFollowUp?: (followUpId: string, input: CompleteFollowUpInput) => Promise<void>;
+  onCancelFollowUp?: (followUpId: string, input: CancelFollowUpInput) => Promise<void>;
+}
+
+const DocumentEditor: React.FC<DocumentEditorProps> = ({
+  document,
+  currentUserName,
+  isSuperAdmin,
+  onBack,
+  onSign,
+  isSigning = false,
+  onSend,
+  onMark,
+  onAcknowledge,
+  onComplete,
+  onUpdateMark,
+  onDownload,
+  onOpenResponses,
+  onReassign,
+  isReassigning = false,
+  onAddFollowUp,
+  onViewFollowUpDetails,
+  onCompleteFollowUp,
+  onCancelFollowUp,
+}) => {
+  const { user } = useAppSelector((state) => state.auth);
+  const isComposed = document.type === 'memo' || document.type === 'letter';
+  const formattedDate = document.created_at
+    ? format(new Date(document.created_at), 'dd MMM yyyy')
+    : '—';
+
+  const hasMarkNote = !!document.active_mark?.instructions;
+  const [showNote, setShowNote] = useState(hasMarkNote);
+  const [showFollowUps, setShowFollowUps] = useState(true);
+
+  const stickyNoteText = document.active_mark?.instructions ?? '';
+  const stickyNoteDate = document.active_mark?.bring_up_date ?? null;
+  const noteAuthor = document.active_mark
+    ? (document.created_by_name ?? currentUserName)
+    : currentUserName;
+
+  const handleStickyNoteSave = (text: string, date: string | null) => {
+    if (document.active_mark && onUpdateMark) {
+      onUpdateMark(document.active_mark.id, text, date);
+    }
+  };
+
+  const handleDownload = () => {
+    if (onDownload) {
+      onDownload();
+    } else if (document.file_url) {
+      window.open(document.file_url, '_blank');
+    } else {
+      toast.error('No file available to download');
+    }
+  };
+
+  const handleOpenResponses = () => {
+    if (onOpenResponses) {
+      onOpenResponses();
+    }
+  };
+
+  const followUps = document.follow_ups || [];
+
+  // ─── View Follow-ups handler ──────────────────────────────────────────────
+  const handleViewFollowUps = () => {
+    console.log('Follow-ups:', followUps);
+    console.log('Follow-ups length:', followUps.length);
+
+    if (followUps.length === 0) {
+      toast('No follow-ups have been created for this document yet.', {
+        icon: 'ℹ️',
+        duration: 3000,
+      });
+      return;
+    }
+
+    // Get the most recent follow-up
+    const sorted = [...followUps].sort((a, b) => {
+      const dateA = new Date(a.created_at).getTime();
+      const dateB = new Date(b.created_at).getTime();
+      return dateB - dateA;
+    });
+
+    const mostRecent = sorted[0];
+    console.log('Most recent follow-up:', mostRecent);
+    console.log('Follow-up ID:', mostRecent?.id);
+
+    if (onViewFollowUpDetails && mostRecent?.id) {
+      console.log('Calling onViewFollowUpDetails with ID:', mostRecent.id);
+      onViewFollowUpDetails(mostRecent.id);
+    } else {
+      console.error('No follow-up ID found or onViewFollowUpDetails is undefined');
+      toast.error('Unable to open follow-up details');
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Title bar */}
+      <div className="flex items-center justify-between gap-2 sm:gap-3 bg-white border-b border-stone-200 px-3 sm:px-4 py-2.5 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            onClick={onBack}
+            className="lg:hidden flex-shrink-0 rounded-md p-1 text-stone-500 hover:bg-stone-100 transition-colors -ml-1"
+            aria-label="Back to document list"
+          >
+            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <span className="text-sm font-semibold text-stone-900 truncate">
+            {document.title}
+          </span>
+          <span className="text-stone-300 text-xs hidden sm:inline">—</span>
+          <span className="text-xs text-stone-400 hidden sm:inline">
+            {formattedDate}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
+          {/* Responses button */}
+          <button
+            onClick={handleOpenResponses}
+            className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-4 4-4-4z" />
+            </svg>
+            Responses
+            {document.response_count && document.response_count > 0 && (
+              <span className="ml-0.5 rounded-full bg-[#1E4620]/20 px-1.5 py-0.5 text-[9px] font-bold text-[#1E4620]">
+                {document.response_count}
+              </span>
+            )}
+          </button>
+
+          {/* Note toggle */}
+          {(isSuperAdmin || hasMarkNote) && (
+            <button
+              onClick={() => setShowNote((v) => !v)}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                showNote
+                  ? 'border-[#E8A840] bg-[#FEF08A] text-[#7A4E0D]'
+                  : 'border-stone-200 bg-white text-stone-500 hover:bg-stone-50'
+              }`}
+            >
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m0 0v3m0 0l3 3m-3-3h-3" />
+              </svg>
+              Note
+            </button>
+          )}
+
+          {/* Follow-ups toggle */}
+          {isSuperAdmin && followUps.length > 0 && (
+            <button
+              onClick={() => setShowFollowUps((v) => !v)}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                showFollowUps
+                  ? 'border-blue-200 bg-blue-50 text-blue-700'
+                  : 'border-stone-200 bg-white text-stone-500 hover:bg-stone-50'
+              }`}
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              Follow-ups
+              {followUps.length > 0 && (
+                <span className="ml-0.5 rounded-full bg-blue-200 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">
+                  {followUps.length}
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* ─── Mark button ─────────────────────────────── */}
+          {onMark && document.status !== 'filed' && (
+            <button
+              onClick={onMark}
+              className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 transition-colors whitespace-nowrap"
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+              </svg>
+              Mark
+            </button>
+          )}
+
+          {/* ─── Push Back button ─────────────────────────── */}
+          {onReassign && document.active_mark && (
+            <button
+              onClick={onReassign}
+              disabled={isReassigning}
+              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors whitespace-nowrap disabled:opacity-50"
+            >
+              {isReassigning ? <Spinner className="h-3 w-3" /> : (
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              )}
+              {isReassigning ? 'Pushing…' : 'Push Back'}
+            </button>
+          )}
+
+          {onAcknowledge && (
+            <button
+              onClick={onAcknowledge}
+              className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors whitespace-nowrap"
+            >
+              Acknowledge
+            </button>
+          )}
+
+          {onComplete && (
+            <button
+              onClick={onComplete}
+              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap"
+            >
+              Complete
+            </button>
+          )}
+
+          {onSign && (
+            <button
+              onClick={onSign}
+              disabled={isSigning}
+              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSigning ? (
+                <Spinner className="h-3 w-3" />
+              ) : (
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+              )}
+              {isSigning ? 'Sending OTP…' : 'E-Sign'}
+            </button>
+          )}
+
+          {onSend && (
+            <button
+              onClick={onSend}
+              className="hidden sm:inline-flex items-center gap-1 rounded-md bg-[#1E4620] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap"
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Convert to PDF & Send
+            </button>
+          )}
+
+          {/* ─── Follow-Up buttons section ───────────────────────────────────── */}
+          {isSuperAdmin && document.active_mark && (
+            <div className="flex items-center gap-1.5">
+              {/* Add Follow-Up button */}
+              {onAddFollowUp && (
+                <button
+                  onClick={onAddFollowUp}
+                  className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors whitespace-nowrap"
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
+                  Add Follow-Up
+                </button>
+              )}
+
+              {/* View Details button - ALWAYS ACTIVE */}
+              {onViewFollowUpDetails && (
+                <button
+                  onClick={handleViewFollowUps}
+                  className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors whitespace-nowrap"
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  View Details
+                  {followUps.length > 0 && (
+                    <span className="ml-0.5 rounded-full bg-indigo-200 px-1.5 py-0.5 text-[9px] font-bold text-indigo-700">
+                      {followUps.length}
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Canvas (no toolbar) */}
+      <div className="flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6 relative">
+        {showNote && (
+          <StickyNote
+            key={document.id}
+            authorName={noteAuthor}
+            initialText={stickyNoteText}
+            initialDate={stickyNoteDate}
+            canEdit={isSuperAdmin}
+            onSave={handleStickyNoteSave}
+          />
+        )}
+
+        <div className="mx-auto max-w-[794px] w-full min-h-[600px] sm:min-h-[900px] bg-white shadow-sm rounded-sm">
+          {isComposed ? (
+            <DocumentFallback document={document} />
+          ) : (
+            <FilePreview document={document} />
+          )}
+        </div>
+      </div>
+
+      {/* Footer bar */}
+      <div className="flex items-center justify-between gap-2 bg-white border-t border-stone-100 px-3 sm:px-4 py-1.5 flex-shrink-0 flex-wrap">
+        <span className="text-[10px] text-stone-400 whitespace-nowrap">
+          {document.is_signed
+            ? `✅ Signed${document.signed_by_name ? ` · ${document.signed_by_name}` : ''}`
+            : 'Not signed'}
+        </span>
+        <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto">
+          {(document.file_url || onDownload) && (
+            <button
+              onClick={handleDownload}
+              className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-blue-700 transition-colors whitespace-nowrap"
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download
+            </button>
+          )}
+          <button className="text-[10px] text-stone-400 hover:text-stone-600 transition-colors whitespace-nowrap">
+            🖨 Print
+          </button>
+          {onSign && (
+            <button
+              onClick={onSign}
+              disabled={isSigning}
+              className="inline-flex items-center gap-1 rounded bg-[#C29B38] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#a8832e] transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSigning && <Spinner className="h-2.5 w-2.5" />}
+              {isSigning ? 'Sending OTP…' : 'E-Sign'}
+            </button>
+          )}
+          {onSend && (
+            <button
+              onClick={onSend}
+              className="rounded bg-[#1E4620] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap"
+            >
+              Convert to PDF & Send
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Annotations panel */}
+      <AnnotationsPanel document={document} />
+
+      {/* Follow-Ups Panel */}
+      {isSuperAdmin && followUps.length > 0 && showFollowUps && (
+        <div className="bg-white border-t border-stone-200 flex-shrink-0">
+          <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-stone-100 gap-2">
+            <span className="text-xs font-semibold text-[#1E4620] flex items-center gap-2">
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+              Follow-Ups
+              {followUps.length > 0 && (
+                <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700">
+                  {followUps.length}
+                </span>
+              )}
+            </span>
+            <div className="flex items-center gap-2">
+              {onAddFollowUp && document.active_mark && (
+                <button
+                  onClick={onAddFollowUp}
+                  className="text-[10px] text-[#1E4620] hover:underline font-medium flex items-center gap-1"
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
+                  Add Follow-Up
+                </button>
+              )}
+              {onViewFollowUpDetails && (
+                <button
+                  onClick={() => {
+                    if (followUps.length === 0) {
+                      toast('No follow-ups have been created for this document yet.', {
+                        icon: 'ℹ️',
+                        duration: 3000,
+                      });
+                      return;
+                    }
+                    const mostRecent = followUps.sort((a, b) => 
+                      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    )[0];
+                    if (mostRecent) onViewFollowUpDetails(mostRecent.id);
+                  }}
+                  className="text-[10px] text-indigo-600 hover:underline font-medium flex items-center gap-1"
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  </svg>
+                  View All
+                </button>
+              )}
+            </div>
+          </div>
+          <FollowUpsPanel
+            document={document}
+            currentUserId={user?.id || ''}
+            isSuperAdmin={isSuperAdmin}
+            onViewDetails={onViewFollowUpDetails || (() => {})}
+            onComplete={onCompleteFollowUp || (async () => {})}
+            onCancel={onCancelFollowUp || (async () => {})}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const SuperAdminBringUp: React.FC = () => {
@@ -1921,6 +2510,14 @@ const SuperAdminBringUp: React.FC = () => {
   // ─── Push Back state ─────────────────────────────────────────────────
   const [showReassignModal, setShowReassignModal] = useState(false);
   const [reassignLoading, setReassignLoading] = useState(false);
+
+  // ─── Follow-Up state ─────────────────────────────────────────────────
+  const [showCreateFollowUp, setShowCreateFollowUp] = useState(false);
+  const [showFollowUpModal, setShowFollowUpModal] = useState(false);
+  const [selectedFollowUpId, setSelectedFollowUpId] = useState<string | null>(null);
+
+  // ─── Fetch document selection ──────────────────────────────────────
+  const [isFetchingDocument, setIsFetchingDocument] = useState(false);
 
   // Fetch documents with bring-up date
   useEffect(() => {
@@ -1980,6 +2577,23 @@ const SuperAdminBringUp: React.FC = () => {
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
+  // ─── Document selection handler ────────────────────────────────────────────
+  const handleSelectDocument = useCallback(async (doc: Document) => {
+    setIsFetchingDocument(true);
+    try {
+      // Fetch the full document with all relations (including follow-ups)
+      const result = await dispatch(fetchDocumentById(doc.id)).unwrap();
+      setSelectedDocument(result);
+    } catch (error) {
+      console.error('Failed to fetch document details:', error);
+      // Fallback to the list data
+      setSelectedDocument(doc);
+      toast.error('Could not load full document details');
+    } finally {
+      setIsFetchingDocument(false);
+    }
+  }, [dispatch]);
+
   const showToast = (toastMsg: { type: 'success' | 'error'; message: string }) => {
     setSignToast(toastMsg);
     setTimeout(() => setSignToast(null), 4000);
@@ -2014,7 +2628,9 @@ const SuperAdminBringUp: React.FC = () => {
       setShowOtpModal(false);
       setOtpValue('');
       setSigningDocId(null);
-      setSelectedDocument(result.payload as Document);
+      // Refresh the document after signing
+      const refreshed = await dispatch(fetchDocumentById(signingDocId)).unwrap();
+      setSelectedDocument(refreshed);
       showToast({ type: 'success', message: 'Document signed successfully.' });
     } else {
       setOtpError((result.payload as string) ?? 'Invalid OTP. Please try again.');
@@ -2091,9 +2707,10 @@ const SuperAdminBringUp: React.FC = () => {
     }
   };
 
-  const handleResponseSubmitted = () => {
+  const handleResponseSubmitted = async () => {
     if (selectedDocument) {
-      dispatch(fetchDocumentById(selectedDocument.id));
+      const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+      setSelectedDocument(refreshed);
     }
     const params: DocumentFilters = {
       page: 1,
@@ -2123,7 +2740,6 @@ const SuperAdminBringUp: React.FC = () => {
       // TODO: replace with dispatch(reassignMark({ markId, data })) when available
       console.warn('reassignMark not implemented yet', { markId, data });
       toast.error('Push back is not yet available. Please wait for the update.');
-      // Simulate closing the modal after a short delay
       setTimeout(() => {
         setShowReassignModal(false);
         setReassignLoading(false);
@@ -2132,6 +2748,53 @@ const SuperAdminBringUp: React.FC = () => {
       toast.error('Something went wrong.');
       setReassignLoading(false);
     }
+  };
+
+  // ─── Follow-Up handlers ─────────────────────────────────────────────────────
+
+  const handleCreateFollowUp = async (input: CreateFollowUpInput) => {
+    try {
+      await dispatch(createFollowUp(input)).unwrap();
+      setShowCreateFollowUp(false);
+      toast.success('Follow-up created successfully');
+      if (selectedDocument) {
+        const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+        setSelectedDocument(refreshed);
+      }
+    } catch (error) {
+      toast.error(typeof error === 'string' ? error : 'Failed to create follow-up');
+    }
+  };
+
+  const handleCompleteFollowUp = async (followUpId: string, input: CompleteFollowUpInput) => {
+    try {
+      await dispatch(completeFollowUp({ followUpId, input })).unwrap();
+      toast.success('Follow-up completed successfully');
+      if (selectedDocument) {
+        const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+        setSelectedDocument(refreshed);
+      }
+    } catch (error) {
+      toast.error(typeof error === 'string' ? error : 'Failed to complete follow-up');
+    }
+  };
+
+  const handleCancelFollowUp = async (followUpId: string, input: CancelFollowUpInput) => {
+    try {
+      await dispatch(cancelFollowUp({ followUpId, input })).unwrap();
+      toast.success('Follow-up cancelled successfully');
+      if (selectedDocument) {
+        const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+        setSelectedDocument(refreshed);
+      }
+    } catch (error) {
+      toast.error(typeof error === 'string' ? error : 'Failed to cancel follow-up');
+    }
+  };
+
+  const handleViewFollowUpDetails = (followUpId: string) => {
+    setSelectedFollowUpId(followUpId);
+    setShowFollowUpModal(true);
   };
 
   // ─── Render ─────────────────────────────────────────────────────────────────
@@ -2209,6 +2872,33 @@ const SuperAdminBringUp: React.FC = () => {
         />
       )}
 
+      {/* ─── Create Follow-Up Modal ──────────────────────────────────────── */}
+      {showCreateFollowUp && selectedDocument && selectedDocument.active_mark && (
+        <CreateFollowUpModal
+          document={selectedDocument}
+          markId={selectedDocument.active_mark.id}
+          onClose={() => setShowCreateFollowUp(false)}
+          onCreate={handleCreateFollowUp}
+        />
+      )}
+
+      {/* ─── Follow-Up Detail Modal ──────────────────────────────────────── */}
+      {showFollowUpModal && selectedFollowUpId && (
+        <FollowUpModal
+          followUpId={selectedFollowUpId}
+          onClose={() => {
+            setShowFollowUpModal(false);
+            setSelectedFollowUpId(null);
+          }}
+          onUpdate={async () => {
+            if (selectedDocument) {
+              const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+              setSelectedDocument(refreshed);
+            }
+          }}
+        />
+      )}
+
       {/* Main layout: left list / right editor */}
       <div className="flex flex-1 overflow-hidden relative">
         {/* Left panel: grouped list */}
@@ -2256,7 +2946,7 @@ const SuperAdminBringUp: React.FC = () => {
                           key={doc.id}
                           document={doc}
                           selected={selectedDocument?.id === doc.id}
-                          onSelect={() => setSelectedDocument(doc)}
+                          onSelect={() => handleSelectDocument(doc)}
                           hasResponse={(doc.response_count ?? 0) > 0}
                         />
                       ))}
@@ -2274,7 +2964,14 @@ const SuperAdminBringUp: React.FC = () => {
             selectedDocument ? 'flex' : 'hidden lg:flex'
           }`}
         >
-          {selectedDocument ? (
+          {isFetchingDocument ? (
+            <div className="flex flex-1 items-center justify-center">
+              <div className="text-center">
+                <Spinner className="h-8 w-8 mx-auto text-[#1E3F20]" />
+                <p className="mt-3 text-sm text-stone-500">Loading document details...</p>
+              </div>
+            </div>
+          ) : selectedDocument ? (
             <DocumentEditor
               key={selectedDocument.id}
               document={selectedDocument}
@@ -2294,7 +2991,6 @@ const SuperAdminBringUp: React.FC = () => {
                   ? () => handleSend(selectedDocument.id)
                   : undefined
               }
-              // ─── Always show Mark button (SuperAdmin can re‑mark) ───
               onMark={
                 isSuperAdmin && selectedDocument.status !== 'filed'
                   ? () => setShowMarkModal(true)
@@ -2317,6 +3013,10 @@ const SuperAdminBringUp: React.FC = () => {
               onOpenResponses={handleOpenResponses}
               onReassign={selectedDocument.active_mark ? handleOpenReassign : undefined}
               isReassigning={reassignLoading}
+              onAddFollowUp={() => setShowCreateFollowUp(true)}
+              onViewFollowUpDetails={handleViewFollowUpDetails}
+              onCompleteFollowUp={handleCompleteFollowUp}
+              onCancelFollowUp={handleCancelFollowUp}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center px-4">

@@ -2267,28 +2267,77 @@ const SuperAdminDocuments: React.FC = () => {
     setOtpValue(val);
   };
 
-  const handleMark = (
-    id: string,
-    data: {
-      departmentId: string;
-      userId: string;
-      instructions: string;
-      priority: string;
+const handleMark = (
+  id: string,
+  data: {
+    departmentId: string;
+    userId: string;
+    instructions: string;
+    priority: string;
+  },
+) => {
+  console.log("🔵 [handleMark] ===== START =====");
+  console.log("🔵 [handleMark] Document ID:", id);
+  console.log("🔵 [handleMark] Raw input data:", data);
+  console.log("🔵 [handleMark] Field breakdown:", {
+    departmentId: data.departmentId,
+    departmentIdType: typeof data.departmentId,
+    userId: data.userId,
+    userIdType: typeof data.userId,
+    userIdIsEmpty: !data.userId,
+    instructions: data.instructions,
+    instructionsLength: data.instructions?.length ?? 0,
+    priority: data.priority,
+  });
+
+  const payload = {
+    id,
+    input: {
+      department_id: data.departmentId,
+      assigned_to: data.userId || undefined,
+      instructions: data.instructions,
+      priority: data.priority as "low" | "normal" | "urgent",
     },
-  ) => {
-    dispatch(
-      markDocument({
-        id,
-        input: {
-          department_id: data.departmentId,
-          assigned_to: data.userId || undefined,
-          instructions: data.instructions,
-          priority: data.priority as "low" | "normal" | "urgent",
-        },
-      }),
-    );
-    setShowMarkModal(false);
   };
+
+  console.log("🟡 [handleMark] Transformed payload for markDocument:", payload);
+  console.log(
+    "🟡 [handleMark] assigned_to resolved to:",
+    payload.input.assigned_to,
+    payload.input.assigned_to === undefined ? "(undefined — no assignee)" : "(assigned)",
+  );
+
+  try {
+    const resultAction = dispatch(markDocument(payload));
+    console.log("🟢 [handleMark] dispatch(markDocument) called, action:", resultAction);
+
+    // If markDocument is an async thunk, resultAction is a Promise-like
+    // unwrap()-able object. Narrow with `unknown` instead of `any`.
+    if (
+      resultAction &&
+      typeof resultAction === "object" &&
+      "then" in resultAction &&
+      typeof (resultAction as { then: unknown }).then === "function"
+    ) {
+      (resultAction as Promise<{ meta?: { requestStatus?: string }; payload?: unknown; error?: unknown }>)
+        .then((res) => {
+          console.log("🟢 [handleMark] markDocument thunk resolved:", res);
+          if (res?.meta?.requestStatus === "rejected") {
+            console.error("🔴 [handleMark] markDocument REJECTED:", res.payload ?? res.error);
+          }
+        })
+        .catch((err: unknown) => {
+          console.error("🔴 [handleMark] markDocument thunk threw:", err);
+        });
+    }
+  } catch (err: unknown) {
+    console.error("🔴 [handleMark] Error dispatching markDocument:", err);
+  }
+
+  setShowMarkModal(false);
+  console.log("🔵 [handleMark] setShowMarkModal(false) called");
+  console.log("🔵 [handleMark] ===== END =====");
+};
 
   const handleCreateUpload = (input: CreateUploadDocumentInput, file: File) => {
     dispatch(createUploadDocument({ input, file }));

@@ -17,7 +17,11 @@ export type DocumentEntityType =
     | 'ticket'
     | 'medicalClaim'
     | 'generalRequest'
-    | 'securityRequest';
+    | 'securityRequest'
+    | 'visa'             // Visa support documents
+    | 'protocol'         // Protocol event documents
+    | 'club'             // Club membership documents
+    | 'utility_memo';    // Utility memo documents
 
 export type DocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';

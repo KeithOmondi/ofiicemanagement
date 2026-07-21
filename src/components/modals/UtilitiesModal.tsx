@@ -1,5 +1,6 @@
 // src/components/Helpdesk/UtilitiesModal.tsx
-import React, { useState } from 'react';
+
+import React, { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   createUtility,
@@ -9,6 +10,7 @@ import {
   deleteUtility,
   fetchUtilities,
   fetchHelpDeskStats,
+  selectAllUtilities,
   type UtilityType,
   type UtilityStatus,
   type UtilityItem,
@@ -21,6 +23,20 @@ import {
   uploadSignature,
   deleteSignature,
 } from '../../store/slices/userSlice';
+import {
+  fetchHelpdeskDocuments,
+  uploadHelpdeskDocument,
+  linkHelpdeskDocument,
+  submitForApproval,
+  selectAllHelpdeskDocuments,
+  selectDocumentsUploading,
+  selectDocumentActionLoading,
+  selectUnlinkedHelpdeskDocuments,
+  selectDocumentLinking,
+  type DocumentFormat,
+  type DocumentStatus,
+  type DocumentEntityType,
+} from '../../store/slices/helpdeskDocumentsSlice';
 import {
   X,
   Loader2,
@@ -36,12 +52,16 @@ import {
   FileClock,
   Banknote,
   FileText,
-  FileSpreadsheet,
-  Download,
   ChevronDown,
   Image,
   Upload,
   Hash,
+  Paperclip,
+  ExternalLink,
+  Send,
+  ArrowLeft,
+  ArrowRight,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { generateUtilityMemoDocx } from '../../utils/generateUtilityMemoDocx';
 import { generateUtilityMemoPdf } from '../../utils/generateUtilityMemoPdf';
@@ -66,6 +86,9 @@ const UTILITY_STATUSES: UtilityStatus[] = [
 const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1781759596/JOB_LOGO_ubls4m.jpg';
 const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
 
+// ✅ Define the entity type as a constant for reuse
+const UTILITY_MEMO_ENTITY_TYPE: DocumentEntityType = 'utility_memo';
+
 // ─── Helper Functions ──────────────────────────────────────────────────────
 
 const formatDateForAPI = (dateString: string): string | undefined => {
@@ -74,6 +97,23 @@ const formatDateForAPI = (dateString: string): string | undefined => {
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return undefined;
   return date.toISOString().split('T')[0];
+};
+
+const documentStatusColor = (status: DocumentStatus): string => {
+  const map: Record<DocumentStatus, string> = {
+    draft: 'bg-stone-100 text-stone-600 ring-stone-200',
+    pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
+    approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+    rejected: 'bg-red-50 text-red-700 ring-red-200',
+    returned: 'bg-orange-50 text-orange-700 ring-orange-200',
+  };
+  return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+};
+
+const documentFormatIcon = (format: DocumentFormat) => {
+  if (format === 'xlsx') return <FileSpreadsheet size={16} className="text-emerald-600" />;
+  if (format === 'docx') return <FileText size={16} className="text-blue-600" />;
+  return <FileText size={16} className="text-red-600" />;
 };
 
 // ─── UI Helpers ──────────────────────────────────────────────────────────────
@@ -138,14 +178,17 @@ function GhostButton({
   icon,
   onClick,
   disabled,
+  type = 'button',
 }: {
   children: React.ReactNode;
   icon?: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
+  type?: 'button' | 'submit';
 }) {
   return (
     <button
+      type={type}
       onClick={onClick}
       disabled={disabled}
       className="inline-flex items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -216,11 +259,10 @@ function ConfirmDialog({
 
 // ─── Item Form State ──────────────────────────────────────────────────────
 
-/** Local editable shape for a utility item */
 interface UtilityItemFormState {
   id: string | null;
   utility_type: UtilityType;
-  requisition_number: string;  // ADDED
+  requisition_number: string;
   amount: number;
   period: string;
   description: string;
@@ -234,7 +276,7 @@ function buildEmptyItem(): UtilityItemFormState {
   return {
     id: null,
     utility_type: 'Electricity',
-    requisition_number: '',  // ADDED
+    requisition_number: '',
     amount: 0,
     period: '',
     description: '',
@@ -249,7 +291,7 @@ function itemToFormState(item: UtilityItem): UtilityItemFormState {
   return {
     id: item.id,
     utility_type: item.utility_type,
-    requisition_number: item.requisition_number ?? '',  // ADDED
+    requisition_number: item.requisition_number ?? '',
     amount: item.amount,
     period: item.period,
     description: item.description ?? '',
@@ -355,7 +397,6 @@ const UtilityItemRow: React.FC<UtilityItemRowProps> = ({
         </div>
       </div>
 
-      {/* ADDED: Requisition Number field */}
       <div>
         <FieldLabel>Requisition Number</FieldLabel>
         <div className="relative">
@@ -453,47 +494,92 @@ const UtilityItemRow: React.FC<UtilityItemRowProps> = ({
   );
 };
 
-// ─── Consolidated Memo Modal (ALL judges — KPLC / WATER / WIFI / TOTAL) ────
+// ─── Memo Modal ──────────────────────────────────────────────────────────
 
 interface JudgeTotals {
   judge_name: string;
   kplc: number;
   water: number;
   wifi: number;
+  fuel: number;
   other: number;
   total: number;
 }
 
-function computeJudgeTotals(judges: JudgeUtility[]): JudgeTotals[] {
+function computeFuelTotals(judges: JudgeUtility[]): JudgeTotals[] {
   return judges
     .map((j) => {
-      let kplc = 0, water = 0, wifi = 0, other = 0;
+      let fuel = 0;
+      j.items.forEach((item) => {
+        if (item.utility_type === 'Fuel') {
+          fuel += item.amount;
+        }
+      });
+      return {
+        judge_name: j.judge_name,
+        kplc: 0,
+        water: 0,
+        wifi: 0,
+        fuel,
+        other: 0,
+        total: fuel
+      };
+    })
+    .filter((row) => row.fuel > 0)
+    .sort((a, b) => a.judge_name.localeCompare(b.judge_name));
+}
+
+function computeNonFuelTotals(judges: JudgeUtility[]): JudgeTotals[] {
+  return judges
+    .map((j) => {
+      let kplc = 0, water = 0, wifi = 0;
       j.items.forEach((item) => {
         switch (item.utility_type) {
           case 'Electricity': kplc += item.amount; break;
           case 'Water': water += item.amount; break;
           case 'Internet': wifi += item.amount; break;
-          default: other += item.amount; break;
+          default: break;
         }
       });
-      return { judge_name: j.judge_name, kplc, water, wifi, other, total: kplc + water + wifi + other };
+      const total = kplc + water + wifi;
+      return { judge_name: j.judge_name, kplc, water, wifi, fuel: 0, other: 0, total };
     })
     .filter((row) => row.total > 0)
     .sort((a, b) => a.judge_name.localeCompare(b.judge_name));
 }
 
-interface UtilitiesMemoModalProps {
+interface MemoModalProps {
   isOpen: boolean;
   onClose: () => void;
   judges: JudgeUtility[];
+  memoType: 'all' | 'fuel';
+  onMemoGenerated: (docId: string) => void;
+  entityId?: string; // the JudgeUtility.id this memo belongs to, if editing an existing record
 }
 
 type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
 
-const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose, judges }) => {
+const MemoModal: React.FC<MemoModalProps> = ({
+  isOpen,
+  onClose,
+  judges,
+  memoType,
+  onMemoGenerated,
+  entityId,
+}) => {
   const dispatch = useAppDispatch();
   const currentUser = useAppSelector(selectCurrentUser);
   const signatureLoading = useAppSelector(selectUsersSignatureLoading);
+
+  const allDocuments = useAppSelector(selectAllHelpdeskDocuments);
+  const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
+  const documentsUploading = useAppSelector(selectDocumentsUploading);
+  const documentActionLoading = useAppSelector(selectDocumentActionLoading);
+  const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
+  const isLinking = useAppSelector(selectDocumentLinking);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
 
   const [toField, setToField] = useState('DEPUTY DIRECTOR - DASS');
   const [fromField, setFromField] = useState('REGISTRAR, HIGH COURT');
@@ -504,12 +590,31 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
   const [dateField, setDateField] = useState(() =>
     new Date().toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' })
   );
-  const [subjectField, setSubjectField] = useState('UTILITY BILL CLAIMS');
+  const [subjectField, setSubjectField] = useState(
+    memoType === 'fuel' ? 'FUEL BILL CLAIMS' : 'UTILITY BILL CLAIMS'
+  );
   const [bodyText, setBodyText] = useState(
-    `I hereby forward the utility bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`
+    memoType === 'fuel'
+      ? `I hereby forward the fuel bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`
+      : `I hereby forward the utility bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`
   );
 
   const signatoryName = currentUser?.full_name || '';
+
+  const [downloadingFormat, setDownloadingFormat] = useState<DownloadFormat | null>(null);
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      dispatch(fetchHelpdeskDocuments({ entity_type: UTILITY_MEMO_ENTITY_TYPE }));
+    }
+  }, [dispatch, isOpen]);
+
+  useEffect(() => {
+    if (showLinkPicker) {
+      dispatch(fetchHelpdeskDocuments({ unlinked: true }));
+    }
+  }, [dispatch, showLinkPicker]);
 
   const handleSignatureUpload = async (file: File) => {
     try {
@@ -529,9 +634,6 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
       toast.error(typeof err === 'string' ? err : 'Failed to remove signature.');
     }
   };
-
-  const [downloadingFormat, setDownloadingFormat] = useState<DownloadFormat | null>(null);
-  const [showDownloadMenu, setShowDownloadMenu] = useState(false);
 
   const formatAmount = (amount: number) =>
     amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -553,10 +655,14 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
     return result;
   };
 
-  const judgeTotals = computeJudgeTotals(judges);
+  const judgeTotals = memoType === 'fuel'
+    ? computeFuelTotals(judges)
+    : computeNonFuelTotals(judges);
+
   const grandKplc = judgeTotals.reduce((s, r) => s + r.kplc, 0);
   const grandWater = judgeTotals.reduce((s, r) => s + r.water, 0);
   const grandWifi = judgeTotals.reduce((s, r) => s + r.wifi, 0);
+  const grandFuel = judgeTotals.reduce((s, r) => s + r.fuel, 0);
   const grandTotal = judgeTotals.reduce((s, r) => s + r.total, 0);
 
   const buildMemoData = (): UtilityMemoData => ({
@@ -584,23 +690,193 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
     signatureUrl: currentUser?.signature_url || undefined,
   });
 
-  const handleDownload = async (format: DownloadFormat) => {
+  // ─── Attach an existing local file to this memo ─────────────────────────
+  const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!entityId) {
+      toast.error('Save the judge utility record first before attaching a document.');
+      e.target.value = '';
+      return;
+    }
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    const format: DocumentFormat | null =
+      ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ext === 'xlsx' ? 'xlsx' : null;
+    if (!format) {
+      toast.error('Please upload a PDF, Word (.docx), or Excel (.xlsx) file.');
+      e.target.value = '';
+      return;
+    }
+
+    setUploadingDocument(true);
+    try {
+      await dispatch(
+        uploadHelpdeskDocument({
+          blob: file,
+          filename: file.name,
+          ref: refField,
+          subject: subjectField,
+          entity_type: UTILITY_MEMO_ENTITY_TYPE,
+          entity_id: entityId,
+          format,
+        })
+      ).unwrap();
+      toast.success('Document attached to this memo.');
+      dispatch(fetchHelpdeskDocuments({ entity_type: UTILITY_MEMO_ENTITY_TYPE }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to attach document.');
+    } finally {
+      setUploadingDocument(false);
+      e.target.value = '';
+    }
+  };
+
+  // ─── Link an existing unlinked document to this memo's judge record ────
+  const handleLinkExisting = async (docId: string) => {
+    if (!entityId) {
+      toast.error('Save the judge utility record first before linking a document.');
+      return;
+    }
+
+    try {
+      await dispatch(
+        linkHelpdeskDocument({
+          id: docId,
+          entity_type: UTILITY_MEMO_ENTITY_TYPE,
+          entity_id: entityId,
+        })
+      ).unwrap();
+      toast.success('Document linked to this memo.');
+      setShowLinkPicker(false);
+      dispatch(fetchHelpdeskDocuments({ entity_type: UTILITY_MEMO_ENTITY_TYPE }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to link document.');
+    }
+  };
+
+  const handleSendDocumentForApproval = async (docId: string) => {
+    try {
+      await dispatch(submitForApproval({ id: docId })).unwrap();
+      toast.success('Document sent for approval.');
+      dispatch(fetchHelpdeskDocuments({ entity_type: UTILITY_MEMO_ENTITY_TYPE }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
+    }
+  };
+
+  // ─── Generate the memo file and save it into the system ────────────────
+  const handleGenerate = async (format: DownloadFormat) => {
     setShowDownloadMenu(false);
     setDownloadingFormat(format);
+
+    console.group(`🧾 handleGenerate("${format}")`);
+    console.log('entityId (judge record id, if editing):', entityId);
+    console.log('refField:', refField);
+    console.log('subjectField:', subjectField);
+    console.log('judges passed in:', judges);
+
     try {
       const memoData = buildMemoData();
+      console.log('memoData built:', memoData);
 
-      if (format === 'docx') {
-        await generateUtilityMemoDocx(memoData);
-      } else if (format === 'pdf') {
-        await generateUtilityMemoPdf(memoData);
-      } else {
-        generateUtilityMemoExcel(memoData);
+      let blob: Blob | null = null;
+
+      console.log(`⏳ generating ${format} blob...`);
+      switch (format) {
+        case 'docx':
+          blob = await generateUtilityMemoDocx(memoData);
+          break;
+        case 'pdf':
+          blob = await generateUtilityMemoPdf(memoData);
+          break;
+        case 'xlsx':
+          blob = generateUtilityMemoExcel(memoData);
+          break;
+        default:
+          throw new Error(`Unsupported format: ${format}`);
       }
+
+      if (!blob) {
+        throw new Error('Generator returned no blob');
+      }
+      console.log('✅ blob generated:', {
+        size: blob.size,
+        type: blob.type,
+      });
+
+      const filename = `${refField}.${format}`;
+      const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+      console.log('📦 File object built:', {
+        name: file.name,
+        size: file.size,
+        type: file.type,
+      });
+
+      const uploadPayload = {
+        blob: file,
+        filename,
+        ref: refField,
+        subject: subjectField,
+        entity_type: UTILITY_MEMO_ENTITY_TYPE,
+        entity_id: entityId,
+        format: format as DocumentFormat,
+      };
+      console.log('📤 dispatching uploadHelpdeskDocument with payload:', {
+        ...uploadPayload,
+        blob: `[File: ${file.name}, ${file.size} bytes]`,
+      });
+
+      const result = await dispatch(uploadHelpdeskDocument(uploadPayload)).unwrap();
+      console.log('✅ upload succeeded, server response:', result);
+
+      toast.success(`${format.toUpperCase()} memo saved to the system.`);
+
+      if (entityId) {
+        console.log(`🔗 entityId present (${entityId}) — linking immediately...`);
+        try {
+          const linkPayload = {
+            id: result.id,
+            entity_type: UTILITY_MEMO_ENTITY_TYPE,
+            entity_id: entityId,
+          };
+          console.log('📤 dispatching linkHelpdeskDocument with payload:', linkPayload);
+          const linkResult = await dispatch(linkHelpdeskDocument(linkPayload)).unwrap();
+          console.log('✅ link succeeded:', linkResult);
+          toast.success('Memo linked to the judge utility record.');
+        } catch (linkErr) {
+          console.error('❌ link failed:', linkErr);
+          console.warn('Saved but failed to link to the judge record:', linkErr);
+          toast.error('Memo saved, but could not link it automatically. You can link it manually.');
+        }
+      } else {
+        console.log('🕓 no entityId yet — deferring link via onMemoGenerated(docId):', result.id);
+        onMemoGenerated(result.id);
+      }
+
+      dispatch(fetchHelpdeskDocuments({ entity_type: UTILITY_MEMO_ENTITY_TYPE }));
     } catch (err) {
-      console.error(`Failed to generate ${format} memo:`, err);
-      toast.error('Failed to generate document. Please try again.');
+      console.error(`❌ Failed to generate ${format} memo — raw error:`, err);
+      console.log('typeof err:', typeof err);
+      console.log('err instanceof Error:', err instanceof Error);
+      try {
+        console.log('JSON.stringify(err):', JSON.stringify(err));
+      } catch {
+        console.log('err is not JSON-serializable');
+      }
+
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'string'
+          ? err
+          : 'Failed to generate document. Please try again.';
+
+      console.log('📢 toast message resolved to:', message);
+      toast.error(message);
     } finally {
+      console.groupEnd();
       setDownloadingFormat(null);
     }
   };
@@ -611,7 +887,15 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
     xlsx: 'Preparing Excel…',
   };
 
+  // Match on `ref` (always set correctly) rather than `entity_id`
+  const linkedDocuments = allDocuments.filter(
+    (d) => d.entity_type === UTILITY_MEMO_ENTITY_TYPE && d.ref === refField
+  );
+
   if (!isOpen) return null;
+
+  const showNonFuelColumns = memoType === 'all';
+  const showFuelColumn = memoType === 'fuel';
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
@@ -625,14 +909,16 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
       />
       <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
-          <h3 className="text-sm font-semibold text-[#1a3d1c]">Generate Utility Memo — All Judges</h3>
+          <h3 className="text-sm font-semibold text-[#1a3d1c]">
+            {memoType === 'fuel' ? 'Fuel Memo' : 'Utility Memo'}
+          </h3>
           <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
             <X className="h-4 w-4" />
           </button>
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto p-4 space-y-4">
-          {/* Signature */}
+          {/* Signature Section */}
           <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
@@ -649,11 +935,11 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
                     e.target.value = '';
                   }}
                   className="hidden"
-                  id="utility-signature-upload"
+                  id="memo-signature-upload"
                   disabled={signatureLoading}
                 />
                 <label
-                  htmlFor="utility-signature-upload"
+                  htmlFor="memo-signature-upload"
                   className="inline-flex items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50 cursor-pointer disabled:opacity-50"
                 >
                   {signatureLoading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
@@ -729,24 +1015,32 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
               className="w-full bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none resize-none text-sm leading-relaxed mb-6"
             />
 
-            {/* Consolidated Judges Table */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse border border-black">
                 <thead>
                   <tr>
                     <th className="border border-black px-2 py-1 text-left text-xs font-bold">S/NO.</th>
                     <th className="border border-black px-2 py-1 text-left text-xs font-bold">NAMES</th>
-                    <th className="border border-black px-2 py-1 text-right text-xs font-bold">KPLC</th>
-                    <th className="border border-black px-2 py-1 text-right text-xs font-bold">WATER</th>
-                    <th className="border border-black px-2 py-1 text-right text-xs font-bold">WIFI</th>
-                    <th className="border border-black px-2 py-1 text-right text-xs font-bold">TOTAL</th>
+                    {showNonFuelColumns && (
+                      <>
+                        <th className="border border-black px-2 py-1 text-right text-xs font-bold">KPLC</th>
+                        <th className="border border-black px-2 py-1 text-right text-xs font-bold">WATER</th>
+                        <th className="border border-black px-2 py-1 text-right text-xs font-bold">WIFI</th>
+                      </>
+                    )}
+                    {showFuelColumn && (
+                      <th className="border border-black px-2 py-1 text-right text-xs font-bold">FUEL</th>
+                    )}
+                    {showNonFuelColumns && (
+                      <th className="border border-black px-2 py-1 text-right text-xs font-bold">TOTAL</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
                   {judgeTotals.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="border border-black px-2 py-4 text-center text-stone-400">
-                        No outstanding utility claims found.
+                      <td colSpan={showNonFuelColumns ? 7 : (showFuelColumn ? 4 : 1)} className="border border-black px-2 py-4 text-center text-stone-400">
+                        No outstanding {memoType === 'fuel' ? 'fuel' : 'utility'} claims found.
                       </td>
                     </tr>
                   ) : (
@@ -754,10 +1048,19 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
                       <tr key={row.judge_name}>
                         <td className="border border-black px-2 py-1 text-center">{index + 1}</td>
                         <td className="border border-black px-2 py-1 font-medium">{row.judge_name}</td>
-                        <td className="border border-black px-2 py-1 text-right">{row.kplc > 0 ? formatAmount(row.kplc) : ''}</td>
-                        <td className="border border-black px-2 py-1 text-right">{row.water > 0 ? formatAmount(row.water) : ''}</td>
-                        <td className="border border-black px-2 py-1 text-right">{row.wifi > 0 ? formatAmount(row.wifi) : ''}</td>
-                        <td className="border border-black px-2 py-1 text-right font-medium">{formatAmount(row.total)}</td>
+                        {showNonFuelColumns && (
+                          <>
+                            <td className="border border-black px-2 py-1 text-right">{row.kplc > 0 ? formatAmount(row.kplc) : ''}</td>
+                            <td className="border border-black px-2 py-1 text-right">{row.water > 0 ? formatAmount(row.water) : ''}</td>
+                            <td className="border border-black px-2 py-1 text-right">{row.wifi > 0 ? formatAmount(row.wifi) : ''}</td>
+                          </>
+                        )}
+                        {showFuelColumn && (
+                          <td className="border border-black px-2 py-1 text-right font-medium">{formatAmount(row.fuel)}</td>
+                        )}
+                        {showNonFuelColumns && (
+                          <td className="border border-black px-2 py-1 text-right font-bold">{formatAmount(row.total)}</td>
+                        )}
                       </tr>
                     ))
                   )}
@@ -765,18 +1068,26 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
                 {judgeTotals.length > 0 && (
                   <tfoot>
                     <tr>
-                      <td colSpan={2} className="border border-black px-2 py-2 text-right font-bold">GRAND TOTAL</td>
-                      <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandKplc)}</td>
-                      <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandWater)}</td>
-                      <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandWifi)}</td>
-                      <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandTotal)}</td>
+                      <td colSpan={showNonFuelColumns ? 2 : (showFuelColumn ? 2 : 1)} className="border border-black px-2 py-2 text-right font-bold">GRAND TOTAL</td>
+                      {showNonFuelColumns && (
+                        <>
+                          <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandKplc)}</td>
+                          <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandWater)}</td>
+                          <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandWifi)}</td>
+                        </>
+                      )}
+                      {showFuelColumn && (
+                        <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandFuel)}</td>
+                      )}
+                      {showNonFuelColumns && (
+                        <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandTotal)}</td>
+                      )}
                     </tr>
                   </tfoot>
                 )}
               </table>
             </div>
 
-            {/* Sign-off */}
             <div className="mt-16 space-y-1">
               <p className="text-sm font-bold text-black">{signatoryName}</p>
               {currentUser?.signature_url && (
@@ -797,47 +1108,188 @@ const UtilitiesMemoModal: React.FC<UtilitiesMemoModalProps> = ({ isOpen, onClose
               </div>
             </div>
           </div>
+
+          {/* Document Section */}
+          <div className="mt-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-stone-800">Supporting Documents</h3>
+              <div className="flex gap-2">
+                <GhostButton
+                  onClick={() => setShowLinkPicker((v) => !v)}
+                  icon={<Paperclip size={14} />}
+                  disabled={!entityId}
+                >
+                  Link Existing
+                </GhostButton>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.xlsx"
+                  onChange={handleAttachDocument}
+                  className="hidden"
+                  disabled={documentsUploading || uploadingDocument || !entityId}
+                />
+                <GhostButton
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={documentsUploading || uploadingDocument || !entityId}
+                  icon={documentsUploading || uploadingDocument ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                >
+                  {documentsUploading || uploadingDocument ? 'Uploading…' : 'Attach Document'}
+                </GhostButton>
+              </div>
+            </div>
+
+            {!entityId && (
+              <p className="mt-2 text-[11px] text-stone-400 italic">
+                Attaching and linking documents will be available once this judge utility record has been saved.
+              </p>
+            )}
+
+            {showLinkPicker && (
+              <div className="mt-2 rounded-lg border border-stone-200 bg-white p-2 max-h-48 overflow-y-auto">
+                {unlinkedDocuments.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-stone-400 italic">No unlinked documents found.</p>
+                ) : (
+                  <ul className="divide-y divide-stone-100">
+                    {unlinkedDocuments.map((doc) => (
+                      <li key={doc.id} className="flex items-center justify-between gap-2 px-2 py-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {documentFormatIcon(doc.format)}
+                          <span className="truncate text-sm text-stone-700">{doc.subject}</span>
+                          <span className="shrink-0 text-[11px] text-stone-400">{doc.ref}</span>
+                        </div>
+                        <GhostButton
+                          onClick={() => handleLinkExisting(doc.id)}
+                          disabled={isLinking}
+                          icon={isLinking ? <Loader2 size={12} className="animate-spin" /> : undefined}
+                        >
+                          Attach
+                        </GhostButton>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {documentsLoading && linkedDocuments.length === 0 ? (
+              <p className="mt-2 text-xs text-stone-400 italic">Checking for attached documents…</p>
+            ) : linkedDocuments.length === 0 ? (
+              <p className="mt-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-3 text-xs text-stone-400">
+                No documents attached yet.
+              </p>
+            ) : (
+              <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
+                {linkedDocuments.map((doc) => (
+                  <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {documentFormatIcon(doc.format)}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
+                        <div className="mt-0.5 flex items-center gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
+                          >
+                            {doc.status.replace('_', ' ')}
+                          </span>
+                          <span className="text-[11px] text-stone-400">{doc.ref}</span>
+                        </div>
+                        {doc.status === 'rejected' && doc.rejection_reason && (
+                          <p className="mt-1 text-[11px] text-red-600">Reason: {doc.rejection_reason}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <a href={doc.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
+                      >
+                        <ExternalLink size={12} />
+                        View
+                      </a>
+                      {doc.status === 'draft' && (
+                        <GhostButton
+                          onClick={() => handleSendDocumentForApproval(doc.id)}
+                          disabled={!!documentActionLoading[doc.id]?.submitting}
+                          icon={
+                            documentActionLoading[doc.id]?.submitting ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Send size={12} />
+                            )
+                          }
+                        >
+                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
+                        </GhostButton>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
 
         <div className="flex justify-between border-t border-stone-100 px-4 py-3">
-          <div></div>
-          <div className="flex gap-2">
-            <GhostButton onClick={onClose}>Close</GhostButton>
-            <div className="relative">
-              <GoldButton
-                size="sm"
-                onClick={() => setShowDownloadMenu((v) => !v)}
-                disabled={downloadingFormat !== null || judgeTotals.length === 0}
-                icon={downloadingFormat ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-              >
-                {downloadingFormat ? downloadLabels[downloadingFormat] : 'Download'}
-                {!downloadingFormat && <ChevronDown size={12} />}
-              </GoldButton>
-              {showDownloadMenu && (
+          <GhostButton onClick={onClose}>Close</GhostButton>
+          <div className="relative">
+            <button
+              onClick={() => setShowDownloadMenu(!showDownloadMenu)}
+              disabled={downloadingFormat !== null || judgeTotals.length === 0}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#c9a84c] px-3 py-1.5 text-xs font-semibold text-[#1a3d1c] hover:bg-[#b8973f] transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {downloadingFormat ? (
                 <>
-                  <div className="fixed inset-0 z-0" onClick={() => setShowDownloadMenu(false)} />
-                  <div className="absolute right-0 z-10 mt-1 w-44 overflow-hidden rounded-lg border border-stone-200 bg-white py-1 shadow-lg">
-                    <button onClick={() => handleDownload('docx')} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50">
-                      <FileText size={14} className="text-blue-600" /> Word (.docx)
-                    </button>
-                    <button onClick={() => handleDownload('pdf')} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50">
-                      <FileText size={14} className="text-red-600" /> PDF (.pdf)
-                    </button>
-                    <button onClick={() => handleDownload('xlsx')} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50">
-                      <FileSpreadsheet size={14} className="text-emerald-600" /> Excel (.xlsx)
-                    </button>
-                  </div>
+                  <Loader2 size={14} className="animate-spin" />
+                  {downloadLabels[downloadingFormat]}
+                </>
+              ) : (
+                <>
+                  <Save size={14} />
+                  Save Memo
+                  <ChevronDown size={12} />
                 </>
               )}
-            </div>
+            </button>
+
+            {showDownloadMenu && (
+              <div className="absolute right-0 bottom-full z-20 mb-1 w-44 overflow-hidden rounded-lg border border-stone-200 bg-white py-1 shadow-lg">
+                <button
+                  onClick={() => handleGenerate('docx')}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50"
+                >
+                  <FileText size={14} className="text-blue-600" />
+                  Word (.docx)
+                </button>
+                <button
+                  onClick={() => handleGenerate('pdf')}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50"
+                >
+                  <FileText size={14} className="text-red-600" />
+                  PDF (.pdf)
+                </button>
+                <button
+                  onClick={() => handleGenerate('xlsx')}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50"
+                >
+                  <FileSpreadsheet size={14} className="text-emerald-600" />
+                  Excel (.xlsx)
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {showDownloadMenu && (
+        <div className="fixed inset-0 z-10" onClick={() => setShowDownloadMenu(false)} />
+      )}
     </div>
   );
 };
 
-// ─── Main UtilitiesModal ───────────────────────────────────────────────
+// ─── Main UtilitiesModal ──────────────────────────────────────────────────
 
 interface UtilitiesModalProps {
   isOpen: boolean;
@@ -851,11 +1303,18 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
   editingUtility,
 }) => {
   const dispatch = useAppDispatch();
+  const allJudges = useAppSelector(selectAllUtilities);
+  void allJudges;
 
   const [judgeName, setJudgeName] = useState(() => editingUtility?.judge_name ?? '');
   const [items, setItems] = useState<UtilityItemFormState[]>(() => buildInitialItems(editingUtility));
 
   const isEditing = !!editingUtility;
+
+  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+  const [showMemoModal, setShowMemoModal] = useState(false);
+  const [memoType, setMemoType] = useState<'all' | 'fuel'>('all');
+  const [pendingDocumentId, setPendingDocumentId] = useState<string | undefined>();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [savingItemIndex, setSavingItemIndex] = useState<number | null>(null);
@@ -865,10 +1324,61 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
   const [deleteTarget, setDeleteTarget] = useState<'judge' | number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // ─── Helper to get judges for memo ──────────────────────────────────────
+  const getJudgesForMemo = (): JudgeUtility[] => {
+    if (isEditing && editingUtility) {
+      return [editingUtility];
+    }
+
+    const filledItems = items.filter(isItemFilled);
+    if (filledItems.length === 0 || !judgeName.trim()) {
+      return [];
+    }
+
+    const tempId = `temp-${judgeName.trim().toLowerCase().replace(/\s+/g, '-') || 'judge'}`;
+
+    const tempJudge: JudgeUtility = {
+      id: tempId,
+      judge_name: judgeName.trim(),
+      created_by: null,
+      items: filledItems.map((item, index) => ({
+        id: `temp-item-${index}`,
+        utility_type: item.utility_type,
+        requisition_number: item.requisition_number || null,
+        amount: item.amount,
+        period: item.period,
+        description: item.description || null,
+        date_received: item.date_received || null,
+        date_forwarded_dass: item.date_forwarded_dass || null,
+        date_paid: item.date_paid || null,
+        status: item.status,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        request_id: '',
+        supporting_document_url: null,
+      })),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    return [tempJudge];
+  };
+
   const resetForm = () => {
     setJudgeName('');
     setItems(buildInitialItems(null));
     setDirtyItemIds(new Set());
+    setCurrentStep(1);
+    setPendingDocumentId(undefined);
+  };
+
+  const handleGenerateMemo = (type: 'all' | 'fuel') => {
+    setMemoType(type);
+    setShowMemoModal(true);
+  };
+
+  const handleMemoGenerated = (docId: string) => {
+    setPendingDocumentId(docId);
   };
 
   const handleAddNewRow = () => {
@@ -908,7 +1418,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         itemId: item.id,
         updates: {
           status: item.status,
-          requisition_number: item.requisition_number.trim() || undefined,  // ADDED
+          requisition_number: item.requisition_number.trim() || undefined,
           date_received: formatDateForAPI(item.date_received),
           date_forwarded_dass: formatDateForAPI(item.date_forwarded_dass),
           date_paid: formatDateForAPI(item.date_paid),
@@ -958,7 +1468,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     try {
       const input: UtilityItemInput = {
         utility_type: newItem.utility_type,
-        requisition_number: newItem.requisition_number.trim() || undefined,  // ADDED
+        requisition_number: newItem.requisition_number.trim() || undefined,
         amount: 0,
         period: 'New item',
         status: newItem.status,
@@ -973,22 +1483,50 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isEditing) return;
+  const handleNextStep = () => {
+    if (!judgeName.trim()) {
+      toast.error('Please enter the judge name.');
+      return;
+    }
+    const filledItems = items.filter(isItemFilled);
+    if (filledItems.length === 0) {
+      toast.error('Please fill in at least one utility item (Amount and Period are required).');
+      return;
+    }
+    setCurrentStep(2);
+  };
 
-    if (!judgeName.trim()) return;
+  const handlePrevStep = () => {
+    setCurrentStep(1);
+  };
+
+  const handleCreateRecord = async () => {
+    if (isEditing) {
+      return;
+    }
+
+    if (currentStep !== 2) {
+      return;
+    }
+
+    if (!judgeName.trim()) {
+      toast.error('Judge name is required.');
+      return;
+    }
 
     const filledItems = items.filter(isItemFilled);
-    if (filledItems.length === 0) return;
+    if (filledItems.length === 0) {
+      toast.error('Please fill in at least one utility item.');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
-      await dispatch(createUtility({
+      const result = await dispatch(createUtility({
         judge_name: judgeName.trim(),
         items: filledItems.map((item) => ({
           utility_type: item.utility_type,
-          requisition_number: item.requisition_number.trim() || undefined,  // ADDED
+          requisition_number: item.requisition_number.trim() || undefined,
           amount: item.amount,
           period: item.period.trim(),
           description: item.description.trim() || undefined,
@@ -999,12 +1537,29 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         })),
       })).unwrap();
 
+      if (pendingDocumentId && result?.id) {
+        try {
+          await dispatch(
+            linkHelpdeskDocument({
+              id: pendingDocumentId,
+              entity_type: UTILITY_MEMO_ENTITY_TYPE,
+              entity_id: result.id,
+            })
+          ).unwrap();
+          toast.success('Memo linked to the utility record.');
+        } catch {
+          toast.error('Record created, but failed to link the memo. You can attach it manually later.');
+        }
+      }
+
       await dispatch(fetchUtilities({}));
       await dispatch(fetchHelpDeskStats());
+      toast.success('Judge utility record created successfully.');
       onClose();
       resetForm();
     } catch (err) {
       console.error('Failed to create judge utility record:', err);
+      toast.error('Failed to create judge utility record.');
     } finally {
       setIsSubmitting(false);
     }
@@ -1035,10 +1590,13 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
 
   if (!isOpen) return null;
 
+  const filledItemsForPreview = items.filter(isItemFilled);
+  const previewTotal = filledItemsForPreview.reduce((sum, i) => sum + i.amount, 0);
+
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl">
+        <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
           <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
             <div className="flex items-center gap-2">
               <Wallet size={18} className="text-[#c9a84c]" />
@@ -1051,100 +1609,268 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
             </button>
           </div>
 
-          <form onSubmit={handleSubmit} className="max-h-[70vh] overflow-y-auto p-4">
-            <div className="space-y-4">
-              <div>
-                <FieldLabel required>Judge Name</FieldLabel>
-                <div className="relative">
-                  <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-                  <input
-                    type="text"
-                    value={isEditing ? editingUtility!.judge_name : judgeName}
-                    onChange={(e) => !isEditing && setJudgeName(e.target.value)}
-                    placeholder="e.g. Hon. Justice Korir"
-                    className={`${inputClasses} pl-9`}
-                    disabled={isEditing}
-                    required
-                  />
+          {!isEditing && (
+            <div className="px-4 pt-4">
+              <div className="mb-1 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className={`flex items-center gap-2 ${currentStep >= 1 ? 'text-[#1a3d1c]' : 'text-stone-400'}`}>
+                    <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${currentStep >= 1 ? 'bg-[#c9a84c] text-[#1a3d1c]' : 'bg-stone-200 text-stone-500'}`}>
+                      1
+                    </div>
+                    <span className="text-xs font-medium">Utility Details</span>
+                  </div>
+                  <div className={`h-0.5 w-8 ${currentStep >= 2 ? 'bg-[#c9a84c]' : 'bg-stone-200'}`} />
+                  <div className={`flex items-center gap-2 ${currentStep >= 2 ? 'text-[#1a3d1c]' : 'text-stone-400'}`}>
+                    <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${currentStep >= 2 ? 'bg-[#c9a84c] text-[#1a3d1c]' : 'bg-stone-200 text-stone-500'}`}>
+                      2
+                    </div>
+                    <span className="text-xs font-medium">Review & Create</span>
+                  </div>
                 </div>
-                {isEditing && (
-                  <p className="mt-1 text-[11px] text-stone-400">
-                    A judge can have multiple utilities — add each utility type below.
-                  </p>
-                )}
+                <span className="text-xs text-stone-400">Step {currentStep} of 2</span>
               </div>
+            </div>
+          )}
 
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-4">
+              {isEditing ? (
+                <div className="space-y-4">
+                  <div>
+                    <FieldLabel required>Judge Name</FieldLabel>
+                    <div className="relative">
+                      <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                      <input
+                        type="text"
+                        value={editingUtility!.judge_name}
+                        disabled
+                        className={`${inputClasses} pl-9`}
+                      />
+                    </div>
+                    <p className="mt-1 text-[11px] text-stone-400">
+                      A judge can have multiple utilities — add each utility type below.
+                    </p>
+                  </div>
+
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <FieldLabel>Utility Items ({items.length})</FieldLabel>
+                      <GhostButton
+                        onClick={handleAddItemToExisting}
+                        disabled={savingItemIndex === items.length}
+                        icon={
+                          savingItemIndex === items.length ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <Plus size={12} />
+                          )
+                        }
+                      >
+                        Add Utility
+                      </GhostButton>
+                    </div>
+
+                    <div className="space-y-3">
+                      {items.map((item, index) => (
+                        <UtilityItemRow
+                          key={item.id ?? `pending-${index}`}
+                          item={item}
+                          index={index}
+                          isEditing
+                          isDirty={!!item.id && dirtyItemIds.has(item.id)}
+                          isSaving={savingItemIndex === index}
+                          isDeleting={deletingItemIndex === index}
+                          onChange={handleRowChange}
+                          onSave={handleSaveRow}
+                          onDelete={handleDeleteRow}
+                        />
+                      ))}
+                    </div>
+
+                    {items.length === 0 && (
+                      <p className="rounded-lg border border-dashed border-stone-300 p-4 text-center text-xs text-stone-400">
+                        No utility items yet. Click "Add Utility" above to record one.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : currentStep === 1 ? (
+                <div className="space-y-4">
+                  <div>
+                    <FieldLabel required>Judge Name</FieldLabel>
+                    <div className="relative">
+                      <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                      <input
+                        type="text"
+                        value={judgeName}
+                        onChange={(e) => setJudgeName(e.target.value)}
+                        placeholder="e.g. Hon. Justice Korir"
+                        className={`${inputClasses} pl-9`}
+                        required
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <FieldLabel required>Utility Items</FieldLabel>
+                      <GhostButton onClick={handleAddNewRow} icon={<Plus size={12} />}>
+                        Add Utility
+                      </GhostButton>
+                    </div>
+
+                    <div className="space-y-3">
+                      {items.map((item, index) => (
+                        <UtilityItemRow
+                          key={`pending-${index}`}
+                          item={item}
+                          index={index}
+                          isEditing={false}
+                          onChange={handleRowChange}
+                          onRemove={handleRemoveRow}
+                          canRemove={items.length > 1}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
+                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-stone-500">
+                      Judge
+                    </p>
+                    <p className="text-sm font-semibold text-stone-800">{judgeName}</p>
+                  </div>
+
+                  <div>
+                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-stone-500">
+                      Utility Items ({filledItemsForPreview.length})
+                    </p>
+                    <div className="overflow-hidden rounded-lg border border-stone-200">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-stone-200 bg-stone-50 text-xs uppercase text-stone-400">
+                            <th className="px-3 py-2 text-left font-medium">Type</th>
+                            <th className="px-3 py-2 text-left font-medium">Requisition #</th>
+                            <th className="px-3 py-2 text-right font-medium">Amount (KES)</th>
+                            <th className="px-3 py-2 text-left font-medium">Period</th>
+                            <th className="px-3 py-2 text-center font-medium">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100">
+                          {filledItemsForPreview.map((item, i) => (
+                            <tr key={i}>
+                              <td className="px-3 py-2 font-medium text-stone-800">{item.utility_type}</td>
+                              <td className="px-3 py-2 text-stone-600">{item.requisition_number || '—'}</td>
+                              <td className="px-3 py-2 text-right text-stone-600">
+                                {item.amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="px-3 py-2 text-stone-600">{item.period}</td>
+                              <td className="px-3 py-2 text-center">
+                                <StatusBadge status={item.status} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="border-t border-stone-200 bg-stone-50">
+                            <td colSpan={2} className="px-3 py-2 text-right font-semibold text-stone-700">
+                              Total
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold text-stone-800">
+                              {previewTotal.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </td>
+                            <td colSpan={2} />
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-stone-400">
+                    Review the details above, then click "Create Utility Record" to save.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-stone-100 px-4 py-3">
               <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <FieldLabel required={!isEditing}>
-                    Utility Items {isEditing && `(${items.length})`}
-                  </FieldLabel>
-                  <GhostButton
-                    onClick={isEditing ? handleAddItemToExisting : handleAddNewRow}
-                    disabled={isEditing && savingItemIndex === items.length}
-                    icon={
-                      isEditing && savingItemIndex === items.length ? (
-                        <Loader2 size={12} className="animate-spin" />
-                      ) : (
-                        <Plus size={12} />
-                      )
-                    }
-                  >
-                    Add Utility
+                {isEditing ? (
+                  <GhostButton onClick={() => setDeleteTarget('judge')} disabled={isDeleting}>
+                    <Trash2 size={14} />
+                    Delete Judge Record
                   </GhostButton>
-                </div>
-
-                <div className="space-y-3">
-                  {items.map((item, index) => (
-                    <UtilityItemRow
-                      key={item.id ?? `pending-${index}`}
-                      item={item}
-                      index={index}
-                      isEditing={isEditing}
-                      isDirty={!!item.id && dirtyItemIds.has(item.id)}
-                      isSaving={savingItemIndex === index}
-                      isDeleting={deletingItemIndex === index}
-                      onChange={handleRowChange}
-                      onSave={isEditing ? handleSaveRow : undefined}
-                      onDelete={isEditing ? handleDeleteRow : undefined}
-                      onRemove={!isEditing ? handleRemoveRow : undefined}
-                      canRemove={!isEditing && items.length > 1}
-                    />
-                  ))}
-                </div>
-
-                {isEditing && items.length === 0 && (
-                  <p className="rounded-lg border border-dashed border-stone-300 p-4 text-center text-xs text-stone-400">
-                    No utility items yet. Click "Add Utility" above to record one.
-                  </p>
+                ) : (
+                  currentStep === 2 && (
+                    <GhostButton type="button" onClick={handlePrevStep} icon={<ArrowLeft size={14} />}>
+                      Back
+                    </GhostButton>
+                  )
                 )}
               </div>
-            </div>
-
-            <div className="flex justify-end gap-2 border-t border-stone-100 mt-6 pt-4">
-              {isEditing && (
-                <GhostButton onClick={() => setDeleteTarget('judge')} disabled={isDeleting}>
-                  <Trash2 size={14} />
-                  Delete Judge Record
+              <div className="flex gap-2">
+                {!isEditing && currentStep === 2 && (
+                  <>
+                    <GoldButton
+                      size="sm"
+                      variant="outline"
+                      type="button"
+                      onClick={() => handleGenerateMemo('all')}
+                      icon={<FileText size={14} />}
+                    >
+                      Memo
+                    </GoldButton>
+                    <GoldButton
+                      size="sm"
+                      variant="outline"
+                      type="button"
+                      onClick={() => handleGenerateMemo('fuel')}
+                      icon={<FileText size={14} />}
+                    >
+                      Fuel Memo
+                    </GoldButton>
+                  </>
+                )}
+                <GhostButton type="button" onClick={handleClose} disabled={isSubmitting || isDeleting}>
+                  {isEditing ? 'Close' : 'Cancel'}
                 </GhostButton>
-              )}
-              <GhostButton onClick={handleClose} disabled={isSubmitting || isDeleting}>
-                {isEditing ? 'Close' : 'Cancel'}
-              </GhostButton>
-              {!isEditing && (
-                <GoldButton type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                {!isEditing ? (
+                  currentStep === 1 ? (
+                    <GoldButton type="button" onClick={handleNextStep} icon={<ArrowRight size={14} />}>
+                      Next
+                    </GoldButton>
                   ) : (
-                    <Save size={14} />
-                  )}
-                  Create Utility Record
-                </GoldButton>
-              )}
+                    <GoldButton type="button" onClick={handleCreateRecord} disabled={isSubmitting}>
+                      {isSubmitting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Save size={14} />
+                      )}
+                      Create Utility Record
+                    </GoldButton>
+                  )
+                ) : null}
+              </div>
             </div>
-          </form>
+          </div>
         </div>
       </div>
+
+      <MemoModal
+        isOpen={showMemoModal}
+        onClose={() => setShowMemoModal(false)}
+        judges={getJudgesForMemo()}
+        memoType={memoType}
+        onMemoGenerated={handleMemoGenerated}
+        entityId={editingUtility?.id}
+      />
 
       {deleteTarget !== null && (
         <ConfirmDialog
@@ -1165,4 +1891,4 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
 };
 
 export default UtilitiesModal;
-export { UtilitiesMemoModal };
+export { MemoModal as UtilitiesMemoModal };

@@ -28,7 +28,7 @@ const formatAmount = (amount: number): string =>
 
 // ─── Main export ────────────────────────────────────────────────────────────
 
-export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<void> {
+export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blob> {
   const [crestDataUrl, signatureDataUrl] = await Promise.all([
     fetchImageDataUrl(data.crestUrl),
     data.signatureUrl ? fetchImageDataUrl(data.signatureUrl) : Promise.resolve(null),
@@ -180,6 +180,9 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<voi
   doc.setTextColor(26, 61, 28);
   doc.text('Justice Be Our Shield and Defender', marginX, footerY + 34);
 
-  const filename = `Utility_Memo_${data.date.replace(/\s+/g, '_')}.pdf`;
-  doc.save(filename);
+  // Return the generated PDF as a Blob instead of triggering a local
+  // download via doc.save(). The caller (UtilitiesMemoModal) is
+  // responsible for naming the file and deciding what to do with the
+  // blob (upload to the document system and/or offer a local download).
+  return doc.output('blob');
 }

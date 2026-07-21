@@ -2,7 +2,7 @@
 import * as XLSX from 'xlsx';
 import type { UtilityMemoData } from '../types/generateUtilityMemoTypes';
 
-export function generateUtilityMemoExcel(data: UtilityMemoData): void {
+export function generateUtilityMemoExcel(data: UtilityMemoData): Blob {
   const sheetRows: (string | number)[][] = [];
 
   // Header block
@@ -84,6 +84,15 @@ export function generateUtilityMemoExcel(data: UtilityMemoData): void {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Utility Memo');
 
-  const filename = `Utility_Memo_${data.date.replace(/\s+/g, '_')}.xlsx`;
-  XLSX.writeFile(workbook, filename);
+  // Build the workbook as a binary array and wrap it in a Blob instead of
+  // writing directly to disk. This keeps the generator's output consistent
+  // with generateUtilityMemoDocx / generateUtilityMemoPdf, both of which
+  // return a Blob that the caller (UtilitiesMemoModal) uploads to the
+  // document system and/or offers as a download. The filename is decided
+  // by the caller, not here.
+  const wbout: ArrayBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+
+  return new Blob([wbout], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
 }

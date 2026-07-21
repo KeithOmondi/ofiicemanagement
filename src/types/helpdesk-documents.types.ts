@@ -11,7 +11,11 @@ export type HelpdeskEntityType =
     | 'ticket'
     | 'medicalClaim'
     | 'generalRequest'
-    | 'securityRequest';
+    | 'securityRequest'
+    | 'visa'             // Visa support documents
+    | 'protocol'         // Protocol event documents
+    | 'club'             // Club membership documents
+    | 'utility_memo';    // Utility memo documents
 
 export type HelpdeskDocumentFormat = 'pdf' | 'docx' | 'xlsx';
 
@@ -372,6 +376,10 @@ export const HELPEDSK_ENTITY_LABELS: Record<HelpdeskEntityType, string> = {
     medicalClaim: 'Medical Claim',
     generalRequest: 'General Request',
     securityRequest: 'Security Request (Deprecated)',
+    visa: 'Visa Support',
+    protocol: 'Protocol Event',
+    club: 'Club Membership',
+    utility_memo: 'Utility Memo',
 };
 
 export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
@@ -384,6 +392,10 @@ export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
     medicalClaim: 'Stethoscope',
     generalRequest: 'FileText',
     securityRequest: 'Shield',
+    visa: 'Plane',
+    protocol: 'Calendar',
+    club: 'Users',
+    utility_memo: 'FileText',
 };
 
 export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
@@ -396,6 +408,10 @@ export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
     medicalClaim: 'text-emerald-600 bg-emerald-50',
     generalRequest: 'text-amber-600 bg-amber-50',
     securityRequest: 'text-gray-600 bg-gray-50',
+    visa: 'text-indigo-600 bg-indigo-50',
+    protocol: 'text-blue-600 bg-blue-50',
+    club: 'text-purple-600 bg-purple-50',
+    utility_memo: 'text-amber-600 bg-amber-50',
 };
 
 export const DOCUMENT_STATUS_LABELS: Record<HelpdeskDocumentStatus, string> = {
@@ -549,7 +565,11 @@ export function isHelpdeskEntityType(value: string): value is HelpdeskEntityType
         'ticket',
         'medicalClaim',
         'generalRequest',
-        'securityRequest'
+        'securityRequest',
+        'visa',
+        'protocol',
+        'club',
+        'utility_memo'
     ].includes(value);
 }
 

@@ -1,4 +1,5 @@
 // src/components/modals/ProtocolModal.tsx
+
 import React, { useState, useRef } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -35,6 +36,7 @@ import {
   Trash2,
   Image,
   User,
+  AlertCircle,
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -254,8 +256,6 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({ basicInfo, setBasicInfo }
           <h4 className="text-sm font-semibold text-stone-800">Protocol Event Information</h4>
         </div>
         <div className="grid grid-cols-1 gap-4">
-          {/* s_no removed - auto-generated on backend */}
-
           <div>
             <FieldLabel required>Activity</FieldLabel>
             <input
@@ -325,6 +325,7 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({ basicInfo, setBasicInfo }
             <label htmlFor="dsa_required" className="text-sm font-medium text-stone-700">
               DSA Required
             </label>
+            <span className="text-xs text-stone-400">(Skip DSA details if not required)</span>
           </div>
         </div>
       </div>
@@ -340,6 +341,7 @@ interface DSADetailsFormProps {
   onRemoveRow: (index: number) => void;
   onChange: (index: number, field: keyof Omit<DSADetailInput, 'id'>, value: string | number) => void;
   calculateTotal: (rate: number, days: number) => number;
+  dsaRequired: boolean;
 }
 
 const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
@@ -348,7 +350,28 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
   onRemoveRow,
   onChange,
   calculateTotal,
+  dsaRequired,
 }) => {
+  // If DSA is not required, show a message and skip the form
+  if (!dsaRequired) {
+    return (
+      <div className="rounded-lg border border-stone-200 bg-stone-50 p-6">
+        <div className="flex flex-col items-center justify-center gap-3 text-center">
+          <div className="rounded-full bg-stone-100 p-3">
+            <AlertCircle size={24} className="text-stone-400" />
+          </div>
+          <div>
+            <h4 className="text-sm font-semibold text-stone-800">DSA Not Required</h4>
+            <p className="text-sm text-stone-500 mt-1">
+              You have indicated that DSA is not required for this protocol event.
+              Click <strong>Next</strong> to proceed to the preview.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
@@ -498,6 +521,7 @@ interface DownloadSharedData {
   }[];
   grandTotal: number;
   signatoryName: string;
+  dsaRequired: boolean;
 }
 
 const MemoPreview: React.FC<MemoPreviewProps> = ({
@@ -572,6 +596,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         rows,
         grandTotal,
         signatoryName,
+        dsaRequired: basicInfo.dsa_required,
       };
 
       // Simulate download - in production, these would use actual utilities
@@ -608,6 +633,8 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
     xlsx: 'Preparing Excel…',
   };
 
+  const hasDsaData = validDetails.length > 0;
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -619,9 +646,11 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
           <GhostButton onClick={onEdit} icon={<Edit size={12} />}>
             Edit Info
           </GhostButton>
-          <GhostButton onClick={onEditDsa} icon={<Edit size={12} />}>
-            Edit Details
-          </GhostButton>
+          {basicInfo.dsa_required && (
+            <GhostButton onClick={onEditDsa} icon={<Edit size={12} />}>
+              Edit DSA
+            </GhostButton>
+          )}
 
           <div className="relative">
             <GoldButton
@@ -741,22 +770,23 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
             className={`${editableLineClasses} block w-full resize-none leading-relaxed`}
           />
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse border border-black">
-              <thead>
-                <tr>
-                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">S/No.</th>
-                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">Name</th>
-                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">PJ Number</th>
-                  <th className="border border-black px-2 py-1 text-left text-xs font-bold">Designation</th>
-                  <th className="border border-black px-2 py-1 text-right text-xs font-bold">Rate (KES)</th>
-                  <th className="border border-black px-2 py-1 text-right text-xs font-bold">Days</th>
-                  <th className="border border-black px-2 py-1 text-right text-xs font-bold">Total (KES)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {validDetails.length > 0 ? (
-                  validDetails.map((detail, index) => (
+          {/* DSA Table - Only show if DSA is required and there is data */}
+          {basicInfo.dsa_required && hasDsaData && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse border border-black">
+                <thead>
+                  <tr>
+                    <th className="border border-black px-2 py-1 text-left text-xs font-bold">S/No.</th>
+                    <th className="border border-black px-2 py-1 text-left text-xs font-bold">Name</th>
+                    <th className="border border-black px-2 py-1 text-left text-xs font-bold">PJ Number</th>
+                    <th className="border border-black px-2 py-1 text-left text-xs font-bold">Designation</th>
+                    <th className="border border-black px-2 py-1 text-right text-xs font-bold">Rate (KES)</th>
+                    <th className="border border-black px-2 py-1 text-right text-xs font-bold">Days</th>
+                    <th className="border border-black px-2 py-1 text-right text-xs font-bold">Total (KES)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {validDetails.map((detail, index) => (
                     <tr key={index}>
                       <td className="border border-black px-2 py-1 text-center">{index + 1}</td>
                       <td className="border border-black px-2 py-1 font-medium">{detail.judge_name}</td>
@@ -768,16 +798,8 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
                         {calculateTotal(detail.dsa_per_day, detail.days).toLocaleString()}
                       </td>
                     </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={7} className="border border-black px-2 py-4 text-center text-stone-500 text-sm">
-                      No DSA details available.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-              {validDetails.length > 0 && (
+                  ))}
+                </tbody>
                 <tfoot>
                   <tr>
                     <td colSpan={6} className="border border-black px-2 py-2 text-right font-bold">
@@ -788,9 +810,27 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
                     </td>
                   </tr>
                 </tfoot>
-              )}
-            </table>
-          </div>
+              </table>
+            </div>
+          )}
+
+          {/* Show message when DSA is not required */}
+          {!basicInfo.dsa_required && (
+            <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50 p-4 text-center">
+              <p className="text-sm text-stone-500">
+                <span className="font-medium text-stone-700">Note:</span> DSA is not required for this protocol event.
+              </p>
+            </div>
+          )}
+
+          {/* Show message when DSA is required but no data */}
+          {basicInfo.dsa_required && !hasDsaData && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center">
+              <p className="text-sm text-amber-700">
+                <span className="font-medium">⚠️ DSA Required:</span> Please add DSA details or toggle DSA off if not needed.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="mt-16 space-y-1">
@@ -963,10 +1003,13 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
       }
       setCurrentStep(2);
     } else if (currentStep === 2) {
-      const hasValidRow = dsaDetails.some(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0);
-      if (!hasValidRow) {
-        toast.error('Please add at least one DSA entry with name, PJ number, rate, and days.');
-        return;
+      // ✅ DSA is optional - only validate if DSA is required
+      if (basicInfo.dsa_required) {
+        const hasValidRow = dsaDetails.some(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0);
+        if (!hasValidRow) {
+          toast.error('Please add at least one DSA entry with name, PJ number, rate, and days, or toggle DSA off.');
+          return;
+        }
       }
       setCurrentStep(3);
     }
@@ -979,18 +1022,21 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
 
   const handleCreate = async () => {
     try {
-      const dsaData = dsaDetails
-        .filter(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0)
-        .map(d => ({
-          judge_name: d.judge_name.trim(),
-          pj_number: d.pj_number.trim(),
-          designation: d.designation || undefined,
-          dsa_per_day: d.dsa_per_day,
-          days: d.days,
-          notes: undefined,
-        }));
+      // ✅ Only include DSA details if DSA is required
+      let dsaData: Omit<DSADetailInput, 'id'>[] = [];
+      if (basicInfo.dsa_required) {
+        dsaData = dsaDetails
+          .filter(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0)
+          .map(d => ({
+            judge_name: d.judge_name.trim(),
+            pj_number: d.pj_number.trim(),
+            designation: d.designation || undefined,
+            dsa_per_day: d.dsa_per_day,
+            days: d.days,
+            notes: undefined,
+          }));
+      }
 
-      // s_no removed - auto-generated on backend
       const input: CreateProtocolEventInput = {
         activity: basicInfo.activity.trim(),
         period_from: basicInfo.period_from || undefined,
@@ -1107,6 +1153,7 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
               onRemoveRow={handleRemoveDsaRow}
               onChange={handleDsaChange}
               calculateTotal={calculateTotal}
+              dsaRequired={basicInfo.dsa_required}
             />
           )}
           {currentStep === 3 && (

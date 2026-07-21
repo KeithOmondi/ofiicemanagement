@@ -182,6 +182,109 @@ export type AnyRequestDetails =
 // for the signatory block (name + title) or by absolute coordinates.
 // For custom placement, use signature_position_x/y/width/height.
 
+// ════════════════════════════════════════════════════════════════════════════
+//  FOLLOW-UP TYPES
+// ════════════════════════════════════════════════════════════════════════════
+
+export type FollowUpStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+
+export type FollowUpPriority = 'low' | 'normal' | 'urgent';
+
+export interface FollowUp {
+  id: string;
+  document_id: string;
+  mark_id: string; // Links to the bring-up mark
+  title: string;
+  description: string | null;
+  assigned_to: string;
+  assigned_to_name: string | null;
+  created_by: string;
+  created_by_name: string | null;
+  due_date: Date;
+  priority: FollowUpPriority;
+  status: FollowUpStatus;
+  completed_at: Date | null;
+  cancelled_at: Date | null;
+  cancellation_reason: string | null;
+  completion_notes: string | null;
+  is_active: boolean;
+  created_at: Date;
+  updated_at: Date;
+  comment_count?: number;
+}
+
+export interface FollowUpComment {
+  id: string;
+  follow_up_id: string;
+  user_id: string;
+  user_name: string | null;
+  comment: string;
+  file_url: string | null;
+  file_public_id: string | null;
+  created_at: Date;
+}
+
+export interface FollowUpWithComments extends FollowUp {
+  comments: FollowUpComment[];
+}
+
+export interface FollowUpPaginationResponse {
+  data: FollowUp[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+// ── Follow-up Input Types ──────────────────────────────────────────────────
+
+export interface CreateFollowUpInput {
+  document_id: string;
+  mark_id: string;
+  title: string;
+  description?: string;
+  assigned_to: string;
+  due_date: Date | string;
+  priority: FollowUpPriority;
+}
+
+export interface UpdateFollowUpInput {
+  title?: string;
+  description?: string;
+  assigned_to?: string;
+  due_date?: Date | string;
+  priority?: FollowUpPriority;
+  status?: FollowUpStatus;
+  completion_notes?: string;
+  cancellation_reason?: string;
+}
+
+export interface CompleteFollowUpInput {
+  completion_notes?: string;
+}
+
+export interface CancelFollowUpInput {
+  cancellation_reason: string;
+}
+
+export interface AddFollowUpCommentInput {
+  comment: string;
+}
+
+export interface FollowUpFilters {
+  document_id?: string;
+  assigned_to?: string;
+  status?: FollowUpStatus;
+  priority?: FollowUpPriority;
+  due_from?: Date | string;
+  due_to?: Date | string;
+  search?: string;
+  page?: number;
+  limit?: number;
+  sort_by?: 'created_at' | 'due_date' | 'priority' | 'status' | 'title';
+  sort_order?: 'ASC' | 'DESC';
+}
+
 // ── Input types ───────────────────────────────────────────────────────────────
 
 // For the existing /compose endpoint (judgments, rulings, orders)
@@ -472,12 +575,15 @@ export interface Document {
   signature_position_height: number | null;
   // ── NEW: Request Details ──────────────────────────────────────────────
   request_details: DocumentRequestDetails | null;
+  // ── NEW: Follow-ups ────────────────────────────────────────────────────
+  follow_ups?: FollowUp[];
 }
 
 export interface DocumentWithAnnotations extends Document {
   annotations: DocumentAnnotation[];
   mark_history: DocumentMark[];
   responses: DocumentResponse[];
+  follow_ups?: FollowUp[];
 }
 
 export interface DocumentPaginationResponse {
