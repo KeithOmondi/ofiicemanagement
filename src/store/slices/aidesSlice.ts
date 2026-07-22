@@ -45,6 +45,22 @@ export interface AideState {
   success: boolean;
 }
 
+// ─── Types for validation errors ─────────────────────────────────────────────
+
+interface ValidationError {
+  field: string;
+  message: string;
+}
+
+interface AxiosErrorResponseData {
+  message?: string;
+  error?: string;
+  details?: ValidationError[];
+  errors?: Array<{ path: string[]; message: string }>;
+}
+
+type AxiosErrorWithResponse = AxiosError<AxiosErrorResponseData>;
+
 // ─── Initial State ────────────────────────────────────────────────────────────
 
 const initialState: AideState = {
@@ -100,6 +116,61 @@ const buildParams = (filters: AideRequestFilters): Record<string, string> => {
   return params;
 };
 
+// ─── Helper: Format date for API ─────────────────────────────────────────────
+
+const formatDateForAPI = (date: Date | string): string => {
+  if (typeof date === 'string') {
+    // If it's already a string, check if it's in YYYY-MM-DD format
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return date;
+    }
+    // Try to parse it
+    const parsed = new Date(date);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString().split('T')[0];
+    }
+    return date;
+  }
+  // It's a Date object
+  return date.toISOString().split('T')[0];
+};
+
+// ─── Helper: Extract validation errors from response ─────────────────────────
+
+const extractValidationErrors = (error: unknown): string | null => {
+  const axiosError = error as AxiosErrorWithResponse;
+  
+  if (!axiosError.response?.data) {
+    return null;
+  }
+
+  const data = axiosError.response.data;
+
+  // Check for details array (from validate middleware)
+  if (data.details && Array.isArray(data.details) && data.details.length > 0) {
+    const errorMessages = data.details
+      .map((e: ValidationError) => {
+        const fieldName = e.field.replace('body.', '').replace(/_/g, ' ');
+        return `${fieldName}: ${e.message}`;
+      })
+      .join('; ');
+    return `Validation failed: ${errorMessages}`;
+  }
+
+  // Check for errors array (from Zod)
+  if (data.errors && Array.isArray(data.errors) && data.errors.length > 0) {
+    const errorMessages = data.errors
+      .map((e: { path: string[]; message: string }) => {
+        const fieldName = e.path.join('.').replace('body.', '').replace(/_/g, ' ');
+        return `${fieldName}: ${e.message}`;
+      })
+      .join('; ');
+    return `Validation failed: ${errorMessages}`;
+  }
+
+  return null;
+};
+
 // ─── Async Thunks ─────────────────────────────────────────────────────────────
 
 /**
@@ -152,9 +223,35 @@ export const createAideRequest = createAsyncThunk<
   'aides/create',
   async (payload, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.post('/aide', payload);
+      // Format the reporting_date to YYYY-MM-DD
+      const formattedPayload = {
+        ...payload,
+        reporting_date: formatDateForAPI(payload.reporting_date),
+      };
+      
+      console.log('📤 Creating aide request:', formattedPayload);
+      
+      const { data } = await axiosClient.post('/aide', formattedPayload);
       return data.data as AideRequest;
     } catch (err) {
+      console.error('❌ Create aide request error:', err);
+      
+      // Try to extract validation errors
+      const validationError = extractValidationErrors(err);
+      if (validationError) {
+        return rejectWithValue(validationError);
+      }
+      
+      // Fallback to generic error message
+      const axiosError = err as AxiosErrorWithResponse;
+      if (axiosError.response?.data?.message) {
+        return rejectWithValue(axiosError.response.data.message);
+      }
+      
+      if (axiosError.response?.data?.error) {
+        return rejectWithValue(axiosError.response.data.error);
+      }
+      
       return rejectWithValue(extractErrorMessage(err));
     }
   }
@@ -171,9 +268,35 @@ export const updateAideRequest = createAsyncThunk<
   'aides/update',
   async ({ id, data }, { rejectWithValue }) => {
     try {
-      const { data: responseData } = await axiosClient.put(`/aide/${id}`, data);
+      // Format the reporting_date if present
+      const formattedData = { ...data };
+      if (formattedData.reporting_date) {
+        formattedData.reporting_date = formatDateForAPI(formattedData.reporting_date as Date | string);
+      }
+      
+      console.log('📤 Updating aide request:', { id, data: formattedData });
+      
+      const { data: responseData } = await axiosClient.put(`/aide/${id}`, formattedData);
       return responseData.data as AideRequest;
     } catch (err) {
+      console.error('❌ Update aide request error:', err);
+      
+      // Try to extract validation errors
+      const validationError = extractValidationErrors(err);
+      if (validationError) {
+        return rejectWithValue(validationError);
+      }
+      
+      // Fallback to generic error message
+      const axiosError = err as AxiosErrorWithResponse;
+      if (axiosError.response?.data?.message) {
+        return rejectWithValue(axiosError.response.data.message);
+      }
+      
+      if (axiosError.response?.data?.error) {
+        return rejectWithValue(axiosError.response.data.error);
+      }
+      
       return rejectWithValue(extractErrorMessage(err));
     }
   }

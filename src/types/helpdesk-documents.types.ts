@@ -15,7 +15,8 @@ export type HelpdeskEntityType =
     | 'visa'             // Visa support documents
     | 'protocol'         // Protocol event documents
     | 'club'             // Club membership documents
-    | 'utility_memo';    // Utility memo documents
+    | 'utility_memo'     // Utility memo documents
+    | 'aide';            // Aide request documents
 
 export type HelpdeskDocumentFormat = 'pdf' | 'docx' | 'xlsx';
 
@@ -127,9 +128,18 @@ export interface HelpdeskDocument {
     remark_type?: RemarkType;          // Onboarding or Release
     category_type?: GeneralRequestCategory; // Security, Personnel, Administrative
 
-    // ─── NEW FIELDS ──────────────────────────────────────────────────────────
-    rank?: string | null;              // Officer's rank
+    // ─── Aide Request Fields ──────────────────────────────────────────────────
+    officer_rank?: string | null;      // Police officer rank
+    officer_name?: string | null;      // Police officer name
+    employment_number?: string | null; // Employment/Service number
+    current_station?: string | null;   // Current station
+    current_unit?: string | null;      // Current unit (KPS, APS, GSU, etc.)
+    proposed_assignment?: string | null; // Proposed assignment description
     reporting_date?: string | null;    // Expected reporting date
+    aide_status?: string | null;       // Aide request status (in_progress, rejected, attached)
+    
+    // ─── Legacy fields ──────────────────────────────────────────────────────
+    rank?: string | null;              // Officer's rank (deprecated, use officer_rank)
 }
 
 // ─── Helpdesk Document Filters ───────────────────────────────────────────────
@@ -154,9 +164,17 @@ export interface HelpdeskDocumentFilters {
     date_from?: string;
     date_to?: string;
 
-    // ─── NEW FILTERS ──────────────────────────────────────────────────────────
-    rank?: string;
+    // ─── Aide Request Filters ──────────────────────────────────────────────
+    officer_rank?: string;
+    officer_name?: string;
+    employment_number?: string;
+    current_station?: string;
+    current_unit?: string;
+    aide_status?: string;
     reporting_date?: string;
+    
+    // ─── Legacy filters ──────────────────────────────────────────────────────
+    rank?: string;
 }
 
 // ─── Helpdesk Document Upload Payload ────────────────────────────────────────
@@ -177,9 +195,18 @@ export interface UploadHelpdeskDocumentPayload {
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
 
-    // ─── NEW FIELDS ──────────────────────────────────────────────────────────
-    rank?: string;
+    // ─── Aide Request Fields ──────────────────────────────────────────────
+    officer_rank?: string;
+    officer_name?: string;
+    employment_number?: string;
+    current_station?: string;
+    current_unit?: string;
+    proposed_assignment?: string;
     reporting_date?: string;
+    aide_status?: string;
+    
+    // ─── Legacy fields ──────────────────────────────────────────────────────
+    rank?: string;
 }
 
 export interface SubmitForApprovalPayload {
@@ -233,8 +260,19 @@ export interface LinkHelpdeskDocumentPayload {
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
-    rank?: string;
+    
+    // ─── Aide Request Fields ──────────────────────────────────────────────
+    officer_rank?: string;
+    officer_name?: string;
+    employment_number?: string;
+    current_station?: string;
+    current_unit?: string;
+    proposed_assignment?: string;
     reporting_date?: string;
+    aide_status?: string;
+    
+    // ─── Legacy fields ──────────────────────────────────────────────────────
+    rank?: string;
 }
 
 export interface UpdateEStampPayload {
@@ -254,8 +292,19 @@ export interface BulkLinkDocumentsPayload {
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
-    rank?: string;
+    
+    // ─── Aide Request Fields ──────────────────────────────────────────────
+    officer_rank?: string;
+    officer_name?: string;
+    employment_number?: string;
+    current_station?: string;
+    current_unit?: string;
+    proposed_assignment?: string;
     reporting_date?: string;
+    aide_status?: string;
+    
+    // ─── Legacy fields ──────────────────────────────────────────────────────
+    rank?: string;
 }
 
 export interface BulkUpdateStatusPayload {
@@ -380,6 +429,7 @@ export const HELPEDSK_ENTITY_LABELS: Record<HelpdeskEntityType, string> = {
     protocol: 'Protocol Event',
     club: 'Club Membership',
     utility_memo: 'Utility Memo',
+    aide: 'Aide Request',
 };
 
 export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
@@ -396,6 +446,7 @@ export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
     protocol: 'Calendar',
     club: 'Users',
     utility_memo: 'FileText',
+    aide: 'Shield',
 };
 
 export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
@@ -412,6 +463,7 @@ export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
     protocol: 'text-blue-600 bg-blue-50',
     club: 'text-purple-600 bg-purple-50',
     utility_memo: 'text-amber-600 bg-amber-50',
+    aide: 'text-blue-600 bg-blue-50',
 };
 
 export const DOCUMENT_STATUS_LABELS: Record<HelpdeskDocumentStatus, string> = {
@@ -569,7 +621,8 @@ export function isHelpdeskEntityType(value: string): value is HelpdeskEntityType
         'visa',
         'protocol',
         'club',
-        'utility_memo'
+        'utility_memo',
+        'aide'
     ].includes(value);
 }
 

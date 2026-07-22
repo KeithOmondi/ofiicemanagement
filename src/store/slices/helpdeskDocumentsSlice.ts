@@ -21,7 +21,8 @@ export type DocumentEntityType =
     | 'visa'             // Visa support documents
     | 'protocol'         // Protocol event documents
     | 'club'             // Club membership documents
-    | 'utility_memo';    // Utility memo documents
+    | 'utility_memo'     // Utility memo documents
+    | 'aide';            // Aide request documents
 
 export type DocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
@@ -121,9 +122,18 @@ export interface HelpdeskDocument {
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
 
-    // ─── NEW FIELDS ──────────────────────────────────────────────────────────
-    rank?: string | null;            // Officer's rank (for Driver/Bodyguard)
-    reporting_date?: string | null;  // Expected reporting date
+    // ─── Aide Request Fields ──────────────────────────────────────────────────
+    officer_rank?: string | null;      // Police officer rank
+    officer_name?: string | null;      // Police officer name
+    employment_number?: string | null; // Employment/Service number
+    current_station?: string | null;   // Current station
+    current_unit?: string | null;      // Current unit (KPS, APS, GSU, etc.)
+    proposed_assignment?: string | null; // Proposed assignment description
+    aide_status?: string | null;       // Aide request status (in_progress, rejected, attached)
+    
+    // ─── Legacy fields ──────────────────────────────────────────────────────
+    rank?: string | null;              // Officer's rank (deprecated, use officer_rank)
+    reporting_date?: string | null;    // Expected reporting date
 }
 
 export interface HelpdeskDocumentFilters {
@@ -146,9 +156,17 @@ export interface HelpdeskDocumentFilters {
     date_from?: string;
     date_to?: string;
 
-    // ─── NEW FILTERS ──────────────────────────────────────────────────────────
-    rank?: string;
+    // ─── Aide Request Filters ──────────────────────────────────────────────
+    officer_rank?: string;
+    officer_name?: string;
+    employment_number?: string;
+    current_station?: string;
+    current_unit?: string;
+    aide_status?: string;
     reporting_date?: string;
+    
+    // ─── Legacy filters ──────────────────────────────────────────────────────
+    rank?: string;
 }
 
 export interface UploadHelpdeskDocumentPayload {
@@ -167,9 +185,18 @@ export interface UploadHelpdeskDocumentPayload {
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
 
-    // ─── NEW FIELDS ──────────────────────────────────────────────────────────
-    rank?: string;
+    // ─── Aide Request Fields ──────────────────────────────────────────────
+    officer_rank?: string;
+    officer_name?: string;
+    employment_number?: string;
+    current_station?: string;
+    current_unit?: string;
+    proposed_assignment?: string;
     reporting_date?: string;
+    aide_status?: string;
+    
+    // ─── Legacy fields ──────────────────────────────────────────────────────
+    rank?: string;
 }
 
 export interface SubmitForApprovalPayload {
@@ -224,9 +251,18 @@ export interface LinkHelpdeskDocumentPayload {
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
 
-    // ─── NEW FIELDS ──────────────────────────────────────────────────────────
-    rank?: string;
+    // ─── Aide Request Fields ──────────────────────────────────────────────
+    officer_rank?: string;
+    officer_name?: string;
+    employment_number?: string;
+    current_station?: string;
+    current_unit?: string;
+    proposed_assignment?: string;
     reporting_date?: string;
+    aide_status?: string;
+    
+    // ─── Legacy fields ──────────────────────────────────────────────────────
+    rank?: string;
 }
 
 export interface UpdateEStampPayload {
@@ -246,8 +282,19 @@ export interface BulkLinkDocumentsPayload {
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
-    rank?: string;
+    
+    // ─── Aide Request Fields ──────────────────────────────────────────────
+    officer_rank?: string;
+    officer_name?: string;
+    employment_number?: string;
+    current_station?: string;
+    current_unit?: string;
+    proposed_assignment?: string;
     reporting_date?: string;
+    aide_status?: string;
+    
+    // ─── Legacy fields ──────────────────────────────────────────────────────
+    rank?: string;
 }
 
 export interface BulkUpdateStatusPayload {
@@ -387,9 +434,17 @@ function buildParams(filters: HelpdeskDocumentFilters): Record<string, string> {
     if (filters.date_from) params.date_from = filters.date_from;
     if (filters.date_to) params.date_to = filters.date_to;
 
-    // ─── NEW FILTERS ──────────────────────────────────────────────────────────
-    if (filters.rank) params.rank = filters.rank;
+    // ─── Aide Request Filters ──────────────────────────────────────────────
+    if (filters.officer_rank) params.officer_rank = filters.officer_rank;
+    if (filters.officer_name) params.officer_name = filters.officer_name;
+    if (filters.employment_number) params.employment_number = filters.employment_number;
+    if (filters.current_station) params.current_station = filters.current_station;
+    if (filters.current_unit) params.current_unit = filters.current_unit;
+    if (filters.aide_status) params.aide_status = filters.aide_status;
     if (filters.reporting_date) params.reporting_date = filters.reporting_date;
+    
+    // ─── Legacy filters ──────────────────────────────────────────────────────
+    if (filters.rank) params.rank = filters.rank;
 
     return params;
 }
@@ -447,8 +502,6 @@ export const fetchHelpdeskDocumentById = createAsyncThunk<
     }
 );
 
-// src/store/slices/helpdeskDocumentsSlice.ts
-
 // ─── UPLOAD HELP DESK DOCUMENT ─────────────────────────────────────────────
 
 export const uploadHelpdeskDocument = createAsyncThunk<
@@ -475,8 +528,19 @@ export const uploadHelpdeskDocument = createAsyncThunk<
             if (payload.status) formData.append('status', payload.status);
             if (payload.request_type) formData.append('request_type', payload.request_type);
             if (payload.judge_name) formData.append('judge_name', payload.judge_name);
-            if (payload.rank) formData.append('rank', payload.rank);
+            
+            // ─── Aide Request Fields ──────────────────────────────────────────
+            if (payload.officer_rank) formData.append('officer_rank', payload.officer_rank);
+            if (payload.officer_name) formData.append('officer_name', payload.officer_name);
+            if (payload.employment_number) formData.append('employment_number', payload.employment_number);
+            if (payload.current_station) formData.append('current_station', payload.current_station);
+            if (payload.current_unit) formData.append('current_unit', payload.current_unit);
+            if (payload.proposed_assignment) formData.append('proposed_assignment', payload.proposed_assignment);
             if (payload.reporting_date) formData.append('reporting_date', payload.reporting_date);
+            if (payload.aide_status) formData.append('aide_status', payload.aide_status);
+            
+            // ─── Legacy fields ──────────────────────────────────────────────────
+            if (payload.rank) formData.append('rank', payload.rank);
 
             // ✅ Log what we're sending for debugging
             console.log('📤 Uploading document with form data:', {
@@ -490,8 +554,15 @@ export const uploadHelpdeskDocument = createAsyncThunk<
                 hasStatus: !!payload.status,
                 hasRequestType: !!payload.request_type,
                 hasJudgeName: !!payload.judge_name,
-                hasRank: !!payload.rank,
+                hasOfficerRank: !!payload.officer_rank,
+                hasOfficerName: !!payload.officer_name,
+                hasEmploymentNumber: !!payload.employment_number,
+                hasCurrentStation: !!payload.current_station,
+                hasCurrentUnit: !!payload.current_unit,
+                hasProposedAssignment: !!payload.proposed_assignment,
                 hasReportingDate: !!payload.reporting_date,
+                hasAideStatus: !!payload.aide_status,
+                hasRank: !!payload.rank,
             });
 
             const { data } = await axiosClient.post('/helpdesk/documents/upload', formData, {
@@ -778,7 +849,24 @@ export const linkHelpdeskDocument = createAsyncThunk<
     { rejectValue: string }
 >(
     'helpdeskDocuments/link',
-    async ({ id, entity_type, entity_id, request_type, judge_name, remark_type, category_type, rank, reporting_date }, { rejectWithValue }) => {
+    async ({ 
+        id, 
+        entity_type, 
+        entity_id, 
+        request_type, 
+        judge_name, 
+        remark_type, 
+        category_type,
+        officer_rank,
+        officer_name,
+        employment_number,
+        current_station,
+        current_unit,
+        proposed_assignment,
+        reporting_date,
+        aide_status,
+        rank 
+    }, { rejectWithValue }) => {
         try {
             const { data } = await axiosClient.patch(`/helpdesk/documents/${id}/link`, {
                 entity_type,
@@ -787,8 +875,15 @@ export const linkHelpdeskDocument = createAsyncThunk<
                 judge_name,
                 remark_type,
                 category_type,
-                rank,
+                officer_rank,
+                officer_name,
+                employment_number,
+                current_station,
+                current_unit,
+                proposed_assignment,
                 reporting_date,
+                aide_status,
+                rank,
             });
             return data.data as HelpdeskDocument;
         } catch (err) {
@@ -1299,7 +1394,31 @@ export const selectDocumentsByRemarkType = (remarkType: RemarkType) => (state: R
 export const selectDocumentsByCategory = (categoryType: GeneralRequestCategory) => (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.category_type === categoryType);
 
-// ─── New Selectors ──────────────────────────────────────────────────────────
+// ─── Aide Request Selectors ──────────────────────────────────────────────────
+
+export const selectDocumentsByOfficerRank = (officerRank: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.officer_rank === officerRank);
+
+export const selectDocumentsByOfficerName = (officerName: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter(
+        (d) => d.officer_name?.toLowerCase().includes(officerName.toLowerCase())
+    );
+
+export const selectDocumentsByEmploymentNumber = (employmentNumber: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.employment_number === employmentNumber);
+
+export const selectDocumentsByCurrentStation = (currentStation: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter(
+        (d) => d.current_station?.toLowerCase().includes(currentStation.toLowerCase())
+    );
+
+export const selectDocumentsByCurrentUnit = (currentUnit: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.current_unit === currentUnit);
+
+export const selectDocumentsByAideStatus = (aideStatus: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.aide_status === aideStatus);
+
+// ─── Legacy Selectors ──────────────────────────────────────────────────────
 
 export const selectDocumentsByRank = (rank: string) => (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.rank === rank);
