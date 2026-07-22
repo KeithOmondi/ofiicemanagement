@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   createCircuit,
@@ -542,18 +542,159 @@ interface DSADetailsFormProps {
   onRemoveRow: (index: number) => void;
   onChange: (index: number, field: keyof Omit<DSADetailInput, 'id'>, value: string | number) => void;
   onJudgeSelect: (index: number, judgeId: string) => void;
+  onJudgeNameChange: (index: number, value: string) => void;
   calculateTotal: (rate: number, days: number) => number;
   judges: { id: string; name: string; pj_number: string; daily_dsa_rate: number }[];
   judgesLoading: boolean;
   daysFromDates: number; // computed days from start/end dates
 }
 
+// ─── Combobox component for judge name ─────────────────────────────────────
+
+interface JudgeComboboxProps {
+  value: string;
+  onChange: (value: string) => void;
+  judges: { id: string; name: string; pj_number: string; daily_dsa_rate: number }[];
+  judgesLoading: boolean;
+  placeholder?: string;
+  disabled?: boolean;
+}
+
+
+
+// ─── Step 2: DSA Details Form (with judges integration) ──────────────────
+
+interface DSADetailsFormProps {
+  dsaDetails: Omit<DSADetailInput, 'id'>[];
+  onAddRow: () => void;
+  onRemoveRow: (index: number) => void;
+  onChange: (index: number, field: keyof Omit<DSADetailInput, 'id'>, value: string | number) => void;
+  onJudgeNameChange: (index: number, value: string) => void;
+  calculateTotal: (rate: number, days: number) => number;
+  judges: { id: string; name: string; pj_number: string; daily_dsa_rate: number }[];
+  judgesLoading: boolean;
+  daysFromDates: number;
+}
+
+// ─── Combobox component for judge name ─────────────────────────────────────
+
+interface JudgeComboboxProps {
+  value: string;
+  onChange: (value: string) => void;
+  judges: { id: string; name: string; pj_number: string; daily_dsa_rate: number }[];
+  judgesLoading: boolean;
+  placeholder?: string;
+  disabled?: boolean;
+}
+
+const JudgeCombobox: React.FC<JudgeComboboxProps> = ({
+  value,
+  onChange,
+  judges,
+  judgesLoading,
+  placeholder = 'Select or type judge name...',
+  disabled = false,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [inputValue, setInputValue] = useState(value);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Keep inputValue in sync with the `value` prop without an effect.
+  // This is React's recommended "adjust state during render" pattern —
+  // it runs synchronously in the render itself, not after commit, so
+  // it doesn't cause an extra render pass the way an effect would.
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setInputValue(value);
+  }
+
+  // Derived data — no state, no effect, just computed on every render.
+  const filteredJudges = useMemo(() => {
+    const search = inputValue.toLowerCase().trim();
+    if (!search) return judges;
+    return judges.filter(
+      (j) =>
+        j.name.toLowerCase().includes(search) ||
+        j.pj_number.toLowerCase().includes(search)
+    );
+  }, [inputValue, judges]);
+
+  // Legitimate effect: subscribing to a real external system (DOM events).
+  // setState happens inside the event callback, not synchronously in the
+  // effect body, so this one doesn't trigger the warning.
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSelectJudge = (judge: { id: string; name: string; pj_number: string; daily_dsa_rate: number }) => {
+    setInputValue(judge.name);
+    setPrevValue(judge.name); // keep the render-time sync check consistent
+    onChange(judge.name);
+    setIsOpen(false);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputValue(val);
+    setPrevValue(val); // avoid the sync check clobbering this on next render
+    onChange(val);
+    setIsOpen(true);
+  };
+
+  const handleInputFocus = () => {
+    setIsOpen(true);
+  };
+
+  return (
+    <div ref={wrapperRef} className="relative w-full">
+      <input
+        type="text"
+        value={inputValue}
+        onChange={handleInputChange}
+        onFocus={handleInputFocus}
+        placeholder={placeholder}
+        disabled={disabled || judgesLoading}
+        className={`w-full rounded border border-stone-200 bg-white px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none ${disabled || judgesLoading ? 'bg-stone-100 text-stone-400 cursor-not-allowed' : ''}`}
+      />
+      {isOpen && filteredJudges.length > 0 && !judgesLoading && (
+        <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded border border-stone-200 bg-white shadow-lg">
+          {filteredJudges.map((judge) => (
+            <button
+              key={judge.id}
+              type="button"
+              onClick={() => handleSelectJudge(judge)}
+              className="flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-stone-50 transition-colors border-b border-stone-100 last:border-0"
+            >
+              <span className="font-medium text-stone-800">{judge.name}</span>
+              <span className="text-stone-400">
+                PJ: {judge.pj_number} · Rate: {judge.daily_dsa_rate.toLocaleString()}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {judgesLoading && (
+        <div className="absolute inset-y-0 right-2 flex items-center">
+          <Loader2 size={14} className="animate-spin text-stone-400" />
+        </div>
+      )}
+    </div>
+  );
+};
+
 const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
   dsaDetails,
   onAddRow,
   onRemoveRow,
   onChange,
-  onJudgeSelect,
+  onJudgeNameChange,
   calculateTotal,
   judges,
   judgesLoading,
@@ -599,35 +740,24 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
             </thead>
             <tbody>
               {dsaDetails.map((detail, index) => {
-                const selectedJudgeId =
-                  judges.find((j) => j.name === detail.judge_name)?.id ?? '';
-
                 return (
                   <tr key={index} className="border-b border-stone-100">
-                    <td className="py-2 pr-2">
-                      <select
-                        value={selectedJudgeId}
-                        onChange={(e) => onJudgeSelect(index, e.target.value)}
-                        className="w-full rounded border border-stone-200 bg-white px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none disabled:bg-stone-100 disabled:text-stone-400"
-                        disabled={judgesLoading}
-                      >
-                        <option value="">
-                          {judgesLoading ? 'Loading judges…' : 'Select judge...'}
-                        </option>
-                        {judges.map((j) => (
-                          <option key={j.id} value={j.id}>
-                            {j.name}
-                          </option>
-                        ))}
-                      </select>
+                    <td className="py-2 pr-2 min-w-[180px]">
+                      <JudgeCombobox
+                        value={detail.judge_name}
+                        onChange={(val) => onJudgeNameChange(index, val)}
+                        judges={judges}
+                        judgesLoading={judgesLoading}
+                        placeholder="Select or type judge name..."
+                      />
                     </td>
                     <td className="py-2 pr-2">
                       <input
                         type="text"
                         value={detail.pj_number}
-                        readOnly
-                        placeholder="Auto-filled"
-                        className="w-full rounded border border-stone-200 bg-stone-100 px-2 py-1 text-xs text-stone-500 cursor-not-allowed"
+                        onChange={(e) => onChange(index, 'pj_number', e.target.value)}
+                        placeholder="Enter PJ number"
+                        className="w-full rounded border border-stone-200 px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none"
                       />
                     </td>
                     <td className="py-2 pr-2">
@@ -644,9 +774,9 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
                       <input
                         type="number"
                         value={detail.dsa_per_day || ''}
-                        readOnly
-                        placeholder="Auto-filled"
-                        className="w-24 rounded border border-stone-200 bg-stone-100 px-2 py-1 text-right text-xs text-stone-500 cursor-not-allowed"
+                        onChange={(e) => onChange(index, 'dsa_per_day', parseFloat(e.target.value) || 0)}
+                        placeholder="0"
+                        className="w-24 rounded border border-stone-200 px-2 py-1 text-right text-xs focus:border-[#1a3d1c] focus:outline-none"
                       />
                     </td>
                     <td className="py-2 pr-2">
@@ -1179,11 +1309,6 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
   const daysFromDates = computeDays(basicInfo.start_date, basicInfo.end_date);
 
   // ── Update basicInfo and, in the same event, sync DSA row days ─────────
-  // NOTE: previously this was done via a useEffect watching daysFromDates,
-  // which caused a cascading render (setState-in-effect). Instead we
-  // derive the new day count synchronously inside the same handler that
-  // changes the dates, so basicInfo and dsaDetails update together in one
-  // user-triggered event rather than a follow-up render.
   const handleBasicInfoChange = (info: BasicInfoType) => {
     setBasicInfo(info);
     const newDays = computeDays(info.start_date, info.end_date);
@@ -1284,11 +1409,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     setDsaDetails((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
   };
 
-  // ── Field-level DSA change (designation, days, etc.) ────────────────────
-  // Uses the functional setState form so each call reads the *actual*
-  // latest state rather than a stale `dsaDetails` closure. This matters
-  // whenever multiple state updates happen in quick succession within the
-  // same event (see handleJudgeSelect below for why that used to break).
+  // ── Field-level DSA change ──────────────────────────────────────────────
   const handleDsaChange = (index: number, field: keyof Omit<DSADetailInput, 'id'>, value: string | number) => {
     setDsaDetails((prev) => {
       const updated = [...prev];
@@ -1298,22 +1419,27 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
   };
 
   // ── Judge selection: derives judge_name, pj_number, and dsa_per_day ─────
-  // together in a single setDsaDetails call. Previously this fired three
-  // separate onChange() calls in a row, each of which internally did
-  // `[...dsaDetails]` off the *same* stale closure — so only the last of
-  // the three writes actually stuck (last-write-wins), which is why the
-  // judge name and PJ number never appeared even though the rate did.
-  // Bundling the update into one functional setState call fixes that.
   const handleJudgeSelect = (index: number, judgeId: string) => {
     const judge = judges.find((j) => j.id === judgeId);
+    if (judge) {
+      setDsaDetails((prev) => {
+        const updated = [...prev];
+        updated[index] = {
+          ...updated[index],
+          judge_name: judge.name,
+          pj_number: judge.pj_number,
+          dsa_per_day: judge.daily_dsa_rate,
+        };
+        return updated;
+      });
+    }
+  };
+
+  // ── Judge name free text change ──────────────────────────────────────────
+  const handleJudgeNameChange = (index: number, value: string) => {
     setDsaDetails((prev) => {
       const updated = [...prev];
-      updated[index] = {
-        ...updated[index],
-        judge_name: judge?.name ?? '',
-        pj_number: judge?.pj_number ?? '',
-        dsa_per_day: judge?.daily_dsa_rate ?? 0,
-      };
+      updated[index] = { ...updated[index], judge_name: value };
       return updated;
     });
   };
@@ -1375,7 +1501,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     } else if (currentStep === 2) {
       const hasValidRow = dsaDetails.some(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0);
       if (!hasValidRow) {
-        toast.error('Please add at least one DSA entry with name, PJ number, rate, and days.');
+        toast.error('Please add at least one DSA entry with judge name, PJ number, rate, and days.');
         return;
       }
       setCurrentStep(3);
@@ -1632,6 +1758,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
               onRemoveRow={handleRemoveDsaRow}
               onChange={handleDsaChange}
               onJudgeSelect={handleJudgeSelect}
+              onJudgeNameChange={handleJudgeNameChange}
               calculateTotal={calculateTotal}
               judges={judges}
               judgesLoading={judgesLoading}
