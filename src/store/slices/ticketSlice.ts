@@ -1,4 +1,5 @@
 // src/store/slices/ticketSlice.ts
+
 import { createSlice, createAsyncThunk, createSelector, type PayloadAction } from '@reduxjs/toolkit';
 import { ticketApi } from '../../services/ticketApi';
 import type {
@@ -9,6 +10,7 @@ import type {
   UpdateTicketRequest,
   TicketFilters,
   TicketStatus,
+  TicketTripType,
 } from '../../types/tickets.types';
 
 // ── State Interface ──────────────────────────────────────────────────────────
@@ -469,7 +471,7 @@ export const selectTicketActions = (state: { tickets: TicketState }) => state.ti
 
 // ── Derived Selectors ──────────────────────────────────────────────────────
 
-// For selectTicketsByStatus - we use the first parameter but not the second
+// Selector for tickets by status
 export const selectTicketsByStatus = createSelector(
   [
     selectAllTickets,
@@ -483,7 +485,26 @@ export const selectPendingTickets = createSelector(
   (tickets) => tickets.filter(t => t.status === 'pending_approval')
 );
 
-// For selectMyTickets - we use the first parameter but not the second
+// Selector for tickets by trip type
+export const selectTicketsByTripType = createSelector(
+  [
+    selectAllTickets,
+    (_state: { tickets: TicketState }, tripType: TicketTripType) => tripType
+  ],
+  (tickets, tripType) => tickets.filter(t => t.trip_type === tripType)
+);
+
+export const selectOneWayTickets = createSelector(
+  [selectAllTickets],
+  (tickets) => tickets.filter(t => t.trip_type === 'one_way')
+);
+
+export const selectRoundTripTickets = createSelector(
+  [selectAllTickets],
+  (tickets) => tickets.filter(t => t.trip_type === 'round_trip')
+);
+
+// Selector for tickets by user
 export const selectMyTickets = createSelector(
   [
     selectAllTickets,
@@ -492,7 +513,6 @@ export const selectMyTickets = createSelector(
   (tickets, userId) => tickets.filter(t => t.created_by === userId)
 );
 
-// For selectTicketsAssignedToMe - we use the first parameter but not the second
 export const selectTicketsAssignedToMe = createSelector(
   [
     selectAllTickets,
@@ -501,7 +521,7 @@ export const selectTicketsAssignedToMe = createSelector(
   (tickets, userId) => tickets.filter(t => t.assigned_to === userId)
 );
 
-// Additional useful selectors
+// Selector for tickets by priority
 export const selectTicketsByPriority = createSelector(
   [
     selectAllTickets,
@@ -532,6 +552,7 @@ export const selectTicketsByPJNumber = createSelector(
   )
 );
 
+// Selector for ticket counts
 export const selectTicketCounts = createSelector(
   [selectAllTickets],
   (tickets) => ({
@@ -543,6 +564,8 @@ export const selectTicketCounts = createSelector(
     cancelled: tickets.filter(t => t.status === 'cancelled').length,
     rejected: tickets.filter(t => t.status === 'rejected').length,
     draft: tickets.filter(t => t.status === 'draft').length,
+    oneWay: tickets.filter(t => t.trip_type === 'one_way').length,
+    roundTrip: tickets.filter(t => t.trip_type === 'round_trip').length,
   })
 );
 
@@ -550,6 +573,20 @@ export const selectTicketCounts = createSelector(
 export const selectTicketsWithJudgeInfo = createSelector(
   [selectAllTickets],
   (tickets) => tickets.filter(t => t.judge_name || t.pj_number)
+);
+
+// Selector for tickets with travel dates
+export const selectTicketsByDateRange = createSelector(
+  [
+    selectAllTickets,
+    (_state: { tickets: TicketState }, dateFrom: string, dateTo: string) => ({ dateFrom, dateTo })
+  ],
+  (tickets, { dateFrom, dateTo }) => tickets.filter(t => {
+    const travelDate = new Date(t.date_of_travel);
+    const from = new Date(dateFrom);
+    const to = new Date(dateTo);
+    return travelDate >= from && travelDate <= to;
+  })
 );
 
 // Actions

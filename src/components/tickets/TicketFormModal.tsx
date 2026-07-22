@@ -2,25 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import { fetchUsers, selectAllUsers, selectUsersListLoading } from '../../store/slices/userSlice';
 import { fetchDepartments, selectAllDepartments } from '../../store/slices/departmentsSlice';
-import { X, Loader2, Save } from 'lucide-react';
-import type { CreateTicketRequest, FlightTimePreference, Ticket, TicketPriority, TravelClass } from '../../types/tickets.types';
+import { X, Loader2, Save, Plane } from 'lucide-react';
+import type { 
+  CreateTicketRequest, 
+  FlightTimePreference, 
+  Ticket, 
+  TicketPriority, 
+  TravelClass,
+  TicketTripType,
+} from '../../types/tickets.types';
+import {
+  TRAVEL_CLASS_LABELS,
+  FLIGHT_TIME_LABELS,
+  TRIP_TYPE_LABELS,
+  getTimeSlots,
+} from '../../types/tickets.types';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
-
-const TRAVEL_CLASS_LABELS: Record<TravelClass, string> = {
-  economy: 'Economy',
-  premium_economy: 'Premium Economy',
-  business: 'Business',
-  first: 'First Class',
-};
-
-const FLIGHT_TIME_LABELS: Record<FlightTimePreference, string> = {
-  morning: 'Morning (6am-12pm)',
-  afternoon: 'Afternoon (12pm-5pm)',
-  evening: 'Evening (5pm-9pm)',
-  night: 'Night (9pm-6am)',
-  any: 'Any Time',
-};
 
 const PRIORITY_LABELS: Record<TicketPriority, string> = {
   low: 'Low',
@@ -42,12 +40,18 @@ const buildInitialFormData = (ticket?: Ticket | null): CreateTicketRequest => {
       title: '',
       description: '',
       department_id: '',
+      trip_type: 'one_way',
       date_of_travel: '',
+      time_of_travel: '',
       return_date: '',
+      return_time: '',
+      preferred_departure_time: 'any',
+      preferred_return_time: 'any',
       departure_from: '',
       destination: '',
-      preferred_flight_time: 'any',
       remarks: '',
+      judge_name: '',
+      pj_number: '',
       travel_class: 'economy',
       number_of_passengers: 1,
       special_requests: '',
@@ -60,12 +64,18 @@ const buildInitialFormData = (ticket?: Ticket | null): CreateTicketRequest => {
     title: ticket.title,
     description: ticket.description || '',
     department_id: ticket.department_id || '',
+    trip_type: ticket.trip_type || 'one_way',
     date_of_travel: ticket.date_of_travel,
+    time_of_travel: ticket.time_of_travel ?? '',
     return_date: ticket.return_date || '',
+    return_time: ticket.return_time ?? '',
+    preferred_departure_time: ticket.preferred_departure_time || 'any',
+    preferred_return_time: ticket.preferred_return_time || 'any',
     departure_from: ticket.departure_from,
     destination: ticket.destination,
-    preferred_flight_time: ticket.preferred_flight_time || 'any',
     remarks: ticket.remarks || '',
+    judge_name: ticket.judge_name ?? '',
+    pj_number: ticket.pj_number ?? '',
     travel_class: ticket.travel_class || 'economy',
     number_of_passengers: ticket.number_of_passengers || 1,
     special_requests: ticket.special_requests || '',
@@ -80,7 +90,7 @@ const buildInitialFormData = (ticket?: Ticket | null): CreateTicketRequest => {
 interface TicketFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  ticket?: Ticket | null;           // null or undefined = create mode
+  ticket?: Ticket | null;
   onSave: (data: CreateTicketRequest) => void;
   isSaving: boolean;
 }
@@ -100,8 +110,8 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
   const usersLoading = useAppSelector(selectUsersListLoading);
 
   const isEditing = !!ticket;
+  const timeSlots = getTimeSlots();
 
-  // Lazy initializer – runs once per mount. Parent uses `key` to remount when ticket changes.
   const [formData, setFormData] = useState<CreateTicketRequest>(() =>
     buildInitialFormData(ticket)
   );
@@ -131,11 +141,28 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
 
   const validate = (): boolean => {
     const next: Record<string, string> = {};
-    if (!formData.title.trim()) next.title = 'Title is required';
+    
+    if (!formData.title?.trim()) next.title = 'Title is required';
     if (!formData.date_of_travel) next.date_of_travel = 'Travel date is required';
-    if (!formData.departure_from.trim()) next.departure_from = 'Departure location is required';
-    if (!formData.destination.trim()) next.destination = 'Destination is required';
-    if ((formData.number_of_passengers || 0) < 1) next.number_of_passengers = 'At least 1 passenger required';
+    if (!formData.departure_from?.trim()) next.departure_from = 'Departure location is required';
+    if (!formData.destination?.trim()) next.destination = 'Destination is required';
+    if ((formData.number_of_passengers || 0) < 1) {
+      next.number_of_passengers = 'At least 1 passenger required';
+    }
+    
+    // Round trip validation
+    if (formData.trip_type === 'round_trip') {
+      if (!formData.return_date) {
+        next.return_date = 'Return date is required for round trip';
+      }
+      if (!formData.return_time) {
+        next.return_time = 'Return time is required for round trip';
+      }
+      if (!formData.preferred_return_time) {
+        next.preferred_return_time = 'Return flight time preference is required for round trip';
+      }
+    }
+    
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -146,22 +173,30 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
     onSave(formData);
   };
 
+  const isRoundTrip = formData.trip_type === 'round_trip';
+
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-xl bg-white shadow-2xl">
+        {/* ─── Header ────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
-          <h3 className="text-sm font-semibold text-[#1a3d1c]">
+          <h3 className="text-sm font-semibold text-[#1a3d1c] flex items-center gap-2">
+            <Plane size={18} className="text-[#c9a84c]" />
             {isEditing ? 'Edit Travel Ticket' : 'New Travel Ticket'}
           </h3>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
+          <button
+            onClick={onClose}
+            className="text-stone-400 hover:text-stone-600 transition-colors"
+            type="button"
+          >
             <X size={18} />
           </button>
         </div>
 
         <form onSubmit={handleSubmit} className="max-h-[70vh] overflow-y-auto p-6 space-y-4">
-          {/* Title */}
+          {/* ─── Title ────────────────────────────────────────────────────── */}
           <div>
             <label className="block text-xs font-semibold text-stone-600 mb-1">
               Ticket Title *
@@ -178,13 +213,13 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             {errors.title && <p className="text-xs text-red-500 mt-1">{errors.title}</p>}
           </div>
 
-          {/* Description */}
+          {/* ─── Description ────────────────────────────────────────────── */}
           <div>
             <label className="block text-xs font-semibold text-stone-600 mb-1">
               Description
             </label>
             <textarea
-              value={formData.description}
+              value={formData.description ?? ''}
               onChange={(e) => handleChange('description', e.target.value)}
               rows={3}
               placeholder="Brief description of the travel purpose..."
@@ -192,14 +227,14 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             />
           </div>
 
+          {/* ─── Department & Priority ──────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-4">
-            {/* Department */}
             <div>
               <label className="block text-xs font-semibold text-stone-600 mb-1">
                 Department
               </label>
               <select
-                value={formData.department_id}
+                value={formData.department_id ?? ''}
                 onChange={(e) => handleChange('department_id', e.target.value)}
                 className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
               >
@@ -210,7 +245,6 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
               </select>
             </div>
 
-            {/* Priority */}
             <div>
               <label className="block text-xs font-semibold text-stone-600 mb-1">
                 Priority
@@ -227,11 +261,33 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             </div>
           </div>
 
-          {/* Travel Dates */}
+          {/* ─── Trip Type ────────────────────────────────────────────────── */}
+          <div>
+            <label className="block text-xs font-semibold text-stone-600 mb-1">
+              Trip Type *
+            </label>
+            <div className="flex gap-4">
+              {Object.entries(TRIP_TYPE_LABELS).map(([value, label]) => (
+                <label key={value} className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="trip_type"
+                    value={value}
+                    checked={formData.trip_type === value}
+                    onChange={(e) => handleChange('trip_type', e.target.value as TicketTripType)}
+                    className="rounded-full border-stone-300 text-[#1a3d1c] focus:ring-[#1a3d1c]"
+                  />
+                  <span className="text-sm text-stone-700">{label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* ─── Travel Dates & Times ────────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-stone-600 mb-1">
-                Date of Travel *
+                Departure Date *
               </label>
               <input
                 type="date"
@@ -245,18 +301,64 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             </div>
             <div>
               <label className="block text-xs font-semibold text-stone-600 mb-1">
-                Return Date
+                Departure Time
               </label>
-              <input
-                type="date"
-                value={formData.return_date}
-                onChange={(e) => handleChange('return_date', e.target.value)}
+              <select
+                value={formData.time_of_travel ?? ''}
+                onChange={(e) => handleChange('time_of_travel', e.target.value)}
                 className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
-              />
+              >
+                <option value="">Select Time</option>
+                {timeSlots.map((slot) => (
+                  <option key={slot.value} value={slot.value}>
+                    {slot.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
-          {/* Locations */}
+          {/* ─── Return Date & Time (Round Trip Only) ────────────────────── */}
+          {isRoundTrip && (
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-stone-600 mb-1">
+                  Return Date *
+                </label>
+                <input
+                  type="date"
+                  value={formData.return_date ?? ''}
+                  onChange={(e) => handleChange('return_date', e.target.value)}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c] ${
+                    errors.return_date ? 'border-red-300' : 'border-stone-200'
+                  }`}
+                />
+                {errors.return_date && <p className="text-xs text-red-500 mt-1">{errors.return_date}</p>}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-stone-600 mb-1">
+                  Return Time *
+                </label>
+                <select
+                  value={formData.return_time ?? ''}
+                  onChange={(e) => handleChange('return_time', e.target.value)}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c] ${
+                    errors.return_time ? 'border-red-300' : 'border-stone-200'
+                  }`}
+                >
+                  <option value="">Select Time</option>
+                  {timeSlots.map((slot) => (
+                    <option key={slot.value} value={slot.value}>
+                      {slot.label}
+                    </option>
+                  ))}
+                </select>
+                {errors.return_time && <p className="text-xs text-red-500 mt-1">{errors.return_time}</p>}
+              </div>
+            </div>
+          )}
+
+          {/* ─── Locations ────────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-stone-600 mb-1">
@@ -290,7 +392,45 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             </div>
           </div>
 
-          {/* Travel Class & Passengers */}
+          {/* ─── Flight Time Preferences ───────────────────────────────────── */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-stone-600 mb-1">
+                Departure Time Preference
+              </label>
+              <select
+                value={formData.preferred_departure_time}
+                onChange={(e) => handleChange('preferred_departure_time', e.target.value as FlightTimePreference)}
+                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
+              >
+                {Object.entries(FLIGHT_TIME_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-stone-600 mb-1">
+                Return Time Preference
+              </label>
+              <select
+                value={formData.preferred_return_time ?? ''}
+                onChange={(e) => handleChange('preferred_return_time', e.target.value as FlightTimePreference)}
+                className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c] ${
+                  isRoundTrip && errors.preferred_return_time ? 'border-red-300' : 'border-stone-200'
+                }`}
+              >
+                <option value="">Not Applicable</option>
+                {Object.entries(FLIGHT_TIME_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+              {isRoundTrip && errors.preferred_return_time && (
+                <p className="text-xs text-red-500 mt-1">{errors.preferred_return_time}</p>
+              )}
+            </div>
+          </div>
+
+          {/* ─── Travel Class & Passengers ────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-semibold text-stone-600 mb-1">
@@ -308,7 +448,7 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             </div>
             <div>
               <label className="block text-xs font-semibold text-stone-600 mb-1">
-                Number of Passengers *
+                Passengers *
               </label>
               <input
                 type="number"
@@ -324,29 +464,41 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             </div>
           </div>
 
-          {/* Flight Time Preference */}
-          <div>
-            <label className="block text-xs font-semibold text-stone-600 mb-1">
-              Preferred Flight Time
-            </label>
-            <select
-              value={formData.preferred_flight_time}
-              onChange={(e) => handleChange('preferred_flight_time', e.target.value as FlightTimePreference)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
-            >
-              {Object.entries(FLIGHT_TIME_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
+          {/* ─── Judge & Case Details ─────────────────────────────────────── */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-stone-600 mb-1">
+                Judge Name
+              </label>
+              <input
+                type="text"
+                value={formData.judge_name ?? ''}
+                onChange={(e) => handleChange('judge_name', e.target.value)}
+                placeholder="e.g., Hon. Justice Smith"
+                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-stone-600 mb-1">
+                PJ Number
+              </label>
+              <input
+                type="text"
+                value={formData.pj_number ?? ''}
+                onChange={(e) => handleChange('pj_number', e.target.value)}
+                placeholder="e.g., PJ-1234"
+                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
+              />
+            </div>
           </div>
 
-          {/* Special Requests */}
+          {/* ─── Special Requests ──────────────────────────────────────────── */}
           <div>
             <label className="block text-xs font-semibold text-stone-600 mb-1">
               Special Requests
             </label>
             <textarea
-              value={formData.special_requests}
+              value={formData.special_requests ?? ''}
               onChange={(e) => handleChange('special_requests', e.target.value)}
               rows={2}
               placeholder="Any special requests (dietary, accessibility, etc.)..."
@@ -354,13 +506,13 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             />
           </div>
 
-          {/* Remarks */}
+          {/* ─── Remarks ────────────────────────────────────────────────────── */}
           <div>
             <label className="block text-xs font-semibold text-stone-600 mb-1">
               Remarks
             </label>
             <textarea
-              value={formData.remarks}
+              value={formData.remarks ?? ''}
               onChange={(e) => handleChange('remarks', e.target.value)}
               rows={2}
               placeholder="Additional remarks..."
@@ -368,13 +520,13 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             />
           </div>
 
-          {/* Assign To */}
+          {/* ─── Assign To ──────────────────────────────────────────────────── */}
           <div>
             <label className="block text-xs font-semibold text-stone-600 mb-1">
               Assign To
             </label>
             <select
-              value={formData.assigned_to}
+              value={formData.assigned_to ?? ''}
               onChange={(e) => handleChange('assigned_to', e.target.value)}
               className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c] disabled:bg-stone-50"
               disabled={usersLoading}
@@ -386,7 +538,7 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             </select>
           </div>
 
-          {/* Draft Toggle */}
+          {/* ─── Draft Toggle ───────────────────────────────────────────────── */}
           <div className="flex items-center gap-2 pt-2">
             <input
               type="checkbox"
@@ -400,19 +552,19 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             </label>
           </div>
 
-          {/* Actions */}
+          {/* ─── Actions ────────────────────────────────────────────────────── */}
           <div className="flex justify-end gap-3 pt-4 border-t border-stone-100">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-stone-500 hover:text-stone-700"
+              className="px-4 py-2 text-sm font-medium text-stone-500 hover:text-stone-700 transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSaving}
-              className="flex items-center gap-2 rounded-lg bg-[#1a3d1c] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2d5c30] disabled:opacity-50"
+              className="flex items-center gap-2 rounded-lg bg-[#1a3d1c] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2d5c30] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isSaving ? <Spinner /> : <Save size={16} />}
               {isSaving ? 'Saving...' : (isEditing ? 'Update Ticket' : 'Create Ticket')}

@@ -53,6 +53,12 @@ function detectImageFormat(dataUrl: string): 'PNG' | 'JPEG' {
   return dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
 }
 
+// ─── Helper: Clean text for PDF ──────────────────────────────────────────────
+function cleanText(text: string): string {
+  // Replace Unicode arrow with a simple ASCII alternative
+  return text.replace(/→/g, '->').replace(/–/g, '-').replace(/—/g, '-');
+}
+
 export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Promise<Blob> {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -100,6 +106,9 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
   const valueX = margin + 80;
 
   const writeLabelLine = (label: string, value: string, withBorder = false) => {
+    // Clean the value text
+    const cleanValue = cleanText(value);
+    
     // Label in bold
     doc.setFont('Times-Roman', 'bold');
     doc.text(label, labelX, cursorY);
@@ -107,7 +116,7 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
     
     // Value in normal (not bold) but still Times New Roman
     doc.setFont('Times-Roman', 'normal');
-    doc.text(value, valueX, cursorY);
+    doc.text(cleanValue, valueX, cursorY);
     
     if (withBorder) {
       doc.setLineWidth(1.5);
@@ -127,18 +136,22 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
   // ── Body (Times New Roman, Normal) ──────────────────────────────────────
   doc.setFont('Times-Roman', 'normal');
   doc.setFontSize(12);
-  const bodyLines = doc.splitTextToSize(params.bodyText, pageWidth - margin * 2);
+  const cleanBodyText = cleanText(params.bodyText);
+  const bodyLines = doc.splitTextToSize(cleanBodyText, pageWidth - margin * 2);
   doc.text(bodyLines, margin, cursorY);
   cursorY += bodyLines.length * 16 + 14;
 
   // ── Schedule Table (Times New Roman) ─────────────────────────────────────
   if (params.scheduleRows.length > 0) {
-    // ✅ Keep ALL rows - don't filter out return trips with empty names
-    const tableBody = params.scheduleRows.map((row) => [
-      row.name || '', // Empty string for return trips - shows as blank cell
-      `${row.date}\n${row.route}`,
-      row.preferredTime || 'Any Time',
-    ]);
+    const tableBody = params.scheduleRows.map((row) => {
+      // Clean the route text - replace arrow with ASCII
+      const cleanRoute = cleanText(row.route);
+      return [
+        row.name || '', // Empty string for return trips - shows as blank cell
+        `${row.date}\n${cleanRoute}`,
+        row.preferredTime || 'Any Time',
+      ];
+    });
 
     autoTable(doc, {
       startY: cursorY,
@@ -207,7 +220,7 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
   // Signatory name (bold)
   doc.setFont('Times-Roman', 'bold');
   doc.setFontSize(12);
-  doc.text(params.signatoryName || ' ', margin, sigCursorY);
+  doc.text(cleanText(params.signatoryName || ' '), margin, sigCursorY);
   sigCursorY += 8;
 
   // Optional signature image
@@ -228,7 +241,7 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
   }
 
   // FROM department line with underline (bold)
-  const fromText = params.fromDepartment || params.from;
+  const fromText = cleanText(params.fromDepartment || params.from);
   doc.setFont('Times-Roman', 'bold');
   doc.setFontSize(12);
   doc.text(fromText, margin, sigCursorY);

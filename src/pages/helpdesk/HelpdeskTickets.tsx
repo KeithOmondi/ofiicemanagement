@@ -60,6 +60,18 @@ import type {
   TicketPriority,
   TravelClass,
   FlightTimePreference,
+  TicketTripType,
+} from '../../types/tickets.types';
+import {
+  TRIP_TYPE_LABELS,
+  FLIGHT_TIME_LABELS,
+  TRAVEL_CLASS_LABELS,
+  TICKET_STATUS_COLORS,
+  TICKET_PRIORITY_COLORS,
+  getTimeSlots,
+  formatTime,
+  getTripTypeLabel,
+  getFlightTimeShortLabel,
 } from '../../types/tickets.types';
 import {
   fetchHelpdeskDocuments,
@@ -93,6 +105,7 @@ import {
   Send,
   ExternalLink,
   Paperclip,
+  Plane,
 } from 'lucide-react';
 import { generateAirTicketMemoDocx } from '../../utils/generateAirTicketMemoDocx';
 import { generateAirTicketMemoPdf } from '../../utils/generateAirTicketMemoPdf';
@@ -116,11 +129,15 @@ type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
 
 interface TicketFormData {
   department_id: string;
+  trip_type: TicketTripType;
   date_of_travel: string;
+  time_of_travel: string;
   return_date: string;
+  return_time: string;
+  preferred_departure_time: FlightTimePreference;
+  preferred_return_time: FlightTimePreference;
   departure_from: string;
   destination: string;
-  preferred_flight_time: FlightTimePreference;
   remarks: string;
   judge_name: string;
   pj_number: string;
@@ -154,16 +171,7 @@ interface AirTicketParams {
 // ── Helper Functions ──────────────────────────────────────────────────────
 
 const statusColor = (status: TicketStatus): string => {
-  const map: Record<TicketStatus, string> = {
-    draft: 'bg-stone-100 text-stone-600 ring-stone-200',
-    pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
-    approved: 'bg-blue-50 text-blue-700 ring-blue-200',
-    rejected: 'bg-red-50 text-red-700 ring-red-200',
-    booked: 'bg-indigo-50 text-indigo-700 ring-indigo-200',
-    cancelled: 'bg-stone-200 text-stone-600 ring-stone-300',
-    completed: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  };
-  return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+  return TICKET_STATUS_COLORS[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
 };
 
 const statusDot = (status: TicketStatus): string => {
@@ -180,13 +188,7 @@ const statusDot = (status: TicketStatus): string => {
 };
 
 const priorityColor = (priority: TicketPriority): string => {
-  const map: Record<TicketPriority, string> = {
-    low: 'text-stone-500',
-    normal: 'text-blue-600',
-    high: 'text-amber-600',
-    urgent: 'text-red-600',
-  };
-  return map[priority] || 'text-stone-500';
+  return TICKET_PRIORITY_COLORS[priority] || 'text-stone-500';
 };
 
 const documentStatusColor = (status: DocumentStatus): string => {
@@ -206,14 +208,6 @@ const documentFormatIcon = (format: DocumentFormat) => {
   return <FileText size={16} className="text-red-600" />;
 };
 
-const flightTimeLabels: Record<FlightTimePreference, string> = {
-  morning: 'Morning',
-  afternoon: 'Afternoon',
-  evening: 'Evening',
-  night: 'Night',
-  any: 'Any Time',
-};
-
 // ─── Type-safe Error Helpers ──────────────────────────────────────────────
 
 function getErrorMessage(error: unknown): string {
@@ -226,13 +220,7 @@ function getErrorMessage(error: unknown): string {
   return 'An unknown error occurred';
 }
 
-function getErrorResponse(error: unknown): unknown {
-  if (error && typeof error === 'object' && 'response' in error) {
-    const errorObj = error as { response: { data: unknown } };
-    return errorObj.response.data;
-  }
-  return null;
-}
+
 
 // ── Shared UI Primitives ──────────────────────────────────────────────────
 
@@ -561,10 +549,19 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
     return d.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
+  //const timeSlots = getTimeSlots();
+
   // ── Build schedule rows with both outbound and return trips ────────────────
   const scheduleRows: ScheduleRow[] = [];
   const travellerName = ticketData.judge_name || '—';
-  const timeLabel = flightTimeLabels[ticketData.preferred_flight_time] || 'Any Time';
+  const departureTimeLabel = ticketData.time_of_travel 
+    ? formatTime(ticketData.time_of_travel) 
+    : getFlightTimeShortLabel(ticketData.preferred_departure_time);
+  const returnTimeLabel = ticketData.return_time 
+    ? formatTime(ticketData.return_time) 
+    : ticketData.preferred_return_time 
+      ? getFlightTimeShortLabel(ticketData.preferred_return_time) 
+      : 'Any Time';
 
   // Outbound trip
   if (ticketData.date_of_travel) {
@@ -572,17 +569,17 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
       name: travellerName,
       route: `${ticketData.departure_from} → ${ticketData.destination}`,
       date: formatDate(ticketData.date_of_travel),
-      time: timeLabel,
+      time: departureTimeLabel,
     });
   }
 
-  // Return trip - name is empty so it shows as a blank cell in the table
-  if (ticketData.return_date) {
+  // Return trip (if round trip)
+  if (ticketData.trip_type === 'round_trip' && ticketData.return_date) {
     scheduleRows.push({
-      name: '', // Empty name for return trip - will show as blank in table
+      name: '', // Empty name for return trip - shows as blank in table
       route: `${ticketData.destination} → ${ticketData.departure_from}`,
       date: formatDate(ticketData.return_date),
-      time: timeLabel,
+      time: returnTimeLabel,
     });
   }
 
@@ -595,7 +592,8 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
   const [subjectField, setSubjectField] = useState('REQUEST AIR TICKET');
   const [bodyText, setBodyText] = useState(() => {
     const who = ticketData.judge_name ? `Hon. Justice ${ticketData.judge_name}` : 'The traveller named below';
-    return `${who} is scheduled to travel to ${ticketData.destination || '[destination]'} on official duty. In view of the above, kindly approve procurement of an air ticket to facilitate the travel as per the schedule below:`;
+    const tripTypeLabel = ticketData.trip_type === 'round_trip' ? 'round trip' : 'one-way travel';
+    return `${who} is scheduled to travel to ${ticketData.destination || '[destination]'} on official duty for ${tripTypeLabel}. In view of the above, kindly approve procurement of an air ticket to facilitate the travel as per the schedule below:`;
   });
   const [signatoryName, setSignatoryName] = useState(() => currentUser?.full_name || '');
 
@@ -603,19 +601,6 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
     'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none';
 
   const handleDownload = async (format: DownloadFormat): Promise<void> => {
-    console.log('🚀 [handleDownload] Triggered with format:', format);
-    console.log('🚀 [handleDownload] Current state snapshot:', {
-      toField,
-      fromField,
-      refField,
-      dateField,
-      subjectField,
-      signatoryName,
-      ticketId,
-      scheduleRowCount: scheduleRows.length,
-      hasSignatureUrl: !!signatureUrl,
-    });
-
     setShowDownloadMenu(false);
     setDownloadingFormat(format);
 
@@ -626,8 +611,6 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
         route: row.route,
         preferredTime: row.time,
       }));
-
-      console.log('📋 [handleDownload] Mapped schedule rows:', airTicketScheduleRows);
 
       const airTicketParams: AirTicketParams = {
         to: toField,
@@ -643,88 +626,48 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
         fromDepartment: fromField,
       };
 
-      console.log('🧾 [handleDownload] Built AirTicketParams:', airTicketParams);
-
       let blob: Blob | null = null;
-
-      console.log(`⚙️ [handleDownload] Dispatching generator for format: ${format}`);
 
       switch (format) {
         case 'docx':
           blob = await generateAirTicketMemoDocx(airTicketParams);
-          console.log('✅ [handleDownload] docx generator returned blob:', blob);
           break;
         case 'pdf':
           blob = await generateAirTicketMemoPdf(airTicketParams);
-          console.log('✅ [handleDownload] pdf generator returned blob:', blob);
           break;
         case 'xlsx':
           blob = generateAirTicketMemoExcel(airTicketParams);
-          console.log('✅ [handleDownload] xlsx generator returned blob:', blob);
           break;
         default:
-          console.error('❌ [handleDownload] Unsupported format requested:', format);
           throw new Error(`Unsupported format: ${format}`);
       }
 
       if (!blob) {
-        console.error('❌ [handleDownload] Generator returned null/undefined blob for format:', format);
         throw new Error('Generator returned no blob');
       }
-
-      console.log('📦 [handleDownload] Blob details:', {
-        size: blob.size,
-        type: blob.type,
-      });
 
       const safeRef = refField.replace(/[\\/:*?"<>|]/g, '-');
       const filename = `${safeRef}.${format}`;
       const file = new File([blob], filename, { type: blob.type });
 
-      console.log('📁 [handleDownload] Constructed file:', {
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        safeRef,
-      });
-
-      const uploadPayload = {
-        blob: file,
-        filename: filename,
-        ref: refField,
-        subject: subjectField,
-        entity_type: 'ticket' as DocumentEntityType,
-        entity_id: ticketId,
-        format: format as DocumentFormat,
-      };
-
-      console.log('📤 [handleDownload] Dispatching uploadHelpdeskDocument with payload:', {
-        ...uploadPayload,
-        blob: `[File: ${file.name}, ${file.size} bytes, ${file.type}]`,
-      });
-
-      const uploaded = await dispatch(uploadHelpdeskDocument(uploadPayload)).unwrap();
-
-      console.log('✅ [handleDownload] Upload succeeded, server response:', uploaded);
+      const uploaded = await dispatch(
+        uploadHelpdeskDocument({
+          blob: file,
+          filename: filename,
+          ref: refField,
+          subject: subjectField,
+          entity_type: 'ticket' as DocumentEntityType,
+          entity_id: ticketId,
+          format: format as DocumentFormat,
+        })
+      ).unwrap();
 
       onDocumentUploaded?.(uploaded.id);
       toast.success(`${format.toUpperCase()} document saved to the system.`);
-
-      console.log(`🎉 [handleDownload] Completed successfully for format: ${format}, document id: ${uploaded.id}`);
     } catch (err) {
-      console.error(`❌ [handleDownload] Failed to generate/upload ${format} memo:`, err);
-
-      const errorResponse = getErrorResponse(err);
-      if (errorResponse) {
-        console.error('❌ [handleDownload] Server error response:', errorResponse);
-      }
-
-      const errorMessage = getErrorMessage(err);
-      console.error('❌ [handleDownload] Resolved error message:', errorMessage);
-
-      toast.error(`Failed to save document: ${errorMessage}`);
+      console.error(`Failed to generate/upload ${format} memo:`, err);
+      toast.error(`Failed to save document: ${getErrorMessage(err)}`);
     } finally {
-      console.log(`🏁 [handleDownload] Finished handling format: ${format}, resetting downloadingFormat state`);
       setDownloadingFormat(null);
     }
   };
@@ -874,6 +817,7 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
                   <tr>
                     <th className="border border-black px-2 py-1.5 text-left text-xs font-bold">Name</th>
                     <th className="border border-black px-2 py-1.5 text-left text-xs font-bold">Date</th>
+                    <th className="border border-black px-2 py-1.5 text-left text-xs font-bold">Route</th>
                     <th className="border border-black px-2 py-1.5 text-left text-xs font-bold">Preferred Time</th>
                   </tr>
                 </thead>
@@ -881,24 +825,27 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
                   {scheduleRows.length > 0 ? (
                     scheduleRows.map((row, i) => (
                       <tr key={i}>
-                        <td className="border border-black px-2 py-1.5 align-top font-medium">{row.name}</td>
-                        <td className="border border-black px-2 py-1.5 align-top">
-                          {row.date}
-                          <br />
-                          <span className="text-xs text-stone-600">{row.route}</span>
+                        <td className="border border-black px-2 py-1.5 align-top font-medium">
+                          {row.name || <span className="text-stone-400">(return)</span>}
                         </td>
+                        <td className="border border-black px-2 py-1.5 align-top">{row.date}</td>
+                        <td className="border border-black px-2 py-1.5 align-top">{row.route}</td>
                         <td className="border border-black px-2 py-1.5 align-top">{row.time}</td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={3} className="border border-black px-2 py-3 text-center text-stone-400">
+                      <td colSpan={4} className="border border-black px-2 py-3 text-center text-stone-400">
                         Set a travel date in Step 1 to populate the schedule.
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
+
+              {ticketData.trip_type === 'round_trip' && (
+                <p className="text-xs text-stone-500 italic">* Return trip included</p>
+              )}
             </div>
           </div>
 
@@ -966,16 +913,21 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
   const departmentUsers = useAppSelector(selectAllUsers);
   const departmentUsersLoading = useAppSelector(selectUsersListLoading);
   const signatureLoading = useAppSelector(selectUsersSignatureLoading);
+  const timeSlots = getTimeSlots();
 
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
   const [pendingDocumentId, setPendingDocumentId] = useState<string | undefined>();
   const [formData, setFormData] = useState<TicketFormData>(() => ({
     department_id: initialData?.department_id ?? (isDeptHead ? currentUser?.department_id ?? '' : ''),
+    trip_type: initialData?.trip_type ?? 'one_way',
     date_of_travel: initialData?.date_of_travel ?? '',
+    time_of_travel: initialData?.time_of_travel ?? '',
     return_date: initialData?.return_date ?? '',
+    return_time: initialData?.return_time ?? '',
+    preferred_departure_time: initialData?.preferred_departure_time ?? 'any',
+    preferred_return_time: initialData?.preferred_return_time ?? 'any',
     departure_from: initialData?.departure_from ?? '',
     destination: initialData?.destination ?? '',
-    preferred_flight_time: initialData?.preferred_flight_time ?? 'any',
     remarks: initialData?.remarks ?? '',
     judge_name: initialData?.judge_name ?? '',
     pj_number: initialData?.pj_number ?? '',
@@ -1039,8 +991,7 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
       await dispatch(uploadSignature(file)).unwrap();
       toast.success('Signature uploaded successfully.');
     } catch (err) {
-      const errorMessage = getErrorMessage(err);
-      toast.error(errorMessage);
+      toast.error(getErrorMessage(err));
     }
   };
 
@@ -1050,15 +1001,28 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
       await dispatch(deleteSignature()).unwrap();
       toast.success('Signature removed successfully.');
     } catch (err) {
-      const errorMessage = getErrorMessage(err);
-      toast.error(errorMessage);
+      toast.error(getErrorMessage(err));
     }
   };
+
+  const isRoundTrip = formData.trip_type === 'round_trip';
 
   const handleNextStep = () => {
     if (currentStep === 1) {
       if (!formData.date_of_travel || !formData.departure_from || !formData.destination) {
         toast.error('Please fill in all required fields (Travel Date, Departure, Destination)');
+        return;
+      }
+      if (isRoundTrip && !formData.return_date) {
+        toast.error('Return date is required for round trip');
+        return;
+      }
+      if (isRoundTrip && !formData.return_time) {
+        toast.error('Return time is required for round trip');
+        return;
+      }
+      if (isRoundTrip && !formData.preferred_return_time) {
+        toast.error('Return time preference is required for round trip');
         return;
       }
       if (isDeptHead && !effectiveDepartmentId) {
@@ -1083,11 +1047,15 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
     const payload: CreateTicketRequest = {
       title: derivedTitle,
       department_id: effectiveDepartmentId || undefined,
+      trip_type: formData.trip_type,
       date_of_travel: formData.date_of_travel,
+      time_of_travel: formData.time_of_travel || undefined,
       return_date: formData.return_date || undefined,
+      return_time: formData.return_time || undefined,
+      preferred_departure_time: formData.preferred_departure_time,
+      preferred_return_time: formData.preferred_return_time,
       departure_from: formData.departure_from,
       destination: formData.destination,
-      preferred_flight_time: formData.preferred_flight_time,
       remarks: formData.remarks || undefined,
       judge_name: formData.judge_name || undefined,
       pj_number: formData.pj_number || undefined,
@@ -1111,7 +1079,8 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
       <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
-          <h3 className="text-sm font-semibold text-[#1a3d1c]">
+          <h3 className="text-sm font-semibold text-[#1a3d1c] flex items-center gap-2">
+            <Plane size={18} className="text-[#c9a84c]" />
             {initialData ? 'Edit Ticket' : 'New Ticket'}
           </h3>
           <button onClick={handleClose} className="text-stone-400 hover:text-stone-600">
@@ -1143,6 +1112,7 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
 
           {currentStep === 1 && (
             <form className="space-y-5" onSubmit={handleSubmit}>
+              {/* Department & Assigned To */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelClasses}>
@@ -1174,7 +1144,7 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
                   <label className={labelClasses}>Assigned To</label>
                   <select
                     name="assigned_to"
-                    value={formData.assigned_to}
+                    value={formData.assigned_to ?? ''}
                     onChange={handleChange}
                     disabled={!effectiveDepartmentId || departmentUsersLoading}
                     className={`${inputClasses} disabled:bg-stone-100 disabled:text-stone-500`}
@@ -1196,9 +1166,30 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
                 </div>
               </div>
 
+              {/* Trip Type */}
+              <div>
+                <label className={labelClasses}>Trip Type *</label>
+                <div className="flex gap-4">
+                  {Object.entries(TRIP_TYPE_LABELS).map(([value, label]) => (
+                    <label key={value} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="trip_type"
+                        value={value}
+                        checked={formData.trip_type === value}
+                        onChange={handleChange}
+                        className="rounded-full border-stone-300 text-[#1a3d1c] focus:ring-[#1a3d1c]"
+                      />
+                      <span className="text-sm text-stone-700">{label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Travel Dates & Times */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className={labelClasses}>Date of Travel *</label>
+                  <label className={labelClasses}>Departure Date *</label>
                   <input
                     type="date"
                     name="date_of_travel"
@@ -1209,17 +1200,58 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
                   />
                 </div>
                 <div>
-                  <label className={labelClasses}>Return Date</label>
-                  <input
-                    type="date"
-                    name="return_date"
-                    value={formData.return_date}
+                  <label className={labelClasses}>Departure Time</label>
+                  <select
+                    name="time_of_travel"
+                    value={formData.time_of_travel ?? ''}
                     onChange={handleChange}
                     className={inputClasses}
-                  />
+                  >
+                    <option value="">Select Time</option>
+                    {timeSlots.map((slot) => (
+                      <option key={slot.value} value={slot.value}>
+                        {slot.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
+              {/* Return Date & Time (Round Trip Only) */}
+              {isRoundTrip && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className={labelClasses}>Return Date *</label>
+                    <input
+                      type="date"
+                      name="return_date"
+                      value={formData.return_date ?? ''}
+                      onChange={handleChange}
+                      className={inputClasses}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClasses}>Return Time *</label>
+                    <select
+                      name="return_time"
+                      value={formData.return_time ?? ''}
+                      onChange={handleChange}
+                      className={inputClasses}
+                      required
+                    >
+                      <option value="">Select Time</option>
+                      {timeSlots.map((slot) => (
+                        <option key={slot.value} value={slot.value}>
+                          {slot.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Locations */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelClasses}>Departure From *</label>
@@ -1245,22 +1277,39 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
                 </div>
               </div>
 
+              {/* Flight Time Preferences */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className={labelClasses}>Flight Time Preference</label>
+                  <label className={labelClasses}>Departure Time Preference</label>
                   <select
-                    name="preferred_flight_time"
-                    value={formData.preferred_flight_time}
+                    name="preferred_departure_time"
+                    value={formData.preferred_departure_time}
                     onChange={handleChange}
                     className={inputClasses}
                   >
-                    <option value="morning">Morning</option>
-                    <option value="afternoon">Afternoon</option>
-                    <option value="evening">Evening</option>
-                    <option value="night">Night</option>
-                    <option value="any">Any</option>
+                    {Object.entries(FLIGHT_TIME_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
                   </select>
                 </div>
+                <div>
+                  <label className={labelClasses}>Return Time Preference</label>
+                  <select
+                    name="preferred_return_time"
+                    value={formData.preferred_return_time ?? ''}
+                    onChange={handleChange}
+                    className={inputClasses}
+                  >
+                    <option value="">Not Applicable</option>
+                    {Object.entries(FLIGHT_TIME_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Travel Class & Passengers */}
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className={labelClasses}>Travel Class</label>
                   <select
@@ -1269,42 +1318,26 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
                     onChange={handleChange}
                     className={inputClasses}
                   >
-                    <option value="economy">Economy</option>
-                    <option value="premium_economy">Premium Economy</option>
-                    <option value="business">Business</option>
-                    <option value="first">First</option>
+                    {Object.entries(TRAVEL_CLASS_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
                   </select>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className={labelClasses}>Number of Passengers</label>
+                  <label className={labelClasses}>Passengers *</label>
                   <input
                     type="number"
                     name="number_of_passengers"
+                    min={1}
                     value={formData.number_of_passengers}
                     onChange={handleChange}
                     className={inputClasses}
-                    min="1"
+                    required
                   />
-                </div>
-                <div>
-                  <label className={labelClasses}>Priority</label>
-                  <select
-                    name="priority"
-                    value={formData.priority}
-                    onChange={handleChange}
-                    className={inputClasses}
-                  >
-                    <option value="low">Low</option>
-                    <option value="normal">Normal</option>
-                    <option value="high">High</option>
-                    <option value="urgent">Urgent</option>
-                  </select>
                 </div>
               </div>
 
+              {/* Judge & Case Details */}
               <div className="grid grid-cols-2 gap-4">
                 <JudgeSearchField
                   nameValue={formData.judge_name}
@@ -1319,7 +1352,7 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
                   <input
                     type="text"
                     name="pj_number"
-                    value={formData.pj_number}
+                    value={formData.pj_number ?? ''}
                     onChange={handleChange}
                     placeholder="Auto-filled when a judge is selected"
                     className={inputClasses}
@@ -1331,7 +1364,7 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
                 <label className={labelClasses}>Remarks</label>
                 <textarea
                   name="remarks"
-                  value={formData.remarks}
+                  value={formData.remarks ?? ''}
                   onChange={handleChange}
                   className={`${inputClasses} resize-none`}
                   rows={2}
@@ -1342,11 +1375,26 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
                 <label className={labelClasses}>Special Requests</label>
                 <textarea
                   name="special_requests"
-                  value={formData.special_requests}
+                  value={formData.special_requests ?? ''}
                   onChange={handleChange}
                   className={`${inputClasses} resize-none`}
                   rows={2}
                 />
+              </div>
+
+              <div>
+                <label className={labelClasses}>Priority</label>
+                <select
+                  name="priority"
+                  value={formData.priority}
+                  onChange={handleChange}
+                  className={inputClasses}
+                >
+                  <option value="low">Low</option>
+                  <option value="normal">Normal</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </select>
               </div>
 
               <label className="flex items-center gap-2 text-sm text-stone-700">
@@ -1501,8 +1549,7 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
       ).unwrap();
       toast.success('Document attached to this ticket.');
     } catch (err) {
-      const errorMessage = getErrorMessage(err);
-      toast.error(errorMessage);
+      toast.error(getErrorMessage(err));
     } finally {
       setUploadingDocument(false);
       e.target.value = '';
@@ -1521,8 +1568,7 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
       toast.success('Document linked to this ticket.');
       setShowLinkPicker(false);
     } catch (err) {
-      const errorMessage = getErrorMessage(err);
-      toast.error(errorMessage);
+      toast.error(getErrorMessage(err));
     }
   };
 
@@ -1531,8 +1577,7 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
       await dispatch(submitDocumentForApproval({ id: documentId })).unwrap();
       toast.success('Document sent to the super admin for approval.');
     } catch (err) {
-      const errorMessage = getErrorMessage(err);
-      toast.error(errorMessage);
+      toast.error(getErrorMessage(err));
     }
   };
 
@@ -1569,9 +1614,12 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                 {ticket.status.replace('_', ' ')}
               </span>
             </div>
+            <DetailRow label="Trip Type" value={getTripTypeLabel(ticket.trip_type)} />
             <DetailRow label="Priority" value={<span className={`font-medium capitalize ${priorityColor(ticket.priority)}`}>{ticket.priority}</span>} />
-            <DetailRow label="Travel Date" value={new Date(ticket.date_of_travel).toLocaleDateString()} />
+            <DetailRow label="Departure Date" value={new Date(ticket.date_of_travel).toLocaleDateString()} />
+            <DetailRow label="Departure Time" value={ticket.time_of_travel ? formatTime(ticket.time_of_travel) : getFlightTimeShortLabel(ticket.preferred_departure_time)} />
             <DetailRow label="Return Date" value={ticket.return_date ? new Date(ticket.return_date).toLocaleDateString() : '—'} />
+            <DetailRow label="Return Time" value={ticket.return_time ? formatTime(ticket.return_time) : ticket.preferred_return_time ? getFlightTimeShortLabel(ticket.preferred_return_time) : '—'} />
             <DetailRow label="Departure" value={ticket.departure_from} />
             <DetailRow label="Destination" value={ticket.destination} />
             <DetailRow label="Judge" value={ticket.judge_name || '—'} />
@@ -1870,15 +1918,13 @@ const HelpdeskTickets: React.FC = () => {
           )
             .unwrap()
             .catch((err) => {
-              const errorMessage = getErrorMessage(err);
-              toast.error(`Ticket created, but the memo could not be linked: ${errorMessage}`);
+              toast.error(`Ticket created, but the memo could not be linked: ${getErrorMessage(err)}`);
             });
         }
         handleCloseCreate();
       })
       .catch((err) => {
-        const errorMessage = getErrorMessage(err);
-        toast.error(`Failed to create ticket: ${errorMessage}`);
+        toast.error(`Failed to create ticket: ${getErrorMessage(err)}`);
       });
   };
 
@@ -1890,8 +1936,7 @@ const HelpdeskTickets: React.FC = () => {
         if (selectedId === id) dispatch(fetchTicketById(id));
       })
       .catch((err) => {
-        const errorMessage = getErrorMessage(err);
-        toast.error(`Failed to update ticket: ${errorMessage}`);
+        toast.error(`Failed to update ticket: ${getErrorMessage(err)}`);
       });
   };
 
@@ -1914,8 +1959,7 @@ const HelpdeskTickets: React.FC = () => {
         toast.success('Ticket submitted for approval.');
       })
       .catch((err) => {
-        const errorMessage = getErrorMessage(err);
-        toast.error(`Failed to submit ticket: ${errorMessage}`);
+        toast.error(`Failed to submit ticket: ${getErrorMessage(err)}`);
       });
   };
 
@@ -1927,8 +1971,7 @@ const HelpdeskTickets: React.FC = () => {
         toast.success('Ticket approved successfully.');
       })
       .catch((err) => {
-        const errorMessage = getErrorMessage(err);
-        toast.error(`Failed to approve ticket: ${errorMessage}`);
+        toast.error(`Failed to approve ticket: ${getErrorMessage(err)}`);
       });
   };
 
@@ -1944,8 +1987,7 @@ const HelpdeskTickets: React.FC = () => {
         toast.success('Ticket rejected.');
       })
       .catch((err) => {
-        const errorMessage = getErrorMessage(err);
-        toast.error(`Failed to reject ticket: ${errorMessage}`);
+        toast.error(`Failed to reject ticket: ${getErrorMessage(err)}`);
       });
   };
 
@@ -1961,8 +2003,7 @@ const HelpdeskTickets: React.FC = () => {
         toast.success('Ticket returned for revision.');
       })
       .catch((err) => {
-        const errorMessage = getErrorMessage(err);
-        toast.error(`Failed to return ticket: ${errorMessage}`);
+        toast.error(`Failed to return ticket: ${getErrorMessage(err)}`);
       });
   };
 
@@ -1978,8 +2019,7 @@ const HelpdeskTickets: React.FC = () => {
         toast.success('Ticket booked successfully.');
       })
       .catch((err) => {
-        const errorMessage = getErrorMessage(err);
-        toast.error(`Failed to book ticket: ${errorMessage}`);
+        toast.error(`Failed to book ticket: ${getErrorMessage(err)}`);
       });
   };
 
@@ -1992,8 +2032,7 @@ const HelpdeskTickets: React.FC = () => {
           toast.success('Ticket cancelled.');
         })
         .catch((err) => {
-          const errorMessage = getErrorMessage(err);
-          toast.error(`Failed to cancel ticket: ${errorMessage}`);
+          toast.error(`Failed to cancel ticket: ${getErrorMessage(err)}`);
         });
     }
   };
@@ -2006,8 +2045,7 @@ const HelpdeskTickets: React.FC = () => {
         toast.success('Ticket completed.');
       })
       .catch((err) => {
-        const errorMessage = getErrorMessage(err);
-        toast.error(`Failed to complete ticket: ${errorMessage}`);
+        toast.error(`Failed to complete ticket: ${getErrorMessage(err)}`);
       });
   };
 
@@ -2020,8 +2058,7 @@ const HelpdeskTickets: React.FC = () => {
           toast.success('Ticket deleted.');
         })
         .catch((err) => {
-          const errorMessage = getErrorMessage(err);
-          toast.error(`Failed to delete ticket: ${errorMessage}`);
+          toast.error(`Failed to delete ticket: ${getErrorMessage(err)}`);
         });
     }
   };
@@ -2033,8 +2070,7 @@ const HelpdeskTickets: React.FC = () => {
         toast.success('Comment added.');
       })
       .catch((err) => {
-        const errorMessage = getErrorMessage(err);
-        toast.error(`Failed to add comment: ${errorMessage}`);
+        toast.error(`Failed to add comment: ${getErrorMessage(err)}`);
       });
   };
 
@@ -2046,8 +2082,7 @@ const HelpdeskTickets: React.FC = () => {
           toast.success('Comment deleted.');
         })
         .catch((err) => {
-          const errorMessage = getErrorMessage(err);
-          toast.error(`Failed to delete comment: ${errorMessage}`);
+          toast.error(`Failed to delete comment: ${getErrorMessage(err)}`);
         });
     }
   };
@@ -2145,6 +2180,15 @@ const HelpdeskTickets: React.FC = () => {
               <option value="high">High</option>
               <option value="urgent">Urgent</option>
             </select>
+            <select
+              value={filters.trip_type ?? ''}
+              onChange={(e) => handleFilterChange('trip_type', e.target.value || undefined)}
+              className={inputClasses}
+            >
+              <option value="">All Trip Types</option>
+              <option value="one_way">One Way</option>
+              <option value="round_trip">Round Trip</option>
+            </select>
             <input
               type="text"
               placeholder="Judge name"
@@ -2170,10 +2214,10 @@ const HelpdeskTickets: React.FC = () => {
           </div>
         </div>
 
-        {/* ─── UPDATED TICKET TABLE ───────────────────────────────────────────── */}
+        {/* Ticket Table */}
         <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[1400px] border-collapse border border-stone-200 text-sm">
+            <table className="w-full min-w-[1600px] border-collapse border border-stone-200 text-sm">
               <thead>
                 <tr className="bg-[#c9a84c]/10 border-b border-stone-200">
                   <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
@@ -2183,16 +2227,19 @@ const HelpdeskTickets: React.FC = () => {
                     Judge Name
                   </th>
                   <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Trip Type
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
                     From
                   </th>
                   <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
                     To
                   </th>
                   <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
-                    Travel Date
+                    Departure
                   </th>
                   <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
-                    Return Date
+                    Return
                   </th>
                   <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
                     Status
@@ -2211,7 +2258,7 @@ const HelpdeskTickets: React.FC = () => {
               <tbody>
                 {tickets.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="border border-stone-200 py-16 text-center text-sm text-stone-400">
+                    <td colSpan={11} className="border border-stone-200 py-16 text-center text-sm text-stone-400">
                       No tickets found
                     </td>
                   </tr>
@@ -2225,6 +2272,11 @@ const HelpdeskTickets: React.FC = () => {
                         {ticket.judge_name || '—'}
                       </td>
                       <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                          {getTripTypeLabel(ticket.trip_type)}
+                        </span>
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
                         {ticket.departure_from}
                       </td>
                       <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
@@ -2232,9 +2284,19 @@ const HelpdeskTickets: React.FC = () => {
                       </td>
                       <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
                         {new Date(ticket.date_of_travel).toLocaleDateString()}
+                        {ticket.time_of_travel && (
+                          <span className="ml-1 text-xs text-stone-400">
+                            {formatTime(ticket.time_of_travel)}
+                          </span>
+                        )}
                       </td>
                       <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
                         {ticket.return_date ? new Date(ticket.return_date).toLocaleDateString() : '—'}
+                        {ticket.return_time && (
+                          <span className="ml-1 text-xs text-stone-400">
+                            {formatTime(ticket.return_time)}
+                          </span>
+                        )}
                       </td>
                       <td className="border border-stone-200 px-4 py-3">
                         <span
