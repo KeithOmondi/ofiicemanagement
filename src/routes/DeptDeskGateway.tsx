@@ -73,6 +73,7 @@ import StoreLayout from "../components/store/StoreLayout"
 import StoreDashboard from "../pages/store/StoreDashboard"
 import StoreDocuments from '../pages/store/StoreDocuments';
 import StoreStock from '../pages/store/StoreStock';
+import HelpdeskAides from '../pages/helpdesk/HelpdeskAides';
 
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
@@ -218,6 +219,7 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="uploads" element={<HelpdeskDocs />} />
           <Route path="reports" element={<HelpdeskReport />} />
           <Route path="tickets" element={<HelpdeskTickets />} />
+          <Route path="aides" element={<HelpdeskAides />} />
         </Route>
         <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
       </Routes>
