@@ -83,8 +83,8 @@ const UTILITY_STATUSES: UtilityStatus[] = [
   'Payment NA',
 ];
 
-const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1781759596/JOB_LOGO_ubls4m.jpg';
-const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
+const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784363826/ORHC_L_crclut.jpg';
+const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784364354/ORHC_EMBLEM_wzmp94.jpg';
 
 // ✅ Define the entity type as a constant for reuse
 const UTILITY_MEMO_ENTITY_TYPE: DocumentEntityType = 'utility_memo';
@@ -968,17 +968,33 @@ const MemoModal: React.FC<MemoModalProps> = ({
             )}
           </div>
 
-          {/* Memo Preview */}
+          {/* ─── Memo Preview ───────────────────────────────────────────────────────── */}
           <div className="border border-stone-300 bg-white p-10 shadow-sm font-sans text-black">
-            <div className="flex justify-center mb-3">
-              <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-20 w-auto object-contain" />
+            {/* Crest - properly centered with spacing */}
+            <div className="flex justify-center mb-2">
+              <img 
+                src={JUDICIARY_CREST_SRC} 
+                alt="Judiciary of Kenya crest" 
+                className="h-24 w-auto object-contain" 
+              />
             </div>
 
+            {/* Office title with registrar's name */}
+            <div className="text-center mb-1">
+              <p className="text-base font-bold uppercase leading-snug tracking-wide text-stone-800">
+                OFFICE OF THE REGISTRAR HIGH COURT
+              </p>
+              <p className="text-sm font-semibold uppercase text-stone-600 mt-0.5">
+                {currentUser?.full_name || 'REGISTRAR, HIGH COURT'}
+              </p>
+            </div>
+
+            {/* Internal Memo with full-width underline */}
             <div className="text-center mb-6">
-              <p className="text-lg font-bold uppercase leading-snug">OFFICE OF THE REGISTRAR HIGH COURT</p>
-              <p className="text-lg font-bold uppercase leading-snug border-b-2 border-black inline-block pb-2 px-1">
+              <p className="text-base font-bold uppercase tracking-wide text-stone-800">
                 INTERNAL MEMO
               </p>
+              <hr className="border-t-2 border-black w-full mt-1" />
             </div>
 
             <div className="space-y-3 text-sm font-bold mb-8">
@@ -1706,8 +1722,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                         onChange={(e) => setJudgeName(e.target.value)}
                         placeholder="e.g. Hon. Justice Korir"
                         className={`${inputClasses} pl-9`}
-                        required
-                        onKeyDown={(e) => {
+                        required                        onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
                           }

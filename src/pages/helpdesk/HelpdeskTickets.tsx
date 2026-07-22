@@ -100,8 +100,8 @@ import { generateAirTicketMemoExcel } from '../../utils/generateAirTicketMemoExc
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1781759596/JOB_LOGO_ubls4m.jpg';
-const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
+const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784363826/ORHC_L_crclut.jpg';
+const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784363826/ORHC_L_crclut.jpg';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -561,22 +561,26 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
     return d.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
+  // ── Build schedule rows with both outbound and return trips ────────────────
   const scheduleRows: ScheduleRow[] = [];
   const travellerName = ticketData.judge_name || '—';
   const timeLabel = flightTimeLabels[ticketData.preferred_flight_time] || 'Any Time';
 
+  // Outbound trip
   if (ticketData.date_of_travel) {
     scheduleRows.push({
       name: travellerName,
-      route: `${ticketData.departure_from} - ${ticketData.destination}`,
+      route: `${ticketData.departure_from} → ${ticketData.destination}`,
       date: formatDate(ticketData.date_of_travel),
       time: timeLabel,
     });
   }
+
+  // Return trip - name is empty so it shows as a blank cell in the table
   if (ticketData.return_date) {
     scheduleRows.push({
-      name: '',
-      route: `${ticketData.destination} - ${ticketData.departure_from}`,
+      name: '', // Empty name for return trip - will show as blank in table
+      route: `${ticketData.destination} → ${ticketData.departure_from}`,
       date: formatDate(ticketData.return_date),
       time: timeLabel,
     });
@@ -598,7 +602,7 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
   const editableLineClasses =
     'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none';
 
- const handleDownload = async (format: DownloadFormat): Promise<void> => {
+  const handleDownload = async (format: DownloadFormat): Promise<void> => {
     console.log('🚀 [handleDownload] Triggered with format:', format);
     console.log('🚀 [handleDownload] Current state snapshot:', {
       toField,
@@ -699,7 +703,6 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
         blob: `[File: ${file.name}, ${file.size} bytes, ${file.type}]`,
       });
 
-      // ✅ FIXED: Use the correct upload payload structure
       const uploaded = await dispatch(uploadHelpdeskDocument(uploadPayload)).unwrap();
 
       console.log('✅ [handleDownload] Upload succeeded, server response:', uploaded);
@@ -1443,7 +1446,6 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
   onDeleteComment,
 }) => {
   const [newComment, setNewComment] = useState('');
-  //const [newDocumentFile, setNewDocumentFile] = useState<File | null>(null);
   const dispatch = useAppDispatch();
 
   const allDocuments = useAppSelector(selectAllHelpdeskDocuments);
@@ -1486,7 +1488,6 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
 
     setUploadingDocument(true);
     try {
-      // ✅ FIXED: Use the correct upload payload structure
       await dispatch(
         uploadHelpdeskDocument({
           blob: file,
@@ -2169,37 +2170,73 @@ const HelpdeskTickets: React.FC = () => {
           </div>
         </div>
 
-        {/* Ticket Table */}
+        {/* ─── UPDATED TICKET TABLE ───────────────────────────────────────────── */}
         <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-sm">
+            <table className="w-full min-w-[1400px] border-collapse border border-stone-200 text-sm">
               <thead>
-                <tr className="border-b border-stone-100 bg-stone-50">
-                  {['Ref', 'Title', 'Status', 'Priority', 'Travel Date', 'Judge', 'Actions'].map((h) => (
-                    <th
-                      key={h}
-                      className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide text-stone-500 ${
-                        h === 'Actions' ? 'text-center' : 'text-left'
-                      }`}
-                    >
-                      {h}
-                    </th>
-                  ))}
+                <tr className="bg-[#c9a84c]/10 border-b border-stone-200">
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Ref
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Judge Name
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    From
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    To
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Travel Date
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Return Date
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Status
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Priority
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Created At
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {tickets.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-16 text-center text-sm text-stone-400">
+                    <td colSpan={10} className="border border-stone-200 py-16 text-center text-sm text-stone-400">
                       No tickets found
                     </td>
                   </tr>
                 ) : (
                   tickets.map((ticket) => (
-                    <tr key={ticket.id} className="border-b border-stone-50 transition hover:bg-stone-50/60">
-                      <td className="px-4 py-3 font-mono text-xs text-stone-500">{ticket.reference_no}</td>
-                      <td className="px-4 py-3 font-medium text-stone-900">{ticket.title}</td>
-                      <td className="px-4 py-3">
+                    <tr key={ticket.id} className="border-b border-stone-100 transition hover:bg-stone-50/60">
+                      <td className="border border-stone-200 px-4 py-3 font-mono text-xs text-stone-500">
+                        {ticket.reference_no}
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3 font-medium text-stone-900">
+                        {ticket.judge_name || '—'}
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
+                        {ticket.departure_from}
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
+                        {ticket.destination}
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
+                        {new Date(ticket.date_of_travel).toLocaleDateString()}
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
+                        {ticket.return_date ? new Date(ticket.return_date).toLocaleDateString() : '—'}
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3">
                         <span
                           className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${statusColor(
                             ticket.status
@@ -2209,14 +2246,13 @@ const HelpdeskTickets: React.FC = () => {
                           {ticket.status.replace('_', ' ')}
                         </span>
                       </td>
-                      <td className={`px-4 py-3 text-sm font-medium capitalize ${priorityColor(ticket.priority)}`}>
+                      <td className={`border border-stone-200 px-4 py-3 text-sm font-medium capitalize ${priorityColor(ticket.priority)}`}>
                         {ticket.priority}
                       </td>
-                      <td className="px-4 py-3 text-sm text-stone-600">
-                        {new Date(ticket.date_of_travel).toLocaleDateString()}
+                      <td className="border border-stone-200 px-4 py-3 text-sm text-stone-500">
+                        {new Date(ticket.created_at).toLocaleString()}
                       </td>
-                      <td className="px-4 py-3 text-sm text-stone-600">{ticket.judge_name || '—'}</td>
-                      <td className="px-4 py-3">
+                      <td className="border border-stone-200 px-4 py-3">
                         <div className="flex items-center justify-center gap-3">
                           <button
                             onClick={() => handleViewTicket(ticket.id)}
@@ -2246,7 +2282,7 @@ const HelpdeskTickets: React.FC = () => {
           </div>
 
           {/* Pagination */}
-          <div className="flex flex-col gap-3 border-t border-stone-100 bg-stone-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-t border-stone-200 bg-stone-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-xs text-stone-500">
               Showing {(pagination.page - 1) * pagination.limit + 1} to{' '}
               {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}

@@ -6,9 +6,10 @@
 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import type { jsPDF as jsPDFType } from 'jspdf';
 
 const FOOTER_EMBLEM_SRC =
-  'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
+  'https://res.cloudinary.com/do0yflasl/image/upload/v1784364354/ORHC_EMBLEM_wzmp94.jpg';
 
 export interface AirTicketScheduleRow {
   name: string;
@@ -62,8 +63,8 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
   // ── Crest ────────────────────────────────────────────────────────────────
   const crestDataUrl = await urlToDataUrl(params.crestUrl);
   if (crestDataUrl) {
-    const crestW = 90;
-    const crestH = 45;
+    const crestW = 120;
+    const crestH = 60;
     doc.addImage(
       crestDataUrl,
       detectImageFormat(crestDataUrl),
@@ -72,41 +73,48 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
       crestW,
       crestH,
     );
-    cursorY += crestH + 12;
+    cursorY += crestH + 16;
   }
 
-  // ── Title block ──────────────────────────────────────────────────────────
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
+  // ── Title block (Times New Roman, Bold, Larger) ──────────────────────────
+  doc.setFont('Times-Roman', 'bold');
+  
+  // Main title - larger
+  doc.setFontSize(20);
   doc.text('OFFICE OF THE REGISTRAR HIGH COURT', pageWidth / 2, cursorY, { align: 'center' });
-  cursorY += 18;
+  cursorY += 26;
+  
+  // Sub title - slightly smaller but still bold
+  doc.setFontSize(16);
   doc.text('INTERNAL MEMO', pageWidth / 2, cursorY, { align: 'center' });
-  const titleWidth = doc.getTextWidth('INTERNAL MEMO');
-  doc.setLineWidth(1);
-  doc.line(
-    pageWidth / 2 - titleWidth / 2,
-    cursorY + 3,
-    pageWidth / 2 + titleWidth / 2,
-    cursorY + 3,
-  );
-  cursorY += 24;
+  
+  // Full width line under INTERNAL MEMO (thicker)
+  doc.setLineWidth(2);
+  doc.line(margin, cursorY + 6, pageWidth - margin, cursorY + 6);
+  cursorY += 32;
 
-  // ── TO / FROM / REF / DATE / SUBJECT ────────────────────────────────────
-  doc.setFontSize(10);
+  // ── TO / FROM / REF / DATE / SUBJECT (Bold Times New Roman) ─────────────
+  doc.setFont('Times-Roman', 'bold');
+  doc.setFontSize(12);
   const labelX = margin;
-  const valueX = margin + 70;
+  const valueX = margin + 80;
 
   const writeLabelLine = (label: string, value: string, withBorder = false) => {
-    doc.setFont('helvetica', 'bold');
+    // Label in bold
+    doc.setFont('Times-Roman', 'bold');
     doc.text(label, labelX, cursorY);
-    doc.text(':', labelX + 60, cursorY);
+    doc.text(':', labelX + 65, cursorY);
+    
+    // Value in normal (not bold) but still Times New Roman
+    doc.setFont('Times-Roman', 'normal');
     doc.text(value, valueX, cursorY);
+    
     if (withBorder) {
-      doc.setLineWidth(1);
+      doc.setLineWidth(1.5);
       doc.line(margin, cursorY + 6, pageWidth - margin, cursorY + 6);
       cursorY += 10;
     }
-    cursorY += 16;
+    cursorY += 20;
   };
 
   writeLabelLine('TO', params.to.toUpperCase());
@@ -114,69 +122,98 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
   writeLabelLine('REF', params.ref);
   writeLabelLine('DATE', params.date);
   writeLabelLine('SUBJECT', params.subject.toUpperCase(), true);
-  cursorY += 6;
+  cursorY += 10;
 
-  // ── Body ─────────────────────────────────────────────────────────────────
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
+  // ── Body (Times New Roman, Normal) ──────────────────────────────────────
+  doc.setFont('Times-Roman', 'normal');
+  doc.setFontSize(12);
   const bodyLines = doc.splitTextToSize(params.bodyText, pageWidth - margin * 2);
   doc.text(bodyLines, margin, cursorY);
-  cursorY += bodyLines.length * 13 + 10;
+  cursorY += bodyLines.length * 16 + 14;
 
-  // ── Schedule Table (Name, Date, Preferred Time) ────────────────────────
+  // ── Schedule Table (Times New Roman) ─────────────────────────────────────
   if (params.scheduleRows.length > 0) {
+    // ✅ Keep ALL rows - don't filter out return trips with empty names
+    const tableBody = params.scheduleRows.map((row) => [
+      row.name || '', // Empty string for return trips - shows as blank cell
+      `${row.date}\n${row.route}`,
+      row.preferredTime || 'Any Time',
+    ]);
+
     autoTable(doc, {
       startY: cursorY,
       margin: { left: margin, right: margin },
-      head: [['Name', 'Date', 'Preferred Time']],
-      body: params.scheduleRows.map((row) => [
-        row.name,
-        `${row.date}\n${row.route}`,
-        row.preferredTime,
-      ]),
-      styles: { font: 'helvetica', fontSize: 8, cellPadding: 4 },
-      headStyles: { fillColor: [242, 242, 242], textColor: [0, 0, 0], fontStyle: 'bold' },
+      head: [['NAME', 'DATE / ROUTE', 'PREFERRED TIME']],
+      body: tableBody,
+      styles: {
+        font: 'Times-Roman',
+        fontSize: 11,
+        cellPadding: 8,
+        halign: 'left',
+        valign: 'middle',
+        lineColor: [180, 170, 150],
+        lineWidth: 0.5,
+      },
+      headStyles: {
+        fillColor: [201, 168, 76],
+        textColor: [26, 61, 28],
+        fontStyle: 'bold',
+        fontSize: 11,
+        halign: 'left',
+        valign: 'middle',
+      },
+      alternateRowStyles: {
+        fillColor: [248, 245, 240],
+      },
       theme: 'grid',
       columnStyles: {
-        0: { cellWidth: 80 },
+        0: { cellWidth: 140 },
         1: { cellWidth: 'auto' },
-        2: { cellWidth: 70 },
+        2: { cellWidth: 120 },
       },
     });
   } else {
-    // No schedule rows - show a message
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(9);
+    doc.setFont('Times-Roman', 'italic');
+    doc.setFontSize(11);
     doc.setTextColor(150, 150, 150);
     doc.text('No travel schedule available.', margin, cursorY + 10);
     doc.setTextColor(0, 0, 0);
     cursorY += 20;
   }
 
-  // ── Footer — emblem + address, anchored to page bottom ──────────────────
-  const footerLogoW = 48;
-  const footerLogoH = 36;
-  const footerBlockH = 52;
-  const footerY = pageHeight - footerBlockH - 8;
+  // Get the final Y position after the table
+  const autoTableResult = (doc as jsPDFType & { lastAutoTable?: { finalY: number } }).lastAutoTable;
+  const finalY = autoTableResult?.finalY || cursorY;
+  cursorY = finalY + 24;
 
-  // ── Signature block — sits just above the footer separator line ───────────
+  // ── Footer — emblem + address, anchored to page bottom ──────────────────
+  const footerLogoW = 60;
+  const footerLogoH = 45;
+  const footerBlockH = 60;
+  const footerY = pageHeight - footerBlockH - 10;
+
+  // ── Signature block ──────────────────────────────────────────────────────
   const signatureDataUrl = params.signatureUrl
     ? await urlToDataUrl(params.signatureUrl)
     : null;
 
-  const sigBlockH = (signatureDataUrl ? 40 + 4 : 10) + 16 + 6;
-  let sigCursorY = footerY - sigBlockH - 10;
+  const sigBlockH = (signatureDataUrl ? 48 + 8 : 14) + 20 + 10;
+  let sigCursorY = footerY - sigBlockH - 14;
 
-  // Signatory name
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
+  if (sigCursorY < cursorY + 10) {
+    sigCursorY = cursorY + 10;
+  }
+
+  // Signatory name (bold)
+  doc.setFont('Times-Roman', 'bold');
+  doc.setFontSize(12);
   doc.text(params.signatoryName || ' ', margin, sigCursorY);
-  sigCursorY += 6;
+  sigCursorY += 8;
 
   // Optional signature image
   if (signatureDataUrl) {
-    const sigW = 110;
-    const sigH = 40;
+    const sigW = 130;
+    const sigH = 48;
     doc.addImage(
       signatureDataUrl,
       detectImageFormat(signatureDataUrl),
@@ -185,21 +222,22 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
       sigW,
       sigH,
     );
-    sigCursorY += sigH + 4;
+    sigCursorY += sigH + 8;
   } else {
-    sigCursorY += 10;
+    sigCursorY += 14;
   }
 
-  // FROM department line with underline
+  // FROM department line with underline (bold)
   const fromText = params.fromDepartment || params.from;
-  doc.setFont('helvetica', 'bold');
+  doc.setFont('Times-Roman', 'bold');
+  doc.setFontSize(12);
   doc.text(fromText, margin, sigCursorY);
   const fromWidth = doc.getTextWidth(fromText);
-  doc.setLineWidth(0.5);
+  doc.setLineWidth(0.7);
   doc.line(margin, sigCursorY + 2, margin + fromWidth, sigCursorY + 2);
 
   // ── Separator line ────────────────────────────────────────────────────────
-  doc.setLineWidth(0.5);
+  doc.setLineWidth(0.7);
   doc.setDrawColor(180, 180, 180);
   doc.line(margin, footerY, pageWidth - margin, footerY);
 
@@ -218,8 +256,8 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
   }
 
   // ── Footer text (right-aligned) ───────────────────────────────────────────
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
+  doc.setFont('Times-Roman', 'normal');
+  doc.setFontSize(8.5);
   doc.setTextColor(80, 80, 80);
   doc.text(
     'Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi',
@@ -235,9 +273,10 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
   );
 
   // Motto in dark green + bold
-  doc.setFont('helvetica', 'bold');
+  doc.setFont('Times-Roman', 'bold');
+  doc.setFontSize(9.5);
   doc.setTextColor(26, 61, 28);
-  doc.text('Justice Be Our Shield and Defender', pageWidth - margin, footerY + 34, {
+  doc.text('Justice Be Our Shield and Defender', pageWidth - margin, footerY + 38, {
     align: 'right',
   });
 

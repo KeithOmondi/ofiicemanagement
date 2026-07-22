@@ -1,4 +1,5 @@
 // src/features/helpdesk/SuperAdminHelpdesk.tsx
+
 import React, { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -81,6 +82,7 @@ import {
   submitForApproval,
   approveDocument,
   returnDocument,
+  rejectDocument,
   selectAllHelpdeskDocuments,
   selectDocumentsUploading,
   selectDocumentActionLoading,
@@ -142,6 +144,8 @@ import { toast } from 'react-hot-toast';
 import { stampPdfFromUrl } from '../../utils/pdfStamp';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+type EntityType = 'circuit' | 'bench' | 'partHeard' | 'serviceWeek' | 'otherPayment' | 'utility_memo' | 'protocol' | 'visa' | 'generalRequest' | 'medicalClaim';
 
 interface TabDef {
   key: HelpDeskTab | 'overview';
@@ -212,17 +216,6 @@ const getStatusOptions = (): Status[] => {
 };
 
 // ─── Document helpers ─────────────────────────────────────────────────────────
-
-const documentStatusColor = (status: DocumentStatus): string => {
-  const map: Record<DocumentStatus, string> = {
-    draft: 'bg-stone-100 text-stone-600 ring-stone-200',
-    pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
-    approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-    rejected: 'bg-red-50 text-red-700 ring-red-200',
-    returned: 'bg-orange-50 text-orange-700 ring-orange-200',
-  };
-  return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
-};
 
 const documentFormatIcon = (format: DocumentFormat) => {
   if (format === 'xlsx') return <FileSpreadsheet size={16} className="text-emerald-600" />;
@@ -375,8 +368,6 @@ function GoldOutlineButton({
   );
 }
 
-// ─── GoldButton – top‑level component ─────────────────────────────────────────
-
 function GoldButton({
   children,
   icon,
@@ -391,13 +382,14 @@ function GoldButton({
   type?: 'button' | 'submit';
   disabled?: boolean;
   onClick?: () => void;
-  variant?: 'default' | 'danger' | 'success' | 'outline';
+  variant?: 'default' | 'danger' | 'success' | 'outline' | 'warning';
   size?: 'sm' | 'default';
 }) {
   const styles = {
     default: 'bg-[#c9a84c] text-[#1a3d1c] hover:bg-[#b8973f]',
     danger: 'bg-red-600 text-white hover:bg-red-700',
     success: 'bg-emerald-600 text-white hover:bg-emerald-700',
+    warning: 'bg-amber-500 text-white hover:bg-amber-600',
     outline: 'border border-[#c9a84c] text-[#1a3d1c] hover:bg-[#c9a84c]/10',
   };
   const sizes = {
@@ -632,7 +624,7 @@ function TableWithActions<T extends { id: string }>({
 interface DocumentViewerModalProps {
   document: HelpdeskDocument;
   entityId: string;
-  entityType: 'circuit' | 'bench' | 'partHeard' | 'serviceWeek' | 'otherPayment';
+  entityType: EntityType;
   onClose: () => void;
   onActionComplete: () => void;
 }
@@ -653,6 +645,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   const [returnReason, setReturnReason] = useState('');
 
   const canDecide = document.status === 'pending_approval';
+  const canSendToRequester = document.status === 'approved';
 
   useEffect(() => {
     if (!currentUser) {
@@ -677,13 +670,12 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
 
       const stampedBlob = await stampPdfFromUrl(document.file_url, {
         issuer: 'REGISTRAR HIGH COURT',
-        approverName: currentUser?.full_name,
+        approverName: currentUser?.full_name || 'Super Admin',
         signatureImageBytes,
       });
 
       const safeRef = document.ref.replace(/[\\/:*?"<>|]/g, '-');
 
-      // Upload stamped version as a new linked document
       await dispatch(
         uploadHelpdeskDocument({
           blob: stampedBlob,
@@ -696,7 +688,6 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
         })
       ).unwrap();
 
-      // Also approve the original document (so it shows as approved)
       await dispatch(approveDocument({ id: document.id, comments: 'Document reviewed, stamped, and approved.' })).unwrap();
 
       toast.success('Document stamped and approved.');
@@ -709,16 +700,30 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
     }
   };
 
+  const handleRejectDocument = async () => {
+    const reason = prompt('Please provide a reason for rejecting this document:');
+    if (reason === null) return;
+    if (!reason.trim()) {
+      toast.error('Rejection reason is required.');
+      return;
+    }
+
+    try {
+      await dispatch(rejectDocument({ id: document.id, reason: reason.trim() })).unwrap();
+      toast.success('Document rejected.');
+      onActionComplete();
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to reject document.');
+    }
+  };
+
   const handleReturn = async () => {
     if (!returnReason.trim()) {
       toast.error('Please provide a reason for returning this document.');
       return;
     }
     try {
-      await dispatch(returnDocument({
-        id: document.id,
-        comments: returnReason.trim(),
-      })).unwrap();
+      await dispatch(returnDocument({ id: document.id, comments: returnReason.trim() })).unwrap();
       toast.success('Document returned to the requester.');
       onActionComplete();
     } catch (err) {
@@ -728,7 +733,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
 
   const handleDeliverToRequester = async () => {
     try {
-      toast.success('Stamped document sent back to the requester.');
+      toast.success('Stamped document ready for collection.');
       onActionComplete();
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to send the document to the requester.');
@@ -848,7 +853,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
           )}
 
           {/* Download Stamped Document */}
-          {document.status === 'approved' && document.e_stamp_url && (
+          {canSendToRequester && document.e_stamp_url && (
             <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -906,6 +911,14 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
                   }
                 >
                   {isStamping || actionsLoading ? 'Stamping…' : 'Approve & Stamp'}
+                </GoldButton>
+                <GoldButton
+                  variant="warning"
+                  onClick={handleRejectDocument}
+                  disabled={isStamping || actionsLoading || showReturnForm}
+                  icon={<XCircle size={14} />}
+                >
+                  Reject
                 </GoldButton>
                 <GoldButton
                   variant="outline"
@@ -1025,6 +1038,307 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
     </div>
   );
 };
+
+// ─── Entity Detail Modal with Document Approval ─────────────────────────────
+
+interface EntityDetailModalProps<T> {
+  item: T;
+  entityType: EntityType;
+  entityName: string;
+  onClose: () => void;
+  onEdit: () => void;
+  onStatusChange: (id: string, status: Status) => void;
+  mutating: boolean;
+  renderContent: (item: T) => React.ReactNode;
+}
+
+function EntityDetailModal<T extends { id: string; status: Status; created_at: string; updated_at: string }>({
+  item,
+  entityType,
+  entityName,
+  onClose,
+  onEdit,
+  onStatusChange,
+  mutating,
+  renderContent,
+}: EntityDetailModalProps<T>) {
+  const dispatch = useAppDispatch();
+  const allDocs = useAppSelector(selectAllHelpdeskDocuments);
+  const docs = allDocs.filter(
+    (d) => d.entity_type === entityType && d.entity_id === item.id
+  );
+  const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
+  const documentsUploading = useAppSelector(selectDocumentsUploading);
+  const documentActionLoading = useAppSelector(selectDocumentActionLoading);
+  const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
+  const isLinking = useAppSelector(selectDocumentLinking);
+
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [selectedDocForView, setSelectedDocForView] = useState<HelpdeskDocument | null>(null);
+  const [showDocViewer, setShowDocViewer] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    dispatch(fetchHelpdeskDocuments({ entity_type: entityType, entity_id: item.id }));
+  }, [dispatch, entityType, item.id]);
+
+  useEffect(() => {
+    if (showLinkPicker) {
+      dispatch(fetchHelpdeskDocuments({ unlinked: true }));
+    }
+  }, [dispatch, showLinkPicker]);
+
+  const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    const format: DocumentFormat | null =
+      ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ext === 'xlsx' ? 'xlsx' : null;
+    if (!format) {
+      toast.error('Please upload a PDF, Word (.docx), or Excel (.xlsx) file.');
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      await dispatch(
+        uploadHelpdeskDocument({
+          blob: file,
+          filename: file.name,
+          ref: `${entityType.toUpperCase()}/${item.id.slice(0, 8)}`,
+          subject: `Memo for ${entityName}`,
+          entity_type: entityType,
+          entity_id: item.id,
+          format,
+        })
+      ).unwrap();
+      toast.success('Document attached successfully.');
+      dispatch(fetchHelpdeskDocuments({ entity_type: entityType, entity_id: item.id }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to attach document.');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleLinkExisting = async (docId: string) => {
+    try {
+      await dispatch(linkHelpdeskDocument({ id: docId, entity_type: entityType, entity_id: item.id })).unwrap();
+      toast.success('Document linked successfully.');
+      setShowLinkPicker(false);
+      dispatch(fetchHelpdeskDocuments({ entity_type: entityType, entity_id: item.id }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to link document.');
+    }
+  };
+
+  const handleSendForApproval = async (docId: string) => {
+    try {
+      await dispatch(submitForApproval({ id: docId })).unwrap();
+      toast.success('Document sent to the super admin for approval.');
+      dispatch(fetchHelpdeskDocuments({ entity_type: entityType, entity_id: item.id }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to submit for approval.');
+    }
+  };
+
+  const handleViewDocument = (doc: HelpdeskDocument) => {
+    setSelectedDocForView(doc);
+    setShowDocViewer(true);
+  };
+
+  const handleCloseDocViewer = () => {
+    setShowDocViewer(false);
+    setSelectedDocForView(null);
+  };
+
+  const handleActionComplete = () => {
+    handleCloseDocViewer();
+    dispatch(fetchHelpdeskDocuments({ entity_type: entityType, entity_id: item.id }));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
+          <div>
+            <h3 className="text-lg font-semibold text-[#1a3d1c]">{entityName}</h3>
+            <p className="text-sm text-stone-500">ID: {item.id.slice(0, 8)}</p>
+          </div>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="max-h-[65vh] overflow-y-auto p-6">
+          <div className="mb-4 flex items-center gap-3">
+            <span className="text-sm text-stone-500">Status:</span>
+            <StatusDropdown
+              status={item.status}
+              onStatusChange={(s) => onStatusChange(item.id, s)}
+              disabled={mutating}
+            />
+          </div>
+
+          <div className="mb-6">{renderContent(item)}</div>
+
+          {/* ─── Documents Section ─────────────────────────────────────────────── */}
+          <div className="mt-6 border-t border-stone-200 pt-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
+                <FileText size={16} className="text-[#c9a84c]" />
+                Supporting Documents ({docs.length})
+              </h3>
+              <div className="flex gap-2">
+                <GhostButton
+                  onClick={() => setShowLinkPicker((v) => !v)}
+                  icon={<Paperclip size={14} />}
+                >
+                  Link Existing
+                </GhostButton>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.xlsx"
+                  onChange={handleAttachDocument}
+                  className="hidden"
+                  disabled={documentsUploading}
+                />
+                <GhostButton
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={documentsUploading}
+                  icon={documentsUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                >
+                  {documentsUploading ? 'Uploading…' : 'Attach Document'}
+                </GhostButton>
+              </div>
+            </div>
+
+            {showLinkPicker && (
+              <div className="mt-2 rounded-lg border border-stone-200 bg-white p-2 max-h-48 overflow-y-auto">
+                {unlinkedDocuments.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-stone-400 italic">No unlinked documents found.</p>
+                ) : (
+                  <ul className="divide-y divide-stone-100">
+                    {unlinkedDocuments.map((doc) => (
+                      <li key={doc.id} className="flex items-center justify-between gap-2 px-2 py-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {documentFormatIcon(doc.format)}
+                          <span className="truncate text-sm text-stone-700">{doc.subject}</span>
+                          <span className="shrink-0 text-[11px] text-stone-400">{doc.ref}</span>
+                        </div>
+                        <GhostButton
+                          onClick={() => handleLinkExisting(doc.id)}
+                          disabled={isLinking}
+                          icon={isLinking ? <Loader2 size={12} className="animate-spin" /> : undefined}
+                        >
+                          Attach
+                        </GhostButton>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {documentsLoading && docs.length === 0 ? (
+              <p className="mt-2 text-xs text-stone-400 italic">Loading documents…</p>
+            ) : docs.length === 0 ? (
+              <p className="mt-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-3 text-xs text-stone-400">
+                No documents attached yet. Upload or link a document above.
+              </p>
+            ) : (
+              <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
+                {docs.map((doc) => (
+                  <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {documentFormatIcon(doc.format)}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
+                        <div className="mt-0.5 flex items-center gap-2">
+                          <DocumentStatusBadge status={doc.status} />
+                          <span className="text-[11px] text-stone-400">{doc.ref}</span>
+                          <span className="text-[11px] text-stone-400 uppercase">{doc.format}</span>
+                        </div>
+                        {doc.status === 'rejected' && doc.rejection_reason && (
+                          <p className="mt-1 text-[11px] text-red-600">Reason: {doc.rejection_reason}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        onClick={() => handleViewDocument(doc)}
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800"
+                      >
+                        <Eye size={14} />
+                        View
+                      </button>
+                      <a
+                        href={doc.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
+                      >
+                        <ExternalLink size={12} />
+                        Open
+                      </a>
+                      {doc.status === 'draft' && (
+                        <GhostButton
+                          onClick={() => handleSendForApproval(doc.id)}
+                          disabled={!!documentActionLoading[doc.id]?.submitting}
+                          icon={
+                            documentActionLoading[doc.id]?.submitting ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Send size={12} />
+                            )
+                          }
+                        >
+                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
+                        </GhostButton>
+                      )}
+                      {doc.status === 'approved' && doc.e_stamp_url && (
+                        <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+                          <Stamp size={12} />
+                          Stamped
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="mt-6 border-t border-stone-100 pt-4 text-xs text-stone-400">
+            <div className="grid grid-cols-2 gap-1">
+              <span>Created: {new Date(item.created_at).toLocaleString()}</span>
+              <span>Updated: {new Date(item.updated_at).toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">
+          <GhostButton onClick={onClose}>Close</GhostButton>
+          <GoldOutlineButton icon={<Edit size={14} />} onClick={onEdit}>
+            Edit {entityName}
+          </GoldOutlineButton>
+        </div>
+      </div>
+
+      {showDocViewer && selectedDocForView && (
+        <DocumentViewerModal
+          document={selectedDocForView}
+          entityId={item.id}
+          entityType={entityType}
+          onClose={handleCloseDocViewer}
+          onActionComplete={handleActionComplete}
+        />
+      )}
+    </div>
+  );
+}
 
 // ─── Generic DSA Tab ─────────────────────────────────────────────────────────
 
@@ -1182,8 +1496,10 @@ function CircuitsTab() {
       />
 
       {showDetailModal && selectedItem && (
-        <CircuitDetailModal
+        <EntityDetailModal
           item={selectedItem}
+          entityType="circuit"
+          entityName={selectedItem.name}
           onClose={() => setShowDetailModal(false)}
           onEdit={() => {
             setShowDetailModal(false);
@@ -1191,6 +1507,26 @@ function CircuitsTab() {
           }}
           onStatusChange={handleStatusChange}
           mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Location:</span>
+                <p className="font-medium">{item.location || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Period:</span>
+                <p className="font-medium">{formatDate(item.start_date)} — {formatDate(item.end_date)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Total DSA:</span>
+                <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Members:</span>
+                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+              </div>
+            </div>
+          )}
         />
       )}
 
@@ -1207,394 +1543,18 @@ function CircuitsTab() {
   );
 }
 
-// ─── Circuit Detail Modal (with document approval) ─────────────────────────
-
-interface CircuitDetailModalProps {
-  item: Circuit;
-  onClose: () => void;
-  onEdit: () => void;
-  onStatusChange: (id: string, status: Status) => void;
-  mutating: boolean;
-}
-
-function CircuitDetailModal({ item, onClose, onEdit, onStatusChange, mutating }: CircuitDetailModalProps) {
-  const dispatch = useAppDispatch();
-  const allDocs = useAppSelector(selectAllHelpdeskDocuments);
-  const docs = allDocs.filter(
-    (d) => d.entity_type === 'circuit' && d.entity_id === item.id
-  );
-  const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
-  const documentsUploading = useAppSelector(selectDocumentsUploading);
-  const documentActionLoading = useAppSelector(selectDocumentActionLoading);
-  const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
-  const isLinking = useAppSelector(selectDocumentLinking);
-
-  const [showLinkPicker, setShowLinkPicker] = useState(false);
-  const [selectedDocForView, setSelectedDocForView] = useState<HelpdeskDocument | null>(null);
-  const [showDocViewer, setShowDocViewer] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
-  }, [dispatch, item.id]);
-
-  useEffect(() => {
-    if (showLinkPicker) {
-      dispatch(fetchHelpdeskDocuments({ unlinked: true }));
-    }
-  }, [dispatch, showLinkPicker]);
-
-  const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    const format: DocumentFormat | null =
-      ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ext === 'xlsx' ? 'xlsx' : null;
-    if (!format) {
-      toast.error('Please upload a PDF, Word (.docx), or Excel (.xlsx) file.');
-      e.target.value = '';
-      return;
-    }
-
-    try {
-      await dispatch(
-        uploadHelpdeskDocument({
-          blob: file,
-          filename: file.name,
-          ref: `CIRC/${item.id.slice(0, 8)}`,
-          subject: `Memo for ${item.name}`,
-          entity_type: 'circuit',
-          entity_id: item.id,
-          format,
-        })
-      ).unwrap();
-      toast.success('Document attached to this circuit.');
-      dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to attach document.');
-    } finally {
-      e.target.value = '';
-    }
-  };
-
-  const handleLinkExisting = async (docId: string) => {
-    try {
-      await dispatch(linkHelpdeskDocument({ id: docId, entity_type: 'circuit', entity_id: item.id })).unwrap();
-      toast.success('Document linked to this circuit.');
-      setShowLinkPicker(false);
-      dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to link document.');
-    }
-  };
-
-  const handleSendForApproval = async (docId: string) => {
-    try {
-      await dispatch(submitForApproval({ id: docId })).unwrap();
-      toast.success('Document sent to the super admin for approval.');
-      dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to submit for approval.');
-    }
-  };
-
-  const handleViewDocument = (doc: HelpdeskDocument) => {
-    setSelectedDocForView(doc);
-    setShowDocViewer(true);
-  };
-
-  const handleCloseDocViewer = () => {
-    setShowDocViewer(false);
-    setSelectedDocForView(null);
-  };
-
-  const handleActionComplete = () => {
-    handleCloseDocViewer();
-    dispatch(fetchHelpdeskDocuments({ entity_type: 'circuit', entity_id: item.id }));
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
-          <div>
-            <h3 className="text-lg font-semibold text-[#1a3d1c]">{item.name}</h3>
-            {item.location && (
-              <p className="text-sm text-stone-500 flex items-center gap-1">
-                <MapPin size={14} />
-                {item.location}
-              </p>
-            )}
-          </div>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="max-h-[65vh] overflow-y-auto p-6">
-          <div className="mb-6 grid grid-cols-2 gap-4 rounded-lg bg-stone-50 p-4">
-            <div>
-              <p className="text-xs text-stone-400">Status</p>
-              <div className="mt-1">
-                <StatusDropdown
-                  status={item.status}
-                  onStatusChange={(s) => onStatusChange(item.id, s)}
-                  disabled={mutating}
-                />
-              </div>
-            </div>
-            <div>
-              <p className="text-xs text-stone-400">Total DSA</p>
-              <p className="text-lg font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
-            </div>
-            <div>
-              <p className="text-xs text-stone-400">Period</p>
-              <p className="text-sm font-medium text-stone-800">
-                {formatDate(item.start_date)} — {formatDate(item.end_date)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-stone-400">Members</p>
-              <p className="text-sm font-medium text-stone-800">
-                {item.dsa_details?.length || 0} judges
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <h4 className="mb-3 text-sm font-semibold text-stone-800 flex items-center gap-2">
-              <Users size={16} className="text-[#c9a84c]" />
-              DSA Details
-              <span className="text-xs font-normal text-stone-400">
-                ({item.dsa_details?.length || 0} members)
-              </span>
-            </h4>
-
-            {!item.dsa_details || item.dsa_details.length === 0 ? (
-              <div className="rounded-lg border border-stone-200 bg-stone-50 p-8 text-center">
-                <p className="text-sm text-stone-400">No DSA details available.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto rounded-lg border border-stone-200">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-stone-200 bg-stone-50">
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">#</th>
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Particulars</th>
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">PJ Number</th>
-                      <th className="px-4 py-2 text-left text-xs font-semibold uppercase text-stone-500">Designation</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Rate (KES)</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Days</th>
-                      <th className="px-4 py-2 text-right text-xs font-semibold uppercase text-stone-500">Total (KES)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-stone-100">
-                    {item.dsa_details.map((detail, index) => (
-                      <tr key={detail.id} className="hover:bg-stone-50 transition-colors">
-                        <td className="px-4 py-2 text-center text-stone-400">{index + 1}</td>
-                        <td className="px-4 py-2 font-medium text-stone-800">{detail.judge_name}</td>
-                        <td className="px-4 py-2 text-stone-600">{detail.pj_number}</td>
-                        <td className="px-4 py-2 text-stone-600">{detail.designation || '—'}</td>
-                        <td className="px-4 py-2 text-right text-stone-600">
-                          {detail.dsa_per_day.toLocaleString()}
-                        </td>
-                        <td className="px-4 py-2 text-right text-stone-600">{detail.days}</td>
-                        <td className="px-4 py-2 text-right font-medium text-emerald-700">
-                          {detail.total.toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-stone-200 bg-stone-50">
-                      <td colSpan={6} className="px-4 py-3 text-right font-bold text-stone-800">
-                        Grand Total
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold text-emerald-700">
-                        {formatCurrency(item.total_dsa)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* ─── Document Section ─────────────────────────────────────────────── */}
-          <div className="mt-6">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-stone-800">Supporting Document</h3>
-              <div className="flex gap-2">
-                <GhostButton
-                  onClick={() => setShowLinkPicker((v) => !v)}
-                  icon={<Paperclip size={14} />}
-                >
-                  Link Existing
-                </GhostButton>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf,.docx,.xlsx"
-                  onChange={handleAttachDocument}
-                  className="hidden"
-                  disabled={documentsUploading}
-                />
-                <GhostButton
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={documentsUploading}
-                  icon={documentsUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                >
-                  {documentsUploading ? 'Uploading…' : 'Attach Document'}
-                </GhostButton>
-              </div>
-            </div>
-
-            {showLinkPicker && (
-              <div className="mt-2 rounded-lg border border-stone-200 bg-white p-2">
-                {unlinkedDocuments.length === 0 ? (
-                  <p className="px-2 py-2 text-xs text-stone-400 italic">No unlinked documents found.</p>
-                ) : (
-                  <ul className="divide-y divide-stone-100">
-                    {unlinkedDocuments.map((doc) => (
-                      <li key={doc.id} className="flex items-center justify-between gap-2 px-2 py-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          {documentFormatIcon(doc.format)}
-                          <span className="truncate text-sm text-stone-700">{doc.subject}</span>
-                          <span className="shrink-0 text-[11px] text-stone-400">{doc.ref}</span>
-                        </div>
-                        <GhostButton
-                          onClick={() => handleLinkExisting(doc.id)}
-                          disabled={isLinking}
-                          icon={isLinking ? <Loader2 size={12} className="animate-spin" /> : undefined}
-                        >
-                          Attach
-                        </GhostButton>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-
-            {documentsLoading && docs.length === 0 ? (
-              <p className="mt-2 text-xs text-stone-400 italic">Checking for an attached document…</p>
-            ) : docs.length === 0 ? (
-              <p className="mt-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-3 text-xs text-stone-400">
-                No document attached yet. Generate one from the memo step when editing this circuit, link an existing one, or attach a file here.
-              </p>
-            ) : (
-              <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
-                {docs.map((doc) => (
-                  <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                    <div className="flex min-w-0 items-center gap-2">
-                      {documentFormatIcon(doc.format)}
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
-                        <div className="mt-0.5 flex items-center gap-2">
-                          <span
-                            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
-                          >
-                            {doc.status.replace('_', ' ')}
-                          </span>
-                          <span className="text-[11px] text-stone-400">{doc.ref}</span>
-                        </div>
-                        {doc.status === 'rejected' && doc.rejection_reason && (
-                          <p className="mt-1 text-[11px] text-red-600">Reason: {doc.rejection_reason}</p>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <button
-                        onClick={() => handleViewDocument(doc)}
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800"
-                      >
-                        <Eye size={14} />
-                        View
-                      </button>
-                      <a
-                        href={doc.file_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
-                      >
-                        <ExternalLink size={12} />
-                        Open
-                      </a>
-                      {doc.status === 'draft' && (
-                        <GhostButton
-                          onClick={() => handleSendForApproval(doc.id)}
-                          disabled={!!documentActionLoading[doc.id]?.submitting}
-                          icon={
-                            documentActionLoading[doc.id]?.submitting ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Send size={12} />
-                            )
-                          }
-                        >
-                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
-                        </GhostButton>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="mt-6 border-t border-stone-100 pt-4">
-            <div className="grid grid-cols-2 gap-2 text-xs text-stone-400">
-              <div>
-                <span className="font-medium">Created:</span>{' '}
-                {new Date(item.created_at).toLocaleString()}
-              </div>
-              <div>
-                <span className="font-medium">Updated:</span>{' '}
-                {new Date(item.updated_at).toLocaleString()}
-              </div>
-              <div className="col-span-2">
-                <span className="font-medium">ID:</span> {item.id}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">
-          <GhostButton onClick={onClose}>Close</GhostButton>
-          <GoldOutlineButton icon={<Edit size={14} />} onClick={onEdit}>
-            Edit Circuit
-          </GoldOutlineButton>
-        </div>
-      </div>
-
-      {/* Document Viewer Modal */}
-      {showDocViewer && selectedDocForView && (
-        <DocumentViewerModal
-          document={selectedDocForView}
-          entityId={item.id}
-          entityType="circuit"
-          onClose={handleCloseDocViewer}
-          onActionComplete={handleActionComplete}
-        />
-      )}
-    </div>
-  );
-}
-
 // ─── Other Payments Tab ──────────────────────────────────────────────────────
 
 function OtherPaymentsTab() {
-  // ... (identical to previous, omitted for brevity)
-  // We'll keep the same pattern as before – it doesn't need document approval yet.
-  // But for completeness, we include a placeholder that reuses the same structure.
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllOtherPayments);
   const loading = useAppSelector((state) => state.helpdesk.loading.otherPayments);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState<OtherPayment | null>(null);
+  const [selectedItem, setSelectedItem] = useState<OtherPayment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -1605,6 +1565,11 @@ function OtherPaymentsTab() {
   const handleEdit = (item: OtherPayment) => {
     setEditingItem(item);
     setShowModal(true);
+  };
+
+  const handleView = (item: OtherPayment) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -1639,7 +1604,14 @@ function OtherPaymentsTab() {
         ]}
         renderRow={(item: OtherPayment) => (
           <>
-            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
+            <td className="px-3 py-2">
+              <button
+                onClick={() => handleView(item)}
+                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+              >
+                {item.name}
+              </button>
+            </td>
             <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.description || '—'}</td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
@@ -1656,6 +1628,7 @@ function OtherPaymentsTab() {
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
+        onView={handleView}
       />
 
       <CircuitModal
@@ -1667,6 +1640,41 @@ function OtherPaymentsTab() {
         mode="otherPayment"
         editingItem={editingItem}
       />
+
+      {showDetailModal && selectedItem && (
+        <EntityDetailModal
+          item={selectedItem}
+          entityType="otherPayment"
+          entityName={selectedItem.name}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Description:</span>
+                <p className="font-medium">{item.description || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Period:</span>
+                <p className="font-medium">{formatDate(item.start_date)} — {formatDate(item.end_date)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Total DSA:</span>
+                <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Members:</span>
+                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -1684,14 +1692,15 @@ function OtherPaymentsTab() {
 // ─── Benches Tab ────────────────────────────────────────────────────────────
 
 function BenchesTab() {
-  // ... (similar to OtherPaymentsTab, but for benches)
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllBenches);
   const loading = useAppSelector((state) => state.helpdesk.loading.benches);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState<SpecialBench | null>(null);
+  const [selectedItem, setSelectedItem] = useState<SpecialBench | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -1702,6 +1711,11 @@ function BenchesTab() {
   const handleEdit = (item: SpecialBench) => {
     setEditingItem(item);
     setShowModal(true);
+  };
+
+  const handleView = (item: SpecialBench) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -1735,7 +1749,14 @@ function BenchesTab() {
         ]}
         renderRow={(item: SpecialBench) => (
           <>
-            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
+            <td className="px-3 py-2">
+              <button
+                onClick={() => handleView(item)}
+                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+              >
+                {item.name}
+              </button>
+            </td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
             <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
@@ -1751,6 +1772,7 @@ function BenchesTab() {
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
+        onView={handleView}
       />
 
       <CircuitModal
@@ -1762,6 +1784,41 @@ function BenchesTab() {
         mode="bench"
         editingItem={editingItem}
       />
+
+      {showDetailModal && selectedItem && (
+        <EntityDetailModal
+          item={selectedItem}
+          entityType="bench"
+          entityName={selectedItem.name}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Bench Name:</span>
+                <p className="font-medium">{item.name}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Period:</span>
+                <p className="font-medium">{formatDate(item.start_date)} — {formatDate(item.end_date)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Total DSA:</span>
+                <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Members:</span>
+                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -1779,14 +1836,15 @@ function BenchesTab() {
 // ─── Part-Heards Tab ─────────────────────────────────────────────────────────
 
 function PartHeardTab() {
-  // ... (similar to above)
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllPartHeards);
   const loading = useAppSelector((state) => state.helpdesk.loading.partHeards);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState<PartHeard | null>(null);
+  const [selectedItem, setSelectedItem] = useState<PartHeard | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -1797,6 +1855,11 @@ function PartHeardTab() {
   const handleEdit = (item: PartHeard) => {
     setEditingItem(item);
     setShowModal(true);
+  };
+
+  const handleView = (item: PartHeard) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -1831,7 +1894,14 @@ function PartHeardTab() {
         ]}
         renderRow={(item: PartHeard) => (
           <>
-            <td className="px-3 py-2 font-medium text-stone-800">{item.case_reference}</td>
+            <td className="px-3 py-2">
+              <button
+                onClick={() => handleView(item)}
+                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+              >
+                {item.case_reference}
+              </button>
+            </td>
             <td className="px-3 py-2 text-stone-600">{item.approved_by || '—'}</td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
@@ -1848,6 +1918,7 @@ function PartHeardTab() {
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
+        onView={handleView}
       />
 
       <CircuitModal
@@ -1859,6 +1930,41 @@ function PartHeardTab() {
         mode="partHeard"
         editingItem={editingItem}
       />
+
+      {showDetailModal && selectedItem && (
+        <EntityDetailModal
+          item={selectedItem}
+          entityType="partHeard"
+          entityName={selectedItem.case_reference}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Approved By:</span>
+                <p className="font-medium">{item.approved_by || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Period:</span>
+                <p className="font-medium">{formatDate(item.start_date)} — {formatDate(item.end_date)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Total DSA:</span>
+                <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Members:</span>
+                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -1876,14 +1982,15 @@ function PartHeardTab() {
 // ─── Service Week Tab ────────────────────────────────────────────────────────
 
 function ServiceWeekTab() {
-  // ... (similar)
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllServiceWeeks);
   const loading = useAppSelector((state) => state.helpdesk.loading.serviceWeeks);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState<ServiceWeek | null>(null);
+  const [selectedItem, setSelectedItem] = useState<ServiceWeek | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -1894,6 +2001,11 @@ function ServiceWeekTab() {
   const handleEdit = (item: ServiceWeek) => {
     setEditingItem(item);
     setShowModal(true);
+  };
+
+  const handleView = (item: ServiceWeek) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -1927,7 +2039,14 @@ function ServiceWeekTab() {
         ]}
         renderRow={(item: ServiceWeek) => (
           <>
-            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
+            <td className="px-3 py-2">
+              <button
+                onClick={() => handleView(item)}
+                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+              >
+                {item.name}
+              </button>
+            </td>
             <td className="px-3 py-2 text-stone-600">{item.week_number}</td>
             <td className="px-3 py-2 text-stone-600">{item.year}</td>
             <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
@@ -1943,6 +2062,7 @@ function ServiceWeekTab() {
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
+        onView={handleView}
       />
 
       <CircuitModal
@@ -1954,6 +2074,41 @@ function ServiceWeekTab() {
         mode="serviceWeek"
         editingItem={editingItem}
       />
+
+      {showDetailModal && selectedItem && (
+        <EntityDetailModal
+          item={selectedItem}
+          entityType="serviceWeek"
+          entityName={selectedItem.name}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Week Number:</span>
+                <p className="font-medium">Week {item.week_number}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Year:</span>
+                <p className="font-medium">{item.year}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Total DSA:</span>
+                <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Members:</span>
+                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -1971,14 +2126,15 @@ function ServiceWeekTab() {
 // ─── Medical Claims Tab ──────────────────────────────────────────────────────
 
 function MedicalClaimsTab() {
-  // ... (similar)
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllMedicalClaims);
   const loading = useAppSelector((state) => state.helpdesk.loading.medicalClaims);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState<MedicalClaim | null>(null);
+  const [selectedItem, setSelectedItem] = useState<MedicalClaim | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -1989,6 +2145,11 @@ function MedicalClaimsTab() {
   const handleEdit = (item: MedicalClaim) => {
     setEditingItem(item);
     setShowModal(true);
+  };
+
+  const handleView = (item: MedicalClaim) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -2033,7 +2194,14 @@ function MedicalClaimsTab() {
           renderRow={(item: MedicalClaim) => (
             <>
               <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.officer_name}</td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.officer_name}
+                </button>
+              </td>
               <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.claim_amount)}</td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.date_forwarded_dhr)}</td>
               <td className="px-3 py-2 text-center">
@@ -2049,6 +2217,7 @@ function MedicalClaimsTab() {
           onEdit={handleEdit}
           onDelete={(id) => setDeleteTarget(id)}
           mutating={mutating}
+          onView={handleView}
         />
       </Panel>
 
@@ -2061,6 +2230,41 @@ function MedicalClaimsTab() {
         mode="medical"
         editingItem={editingItem}
       />
+
+      {showDetailModal && selectedItem && (
+        <EntityDetailModal
+          item={selectedItem}
+          entityType="medicalClaim"
+          entityName={selectedItem.officer_name}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Claim Amount:</span>
+                <p className="font-bold text-emerald-700">{formatCurrency(item.claim_amount)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Date Forwarded to DHR:</span>
+                <p className="font-medium">{formatDate(item.date_forwarded_dhr)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Remarks:</span>
+                <p className="font-medium">{item.remarks || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">S/No.:</span>
+                <p className="font-medium">{item.s_no || '—'}</p>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -2078,14 +2282,15 @@ function MedicalClaimsTab() {
 // ─── General Requests Tab ────────────────────────────────────────────────────
 
 function GeneralRequestsTab() {
-  // ... (similar)
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllGeneralRequests);
   const loading = useAppSelector((state) => state.helpdesk.loading.generalRequests);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState<GeneralRequest | null>(null);
+  const [selectedItem, setSelectedItem] = useState<GeneralRequest | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -2096,6 +2301,11 @@ function GeneralRequestsTab() {
   const handleEdit = (item: GeneralRequest) => {
     setEditingItem(item);
     setShowModal(true);
+  };
+
+  const handleView = (item: GeneralRequest) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -2115,7 +2325,7 @@ function GeneralRequestsTab() {
   return (
     <>
       <Panel
-        title="General Requests"
+        title="General / Personnel Requests"
         icon={<FileText className="h-4 w-4" />}
         action={
           <div className="flex gap-2">
@@ -2141,7 +2351,14 @@ function GeneralRequestsTab() {
           renderRow={(item: GeneralRequest) => (
             <>
               <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.judge_name}
+                </button>
+              </td>
               <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.request}</td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
               <td className="px-3 py-2 text-stone-600">{item.officer_assigned || '—'}</td>
@@ -2158,6 +2375,7 @@ function GeneralRequestsTab() {
           onEdit={handleEdit}
           onDelete={(id) => setDeleteTarget(id)}
           mutating={mutating}
+          onView={handleView}
         />
       </Panel>
 
@@ -2170,6 +2388,41 @@ function GeneralRequestsTab() {
         mode="general"
         editingItem={editingItem}
       />
+
+      {showDetailModal && selectedItem && (
+        <EntityDetailModal
+          item={selectedItem}
+          entityType="generalRequest"
+          entityName={selectedItem.judge_name}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Request:</span>
+                <p className="font-medium">{item.request}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Date Received:</span>
+                <p className="font-medium">{formatDate(item.date_received)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Officer Assigned:</span>
+                <p className="font-medium">{item.officer_assigned || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Remarks:</span>
+                <p className="font-medium">{item.remarks || '—'}</p>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -2187,14 +2440,15 @@ function GeneralRequestsTab() {
 // ─── Visa Tab ─────────────────────────────────────────────────────────────────
 
 function VisaTab() {
-  // ... (similar)
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllVisaRequests);
   const loading = useAppSelector((state) => state.helpdesk.loading.visa);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState<VisaRequest | null>(null);
+  const [selectedItem, setSelectedItem] = useState<VisaRequest | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -2205,6 +2459,11 @@ function VisaTab() {
   const handleEdit = (item: VisaRequest) => {
     setEditingItem(item);
     setShowModal(true);
+  };
+
+  const handleView = (item: VisaRequest) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -2252,7 +2511,14 @@ function VisaTab() {
           renderRow={(item: VisaRequest) => (
             <>
               <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.judge_name}
+                </button>
+              </td>
               <td className="px-3 py-2 text-stone-600">{item.destination_country}</td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.date_of_travel)}</td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.date_of_return)}</td>
@@ -2271,6 +2537,7 @@ function VisaTab() {
           onEdit={handleEdit}
           onDelete={(id) => setDeleteTarget(id)}
           mutating={mutating}
+          onView={handleView}
         />
       </Panel>
 
@@ -2282,6 +2549,53 @@ function VisaTab() {
         }}
         editingItem={editingItem}
       />
+
+      {showDetailModal && selectedItem && (
+        <EntityDetailModal
+          item={selectedItem}
+          entityType="visa"
+          entityName={selectedItem.judge_name}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Destination:</span>
+                <p className="font-medium">{item.destination_country}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Visa Type:</span>
+                <p className="font-medium">{item.visa_type}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Travel Date:</span>
+                <p className="font-medium">{formatDate(item.date_of_travel)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Return Date:</span>
+                <p className="font-medium">{formatDate(item.date_of_return)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Purpose:</span>
+                <p className="font-medium">{item.purpose_of_travel || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Remarks:</span>
+                <p className="font-medium">{item.remarks || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">S/No.:</span>
+                <p className="font-medium">{item.s_no || '—'}</p>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -2299,14 +2613,15 @@ function VisaTab() {
 // ─── Protocol Tab ─────────────────────────────────────────────────────────────
 
 function ProtocolTab() {
-  // ... (similar)
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllProtocolEvents);
   const loading = useAppSelector((state) => state.helpdesk.loading.protocol);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState<ProtocolEvent | null>(null);
+  const [selectedItem, setSelectedItem] = useState<ProtocolEvent | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -2317,6 +2632,11 @@ function ProtocolTab() {
   const handleEdit = (item: ProtocolEvent) => {
     setEditingItem(item);
     setShowModal(true);
+  };
+
+  const handleView = (item: ProtocolEvent) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -2364,7 +2684,14 @@ function ProtocolTab() {
           renderRow={(item: ProtocolEvent) => (
             <>
               <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.activity}</td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.activity}
+                </button>
+              </td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.period_from)}</td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.period_to)}</td>
               <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.officers_assigned || '—'}</td>
@@ -2383,9 +2710,7 @@ function ProtocolTab() {
           onEdit={handleEdit}
           onDelete={(id) => setDeleteTarget(id)}
           mutating={mutating}
-          onView={(item) => {
-            console.log('View protocol:', item);
-          }}
+          onView={handleView}
         />
       </Panel>
 
@@ -2397,6 +2722,49 @@ function ProtocolTab() {
         }}
         editingItem={editingItem}
       />
+
+      {showDetailModal && selectedItem && (
+        <EntityDetailModal
+          item={selectedItem}
+          entityType="protocol"
+          entityName={selectedItem.activity}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Period:</span>
+                <p className="font-medium">{formatDate(item.period_from)} — {formatDate(item.period_to)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Officers Assigned:</span>
+                <p className="font-medium">{item.officers_assigned || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">DSA Required:</span>
+                <p className="font-medium">{item.dsa_required ? 'Yes' : 'No'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Total DSA:</span>
+                <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Members:</span>
+                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+              </div>
+              <div className="col-span-2">
+                <span className="text-stone-500">Remarks:</span>
+                <p className="font-medium">{item.remarks || '—'}</p>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -2411,272 +2779,9 @@ function ProtocolTab() {
   );
 }
 
-// ─── Overview Tab ─────────────────────────────────────────────────────────────
-
-function OverviewTab() {
-  const stats = useAppSelector(selectHelpDeskStats);
-  const loading = useAppSelector(selectStatsLoading);
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          icon={<BarChart3 className="h-5 w-5" />}
-          value={stats?.total_records ?? 0}
-          label="Total Records"
-          sub="Across all modules"
-          loading={loading}
-        />
-        <StatCard
-          icon={<Clock3 className="h-5 w-5" />}
-          value={stats?.in_progress ?? 0}
-          label="In Progress"
-          sub="Payments pending"
-          loading={loading}
-        />
-        <StatCard
-          icon={<ShieldCheck className="h-5 w-5" />}
-          value={stats?.visa_active ?? 0}
-          label="Visa Active"
-          sub="Pending outcome"
-          loading={loading}
-        />
-        <StatCard
-          icon={<Stamp className="h-5 w-5" />}
-          value={stats?.protocol_pending ?? 0}
-          label="Protocol Pending"
-          sub="Awaiting review/sign"
-          loading={loading}
-        />
-      </div>
-
-      
-    </div>
-  );
-}
-
-// ─── Utilities Tab ───────────────────────────────────────────────────────────
-
-function UtilitiesTab({
-  onViewJudge,
-}: {
-  onViewJudge?: (judgeName: string) => void;
-}) {
-  // ... (existing, unchanged)
-  const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllUtilities);
-  const loading = useAppSelector((state) => state.helpdesk.loading.utilities);
-  const mutating = useAppSelector(selectHelpDeskMutating);
-
-  const [showModal, setShowModal] = useState(false);
-  const [editingItem, setEditingItem] = useState<JudgeUtility | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [showMemoModal, setShowMemoModal] = useState(false);
-
-  const handleAdd = () => {
-    setEditingItem(null);
-    setShowModal(true);
-  };
-
-  const handleEdit = (item: JudgeUtility) => {
-    setEditingItem(item);
-    setShowModal(true);
-  };
-
-  const handleCloseModal = () => {
-    setShowModal(false);
-    setEditingItem(null);
-  };
-
-  const handleStatusChange = async (utilityId: string, itemId: string, status: UtilityStatus) => {
-    await dispatch(updateUtilityItem({
-      id: utilityId,
-      itemId: itemId,
-      updates: { status }
-    }));
-    await dispatch(fetchUtilities({}));
-    await dispatch(fetchHelpDeskStats());
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    await dispatch(deleteUtility(deleteTarget));
-    await dispatch(fetchUtilities({}));
-    await dispatch(fetchHelpDeskStats());
-    setDeleteTarget(null);
-  };
-
-  const handleView = (item: JudgeUtility) => {
-    if (onViewJudge) {
-      onViewJudge(item.judge_name);
-    }
-  };
-
-  return (
-    <>
-      <Panel
-        title="Judge Utilities"
-        icon={<Wallet className="h-4 w-4" />}
-        action={
-          <div className="flex gap-2">
-            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
-            <GoldOutlineButton icon={<FileText className="h-3.5 w-3.5" />} onClick={() => setShowMemoModal(true)}>
-              Generate Memo
-            </GoldOutlineButton>
-            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
-              Add Utility
-            </GoldOutlineButton>
-          </div>
-        }
-      >
-        <TableWithActions
-          data={data}
-          loading={loading}
-          columns={[
-            { key: 'judge_name', label: 'Judge' },
-            { key: 'requisition', label: 'Requisition #' },
-            { key: 'utility_type', label: 'Type' },
-            { key: 'amount', label: 'Amount', align: 'right' },
-            { key: 'period', label: 'Period' },
-            { key: 'status', label: 'Status', align: 'center' },
-          ]}
-          renderRow={(utility: JudgeUtility) => {
-            const firstItem = utility.items?.[0];
-            return (
-              <>
-                <td className="px-3 py-2 font-medium text-stone-800">{utility.judge_name}</td>
-                <td className="px-3 py-2 text-stone-600">
-                  {firstItem?.requisition_number || '—'}
-                </td>
-                <td className="px-3 py-2 text-stone-600">
-                  {firstItem?.utility_type || '—'}
-                </td>
-                <td className="px-3 py-2 text-right text-stone-600">
-                  {firstItem ? formatCurrency(firstItem.amount) : '—'}
-                </td>
-                <td className="px-3 py-2 text-stone-600">
-                  {firstItem?.period || '—'}
-                </td>
-                <td className="px-3 py-2 text-center">
-                  {firstItem ? (
-                    <UtilityStatusDropdown
-                      status={firstItem.status}
-                      onStatusChange={(s) => handleStatusChange(utility.id, firstItem.id, s)}
-                      disabled={mutating}
-                    />
-                  ) : (
-                    <span className="text-xs text-stone-400">No items</span>
-                  )}
-                </td>
-              </>
-            );
-          }}
-          onEdit={handleEdit}
-          onDelete={(id) => setDeleteTarget(id)}
-          mutating={mutating}
-          onView={handleView}
-        />
-      </Panel>
-
-      <UtilitiesModal
-        isOpen={showModal}
-        onClose={handleCloseModal}
-        editingUtility={editingItem}
-      />
-
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete Utility Entry?"
-          message="This action cannot be undone. The entry will be permanently removed."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          loading={mutating}
-        />
-      )}
-
-      <UtilitiesMemoModal
-        isOpen={showMemoModal}
-        onClose={() => setShowMemoModal(false)}
-        judges={data}
-      />
-    </>
-  );
-}
-
-// ─── Utility Status Dropdown ─────────────────────────────────────────────────
-
-function UtilityStatusDropdown({
-  status,
-  onStatusChange,
-  disabled,
-}: {
-  status: UtilityStatus;
-  onStatusChange: (status: UtilityStatus) => void;
-  disabled?: boolean;
-}) {
-  const options: UtilityStatus[] = [
-    'Awaiting',
-    'Awaiting Documentation',
-    'Awaiting Funding',
-    'In Process',
-    'Approved',
-    'Paid',
-    'Payment NA',
-  ];
-
-  const getStatusColor = (s: UtilityStatus): string => {
-    const map: Record<UtilityStatus, string> = {
-      Awaiting: 'bg-stone-100 text-stone-700 border-stone-200',
-      'Awaiting Documentation': 'bg-amber-50 text-amber-700 border-amber-200',
-      'Awaiting Funding': 'bg-amber-50 text-amber-700 border-amber-200',
-      'In Process': 'bg-blue-50 text-blue-700 border-blue-200',
-      Approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-      Paid: 'bg-green-50 text-green-700 border-green-200',
-      'Payment NA': 'bg-stone-100 text-stone-500 border-stone-200',
-    };
-    return map[s] || 'bg-stone-50 text-stone-600 border-stone-200';
-  };
-
-  const getStatusIcon = (s: UtilityStatus): React.ReactNode => {
-    switch (s) {
-      case 'Approved':
-      case 'Paid':
-        return <CheckCircle className="h-3 w-3" />;
-      case 'Awaiting':
-      case 'Awaiting Documentation':
-      case 'Awaiting Funding':
-      case 'In Process':
-        return <ClockIcon className="h-3 w-3" />;
-      case 'Payment NA':
-        return <XCircle className="h-3 w-3" />;
-      default:
-        return <AlertCircle className="h-3 w-3" />;
-    }
-  };
-
-  return (
-    <div className="inline-flex items-center gap-1.5">
-      <span className="text-stone-500">{getStatusIcon(status)}</span>
-      <select
-        value={status}
-        onChange={(e) => onStatusChange(e.target.value as UtilityStatus)}
-        disabled={disabled}
-        className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${getStatusColor(status)} focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] disabled:opacity-50 disabled:cursor-not-allowed`}
-      >
-        {options.map((opt) => (
-          <option key={opt} value={opt}>
-            {opt}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
 // ─── Club Tab ─────────────────────────────────────────────────────────────────
 
 function ClubTab() {
-  // ... (unchanged)
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllClubMemberships);
   const loading = useAppSelector((state) => state.helpdesk.loading.club);
@@ -2791,6 +2896,238 @@ function ClubTab() {
   );
 }
 
+// ─── Utilities Tab ───────────────────────────────────────────────────────────
+
+// ─── Utilities Tab ───────────────────────────────────────────────────────────
+
+// ─── Utilities Tab ───────────────────────────────────────────────────────────
+
+function UtilitiesTab({
+  onViewJudge,
+}: {
+  onViewJudge?: (judgeName: string) => void;
+}) {
+  const dispatch = useAppDispatch();
+  const data = useAppSelector(selectAllUtilities);
+  const loading = useAppSelector((state) => state.helpdesk.loading.utilities);
+  const mutating = useAppSelector(selectHelpDeskMutating);
+
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<JudgeUtility | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [showMemoModal, setShowMemoModal] = useState(false);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: JudgeUtility) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowModal(false);
+    setEditingItem(null);
+  };
+
+  const handleStatusChange = async (utilityId: string, itemId: string, status: UtilityStatus) => {
+    await dispatch(updateUtilityItem({
+      id: utilityId,
+      itemId: itemId,
+      updates: { status }
+    }));
+    await dispatch(fetchUtilities({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deleteUtility(deleteTarget));
+    await dispatch(fetchUtilities({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
+  const handleView = (item: JudgeUtility) => {
+    if (onViewJudge) {
+      onViewJudge(item.judge_name);
+    }
+  };
+
+  // Fixed: onMemoGenerated expects (docId: string) => void
+  const handleMemoGenerated = (docId: string) => {
+    console.log('Memo generated with ID:', docId);
+    toast.success('Memo generated successfully');
+    setShowMemoModal(false);
+    // Optionally refresh the utilities list
+    dispatch(fetchUtilities({}));
+  };
+
+  return (
+    <>
+      <Panel
+        title="Judge Utilities"
+        icon={<Wallet className="h-4 w-4" />}
+        action={
+          <div className="flex gap-2">
+            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
+            <GoldOutlineButton icon={<FileText className="h-3.5 w-3.5" />} onClick={() => setShowMemoModal(true)}>
+              Generate Memo
+            </GoldOutlineButton>
+            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
+              Add Utility
+            </GoldOutlineButton>
+          </div>
+        }
+      >
+        <TableWithActions
+          data={data}
+          loading={loading}
+          columns={[
+            { key: 'judge_name', label: 'Judge' },
+            { key: 'requisition', label: 'Requisition #' },
+            { key: 'utility_type', label: 'Type' },
+            { key: 'amount', label: 'Amount', align: 'right' },
+            { key: 'period', label: 'Period' },
+            { key: 'status', label: 'Status', align: 'center' },
+          ]}
+          renderRow={(utility: JudgeUtility) => {
+            const firstItem = utility.items?.[0];
+            return (
+              <>
+                <td className="px-3 py-2 font-medium text-stone-800">{utility.judge_name}</td>
+                <td className="px-3 py-2 text-stone-600">
+                  {firstItem?.requisition_number || '—'}
+                </td>
+                <td className="px-3 py-2 text-stone-600">
+                  {firstItem?.utility_type || '—'}
+                </td>
+                <td className="px-3 py-2 text-right text-stone-600">
+                  {firstItem ? formatCurrency(firstItem.amount) : '—'}
+                </td>
+                <td className="px-3 py-2 text-stone-600">
+                  {firstItem?.period || '—'}
+                </td>
+                <td className="px-3 py-2 text-center">
+                  {firstItem ? (
+                    <UtilityStatusDropdown
+                      status={firstItem.status}
+                      onStatusChange={(s) => handleStatusChange(utility.id, firstItem.id, s)}
+                      disabled={mutating}
+                    />
+                  ) : (
+                    <span className="text-xs text-stone-400">No items</span>
+                  )}
+                </td>
+              </>
+            );
+          }}
+          onEdit={handleEdit}
+          onDelete={(id) => setDeleteTarget(id)}
+          mutating={mutating}
+          onView={handleView}
+        />
+      </Panel>
+
+      <UtilitiesModal
+        isOpen={showModal}
+        onClose={handleCloseModal}
+        editingUtility={editingItem}
+      />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Utility Entry?"
+          message="This action cannot be undone. The entry will be permanently removed."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+
+      <UtilitiesMemoModal
+        isOpen={showMemoModal}
+        onClose={() => setShowMemoModal(false)}
+        judges={data}
+        memoType="all"
+        onMemoGenerated={handleMemoGenerated}
+      />
+    </>
+  );
+}
+
+// ─── Utility Status Dropdown ─────────────────────────────────────────────────
+
+function UtilityStatusDropdown({
+  status,
+  onStatusChange,
+  disabled,
+}: {
+  status: UtilityStatus;
+  onStatusChange: (status: UtilityStatus) => void;
+  disabled?: boolean;
+}) {
+  const options: UtilityStatus[] = [
+    'Awaiting',
+    'Awaiting Documentation',
+    'Awaiting Funding',
+    'In Process',
+    'Approved',
+    'Paid',
+    'Payment NA',
+  ];
+
+  const getStatusColor = (s: UtilityStatus): string => {
+    const map: Record<UtilityStatus, string> = {
+      Awaiting: 'bg-stone-100 text-stone-700 border-stone-200',
+      'Awaiting Documentation': 'bg-amber-50 text-amber-700 border-amber-200',
+      'Awaiting Funding': 'bg-amber-50 text-amber-700 border-amber-200',
+      'In Process': 'bg-blue-50 text-blue-700 border-blue-200',
+      Approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      Paid: 'bg-green-50 text-green-700 border-green-200',
+      'Payment NA': 'bg-stone-100 text-stone-500 border-stone-200',
+    };
+    return map[s] || 'bg-stone-50 text-stone-600 border-stone-200';
+  };
+
+  const getStatusIcon = (s: UtilityStatus): React.ReactNode => {
+    switch (s) {
+      case 'Approved':
+      case 'Paid':
+        return <CheckCircle className="h-3 w-3" />;
+      case 'Awaiting':
+      case 'Awaiting Documentation':
+      case 'Awaiting Funding':
+      case 'In Process':
+        return <ClockIcon className="h-3 w-3" />;
+      case 'Payment NA':
+        return <XCircle className="h-3 w-3" />;
+      default:
+        return <AlertCircle className="h-3 w-3" />;
+    }
+  };
+
+  return (
+    <div className="inline-flex items-center gap-1.5">
+      <span className="text-stone-500">{getStatusIcon(status)}</span>
+      <select
+        value={status}
+        onChange={(e) => onStatusChange(e.target.value as UtilityStatus)}
+        disabled={disabled}
+        className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${getStatusColor(status)} focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] disabled:opacity-50 disabled:cursor-not-allowed`}
+      >
+        {options.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 // ─── Judge Detail Modal ─────────────────────────────────────────────────────
 
 interface JudgeDetailModalProps {
@@ -2891,6 +3228,48 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
             </GoldOutlineButton>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Overview Tab ─────────────────────────────────────────────────────────────
+
+function OverviewTab() {
+  const stats = useAppSelector(selectHelpDeskStats);
+  const loading = useAppSelector(selectStatsLoading);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          icon={<BarChart3 className="h-5 w-5" />}
+          value={stats?.total_records ?? 0}
+          label="Total Records"
+          sub="Across all modules"
+          loading={loading}
+        />
+        <StatCard
+          icon={<Clock3 className="h-5 w-5" />}
+          value={stats?.in_progress ?? 0}
+          label="In Progress"
+          sub="Payments pending"
+          loading={loading}
+        />
+        <StatCard
+          icon={<ShieldCheck className="h-5 w-5" />}
+          value={stats?.visa_active ?? 0}
+          label="Visa Active"
+          sub="Pending outcome"
+          loading={loading}
+        />
+        <StatCard
+          icon={<Stamp className="h-5 w-5" />}
+          value={stats?.protocol_pending ?? 0}
+          label="Protocol Pending"
+          sub="Awaiting review/sign"
+          loading={loading}
+        />
       </div>
     </div>
   );

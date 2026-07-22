@@ -602,6 +602,8 @@ function OverviewTab() {
 
 // ─── Utilities Tab ───────────────────────────────────────────────────────────
 
+// ─── Utilities Tab ───────────────────────────────────────────────────────────
+
 function UtilitiesTab({
   onViewJudge,
 }: {
@@ -656,6 +658,22 @@ function UtilitiesTab({
     }
   };
 
+  // Handle memo generation - receives the document ID of the generated memo
+  const handleMemoGenerated = (docId: string) => {
+    console.log('Memo generated with document ID:', docId);
+    toast.success('Memo generated successfully');
+    setShowMemoModal(false);
+    
+    // Refresh utilities to show any updates
+    dispatch(fetchUtilities({}));
+    dispatch(fetchHelpDeskStats());
+  };
+
+  // When "Generate Memo" is clicked, open the memo modal
+  const handleOpenMemoModal = () => {
+    setShowMemoModal(true);
+  };
+
   return (
     <>
       <Panel
@@ -664,7 +682,7 @@ function UtilitiesTab({
         action={
           <div className="flex gap-2">
             <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
-            <GoldOutlineButton icon={<FileText className="h-3.5 w-3.5" />} onClick={() => setShowMemoModal(true)}>
+            <GoldOutlineButton icon={<FileText className="h-3.5 w-3.5" />} onClick={handleOpenMemoModal}>
               Generate Memo
             </GoldOutlineButton>
             <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
@@ -738,15 +756,17 @@ function UtilitiesTab({
         />
       )}
 
+      {/* Utilities Memo Modal - for generating memos */}
       <UtilitiesMemoModal
         isOpen={showMemoModal}
         onClose={() => setShowMemoModal(false)}
         judges={data}
+        memoType="all"
+        onMemoGenerated={handleMemoGenerated}
       />
     </>
   );
 }
-
 // ─── Utility Status Dropdown ─────────────────────────────────────────────────
 
 function UtilityStatusDropdown({

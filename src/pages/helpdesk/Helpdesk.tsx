@@ -89,7 +89,7 @@ import {
   selectUnlinkedHelpdeskDocuments,
   type DocumentFormat,
   type DocumentStatus,
-  type DocumentEntityType, // ✅ Import DocumentEntityType
+  type DocumentEntityType,
 } from '../../store/slices/helpdeskDocumentsSlice';
 
 import {
@@ -130,7 +130,6 @@ import { ProtocolModal } from '../../components/modals/ProtocolModal';
 import { VisaModal } from '../../components/modals/VisaModal';
 import { RequestModal } from '../../components/modals/RequestModal';
 import ClubModal from '../../components/Layout/ClubModal';
-// ✅ Remove unused import: import HelpdeskDocs from '../../components/helpdesk/HelpdeskDocs';
 import { toast } from 'react-hot-toast';
 
 // ─── Constants for request types ────────────────────────────────────────────
@@ -1090,7 +1089,7 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
           filename: file.name,
           ref: `${entityType.toUpperCase()}/${item.id.slice(0, 8)}`,
           subject: `Memo for ${title}`,
-          entity_type: entityTypeTyped, // ✅ Use typed version
+          entity_type: entityTypeTyped,
           entity_id: item.id,
           format,
         })
@@ -1111,7 +1110,7 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
     try {
       await dispatch(linkHelpdeskDocument({ 
         id: docId, 
-        entity_type: entityTypeTyped, // ✅ Use typed version
+        entity_type: entityTypeTyped,
         entity_id: item.id 
       })).unwrap();
       toast.success('Document linked successfully.');
@@ -1595,8 +1594,6 @@ function OtherPaymentsTab() {
     </>
   );
 }
-
-// ─── Benches Tab ────────────────────────────────────────────────────────────
 
 // ─── Benches Tab ────────────────────────────────────────────────────────────
 
@@ -2837,11 +2834,153 @@ interface JudgeDetailModalProps {
 }
 
 function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetailModalProps) {
+  const dispatch = useAppDispatch();
+  const allDocs = useAppSelector(selectAllHelpdeskDocuments);
+  const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
+  const documentsUploading = useAppSelector(selectDocumentsUploading);
+  const documentActionLoading = useAppSelector(selectDocumentActionLoading);
+  const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
+  const isLinking = useAppSelector(selectDocumentLinking);
+
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Get all utility IDs
+  const utilityIds = utilities.map(u => u.id);
+
+  const docs = allDocs.filter(d => 
+  d.entity_type === 'utility_memo' && 
+  d.entity_id !== null && 
+  utilityIds.includes(d.entity_id)
+);
+
+  // Fetch documents for each utility
+  useEffect(() => {
+    utilityIds.forEach(id => {
+      dispatch(fetchHelpdeskDocuments({ 
+        entity_type: 'utility_memo', 
+        entity_id: id 
+      }));
+    });
+  }, [dispatch, utilityIds]);
+
+  useEffect(() => {
+    if (showLinkPicker) {
+      dispatch(fetchHelpdeskDocuments({ unlinked: true }));
+    }
+  }, [dispatch, showLinkPicker]);
+
+  const documentStatusColor = (status: DocumentStatus): string => {
+    const map: Record<DocumentStatus, string> = {
+      draft: 'bg-stone-100 text-stone-600 ring-stone-200',
+      pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
+      approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+      rejected: 'bg-red-50 text-red-700 ring-red-200',
+      returned: 'bg-orange-50 text-orange-700 ring-orange-200',
+    };
+    return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+  };
+
+  const documentFormatIcon = (format: DocumentFormat) => {
+    if (format === 'xlsx') return <FileSpreadsheet size={16} className="text-emerald-600" />;
+    if (format === 'docx') return <FileText size={16} className="text-blue-600" />;
+    return <FileText size={16} className="text-red-600" />;
+  };
+
+  const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    const format: DocumentFormat | null =
+      ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ext === 'xlsx' ? 'xlsx' : null;
+    if (!format) {
+      toast.error('Please upload a PDF, Word (.docx), or Excel (.xlsx) file.');
+      e.target.value = '';
+      return;
+    }
+
+    // Attach to the first utility (or you could let user choose which one)
+    const targetUtilityId = utilityIds[0];
+    if (!targetUtilityId) {
+      toast.error('No utility record found to attach this document to.');
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      await dispatch(
+        uploadHelpdeskDocument({
+          blob: file,
+          filename: file.name,
+          ref: `UTILITY/${targetUtilityId.slice(0, 8)}`,
+          subject: `Memo for ${judgeName}`,
+          entity_type: 'utility_memo',
+          entity_id: targetUtilityId,
+          format,
+        })
+      ).unwrap();
+      toast.success('Document attached successfully.');
+      // Refresh documents for all utilities
+      utilityIds.forEach(id => {
+        dispatch(fetchHelpdeskDocuments({ 
+          entity_type: 'utility_memo', 
+          entity_id: id 
+        }));
+      });
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to attach document.');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleLinkExisting = async (docId: string) => {
+    const targetUtilityId = utilityIds[0];
+    if (!targetUtilityId) {
+      toast.error('No utility record found to link this document to.');
+      return;
+    }
+
+    try {
+      await dispatch(linkHelpdeskDocument({ 
+        id: docId, 
+        entity_type: 'utility_memo',
+        entity_id: targetUtilityId 
+      })).unwrap();
+      toast.success('Document linked successfully.');
+      setShowLinkPicker(false);
+      utilityIds.forEach(id => {
+        dispatch(fetchHelpdeskDocuments({ 
+          entity_type: 'utility_memo', 
+          entity_id: id 
+        }));
+      });
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to link document.');
+    }
+  };
+
+  const handleSendForApproval = async (docId: string) => {
+    try {
+      await dispatch(submitForApproval({ id: docId })).unwrap();
+      toast.success('Document sent to the super admin for approval.');
+      utilityIds.forEach(id => {
+        dispatch(fetchHelpdeskDocuments({ 
+          entity_type: 'utility_memo', 
+          entity_id: id 
+        }));
+      });
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to submit for approval.');
+    }
+  };
+
   const totalItems = utilities.reduce((acc, u) => acc + u.items.length, 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-xl bg-white shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#1a3d1c] text-white">
@@ -2850,7 +2989,7 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
             <div>
               <h3 className="text-lg font-semibold text-[#1a3d1c]">{judgeName}</h3>
               <p className="text-sm text-stone-500">
-                {totalItems} utility item{totalItems !== 1 ? 's' : ''}
+                {totalItems} utility item{totalItems !== 1 ? 's' : ''} • {docs.length} document{docs.length !== 1 ? 's' : ''}
               </p>
             </div>
           </div>
@@ -2860,10 +2999,12 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
         </div>
 
         <div className="max-h-[65vh] overflow-y-auto p-6">
+          {/* Utility Items */}
           {totalItems === 0 ? (
             <EmptyState message={`No utility records found for ${judgeName}.`} />
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-4 mb-6">
+              <h4 className="text-sm font-semibold text-stone-700">Utility Items</h4>
               {utilities.map((utility) => (
                 <div
                   key={utility.id}
@@ -2917,6 +3058,138 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
               ))}
             </div>
           )}
+
+          {/* ─── Documents Section ──────────────────────────────────────── */}
+          <div className="border-t border-stone-200 pt-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
+                <FileText size={16} className="text-[#c9a84c]" />
+                Supporting Documents ({docs.length})
+              </h3>
+              <div className="flex gap-2">
+                <GhostButton
+                  onClick={() => setShowLinkPicker((v) => !v)}
+                  icon={<Paperclip size={14} />}
+                >
+                  Link Existing
+                </GhostButton>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.xlsx"
+                  onChange={handleAttachDocument}
+                  className="hidden"
+                  disabled={documentsUploading || utilityIds.length === 0}
+                />
+                <GhostButton
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={documentsUploading || utilityIds.length === 0}
+                  icon={documentsUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                >
+                  {documentsUploading ? 'Uploading…' : 'Attach Document'}
+                </GhostButton>
+              </div>
+            </div>
+
+            {utilityIds.length === 0 && (
+              <p className="mt-2 text-[11px] text-amber-600">
+                ⚠️ No utility record found. Documents cannot be attached until a utility record exists.
+              </p>
+            )}
+
+            {showLinkPicker && (
+              <div className="mt-2 rounded-lg border border-stone-200 bg-white p-2 max-h-48 overflow-y-auto">
+                {unlinkedDocuments.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-stone-400 italic">No unlinked documents found.</p>
+                ) : (
+                  <ul className="divide-y divide-stone-100">
+                    {unlinkedDocuments.map((doc) => (
+                      <li key={doc.id} className="flex items-center justify-between gap-2 px-2 py-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {documentFormatIcon(doc.format)}
+                          <span className="truncate text-sm text-stone-700">{doc.subject}</span>
+                          <span className="shrink-0 text-[11px] text-stone-400">{doc.ref}</span>
+                        </div>
+                        <GhostButton
+                          onClick={() => handleLinkExisting(doc.id)}
+                          disabled={isLinking || utilityIds.length === 0}
+                          icon={isLinking ? <Loader2 size={12} className="animate-spin" /> : undefined}
+                        >
+                          Attach
+                        </GhostButton>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {documentsLoading && docs.length === 0 ? (
+              <p className="mt-2 text-xs text-stone-400 italic">Loading documents…</p>
+            ) : docs.length === 0 ? (
+              <p className="mt-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-3 text-xs text-stone-400">
+                No documents attached yet. Generate a memo from the edit view, upload a document, or link an existing one.
+              </p>
+            ) : (
+              <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
+                {docs.map((doc) => (
+                  <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {documentFormatIcon(doc.format)}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
+                        <div className="mt-0.5 flex items-center gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
+                          >
+                            {doc.status.replace('_', ' ')}
+                          </span>
+                          <span className="text-[11px] text-stone-400">{doc.ref}</span>
+                          <span className="text-[11px] text-stone-400 uppercase">{doc.format}</span>
+                        </div>
+                        {doc.status === 'rejected' && doc.rejection_reason && (
+                          <p className="mt-1 text-[11px] text-red-600">Reason: {doc.rejection_reason}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <a
+                        href={doc.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
+                      >
+                        <ExternalLink size={12} />
+                        View
+                      </a>
+                      {doc.status === 'draft' && (
+                        <GhostButton
+                          onClick={() => handleSendForApproval(doc.id)}
+                          disabled={!!documentActionLoading[doc.id]?.submitting}
+                          icon={
+                            documentActionLoading[doc.id]?.submitting ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Send size={12} />
+                            )
+                          }
+                        >
+                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
+                        </GhostButton>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="mt-6 border-t border-stone-100 pt-4 text-xs text-stone-400">
+            <div className="grid grid-cols-2 gap-1">
+              <span>Total Utilities: {utilities.length}</span>
+              <span>Total Items: {totalItems}</span>
+            </div>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">
