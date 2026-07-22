@@ -36,6 +36,7 @@ import type {
   RefType,
 } from "../../types/documents.types";
 import { format } from "date-fns";
+import toast from "react-hot-toast";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -982,6 +983,8 @@ const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
 
 // ─── Document Editor ──────────────────────────────────────────────────────────
 
+// ─── Document Editor ──────────────────────────────────────────────────────────
+
 interface DocumentEditorProps {
   document: Document;
   currentUserName: string;
@@ -992,10 +995,11 @@ interface DocumentEditorProps {
   onSign?: () => void;
   isSigning?: boolean;
   onSend?: () => void;
-  onMark?: () => void;      // This is actually "Assign" for SuperAdmin
+  onMark?: () => void;
   onAcknowledge?: () => void;
   onComplete?: () => void;
   onUpdateMark?: (markId: string, text: string, date: string | null) => void;
+  onDownload?: () => void;
 }
 
 const SAVE_LABEL: Record<SaveState, string> = {
@@ -1020,6 +1024,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onAcknowledge,
   onComplete,
   onUpdateMark,
+  onDownload,
 }) => {
   const isComposed = document.type === "memo" || document.type === "letter";
   const isEditable = !!onSave;
@@ -1137,6 +1142,17 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   };
 
+  // ── Download handler ────────────────────────────────────────────────────
+  const handleDownload = () => {
+    if (onDownload) {
+      onDownload();
+    } else if (document.file_url) {
+      window.open(document.file_url, '_blank');
+    } else {
+      toast.error('No file available to download');
+    }
+  };
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Title bar */}
@@ -1176,6 +1192,30 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
+          {/* ─── Download Button ─────────────────────────────────────────── */}
+          {(document.file_url || onDownload) && (
+            <button
+              onClick={handleDownload}
+              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors whitespace-nowrap"
+              title="Download document"
+            >
+              <svg
+                className="h-3 w-3"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
+              </svg>
+              Download
+            </button>
+          )}
+
           {isEditable && (
             <button
               onClick={handleManualSave}
@@ -1593,6 +1633,28 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             : "Not signed"}
         </span>
         <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto">
+          {/* ─── Download button in footer ───────────────────────────────── */}
+          {(document.file_url || onDownload) && (
+            <button
+              onClick={handleDownload}
+              className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-blue-700 transition-colors whitespace-nowrap"
+            >
+              <svg
+                className="h-3 w-3"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
+              </svg>
+              Download
+            </button>
+          )}
           <button className="text-[10px] text-stone-400 hover:text-stone-600 transition-colors whitespace-nowrap">
             🖨 Print
           </button>
