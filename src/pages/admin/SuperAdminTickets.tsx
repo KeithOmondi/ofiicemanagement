@@ -1,4 +1,5 @@
 // src/features/tickets/SuperAdminTickets.tsx
+
 import React, { useEffect, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -32,6 +33,11 @@ import {
   type HelpdeskDocument,
   uploadHelpdeskDocument,
 } from '../../store/slices/helpdeskDocumentsSlice';
+// ─── Import from userSlice ──────────────────────────────────────────────
+import {
+  selectCurrentUser,
+  //selectUsersSignatureLoading,
+} from '../../store/slices/userSlice';
 import toast, { Toaster } from 'react-hot-toast';
 import {
   X,
@@ -124,8 +130,6 @@ const priorityColor = (priority: TicketPriority): string => {
 const inputClasses =
   'w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-800 placeholder:text-stone-400 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] transition-colors';
 
-
-
 function GhostButton({
   children,
   icon,
@@ -206,6 +210,8 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   onActionComplete,
 }) => {
   const dispatch = useAppDispatch();
+  // ✅ Now properly imported from userSlice
+  const currentUser = useAppSelector(selectCurrentUser);
 
   const [isStamping, setIsStamping] = useState(false);
   const [showReturnForm, setShowReturnForm] = useState(false);
@@ -214,17 +220,42 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   const canDecide = document.status === 'pending_approval';
   const canSendToRequester = document.status === 'approved';
 
+  // ─── Fetch signature image from user ──────────────────────────────────────
+  const fetchSignatureBytes = async (): Promise<ArrayBuffer | undefined> => {
+    // ✅ Safe access with optional chaining
+    if (!currentUser?.signature_url) {
+      console.log('No signature URL found for current user');
+      return undefined;
+    }
+    try {
+      const sigRes = await fetch(currentUser.signature_url);
+      if (sigRes.ok) {
+        return await sigRes.arrayBuffer();
+      }
+      console.warn('Signature fetch returned non-OK status:', sigRes.status);
+      return undefined;
+    } catch (sigErr) {
+      console.warn('Signature fetch failed:', sigErr);
+      return undefined;
+    }
+  };
+
   const handleApproveAndStamp = async () => {
     setIsStamping(true);
     try {
+      // ─── Fetch the user's signature ──────────────────────────────────────
+      const signatureImageBytes = await fetchSignatureBytes();
+
+      // ─── Stamp the PDF with signature ────────────────────────────────────
       const stampedBlob = await stampPdfFromUrl(document.file_url, {
         issuer: 'REGISTRAR HIGH COURT',
-        approverName: 'Super Admin',
-        signatureImageBytes: undefined,
+        approverName: currentUser?.full_name || 'Super Admin',
+        signatureImageBytes, // ✅ Signature will be embedded if available
       });
 
       const safeRef = document.ref.replace(/[\\/:*?"<>|]/g, '-');
 
+      // ─── Upload the stamped document ─────────────────────────────────────
       await dispatch(
         uploadHelpdeskDocument({
           blob: stampedBlob,
@@ -237,6 +268,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
         })
       ).unwrap();
 
+      // ─── Approve the ticket ──────────────────────────────────────────────
       await dispatch(approveTicket({ id: ticketId, comments: 'Document reviewed, stamped, and approved.' })).unwrap();
 
       toast.success('Document stamped and ticket approved.');
@@ -297,6 +329,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
       <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+        {/* Header */}
         <div className="flex items-start justify-between border-b border-stone-100 bg-stone-50 px-6 py-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-3 flex-wrap">
@@ -318,6 +351,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
         </div>
 
         <div className="max-h-[75vh] overflow-y-auto p-6">
+          {/* Document Info */}
           <div className="grid grid-cols-2 gap-4 rounded-lg border border-stone-200 bg-stone-50 p-4 sm:grid-cols-3">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Reference</p>
@@ -351,8 +385,18 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
                 <p className="mt-0.5 text-sm text-stone-800">{document.approved_by_name}</p>
               </div>
             )}
+            {document.e_stamp_status === 'stamped' && (
+              <div className="col-span-full">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">E-Stamp Status</p>
+                <p className="mt-0.5 text-sm font-medium text-emerald-600 flex items-center gap-2">
+                  <Stamp size={16} />
+                  Stamped ✓
+                </p>
+              </div>
+            )}
           </div>
 
+          {/* E-Stamp Preview */}
           {document.e_stamp_url && (
             <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
               <div className="flex items-center justify-between">
@@ -394,6 +438,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
             </div>
           )}
 
+          {/* Download Stamped Document */}
           {canSendToRequester && (
             <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
               <div className="flex items-center justify-between">
@@ -425,6 +470,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
             </div>
           )}
 
+          {/* Decision Actions */}
           {canDecide && (
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
               <h4 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
@@ -432,8 +478,9 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
                 Pending Your Decision
               </h4>
               <p className="mt-1 text-xs text-amber-700">
-                Approving will burn a blue registrar stamp into the PDF, upload the stamped version,
-                and mark the ticket approved. Returning sends the ticket back to the requester unstamped.
+                Approving will burn a blue registrar stamp into the PDF with your signature,
+                upload the stamped version, and mark the ticket approved. 
+                Returning sends the ticket back to the requester unstamped.
               </p>
 
               <div className="mt-3 flex flex-wrap gap-2">
@@ -496,6 +543,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
             </div>
           )}
 
+          {/* Approval History */}
           {document.approval_history && document.approval_history.length > 0 && (
             <div className="mt-6">
               <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
@@ -543,6 +591,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
           )}
         </div>
 
+        {/* Footer */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 bg-stone-50 px-6 py-3">
           <div className="flex gap-2">
             <a
