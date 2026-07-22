@@ -33,10 +33,9 @@ import {
   type HelpdeskDocument,
   uploadHelpdeskDocument,
 } from '../../store/slices/helpdeskDocumentsSlice';
-// ─── Import from userSlice ──────────────────────────────────────────────
 import {
   selectCurrentUser,
-  //selectUsersSignatureLoading,
+  fetchCurrentUser,
 } from '../../store/slices/userSlice';
 import toast, { Toaster } from 'react-hot-toast';
 import {
@@ -56,6 +55,10 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { stampPdfFromUrl } from '../../utils/pdfStamp';
+import {
+  getTripTypeLabel,
+  formatTime,
+} from '../../types/tickets.types';
 import type {
   TicketStatus,
   TicketFilters,
@@ -210,7 +213,6 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   onActionComplete,
 }) => {
   const dispatch = useAppDispatch();
-  // ✅ Now properly imported from userSlice
   const currentUser = useAppSelector(selectCurrentUser);
 
   const [isStamping, setIsStamping] = useState(false);
@@ -220,42 +222,69 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   const canDecide = document.status === 'pending_approval';
   const canSendToRequester = document.status === 'approved';
 
-  // ─── Fetch signature image from user ──────────────────────────────────────
   const fetchSignatureBytes = async (): Promise<ArrayBuffer | undefined> => {
-    // ✅ Safe access with optional chaining
+    // Check if currentUser has a signature_url
     if (!currentUser?.signature_url) {
-      console.log('No signature URL found for current user');
+      console.warn('No signature URL found for current user');
+      toast.error('No signature uploaded. Please upload your signature first.');
       return undefined;
     }
+    
     try {
+      console.log('Fetching signature from:', currentUser.signature_url);
       const sigRes = await fetch(currentUser.signature_url);
-      if (sigRes.ok) {
-        return await sigRes.arrayBuffer();
+      
+      if (!sigRes.ok) {
+        console.warn('Signature fetch returned non-OK status:', sigRes.status);
+        toast.error('Failed to fetch signature image. Please check your signature upload.');
+        return undefined;
       }
-      console.warn('Signature fetch returned non-OK status:', sigRes.status);
-      return undefined;
+      
+      const arrayBuffer = await sigRes.arrayBuffer();
+      
+      // Check if the array buffer has content
+      if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+        console.warn('Signature array buffer is empty');
+        toast.error('Signature image is empty. Please re-upload your signature.');
+        return undefined;
+      }
+      
+      console.log('Signature fetched successfully, size:', arrayBuffer.byteLength);
+      return arrayBuffer;
     } catch (sigErr) {
-      console.warn('Signature fetch failed:', sigErr);
+      console.error('Signature fetch failed:', sigErr);
+      toast.error('Failed to fetch signature image. Please check your signature upload.');
       return undefined;
     }
   };
 
   const handleApproveAndStamp = async () => {
+    // Check if user has a signature before proceeding
+    if (!currentUser?.signature_url) {
+      toast.error('Please upload your signature first before approving documents.');
+      return;
+    }
+
     setIsStamping(true);
     try {
-      // ─── Fetch the user's signature ──────────────────────────────────────
       const signatureImageBytes = await fetchSignatureBytes();
+      
+      // If signature fetch failed, don't proceed with stamping
+      if (!signatureImageBytes) {
+        // The toast error is already shown in fetchSignatureBytes
+        return;
+      }
 
-      // ─── Stamp the PDF with signature ────────────────────────────────────
+      console.log('Stamping PDF with signature...');
       const stampedBlob = await stampPdfFromUrl(document.file_url, {
         issuer: 'REGISTRAR HIGH COURT',
         approverName: currentUser?.full_name || 'Super Admin',
-        signatureImageBytes, // ✅ Signature will be embedded if available
+        signatureImageBytes,
       });
 
       const safeRef = document.ref.replace(/[\\/:*?"<>|]/g, '-');
 
-      // ─── Upload the stamped document ─────────────────────────────────────
+      console.log('Uploading stamped document...');
       await dispatch(
         uploadHelpdeskDocument({
           blob: stampedBlob,
@@ -268,7 +297,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
         })
       ).unwrap();
 
-      // ─── Approve the ticket ──────────────────────────────────────────────
+      console.log('Approving ticket...');
       await dispatch(approveTicket({ id: ticketId, comments: 'Document reviewed, stamped, and approved.' })).unwrap();
 
       toast.success('Document stamped and ticket approved.');
@@ -635,6 +664,7 @@ const SuperAdminTickets: React.FC = () => {
   const pagination = useAppSelector(selectTicketPagination);
   const filters = useAppSelector(selectTicketFilters);
   const actionsLoading = useAppSelector(selectTicketActions);
+  const currentUser = useAppSelector(selectCurrentUser);
 
   const helpdeskDocuments = useAppSelector(selectAllHelpdeskDocuments);
   const docsLoading = useAppSelector(selectDocumentsFetchLoading);
@@ -647,6 +677,13 @@ const SuperAdminTickets: React.FC = () => {
   const [selectedDocForView, setSelectedDocForView] = useState<HelpdeskDocument | null>(null);
   const [showDocViewer, setShowDocViewer] = useState(false);
   const [showLinkPicker, setShowLinkPicker] = useState(false);
+
+  // Fetch current user if not loaded
+  useEffect(() => {
+    if (!currentUser) {
+      dispatch(fetchCurrentUser());
+    }
+  }, [dispatch, currentUser]);
 
   useEffect(() => {
     dispatch(fetchTickets(filters));
@@ -777,6 +814,7 @@ const SuperAdminTickets: React.FC = () => {
       />
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        {/* Page Header */}
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-xl font-semibold text-[#1a3d1c]">Ticket Approvals</h1>
@@ -789,8 +827,9 @@ const SuperAdminTickets: React.FC = () => {
           </div>
         </div>
 
+        {/* Filter Bar - Matching HelpdeskTickets style */}
         <div className="mb-4 rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6">
             <input
               type="text"
               placeholder="Search title, reference, judge…"
@@ -823,11 +862,27 @@ const SuperAdminTickets: React.FC = () => {
               <option value="high">High</option>
               <option value="urgent">Urgent</option>
             </select>
+            <select
+              value={filters.trip_type ?? ''}
+              onChange={(e) => handleFilterChange('trip_type', e.target.value || undefined)}
+              className={inputClasses}
+            >
+              <option value="">All Trip Types</option>
+              <option value="one_way">One Way</option>
+              <option value="round_trip">Round Trip</option>
+            </select>
             <input
               type="text"
               placeholder="Judge name"
               value={filters.judge_name ?? ''}
               onChange={(e) => handleFilterChange('judge_name', e.target.value || undefined)}
+              className={inputClasses}
+            />
+            <input
+              type="text"
+              placeholder="PJ Number"
+              value={filters.pj_number ?? ''}
+              onChange={(e) => handleFilterChange('pj_number', e.target.value || undefined)}
               className={inputClasses}
             />
           </div>
@@ -841,36 +896,91 @@ const SuperAdminTickets: React.FC = () => {
           </div>
         </div>
 
+        {/* Ticket Table - Matching HelpdeskTickets style exactly */}
         <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px] text-sm">
+            <table className="w-full min-w-[1600px] border-collapse border border-stone-200 text-sm">
               <thead>
-                <tr className="border-b border-stone-100 bg-stone-50">
-                  {['Ref', 'Title', 'Status', 'Priority', 'Travel Date', 'Judge', 'Documents'].map((h) => (
-                    <th
-                      key={h}
-                      className={`px-4 py-3 text-xs font-semibold uppercase tracking-wide text-stone-500 ${
-                        h === 'Documents' ? 'text-center' : 'text-left'
-                      }`}
-                    >
-                      {h}
-                    </th>
-                  ))}
+                <tr className="bg-[#c9a84c]/10 border-b border-stone-200">
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Ref
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Judge Name
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Trip Type
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    From
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    To
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Departure
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Return
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Status
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Priority
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Created At
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-center text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Actions
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {tickets.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-16 text-center text-sm text-stone-400">
+                    <td colSpan={11} className="border border-stone-200 py-16 text-center text-sm text-stone-400">
                       No tickets found
                     </td>
                   </tr>
                 ) : (
                   tickets.map((ticket) => (
-                    <tr key={ticket.id} className="border-b border-stone-50 transition hover:bg-stone-50/60">
-                      <td className="px-4 py-3 font-mono text-xs text-stone-500">{ticket.reference_no}</td>
-                      <td className="px-4 py-3 font-medium text-stone-900">{ticket.title}</td>
-                      <td className="px-4 py-3">
+                    <tr key={ticket.id} className="border-b border-stone-100 transition hover:bg-stone-50/60">
+                      <td className="border border-stone-200 px-4 py-3 font-mono text-xs text-stone-500">
+                        {ticket.reference_no}
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3 font-medium text-stone-900">
+                        {ticket.judge_name || '—'}
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                          {getTripTypeLabel(ticket.trip_type)}
+                        </span>
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
+                        {ticket.departure_from}
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
+                        {ticket.destination}
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
+                        {new Date(ticket.date_of_travel).toLocaleDateString()}
+                        {ticket.time_of_travel && (
+                          <span className="ml-1 text-xs text-stone-400">
+                            {formatTime(ticket.time_of_travel)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
+                        {ticket.return_date ? new Date(ticket.return_date).toLocaleDateString() : '—'}
+                        {ticket.return_time && (
+                          <span className="ml-1 text-xs text-stone-400">
+                            {formatTime(ticket.return_time)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3">
                         <span
                           className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${statusColor(
                             ticket.status
@@ -880,15 +990,14 @@ const SuperAdminTickets: React.FC = () => {
                           {ticket.status.replace('_', ' ')}
                         </span>
                       </td>
-                      <td className={`px-4 py-3 text-sm font-medium capitalize ${priorityColor(ticket.priority)}`}>
+                      <td className={`border border-stone-200 px-4 py-3 text-sm font-medium capitalize ${priorityColor(ticket.priority)}`}>
                         {ticket.priority}
                       </td>
-                      <td className="px-4 py-3 text-sm text-stone-600">
-                        {new Date(ticket.date_of_travel).toLocaleDateString()}
+                      <td className="border border-stone-200 px-4 py-3 text-sm text-stone-500">
+                        {new Date(ticket.created_at).toLocaleString()}
                       </td>
-                      <td className="px-4 py-3 text-sm text-stone-600">{ticket.judge_name || '—'}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-2">
+                      <td className="border border-stone-200 px-4 py-3">
+                        <div className="flex items-center justify-center gap-3">
                           <button
                             onClick={() => setExpandedTicketId(prev => prev === ticket.id ? null : ticket.id)}
                             className={`rounded-lg p-1.5 transition ${
@@ -909,7 +1018,8 @@ const SuperAdminTickets: React.FC = () => {
             </table>
           </div>
 
-          <div className="flex flex-col gap-3 border-t border-stone-100 bg-stone-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          {/* Pagination - Matching HelpdeskTickets style */}
+          <div className="flex flex-col gap-3 border-t border-stone-200 bg-stone-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-xs text-stone-500">
               Showing {(pagination.page - 1) * pagination.limit + 1} to{' '}
               {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
@@ -945,6 +1055,7 @@ const SuperAdminTickets: React.FC = () => {
           </div>
         </div>
 
+        {/* Expanded Ticket Documents Section */}
         {expandedTicketId && (
           <div className="mt-6 rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between mb-4">
