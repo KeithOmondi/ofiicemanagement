@@ -9,9 +9,15 @@ import {
   clearError,
   fetchDocumentById,
   respondToDocument,
+  deleteDocument,
 } from '../../store/slices/documentSlice';
 import { selectCurrentUser, fetchCurrentUser } from '../../store/slices/userSlice';
-import type { Document as DocType, RoutePriority } from '../../types/documents.types';
+import type { 
+  Document as DocType, 
+  RoutePriority, 
+  FollowUpStatus,
+  DocumentAnnotation,
+} from '../../types/documents.types';
 
 import type { RootState } from '../../store/store';
 import FollowUpModal from '../admin/FollowUpModal';
@@ -38,8 +44,8 @@ const startOfDay = (d: Date): Date => {
   return copy;
 };
 
-const formatDateDisplay = (dateStr: string): string => {
-  const d = parseDate(dateStr);
+const formatDateDisplay = (dateStr: string | Date): string => {
+  const d = typeof dateStr === 'string' ? parseDate(dateStr) : dateStr;
   if (!d) return 'Invalid date';
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 };
@@ -116,6 +122,35 @@ const PriorityBadge: React.FC<{ priority: RoutePriority }> = ({ priority }) => (
     {PRIORITY_LABEL[priority] ?? priority}
   </span>
 );
+
+// ─── Follow-Up Status Badge ──────────────────────────────────────────────────
+
+const FOLLOW_UP_STATUS_STYLES: Record<FollowUpStatus, string> = {
+  pending: 'bg-amber-100 text-amber-700 border border-amber-200',
+  in_progress: 'bg-blue-100 text-blue-700 border border-blue-200',
+  completed: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+  cancelled: 'bg-stone-100 text-stone-500 border border-stone-200',
+  filed_away: 'bg-slate-100 text-slate-600 border border-slate-200',
+};
+
+const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
+  pending: 'PENDING',
+  in_progress: 'IN PROGRESS',
+  completed: 'COMPLETED',
+  cancelled: 'CANCELLED',
+  filed_away: 'FILED AWAY',
+};
+
+const FollowUpStatusBadge: React.FC<{ status: FollowUpStatus }> = ({ status }) => {
+  const style = FOLLOW_UP_STATUS_STYLES[status] || 'bg-slate-100 text-slate-500';
+  const label = FOLLOW_UP_STATUS_LABELS[status] || status.toUpperCase();
+  
+  return (
+    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${style}`}>
+      {label}
+    </span>
+  );
+};
 
 // ─── StickyNote ─────────────────────────────────────────────────────────────
 
@@ -269,13 +304,14 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate }
   );
 };
 
-// ─── DocumentPreviewPanel ─────────────────────────────────────────────────
+// ─── DocumentPreviewPanel ──────────────────────────────────────────────────
 
 interface DocumentPreviewPanelProps {
-  document: DocType;
+  document: DocType & { annotations?: DocumentAnnotation[] };
   onClose: () => void;
   onRespond: () => void;
   onViewFollowUpThread?: (followUpId: string) => void;
+  onDelete?: (docId: string) => void;
 }
 
 const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ 
@@ -283,6 +319,7 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
   onClose, 
   onRespond,
   onViewFollowUpThread,
+  onDelete,
 }) => {
   const fileUrl = document.file_url;
   const ext = getFileExtension(fileUrl);
@@ -291,11 +328,35 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
   const isPdf = document.mime_type === 'application/pdf' || ext === 'pdf';
   const followUps = document.follow_ups || [];
   const hasFollowUps = followUps.length > 0;
+  const annotations = document.annotations || [];
+  const hasAnnotations = annotations.length > 0;
   
   // Get the most recent active follow-up, or the first one
   const activeFollowUp = followUps
     .filter(f => f.status !== 'completed' && f.status !== 'cancelled')
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] || followUps[0];
+
+  // ─── Get all follow-ups that are NOT completed or cancelled ──────────────
+  const activeFollowUps = followUps.filter(f => f.status !== 'completed' && f.status !== 'cancelled');
+  const completedFollowUps = followUps.filter(f => f.status === 'completed' || f.status === 'cancelled');
+
+  // ─── Check if there are urgent annotations ───────────────────────────────
+  const hasUrgentAnnotations = annotations.some((a: DocumentAnnotation) => a.is_urgent);
+
+  // ─── Check if document can be deleted (all follow-ups are terminal) ──────
+  const canDelete = followUps.length > 0 && followUps.every(
+    f => f.status === 'filed_away' || f.status === 'completed' || f.status === 'cancelled'
+  );
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const handleDelete = () => {
+    if (onDelete) {
+      onDelete(document.id);
+      setShowDeleteConfirm(false);
+      onClose();
+    }
+  };
 
   const renderPreview = () => {
     if (isComposed && fileUrl && isPdf) {
@@ -471,13 +532,38 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-6xl max-h-[90vh] rounded-xl overflow-hidden flex flex-col shadow-2xl">
+        {/* ─── Header ──────────────────────────────────────────────────────── */}
         <div className="px-6 py-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-3 min-w-0 flex-wrap">
             <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Preview</span>
             <span className="text-slate-300">|</span>
             <span className="text-sm font-semibold text-slate-900 truncate max-w-md">
               {document.title}
             </span>
+            
+            {/* ─── Registrar's Note Indicator ──────────────────────────────── */}
+            {document.active_mark?.instructions && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                Registrar's Note
+              </span>
+            )}
+
+            {/* ─── Annotation Indicator ────────────────────────────────────── */}
+            {hasAnnotations && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                {annotations.length} annotation{annotations.length > 1 ? 's' : ''}
+                {hasUrgentAnnotations && (
+                  <span className="ml-0.5 text-red-500">· ⚠️ Urgent</span>
+                )}
+              </span>
+            )}
+
             {document.original_name && (
               <span className="text-xs text-slate-400 bg-slate-200 px-2 py-0.5 rounded">
                 {document.original_name}
@@ -496,11 +582,11 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
                 <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                 </svg>
-                {followUps.filter(f => f.status !== 'completed' && f.status !== 'cancelled').length} active
+                {activeFollowUps.length} active
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {fileUrl && (
               <a
                 href={fileUrl}
@@ -535,6 +621,18 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
                 Follow-ups
               </button>
             )}
+            {canDelete && onDelete && (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete
+              </button>
+            )}
             <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
               <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -542,6 +640,195 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
             </button>
           </div>
         </div>
+
+        {/* ─── Delete Confirmation Modal ───────────────────────────────────── */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                  <svg className="h-5 w-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Delete Document</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">This action cannot be undone.</p>
+                </div>
+              </div>
+              <p className="text-sm text-slate-700 mb-4">
+                Are you sure you want to delete <span className="font-semibold">"{document.title}"</span>?
+                All follow-ups and annotations will be permanently removed.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Super Admin Remarks Panel ────────────────────────────────────── */}
+        {document.active_mark?.instructions && (
+          <div className="px-6 py-3 bg-amber-50 border-b border-amber-200 shrink-0">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 mt-0.5">
+                <svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-amber-800">
+                    Registrar's Instructions
+                  </span>
+                  <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
+                    {document.active_mark.marked_by_name || 'Registrar'}
+                  </span>
+                  {document.active_mark.bring_up_date && (
+                    <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
+                      📅 Bring up: {formatDateDisplay(document.active_mark.bring_up_date)}
+                    </span>
+                  )}
+                  {document.active_mark.priority && document.active_mark.priority !== 'normal' && (
+                    <PriorityBadge priority={document.active_mark.priority} />
+                  )}
+                </div>
+                <p className="mt-1 text-sm text-stone-700 whitespace-pre-wrap">
+                  {document.active_mark.instructions}
+                </p>
+                {document.active_mark.marked_to_dept_name && (
+                  <p className="mt-1 text-xs text-amber-600">
+                    Department: <span className="font-medium">{document.active_mark.marked_to_dept_name}</span>
+                    {document.active_mark.assigned_to_name && (
+                      <> · Assigned to: <span className="font-medium">{document.active_mark.assigned_to_name}</span></>
+                    )}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Annotations Panel ────────────────────────────────────────────── */}
+        {hasAnnotations && (
+          <div className="px-6 py-3 bg-purple-50 border-b border-purple-200 shrink-0">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 mt-0.5">
+                <svg className="h-5 w-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-purple-800">
+                    Annotations ({annotations.length})
+                  </span>
+                  {hasUrgentAnnotations && (
+                    <span className="text-[10px] text-red-600 bg-red-100 px-2 py-0.5 rounded-full">
+                      ⚠️ Contains urgent annotations
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 space-y-1.5 max-h-[100px] overflow-y-auto">
+                  {annotations.slice(-3).map((annotation: DocumentAnnotation) => (
+                    <div key={annotation.id} className="flex items-start gap-2 text-xs bg-white rounded-md p-2 border border-purple-100">
+                      <span className="font-semibold text-purple-700 whitespace-nowrap">
+                        {annotation.annotated_by_name || 'Unknown'}:
+                      </span>
+                      <span className="text-stone-700 flex-1">
+                        {annotation.comment}
+                        {annotation.is_urgent && (
+                          <span className="ml-2 text-red-500 font-medium">[URGENT]</span>
+                        )}
+                      </span>
+                      <span className="text-[10px] text-slate-400 whitespace-nowrap">
+                        {formatDateDisplay(annotation.created_at)}
+                      </span>
+                    </div>
+                  ))}
+                  {annotations.length > 3 && (
+                    <p className="text-[10px] text-purple-500 text-center">
+                      +{annotations.length - 3} more annotations
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ─── Follow-ups Summary Panel ─────────────────────────────────────── */}
+        {hasFollowUps && (
+          <div className="px-6 py-3 bg-blue-50 border-b border-blue-200 shrink-0">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 mt-0.5">
+                <svg className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-blue-800">
+                    Follow-ups ({followUps.length})
+                  </span>
+                  {activeFollowUps.length > 0 && (
+                    <span className="text-[10px] text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                      {activeFollowUps.length} active
+                    </span>
+                  )}
+                  {completedFollowUps.length > 0 && (
+                    <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                      {completedFollowUps.length} completed
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  {followUps.slice(0, 3).map((f) => (
+                    <div key={f.id} className="inline-flex items-center gap-1.5 bg-white rounded-md px-2.5 py-1 border border-blue-100 text-xs">
+                      <span className="text-stone-700 truncate max-w-[120px]">
+                        {f.notes}
+                      </span>
+                      <FollowUpStatusBadge status={f.status} />
+                      {f.due_date && (
+                        <span className="text-[10px] text-slate-400">
+                          {formatDateDisplay(f.due_date)}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  {followUps.length > 3 && (
+                    <span className="inline-flex items-center text-xs text-blue-600 font-medium">
+                      +{followUps.length - 3} more
+                    </span>
+                  )}
+                </div>
+                {onViewFollowUpThread && activeFollowUp && (
+                  <button
+                    onClick={() => onViewFollowUpThread(activeFollowUp.id)}
+                    className="mt-1.5 text-xs text-blue-600 hover:underline font-medium flex items-center gap-1"
+                  >
+                    View all follow-ups
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-hidden bg-slate-100 relative">
           {document.active_mark?.instructions && (
@@ -887,14 +1174,17 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
   );
 };
 
-// ─── Row ──────────────────────────────────────────────────────────────────────
+// ─── Row ───────────────────────────────────────────────────────────────────
+
+// ─── Row ───────────────────────────────────────────────────────────────────
 
 interface BringUpRowProps {
-  document: DocType;
+  document: DocType & { annotations?: DocumentAnnotation[] };
   bucket: BringUpBucket;
   currentUserId?: string;
   onRespond: (doc: DocType) => void;
   onPreview: (doc: DocType) => void;
+  onDelete?: (docId: string) => void;
 }
 
 const BringUpRow: React.FC<BringUpRowProps> = ({
@@ -903,76 +1193,275 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
   currentUserId,
   onRespond,
   onPreview,
+  onDelete,
 }) => {
+  // ✅ MOVE ALL HOOKS TO THE TOP BEFORE ANY CONDITIONAL RETURNS
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  
   const mark = document.active_mark;
+  
+  // ✅ Now we can do the early return after all hooks
   if (!mark?.bring_up_date) return null;
 
   const needsResponse = document.status === 'pending_review' && document.assigned_to === currentUserId;
   const followUps = document.follow_ups || [];
   const activeFollowUps = followUps.filter(f => f.status !== 'completed' && f.status !== 'cancelled');
+  const annotations = document.annotations || [];
+  const hasAnnotations = annotations.length > 0;
+  const hasSuperAdminRemarks = !!mark?.instructions;
+  const hasUrgentAnnotations = annotations.some((a: DocumentAnnotation) => a.is_urgent);
+
+  // ─── Check if document can be deleted (all follow-ups are terminal) ──────
+  const canDelete = followUps.length > 0 && followUps.every(
+    f => f.status === 'filed_away' || f.status === 'completed' || f.status === 'cancelled'
+  );
+
+  const handleDelete = () => {
+    if (onDelete) {
+      onDelete(document.id);
+      setShowDeleteConfirm(false);
+    }
+  };
 
   return (
-    <div className="flex items-start justify-between gap-4 rounded-xl border border-slate-100 bg-white p-5 hover:shadow-md transition-all duration-200">
-      <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onPreview(document)}>
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-semibold text-slate-800 truncate">{document.title}</p>
-          <span
-            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${BUCKET_COLOR[bucket]}`}
-          >
-            {BUCKET_LABEL[bucket]}
-          </span>
+    <>
+      <div className="flex items-start justify-between gap-4 rounded-xl border border-slate-100 bg-white p-5 hover:shadow-md transition-all duration-200">
+        <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onPreview(document)}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-slate-800 truncate">{document.title}</p>
+            
+            <span
+              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${BUCKET_COLOR[bucket]}`}
+            >
+              {BUCKET_LABEL[bucket]}
+            </span>
+
+            {/* ─── Registrar's Note Indicator ────────────────────────────────── */}
+            {hasSuperAdminRemarks && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                Registrar's Note
+              </span>
+            )}
+
+            {/* ─── Annotation Indicator ────────────────────────────────────── */}
+            {hasAnnotations && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                {annotations.length} annotation{annotations.length > 1 ? 's' : ''}
+                {hasUrgentAnnotations && (
+                  <span className="ml-0.5 text-red-500">· ⚠️</span>
+                )}
+              </span>
+            )}
+
+            {needsResponse && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700 border border-red-200">
+                ⚠️ Response needed
+              </span>
+            )}
+            
+            {activeFollowUps.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700 border border-blue-200">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+                {activeFollowUps.length} follow-up{activeFollowUps.length > 1 ? 's' : ''}
+              </span>
+            )}
+
+            {/* ─── Delete Indicator ────────────────────────────────────────── */}
+            {canDelete && onDelete && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700 border border-red-200">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Ready to delete
+              </span>
+            )}
+          </div>
+
+          {/* ─── Super Admin's Instructions/Remarks ────────────────────────────── */}
+          {mark.instructions && (
+            <div className="mt-2 bg-amber-50 border-l-3 border-amber-400 rounded-md p-2.5">
+              <div className="flex items-start gap-2">
+                <svg className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-xs text-amber-800 font-medium">
+                      <span className="font-semibold">Registrar's remarks:</span>
+                    </p>
+                    <span className="text-[9px] text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full">
+                      {mark.marked_by_name || 'Registrar'}
+                    </span>
+                    {mark.bring_up_date && (
+                      <span className="text-[9px] text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full">
+                        📅 {formatDateDisplay(mark.bring_up_date)}
+                      </span>
+                    )}
+                    {mark.priority && mark.priority !== 'normal' && (
+                      <PriorityBadge priority={mark.priority} />
+                    )}
+                  </div>
+                  <p className="text-xs text-stone-700 mt-0.5 line-clamp-2">
+                    {mark.instructions}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ─── Annotation Preview ────────────────────────────────────────────── */}
+          {hasAnnotations && (
+            <div className="mt-2 bg-purple-50 border-l-3 border-purple-400 rounded-md p-2.5">
+              <div className="flex items-start gap-2">
+                <svg className="h-4 w-4 text-purple-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-xs text-purple-800 font-medium">
+                      <span className="font-semibold">Latest annotation:</span>
+                    </p>
+                    {hasUrgentAnnotations && (
+                      <span className="text-[9px] text-red-500 font-medium">⚠️ Urgent</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-stone-700 mt-0.5 line-clamp-1">
+                    {annotations[annotations.length - 1].comment}
+                  </p>
+                  <p className="text-[10px] text-purple-500 mt-0.5">
+                    by {annotations[annotations.length - 1].annotated_by_name || 'Unknown'}
+                    {annotations.length > 1 && (
+                      <span className="ml-1">· +{annotations.length - 1} more</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+            {mark.marked_by_name && (
+              <span className="flex items-center gap-1">
+                <span className="text-slate-400">Marked by:</span>
+                <span className="text-slate-700 font-medium">{mark.marked_by_name}</span>
+              </span>
+            )}
+            {mark.marked_to_dept_name && (
+              <span className="flex items-center gap-1">
+                <span className="text-slate-400">Dept:</span>
+                <span className="text-slate-700 font-medium">{mark.marked_to_dept_name}</span>
+              </span>
+            )}
+            {mark.assigned_to_name && (
+              <span className="flex items-center gap-1">
+                <span className="text-slate-400">Assigned to:</span>
+                <span className="text-slate-700 font-medium">{mark.assigned_to_name}</span>
+              </span>
+            )}
+            {mark.priority && mark.priority !== 'normal' && (
+              <PriorityBadge priority={mark.priority} />
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-col items-end gap-2 flex-shrink-0">
           {needsResponse && (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700 border border-red-200">
-              ⚠️ Response needed
-            </span>
-          )}
-          {activeFollowUps.length > 0 && (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700 border border-blue-200">
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            <button
+              onClick={() => onRespond(document)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
               </svg>
-              {activeFollowUps.length} follow-up{activeFollowUps.length > 1 ? 's' : ''}
+              Respond
+            </button>
+          )}
+          <button
+            onClick={() => onPreview(document)}
+            className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#A37F0C] hover:bg-[#856404] transition shadow-sm"
+          >
+            Open File
+          </button>
+          {canDelete && onDelete && (
+            <button
+              onClick={() => setShowDeleteConfirm(true)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              Delete
+            </button>
+          )}
+          {hasSuperAdminRemarks && (
+            <span className="text-[9px] text-amber-500 flex items-center gap-1">
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3" />
+              </svg>
+              Has registrar's note
+            </span>
+          )}
+          {hasAnnotations && (
+            <span className="text-[9px] text-purple-500 flex items-center gap-1">
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3" />
+              </svg>
+              Has annotations
             </span>
           )}
         </div>
+      </div>
 
-        {mark.instructions && (
-          <p className="mt-1.5 text-xs text-slate-500 italic line-clamp-2 bg-slate-50 p-2 rounded-md border-l-2 border-[#A37F0C]/40">
-            "{mark.instructions}"
-          </p>
-        )}
-
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-          <span className="flex items-center gap-1 bg-[#FFF9E6] px-2 py-0.5 rounded text-[#A37F0C] font-medium border border-[#FEEBC8]">
-            📅 Bring up: <span>{formatDateDisplay(mark.bring_up_date)}</span>
-          </span>
-          {mark.marked_by_name && <span>Marked by: <span className="text-slate-700 font-medium">{mark.marked_by_name}</span></span>}
-          {mark.marked_to_dept_name && <span>Dept: <span className="text-slate-700 font-medium">{mark.marked_to_dept_name}</span></span>}
-          {mark.assigned_to_name && <span>Assigned to: <span className="text-slate-700 font-medium">{mark.assigned_to_name}</span></span>}
+      {/* ─── Delete Confirmation Modal ───────────────────────────────────── */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                <svg className="h-5 w-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Delete Document</h3>
+                <p className="text-xs text-slate-500 mt-0.5">This action cannot be undone.</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-700 mb-4">
+              Are you sure you want to delete <span className="font-semibold">"{document.title}"</span>?
+              All follow-ups and annotations will be permanently removed.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDelete}
+                className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
-      </div>
-
-      <div className="flex flex-col items-end gap-2 flex-shrink-0">
-        {needsResponse && (
-          <button
-            onClick={() => onRespond(document)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-            </svg>
-            Respond
-          </button>
-        )}
-        <button
-          onClick={() => onPreview(document)}
-          className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#A37F0C] hover:bg-[#856404] transition shadow-sm"
-        >
-          Open File
-        </button>
-      </div>
-    </div>
+      )}
+    </>
   );
 };
 
@@ -1087,6 +1576,22 @@ const AdminBringUp: React.FC = () => {
     }
   }, [dispatch, selectedDocument]);
 
+  // ─── Delete handler ──────────────────────────────────────────────────────────
+  const handleDeleteDocument = useCallback(async (docId: string) => {
+    try {
+      await dispatch(deleteDocument(docId)).unwrap();
+      toast.success('Document deleted successfully');
+      // Close the preview panel if the deleted document was selected
+      if (selectedDocument?.id === docId) {
+        setSelectedDocument(null);
+      }
+      // Refresh the document list
+      fetchDocs();
+    } catch (error) {
+      toast.error(typeof error === 'string' ? error : 'Failed to delete document');
+    }
+  }, [dispatch, selectedDocument, fetchDocs]);
+
   return (
     <div className="min-h-screen bg-[#F4F7F4]">
       <Toaster position="top-right" />
@@ -1114,11 +1619,11 @@ const AdminBringUp: React.FC = () => {
               handleRespond(selectedDocument);
             }}
             onViewFollowUpThread={handleViewFollowUpThread}
+            onDelete={handleDeleteDocument}
           />,
           document.body
         )}
 
-      {/* ─── Use the FULL FollowUpModal component ─────────────────────────── */}
       {showFollowUpModal && selectedFollowUpId &&
         createPortal(
           <FollowUpModal
@@ -1170,6 +1675,7 @@ const AdminBringUp: React.FC = () => {
                         currentUserId={currentUser?.id}
                         onRespond={handleRespond}
                         onPreview={handlePreview}
+                        onDelete={handleDeleteDocument}
                       />
                     ))}
                   </div>

@@ -256,8 +256,8 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
 
   // ── Footer emblem (left side) ────────────────────────────────────────────
   const footerEmblemDataUrl = await urlToDataUrl(FOOTER_EMBLEM_SRC);
+  const logoTopY = footerY + (footerBlockH - footerLogoH) / 2;
   if (footerEmblemDataUrl) {
-    const logoTopY = footerY + (footerBlockH - footerLogoH) / 2;
     doc.addImage(
       footerEmblemDataUrl,
       detectImageFormat(footerEmblemDataUrl),
@@ -268,20 +268,25 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
     );
   }
 
-  // ── Footer text (right-aligned) ───────────────────────────────────────────
+  // ── Footer text (right-aligned, vertically centered against the emblem) ──
+  const footerTextLineHeight = 12;
+  const footerTextBlockH = footerTextLineHeight * 2; // span between 1st and 3rd baseline
+  const footerTextStartY = logoTopY + (footerLogoH - footerTextBlockH) / 2 + 6;
+
   doc.setFont('Times-Roman', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(80, 80, 80);
   doc.text(
     'Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi',
     pageWidth - margin,
-    footerY + 14,
+    footerTextStartY,
     { align: 'right' },
   );
+  
   doc.text(
     'Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke',
     pageWidth - margin,
-    footerY + 26,
+    footerTextStartY + footerTextLineHeight,
     { align: 'right' },
   );
 
@@ -289,9 +294,12 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
   doc.setFont('Times-Roman', 'bold');
   doc.setFontSize(9.5);
   doc.setTextColor(26, 61, 28);
-  doc.text('Justice Be Our Shield and Defender', pageWidth - margin, footerY + 38, {
-    align: 'right',
-  });
+  doc.text(
+    'Justice Be Our Shield and Defender',
+    pageWidth - margin,
+    footerTextStartY + footerTextLineHeight * 2,
+    { align: 'right' },
+  );
 
   // Reset colours
   doc.setTextColor(0, 0, 0);

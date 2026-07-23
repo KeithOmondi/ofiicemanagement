@@ -70,14 +70,8 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
   doc.setFontSize(14); // Increased from 13
   const title = 'INTERNAL MEMO';
   doc.text(title, pageWidth / 2, y, { align: 'center' });
-  const titleWidth = doc.getTextWidth(title);
   doc.setLineWidth(1.5); // Thicker line
-  doc.line(
-    pageWidth / 2 - titleWidth / 2 - 6, 
-    y + 4, 
-    pageWidth / 2 + titleWidth / 2 + 6, 
-    y + 4
-  );
+  doc.line(marginX, y + 4, pageWidth - marginX, y + 4); // Full-width line
   y += 30; // More spacing
 
   // ── Header fields ──────────────────────────────────────────────────────
@@ -177,12 +171,28 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
     y += wordsLines.length * 14 + 12; // More spacing
   }
 
+  // ── Footer position (computed early so the signature block can anchor to it)
+  const footerY = pageHeight - 70;
+  const footerLogoW = 56;
+  const footerLogoH = 42;
+  const footerBlockH = 58;
+
   // ── Signature block ──────────────────────────────────────────────────
-  y += 50; // More spacing
-  if (y > pageHeight - 180) { // Adjusted threshold
-    doc.addPage();
-    y = 60;
+  // Anchor the signature block a fixed distance above the footer separator,
+  // but never let it creep above the content that precedes it.
+  const sigBlockH = (signatureDataUrl ? 42 + 8 : 12) + 14 + 11 + 10;
+  const sigGapAboveFooter = 30;
+  let sigY = footerY - sigBlockH - sigGapAboveFooter;
+
+  if (sigY < y + 20) {
+    sigY = y + 20;
   }
+  if (sigY > pageHeight - 220) {
+    doc.addPage();
+    sigY = 60;
+  }
+  y = sigY;
+
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(11); // Increased from 10.5
   doc.text(data.signatoryName, marginX, y);
@@ -208,20 +218,14 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
   doc.text(data.from.toUpperCase(), marginX, y);
 
   // ── Footer with emblem ───────────────────────────────────────────────────
-  const footerY = pageHeight - 70; // Adjusted position
-
   // Separator line
   doc.setLineWidth(1);
   doc.setDrawColor(180, 180, 180);
   doc.line(marginX, footerY, pageWidth - marginX, footerY);
 
   // Footer emblem (left side)
-  const footerLogoW = 56; // Size from air ticket version
-  const footerLogoH = 42;
-  const footerBlockH = 58;
-
+  const logoTopY = footerY + (footerBlockH - footerLogoH) / 2;
   if (footerEmblemDataUrl) {
-    const logoTopY = footerY + (footerBlockH - footerLogoH) / 2;
     doc.addImage(
       footerEmblemDataUrl,
       detectImageFormat(footerEmblemDataUrl),
@@ -232,28 +236,35 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
     );
   }
 
-  // ── Footer text (right-aligned) ───────────────────────────────────────────
+  // ── Footer text (left-aligned, vertically centered against the emblem) ───
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8); // Increased from 7.5
   doc.setTextColor(60, 60, 60);
-  
-  // Left align the footer text to match the emblem position
+
   const footerTextX = marginX + footerLogoW + 20;
+  const footerTextLineHeight = 11;
+  const footerTextBlockH = footerTextLineHeight * 2; // span between 1st and 3rd baseline
+  const footerTextStartY = logoTopY + (footerLogoH - footerTextBlockH) / 2 + 6;
+
   doc.text(
     'Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi',
     footerTextX,
-    footerY + 14,
+    footerTextStartY,
   );
   doc.text(
     'Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke',
     footerTextX,
-    footerY + 24,
+    footerTextStartY + footerTextLineHeight,
   );
   
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(26, 61, 28);
   doc.setFontSize(8.5); // Slightly bigger
-  doc.text('Justice Be Our Shield and Defender', footerTextX, footerY + 34);
+  doc.text(
+    'Justice Be Our Shield and Defender',
+    footerTextX,
+    footerTextStartY + footerTextLineHeight * 2,
+  );
 
   // Reset colours
   doc.setTextColor(0, 0, 0);

@@ -217,12 +217,12 @@ const HelpDeskSidebar: React.FC<HelpDeskSidebarProps> = ({ isOpen = true, onClos
 
   return (
     <>
-      {isOpen === false && (
-        <div
-          className="fixed inset-0 z-40 bg-stone-900/40 backdrop-blur-sm lg:hidden"
-          onClick={onClose}
-        />
-      )}
+      {isOpen && (
+  <div
+    className="fixed inset-0 z-40 bg-stone-900/40 backdrop-blur-sm lg:hidden"
+    onClick={onClose}
+  />
+)}
 
       <aside className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-stone-200 bg-white shadow-sm transition-transform duration-300 ease-in-out lg:translate-x-0 ${
         isOpen ? 'translate-x-0' : '-translate-x-full'

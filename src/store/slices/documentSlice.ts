@@ -39,12 +39,15 @@ import type {
   FollowUpComment,
   FollowUpPaginationResponse,
   CreateFollowUpInput,
+  FileAwayFollowUpInput,
   UpdateFollowUpInput,
   CompleteFollowUpInput,
   CancelFollowUpInput,
   AddFollowUpCommentInput,
   FollowUpFilters,
   FollowUpWithComments,
+  FollowUpSummary,
+  FollowUpStatus, // Import the status type
 } from "../../types/documents.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -66,6 +69,7 @@ interface DocumentState {
     limit: number;
     totalPages: number;
   } | null;
+  followUpSummary: FollowUpSummary | null;
   lastFetchParams: DocumentFilters | null;
   loading: boolean;
   error: string | null;
@@ -97,11 +101,13 @@ interface DocumentState {
     regeneratingPdf?: string;
     // ── Follow-up actions ────────────────────────────────────────────────
     creatingFollowUp?: boolean;
+    filingAwayFollowUp?: boolean;
     updatingFollowUp?: string;
     completingFollowUp?: string;
     cancellingFollowUp?: string;
     addingFollowUpComment?: string;
     fetchingFollowUps?: boolean;
+    fetchingFollowUpSummary?: boolean;
   };
 }
 
@@ -117,6 +123,7 @@ const initialState: DocumentState = {
   currentFollowUp: null,
   followUpComments: [],
   followUpPagination: null,
+  followUpSummary: null,
   loading: false,
   error: null,
   pagination: null,
@@ -750,7 +757,7 @@ export const regeneratePdf = createAsyncThunk(
 );
 
 // ════════════════════════════════════════════════════════════════════════════
-//  FOLLOW-UP THUNKS
+//  FOLLOW-UP THUNKS (UPDATED - SIMPLIFIED)
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── Fetch Follow-Ups ───────────────────────────────────────────────────────
@@ -810,6 +817,23 @@ export const fetchMyFollowUps = createAsyncThunk(
   }
 );
 
+// ── Fetch Follow-Up Summary ─────────────────────────────────────────────────
+
+export const fetchFollowUpSummary = createAsyncThunk(
+  "documents/fetchFollowUpSummary",
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: FollowUpSummary;
+      }>("/documents/follow-ups/summary");
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
 // ── Fetch Follow-Up by ID ──────────────────────────────────────────────────
 
 export const fetchFollowUpById = createAsyncThunk(
@@ -844,7 +868,7 @@ export const fetchFollowUpThread = createAsyncThunk(
   }
 );
 
-// ── Create Follow-Up ───────────────────────────────────────────────────────
+// ── Create Follow-Up (Simplified) ──────────────────────────────────────────
 
 export const createFollowUp = createAsyncThunk(
   "documents/createFollowUp",
@@ -854,6 +878,23 @@ export const createFollowUp = createAsyncThunk(
         success: boolean;
         data: FollowUp;
       }>("/documents/follow-ups", input);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── File Away Follow-Up (New) ──────────────────────────────────────────────
+
+export const fileAwayFollowUp = createAsyncThunk(
+  "documents/fileAwayFollowUp",
+  async (input: FileAwayFollowUpInput, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: FollowUp;
+      }>("/documents/follow-ups/file-away", input);
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
@@ -989,6 +1030,7 @@ const documentSlice = createSlice({
     clearFollowUps: (state) => {
       state.followUps = [];
       state.followUpPagination = null;
+      state.followUpSummary = null;
     },
     clearCurrentFollowUp: (state) => {
       state.currentFollowUp = null;
@@ -997,6 +1039,17 @@ const documentSlice = createSlice({
       state.followUpComments = [];
     },
     resetState: () => initialState,
+    // ── Optimistic follow-up updates ──────────────────────────────────────
+    optimisticUpdateFollowUpStatus: (state, action: PayloadAction<{ followUpId: string; status: FollowUpStatus }>) => {
+      const { followUpId, status } = action.payload;
+      const index = state.followUps.findIndex(f => f.id === followUpId);
+      if (index !== -1) {
+        state.followUps[index].status = status;
+      }
+      if (state.currentFollowUp?.id === followUpId) {
+        state.currentFollowUp.status = status;
+      }
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -1705,7 +1758,7 @@ const documentSlice = createSlice({
       })
 
       // ════════════════════════════════════════════════════════════════════════
-      //  FOLLOW-UP EXTRA REDUCERS
+      //  FOLLOW-UP EXTRA REDUCERS (UPDATED)
       // ════════════════════════════════════════════════════════════════════════
 
       // ── fetchFollowUps ──────────────────────────────────────────────────────
@@ -1771,6 +1824,23 @@ const documentSlice = createSlice({
         state.error = action.payload as string;
       })
 
+      // ── fetchFollowUpSummary ──────────────────────────────────────────────
+      .addCase(fetchFollowUpSummary.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.actionInProgress.fetchingFollowUpSummary = true;
+      })
+      .addCase(fetchFollowUpSummary.fulfilled, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.fetchingFollowUpSummary = false;
+        state.followUpSummary = action.payload;
+      })
+      .addCase(fetchFollowUpSummary.rejected, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.fetchingFollowUpSummary = false;
+        state.error = action.payload as string;
+      })
+
       // ── fetchFollowUpById ──────────────────────────────────────────────────
       .addCase(fetchFollowUpById.pending, (state) => {
         state.loading = true;
@@ -1813,7 +1883,6 @@ const documentSlice = createSlice({
         state.loading = false;
         state.actionInProgress.creatingFollowUp = false;
         state.followUps = [action.payload, ...state.followUps];
-        // Update the document's follow_ups array if it exists
         if (state.currentDocument) {
           state.currentDocument.follow_ups = [
             action.payload,
@@ -1824,6 +1893,29 @@ const documentSlice = createSlice({
       .addCase(createFollowUp.rejected, (state, action) => {
         state.loading = false;
         state.actionInProgress.creatingFollowUp = false;
+        state.error = action.payload as string;
+      })
+
+      // ── fileAwayFollowUp ──────────────────────────────────────────────────
+      .addCase(fileAwayFollowUp.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.actionInProgress.filingAwayFollowUp = true;
+      })
+      .addCase(fileAwayFollowUp.fulfilled, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.filingAwayFollowUp = false;
+        state.followUps = [action.payload, ...state.followUps];
+        if (state.currentDocument) {
+          state.currentDocument.follow_ups = [
+            action.payload,
+            ...(state.currentDocument.follow_ups || []),
+          ];
+        }
+      })
+      .addCase(fileAwayFollowUp.rejected, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.filingAwayFollowUp = false;
         state.error = action.payload as string;
       })
 
@@ -1844,7 +1936,6 @@ const documentSlice = createSlice({
             ...action.payload,
           };
         }
-        // Update document's follow_ups
         if (state.currentDocument) {
           const docIndex = state.currentDocument.follow_ups?.findIndex(
             (f) => f.id === action.payload.id
@@ -1876,7 +1967,6 @@ const documentSlice = createSlice({
             ...action.payload,
           };
         }
-        // Update document's follow_ups
         if (state.currentDocument) {
           const docIndex = state.currentDocument.follow_ups?.findIndex(
             (f) => f.id === action.payload.id
@@ -1908,7 +1998,6 @@ const documentSlice = createSlice({
             ...action.payload,
           };
         }
-        // Update document's follow_ups
         if (state.currentDocument) {
           const docIndex = state.currentDocument.follow_ups?.findIndex(
             (f) => f.id === action.payload.id
@@ -1938,7 +2027,6 @@ const documentSlice = createSlice({
             comment,
           ];
         }
-        // Update comment count
         const followUpIndex = state.followUps.findIndex(
           (f) => f.id === followUpId
         );
@@ -1981,6 +2069,7 @@ export const {
   clearCurrentFollowUp,
   clearFollowUpComments,
   resetState,
+  optimisticUpdateFollowUpStatus,
 } = documentSlice.actions;
 
 // ── Selectors ─────────────────────────────────────────────────────────────────
@@ -2065,8 +2154,14 @@ export const selectFollowUpComments = (state: { documents: DocumentState }) =>
 export const selectFollowUpPagination = (state: { documents: DocumentState }) =>
   state.documents.followUpPagination;
 
+export const selectFollowUpSummary = (state: { documents: DocumentState }) =>
+  state.documents.followUpSummary;
+
 export const selectIsCreatingFollowUp = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.creatingFollowUp || false;
+
+export const selectIsFilingAwayFollowUp = (state: { documents: DocumentState }) =>
+  state.documents.actionInProgress.filingAwayFollowUp || false;
 
 export const selectIsUpdatingFollowUp = (state: { documents: DocumentState }, followUpId: string) =>
   state.documents.actionInProgress.updatingFollowUp === followUpId;
@@ -2082,6 +2177,9 @@ export const selectIsAddingFollowUpComment = (state: { documents: DocumentState 
 
 export const selectIsFetchingFollowUps = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.fetchingFollowUps || false;
+
+export const selectIsFetchingFollowUpSummary = (state: { documents: DocumentState }) =>
+  state.documents.actionInProgress.fetchingFollowUpSummary || false;
 
 export type { DocumentState };
 

@@ -1,4 +1,5 @@
 // src/pages/helpdesk/HelpDeskDocuments.tsx
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -16,6 +17,7 @@ import {
   fetchUsers,
   selectCurrentUser,
   selectIsDeptHead,
+  selectAllUsers,
 } from '../../store/slices/userSlice';
 import {
   fetchDepartments,
@@ -860,6 +862,7 @@ const HelpDeskDocuments: React.FC = () => {
   const currentUser       = useAppSelector(selectCurrentUser);
   const isDeptHead        = useAppSelector(selectIsDeptHead);
   const allDepartments    = useAppSelector(selectAllDepartments);
+  const allUsers          = useAppSelector(selectAllUsers);
 
   // ── Local State ────────────────────────────────────────────────────────────
   const [searchTerm,         setSearchTerm]         = useState('');
@@ -884,9 +887,6 @@ const HelpDeskDocuments: React.FC = () => {
   // Department documents (local state)
   const [departmentDocs,     setDepartmentDocs]     = useState<Document[]>([]);
   const [deptDocsLoading,    setDeptDocsLoading]    = useState(false);
-
-  // Shared department users list (fetched once for both modals)
-  const [departmentUsers, setDepartmentUsers] = useState<{ id: string; name: string }[]>([]);
 
   // ── Effects ───────────────────────────────────────────────────────────────
 
@@ -913,7 +913,11 @@ const HelpDeskDocuments: React.FC = () => {
       setDeptDocsLoading(true);
       try {
         const result = await dispatch(
-          fetchDocuments({ department_id: currentUser.department_id ?? undefined, limit: 100 })
+          fetchDocuments({ 
+            department_id: currentUser.department_id ?? undefined, 
+            limit: 100,
+            status: 'dept_assigned',
+          })
         ).unwrap();
         setDepartmentDocs(result.data);
       } catch (err) {
@@ -933,21 +937,26 @@ const HelpDeskDocuments: React.FC = () => {
     }
   }, [dispatch, isDeptHead]);
 
-  // 4. Fetch department users once when component mounts and user is Dept Head
+  // 4. Fetch department users when component mounts and user is Dept Head
   useEffect(() => {
     if (isDeptHead && currentUser?.department_id) {
       dispatch(fetchUsers({
         department_id: currentUser.department_id ?? undefined,
         limit: 100,
-      }))
-        .unwrap()
-        .then((result) => {
-          const users = result.data.map(u => ({ id: u.id, name: u.full_name }));
-          setDepartmentUsers(users);
-        })
-        .catch(() => toast.error('Failed to load department users'));
+      }));
     }
   }, [dispatch, isDeptHead, currentUser?.department_id]);
+
+  // ── Memoized department users ─────────────────────────────────────────────
+
+  // ✅ Fixed: Include currentUser as dependency to satisfy React Compiler
+  const departmentUsers = useMemo(() => {
+    const departmentId = currentUser?.department_id;
+    if (!departmentId) return [];
+    return allUsers
+      .filter(u => u.department_id === departmentId)
+      .map(u => ({ id: u.id, name: u.full_name }));
+  }, [allUsers, currentUser]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -974,6 +983,13 @@ const HelpDeskDocuments: React.FC = () => {
       await dispatch(acknowledgeMark(id)).unwrap();
       toast.success('Document acknowledged successfully');
       dispatch(fetchMyMarked());
+      // Refresh department docs if dept head
+      if (isDeptHead && currentUser?.department_id) {
+        const result = await dispatch(
+          fetchDocuments({ department_id: currentUser.department_id ?? undefined, limit: 100 })
+        ).unwrap();
+        setDepartmentDocs(result.data);
+      }
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to acknowledge document');
     }
@@ -984,6 +1000,13 @@ const HelpDeskDocuments: React.FC = () => {
       await dispatch(completeMark(id)).unwrap();
       toast.success('Document marked as completed');
       dispatch(fetchMyMarked());
+      // Refresh department docs if dept head
+      if (isDeptHead && currentUser?.department_id) {
+        const result = await dispatch(
+          fetchDocuments({ department_id: currentUser.department_id ?? undefined, limit: 100 })
+        ).unwrap();
+        setDepartmentDocs(result.data);
+      }
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to complete document');
     }
@@ -1265,7 +1288,7 @@ const HelpDeskDocuments: React.FC = () => {
             <div className="space-y-3">
               {departmentDocs.map((doc: Document) => {
                 const isMarkingThis = isMarking && markDocumentTarget?.id === doc.id;
-                // Show Mark button only for statuses that indicate department assignment (dept_assigned or marked legacy)
+                // Show Mark button only for statuses that indicate department assignment
                 const showMarkButton = doc.status === 'dept_assigned' || doc.status === 'marked';
 
                 return (

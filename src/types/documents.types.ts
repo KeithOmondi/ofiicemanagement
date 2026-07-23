@@ -183,33 +183,43 @@ export type AnyRequestDetails =
 // For custom placement, use signature_position_x/y/width/height.
 
 // ════════════════════════════════════════════════════════════════════════════
-//  FOLLOW-UP TYPES
+//  FOLLOW-UP TYPES (UPDATED - SIMPLIFIED)
 // ════════════════════════════════════════════════════════════════════════════
 
-export type FollowUpStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
+export type FollowUpStatus = 
+  | 'pending'        // Has a due date in the future
+  | 'in_progress'    // Being worked on
+  | 'completed'      // Completed with or without due date
+  | 'cancelled'      // Cancelled
+  | 'filed_away';    // ✅ New: No due date, marked as done/filed
 
 export type FollowUpPriority = 'low' | 'normal' | 'urgent';
 
+/**
+ * Simplified Follow-Up interface
+ * - `title` and `description` replaced with `notes` (single field)
+ * - `mark_id` is optional (not always linked to a mark)
+ * - `due_date` is optional (can be null for filed away items)
+ */
 export interface FollowUp {
   id: string;
   document_id: string;
-  mark_id: string; // Links to the bring-up mark
-  title: string;
-  description: string | null;
+  mark_id: string | null;           // ✅ Optional - may not be linked to a mark
+  notes: string;                    // ✅ Required - replaces title + description
   assigned_to: string;
   assigned_to_name: string | null;
   created_by: string;
   created_by_name: string | null;
-  due_date: Date;
+  due_date: string | null;          // ✅ Optional - null means filed away
   priority: FollowUpPriority;
   status: FollowUpStatus;
-  completed_at: Date | null;
-  cancelled_at: Date | null;
+  completed_at: string | null;
+  cancelled_at: string | null;
   cancellation_reason: string | null;
   completion_notes: string | null;
   is_active: boolean;
-  created_at: Date;
-  updated_at: Date;
+  created_at: string;
+  updated_at: string;
   comment_count?: number;
 }
 
@@ -221,7 +231,7 @@ export interface FollowUpComment {
   comment: string;
   file_url: string | null;
   file_public_id: string | null;
-  created_at: Date;
+  created_at: string;
 }
 
 export interface FollowUpWithComments extends FollowUp {
@@ -236,23 +246,41 @@ export interface FollowUpPaginationResponse {
   totalPages: number;
 }
 
-// ── Follow-up Input Types ──────────────────────────────────────────────────
+// ── Follow-up Input Types (Simplified) ──────────────────────────────────────
 
+/**
+ * Simplified Create Follow-Up Input
+ * - No title required (uses notes only)
+ * - due_date is optional
+ * - mark_id is optional
+ */
 export interface CreateFollowUpInput {
   document_id: string;
-  mark_id: string;
-  title: string;
-  description?: string;
+  mark_id?: string;                 // ✅ Optional
+  notes: string;                    // ✅ Required - what was done or needs to be done
   assigned_to: string;
-  due_date: Date | string;
-  priority: FollowUpPriority;
+  due_date?: Date | string | null;  // ✅ Optional - if not provided, filed away
+  priority?: FollowUpPriority;
 }
 
+/**
+ * File Away Follow-Up Input (New)
+ * - Quick action to file away a follow-up with no due date
+ */
+export interface FileAwayFollowUpInput {
+  document_id: string;
+  mark_id?: string;                 // Optional
+  notes: string;                    // Required - what was done
+  completion_notes?: string;        // Optional - additional notes on completion
+}
+
+/**
+ * Simplified Update Follow-Up Input
+ */
 export interface UpdateFollowUpInput {
-  title?: string;
-  description?: string;
+  notes?: string;
   assigned_to?: string;
-  due_date?: Date | string;
+  due_date?: Date | string | null;
   priority?: FollowUpPriority;
   status?: FollowUpStatus;
   completion_notes?: string;
@@ -271,6 +299,10 @@ export interface AddFollowUpCommentInput {
   comment: string;
 }
 
+/**
+ * Simplified Follow-Up Filters
+ * - Added active_only and filed_only filters
+ */
 export interface FollowUpFilters {
   document_id?: string;
   assigned_to?: string;
@@ -278,11 +310,26 @@ export interface FollowUpFilters {
   priority?: FollowUpPriority;
   due_from?: Date | string;
   due_to?: Date | string;
-  search?: string;
+  search?: string;                  // Searches notes field
+  active_only?: boolean;            // ✅ Show only follow-ups with future dates
+  filed_only?: boolean;             // ✅ Show only filed away items
   page?: number;
   limit?: number;
-  sort_by?: 'created_at' | 'due_date' | 'priority' | 'status' | 'title';
+  sort_by?: 'created_at' | 'due_date' | 'priority' | 'status' | 'notes';
   sort_order?: 'ASC' | 'DESC';
+}
+
+/**
+ * Follow-Up Summary (New)
+ * - Dashboard statistics for a user's follow-ups
+ */
+export interface FollowUpSummary {
+  pending: number;      // Follow-ups with due_date in future
+  overdue: number;      // Follow-ups with due_date past
+  completed: number;    // Completed follow-ups
+  filed_away: number;   // ✅ Filed away follow-ups
+  total: number;        // Total follow-ups
+  active: number;       // Active follow-ups (pending + in_progress)
 }
 
 // ── Input types ───────────────────────────────────────────────────────────────
@@ -296,7 +343,6 @@ export interface CreateComposedDocumentInput {
   body: string;
   assigned_to?: string;
   department_id?: string;
-  // ── NEW: Request Details ──────────────────────────────────────────────
   request_details?: Partial<DocumentRequestDetails>;
 }
 
@@ -310,7 +356,7 @@ export interface ComposeMemoInput {
   signatureTitle?: string;
   department_id?: string;
   reference_no?: string;
-  fromFirst?: boolean;         // (unused, kept for compatibility)
+  fromFirst?: boolean;
   request_details?: Partial<DocumentRequestDetails>;
 }
 
@@ -319,14 +365,13 @@ export interface ComposeLetterInput {
   to: string;
   date?: string;
   body: string;
-  from?: string;               // sender name (the person)
-  signatureName?: string;      // The actual person signing
-  signatureTitle?: string;     // e.g. "Registrar, High Court"
+  from?: string;
+  signatureName?: string;
+  signatureTitle?: string;
   department_id?: string;
   reference_no?: string;
-  cc?: string;                 // carbon copy
-  enclosures?: string;         // list of enclosures
-  // ── NEW: Request Details ──────────────────────────────────────────────
+  cc?: string;
+  enclosures?: string;
   request_details?: Partial<DocumentRequestDetails>;
 }
 
@@ -348,7 +393,6 @@ export interface CreateUploadDocumentInput {
   department_id?: string;
   is_draft?: boolean;
   priority?: RoutePriority;
-  // ── NEW: Request Details ──────────────────────────────────────────────
   request_details?: Partial<DocumentRequestDetails>;
 }
 
@@ -361,7 +405,6 @@ export interface UpdateDocumentInput {
   assigned_to?: string | null;
   department_id?: string | null;
   priority?: RoutePriority;
-  // Memo/Letter specific fields (editable by Super Admin only)
   to_recipient?: string | null;
   from_sender?: string | null;
   document_date?: string | null;
@@ -370,12 +413,10 @@ export interface UpdateDocumentInput {
   enclosures?: string | null;
   signature_name?: string | null;
   signature_title?: string | null;
-  // Custom signature position (absolute coordinates, used only if provided)
   signature_position_x?: number | null;
   signature_position_y?: number | null;
   signature_position_width?: number | null;
   signature_position_height?: number | null;
-  // ── NEW: Request Details ──────────────────────────────────────────────
   request_details?: Partial<DocumentRequestDetails> | null;
 }
 
@@ -414,7 +455,6 @@ export interface DocumentFilters {
   sort_by?: 'created_at' | 'updated_at' | 'title' | 'status';
   sort_order?: 'ASC' | 'DESC';
   has_bring_up_date?: boolean;
-  // ── NEW: Request type filter ──────────────────────────────────────────
   request_type?: RequestType;
 }
 
@@ -454,7 +494,6 @@ export interface FolderDocumentFilters {
   search?: string;
   type?: DocumentType;
   status?: DocumentStatus;
-  // ── NEW: Request type filter ──────────────────────────────────────────
   request_type?: RequestType;
 }
 
@@ -557,7 +596,6 @@ export interface Document {
   updated_at: Date;
   active_mark: DocumentMark | null;
   response_count?: number;
-  // Memo/Letter specific fields
   to_recipient: string | null;
   from_sender: string | null;
   document_date: string | null;
@@ -566,16 +604,11 @@ export interface Document {
   enclosures: string | null;
   signature_name: string | null;
   signature_title: string | null;
-  // Custom signature position (absolute coordinates, used only if provided)
-  // When these are set, the signature is placed at exact coordinates;
-  // otherwise, it is auto‑detected above the signatory block.
   signature_position_x: number | null;
   signature_position_y: number | null;
   signature_position_width: number | null;
   signature_position_height: number | null;
-  // ── NEW: Request Details ──────────────────────────────────────────────
   request_details: DocumentRequestDetails | null;
-  // ── NEW: Follow-ups ────────────────────────────────────────────────────
   follow_ups?: FollowUp[];
 }
 

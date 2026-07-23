@@ -17,6 +17,7 @@ import {
   respondToDocument,
   fetchDocumentById,
   createFollowUp,
+  fileAwayFollowUp,
   completeFollowUp,
   cancelFollowUp,
 } from '../../store/slices/documentSlice';
@@ -42,6 +43,7 @@ import type {
   CreateFollowUpInput,
   CompleteFollowUpInput,
   CancelFollowUpInput,
+  FileAwayFollowUpInput,
 } from '../../types/documents.types';
 import { format } from 'date-fns';
 import FollowUpModal from './FollowUpModal';
@@ -127,6 +129,7 @@ const FOLLOW_UP_STATUS_STYLES: Record<FollowUpStatus, string> = {
   in_progress: 'bg-blue-100 text-blue-700 border border-blue-200',
   completed: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
   cancelled: 'bg-stone-100 text-stone-500 border border-stone-200',
+  filed_away: 'bg-slate-100 text-slate-600 border border-slate-200',
 };
 
 const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
@@ -134,6 +137,7 @@ const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
   in_progress: 'IN PROGRESS',
   completed: 'COMPLETED',
   cancelled: 'CANCELLED',
+  filed_away: 'FILED AWAY',
 };
 
 const FollowUpStatusBadge: React.FC<{ status: FollowUpStatus }> = ({ status }) => (
@@ -1352,6 +1356,8 @@ interface FollowUpCardProps {
   onViewDetails: (followUpId: string) => void;
   onComplete: (followUpId: string, input: CompleteFollowUpInput) => Promise<void> | void;
   onCancel: (followUpId: string, input: CancelFollowUpInput) => Promise<void> | void;
+  onFileAway?: (followUpId: string, input: FileAwayFollowUpInput) => Promise<void> | void;
+  documentId: string;
 }
 
 const FollowUpCard: React.FC<FollowUpCardProps> = ({
@@ -1361,16 +1367,19 @@ const FollowUpCard: React.FC<FollowUpCardProps> = ({
   onViewDetails,
   onComplete,
   onCancel,
+  onFileAway,
+  documentId,
 }) => {
   const isAssignedToMe = followUp.assigned_to === currentUserId;
   const canComplete = isAssignedToMe || isSuperAdmin;
   const canCancel = followUp.created_by === currentUserId || isAssignedToMe || isSuperAdmin;
   const isCompleted = followUp.status === 'completed';
   const isCancelled = followUp.status === 'cancelled';
-  const isActive = !isCompleted && !isCancelled;
+  const isFiledAway = followUp.status === 'filed_away';
+  const isActive = !isCompleted && !isCancelled && !isFiledAway;
 
-  const dueDate = new Date(followUp.due_date);
-  const isOverdue = isActive && dueDate < new Date();
+  const dueDate = followUp.due_date ? new Date(followUp.due_date) : null;
+  const isOverdue = isActive && dueDate && dueDate < new Date();
 
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -1381,6 +1390,22 @@ const FollowUpCard: React.FC<FollowUpCardProps> = ({
     setIsProcessing(true);
     try {
       await onComplete(followUp.id, {});
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleFileAway = async () => {
+    if (isProcessing) return;
+    setIsProcessing(true);
+    try {
+      await onFileAway?.(followUp.id, {
+        document_id: documentId,
+        mark_id: followUp.mark_id || undefined,
+        notes: followUp.notes,
+        completion_notes: `Filed away by ${currentUserId}`,
+      });
+      toast.success('Document filed away successfully');
     } finally {
       setIsProcessing(false);
     }
@@ -1398,6 +1423,10 @@ const FollowUpCard: React.FC<FollowUpCardProps> = ({
     }
   };
 
+  const dueDateDisplay = followUp.due_date 
+    ? format(new Date(followUp.due_date), 'dd MMM yyyy')
+    : 'Filed Away';
+
   return (
     <>
       <div className={`rounded-lg border p-3 transition-colors ${
@@ -1405,15 +1434,17 @@ const FollowUpCard: React.FC<FollowUpCardProps> = ({
           ? 'border-emerald-200 bg-emerald-50/30' 
           : isCancelled
             ? 'border-stone-200 bg-stone-50/30 opacity-60'
-            : isOverdue
-              ? 'border-red-200 bg-red-50/30'
-              : 'border-stone-200 bg-white hover:border-stone-300'
+            : isFiledAway
+              ? 'border-slate-200 bg-slate-50/30'
+              : isOverdue
+                ? 'border-red-200 bg-red-50/30'
+                : 'border-stone-200 bg-white hover:border-stone-300'
       }`}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-sm font-semibold text-stone-800 truncate">
-                {followUp.title}
+                {followUp.notes}
               </span>
               <FollowUpStatusBadge status={followUp.status} />
               <FollowUpPriorityBadge priority={followUp.priority} />
@@ -1422,21 +1453,27 @@ const FollowUpCard: React.FC<FollowUpCardProps> = ({
                   ⚠️ OVERDUE
                 </span>
               )}
+              {isFiledAway && (
+                <span className="inline-flex items-center gap-0.5 rounded bg-slate-200 px-1.5 py-0.5 text-[9px] font-bold text-slate-600">
+                  📁 FILED AWAY
+                </span>
+              )}
             </div>
-            {followUp.description && (
-              <p className="mt-1 text-xs text-stone-600 line-clamp-2">
-                {followUp.description}
-              </p>
-            )}
             <div className="mt-1.5 flex items-center gap-2 text-[10px] text-stone-400 flex-wrap">
               <span>
                 Assigned to: <span className="text-stone-600">{followUp.assigned_to_name || 'Unassigned'}</span>
               </span>
               <span>·</span>
               <span>
-                Due: <span className={isOverdue ? 'text-red-600 font-medium' : 'text-stone-600'}>
-                  {format(dueDate, 'dd MMM yyyy')}
-                </span>
+                {followUp.due_date ? (
+                  <>
+                    Due: <span className={isOverdue ? 'text-red-600 font-medium' : 'text-stone-600'}>
+                      {dueDateDisplay}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-slate-500">No due date</span>
+                )}
               </span>
               {followUp.comment_count !== undefined && followUp.comment_count > 0 && (
                 <>
@@ -1459,6 +1496,15 @@ const FollowUpCard: React.FC<FollowUpCardProps> = ({
                 className="inline-flex items-center gap-1 rounded bg-emerald-100 px-2 py-1 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-200 transition-colors disabled:opacity-50"
               >
                 {isProcessing ? <Spinner className="h-2.5 w-2.5" /> : '✓ Complete'}
+              </button>
+            )}
+            {isActive && isSuperAdmin && onFileAway && (
+              <button
+                onClick={handleFileAway}
+                disabled={isProcessing}
+                className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50"
+              >
+                {isProcessing ? <Spinner className="h-2.5 w-2.5" /> : '📁 File Away'}
               </button>
             )}
             {isActive && canCancel && (
@@ -1489,7 +1535,7 @@ const FollowUpCard: React.FC<FollowUpCardProps> = ({
           <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
             <h3 className="text-sm font-bold text-stone-900">Cancel Follow-Up</h3>
             <p className="text-xs text-stone-500 mt-1">
-              Are you sure you want to cancel "{followUp.title}"?
+              Are you sure you want to cancel this follow-up?
             </p>
             <div className="mt-4">
               <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
@@ -1535,6 +1581,7 @@ interface FollowUpsPanelProps {
   onViewDetails: (followUpId: string) => void;
   onComplete: (followUpId: string, input: CompleteFollowUpInput) => Promise<void> | void;
   onCancel: (followUpId: string, input: CancelFollowUpInput) => Promise<void> | void;
+  onFileAway?: (followUpId: string, input: FileAwayFollowUpInput) => Promise<void> | void;
 }
 
 const FollowUpsPanel: React.FC<FollowUpsPanelProps> = ({
@@ -1544,6 +1591,7 @@ const FollowUpsPanel: React.FC<FollowUpsPanelProps> = ({
   onViewDetails,
   onComplete,
   onCancel,
+  onFileAway,
 }) => {
   const followUps = document.follow_ups || [];
 
@@ -1566,6 +1614,8 @@ const FollowUpsPanel: React.FC<FollowUpsPanelProps> = ({
           onViewDetails={onViewDetails}
           onComplete={onComplete}
           onCancel={onCancel}
+          onFileAway={onFileAway}
+          documentId={document.id}
         />
       ))}
     </div>
@@ -1591,8 +1641,7 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
   const users = useAppSelector(selectAllUsers);
   const usersLoading = useAppSelector(selectUsersListLoading);
 
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const [notes, setNotes] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState<FollowUpPriority>('normal');
@@ -1604,18 +1653,33 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !assignedTo || !dueDate) {
-      setError('Please fill in all required fields');
+    if (!notes.trim() || !assignedTo) {
+      setError('Please fill in notes and assign a user');
       return;
     }
     setError(null);
     onCreate({
       document_id: document.id,
       mark_id: markId,
-      title: title.trim(),
-      description: description.trim() || undefined,
+      notes: notes.trim(),
       assigned_to: assignedTo,
-      due_date: dueDate,
+      due_date: dueDate || undefined,
+      priority,
+    });
+  };
+
+  const handleFileAway = () => {
+    if (!notes.trim() || !assignedTo) {
+      setError('Please fill in notes and assign a user');
+      return;
+    }
+    setError(null);
+    onCreate({
+      document_id: document.id,
+      mark_id: markId,
+      notes: notes.trim(),
+      assigned_to: assignedTo,
+      due_date: null,
       priority,
     });
   };
@@ -1638,29 +1702,25 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Title *
+              Document
             </label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="What needs to be done?"
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
-              required
-              autoFocus
-            />
+            <div className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700 font-medium truncate">
+              {document.title}
+            </div>
           </div>
 
           <div>
             <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Description <span className="font-normal text-stone-400 normal-case">(optional)</span>
+              Notes / What needs to be done *
             </label>
             <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-              placeholder="Additional details about this follow-up task..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="Describe what needs to be done or what was done..."
               className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
+              required
+              autoFocus
             />
           </div>
 
@@ -1688,7 +1748,7 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
 
           <div>
             <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Due Date *
+              Due Date <span className="font-normal text-stone-400 normal-case">(optional - leave blank to file away)</span>
             </label>
             <input
               type="date"
@@ -1696,8 +1756,10 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
               onChange={(e) => setDueDate(e.target.value)}
               min={new Date().toISOString().split('T')[0]}
               className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
-              required
             />
+            <p className="text-[10px] text-stone-400 mt-1">
+              {dueDate ? 'This follow-up will be active with a due date.' : 'Leave blank to file away immediately.'}
+            </p>
           </div>
 
           <div>
@@ -1728,6 +1790,14 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
               className="flex-1 rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
             >
               Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleFileAway}
+              disabled={!notes.trim() || !assignedTo}
+              className="flex-1 rounded-lg bg-slate-600 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+            >
+              📁 File Away
             </button>
             <button
               type="submit"
@@ -2055,6 +2125,7 @@ interface DocumentEditorProps {
   onViewFollowUpDetails?: (followUpId: string) => void;
   onCompleteFollowUp?: (followUpId: string, input: CompleteFollowUpInput) => Promise<void>;
   onCancelFollowUp?: (followUpId: string, input: CancelFollowUpInput) => Promise<void>;
+  onFileAwayFollowUp?: (followUpId: string, input: FileAwayFollowUpInput) => Promise<void>;
 }
 
 const DocumentEditor: React.FC<DocumentEditorProps> = ({
@@ -2077,6 +2148,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onViewFollowUpDetails,
   onCompleteFollowUp,
   onCancelFollowUp,
+  onFileAwayFollowUp,
 }) => {
   const { user } = useAppSelector((state) => state.auth);
   const isComposed = document.type === 'memo' || document.type === 'letter';
@@ -2120,9 +2192,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
   // ─── View Follow-ups handler ──────────────────────────────────────────────
   const handleViewFollowUps = () => {
-    console.log('Follow-ups:', followUps);
-    console.log('Follow-ups length:', followUps.length);
-
     if (followUps.length === 0) {
       toast('No follow-ups have been created for this document yet.', {
         icon: 'ℹ️',
@@ -2131,7 +2200,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       return;
     }
 
-    // Get the most recent follow-up
     const sorted = [...followUps].sort((a, b) => {
       const dateA = new Date(a.created_at).getTime();
       const dateB = new Date(b.created_at).getTime();
@@ -2139,14 +2207,9 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     });
 
     const mostRecent = sorted[0];
-    console.log('Most recent follow-up:', mostRecent);
-    console.log('Follow-up ID:', mostRecent?.id);
-
     if (onViewFollowUpDetails && mostRecent?.id) {
-      console.log('Calling onViewFollowUpDetails with ID:', mostRecent.id);
       onViewFollowUpDetails(mostRecent.id);
     } else {
-      console.error('No follow-up ID found or onViewFollowUpDetails is undefined');
       toast.error('Unable to open follow-up details');
     }
   };
@@ -2323,7 +2386,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 </button>
               )}
 
-              {/* View Details button - ALWAYS ACTIVE */}
+              {/* View Details button */}
               {onViewFollowUpDetails && (
                 <button
                   onClick={handleViewFollowUps}
@@ -2474,6 +2537,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             onViewDetails={onViewFollowUpDetails || (() => {})}
             onComplete={onCompleteFollowUp || (async () => {})}
             onCancel={onCancelFollowUp || (async () => {})}
+            onFileAway={onFileAwayFollowUp}
           />
         </div>
       )}
@@ -2519,8 +2583,8 @@ const SuperAdminBringUp: React.FC = () => {
   // ─── Fetch document selection ──────────────────────────────────────
   const [isFetchingDocument, setIsFetchingDocument] = useState(false);
 
-  // Fetch documents with bring-up date
-  useEffect(() => {
+  // ─── Refresh documents function ─────────────────────────────────────
+  const refreshDocuments = useCallback(() => {
     if (!canView) return;
     const params: DocumentFilters = {
       page: 1,
@@ -2529,6 +2593,11 @@ const SuperAdminBringUp: React.FC = () => {
     };
     dispatch(fetchDocuments(params));
   }, [dispatch, canView]);
+
+  // Fetch documents with bring-up date
+  useEffect(() => {
+    refreshDocuments();
+  }, [refreshDocuments]);
 
   // Fetch users and departments for mark modal
   useEffect(() => {
@@ -2547,9 +2616,23 @@ const SuperAdminBringUp: React.FC = () => {
   }, [error, dispatch]);
 
   // ─── Group documents by bucket ──────────────────────────────────────────────
+  // Filter out documents that have been filed away (all follow-ups are filed_away)
+  const filteredDocuments = useMemo(() => {
+    return documents.filter((doc) => {
+      const followUps = doc.follow_ups || [];
+      // If all follow-ups are filed_away or completed, hide the document
+      const allFiledOrCompleted = followUps.every(
+        (f) => f.status === 'filed_away' || f.status === 'completed' || f.status === 'cancelled'
+      );
+      // If there are no follow-ups, keep the document (it hasn't been filed away)
+      if (followUps.length === 0) return true;
+      // Keep the document if it has at least one active follow-up
+      return !allFiledOrCompleted;
+    });
+  }, [documents]);
 
   const grouped = useMemo(() => {
-    const withBringUp = documents.filter((d) => !!d.active_mark?.bring_up_date);
+    const withBringUp = filteredDocuments.filter((d) => !!d.active_mark?.bring_up_date);
 
     const buckets: Record<BringUpBucket, Document[]> = {
       overdue: [],
@@ -2571,7 +2654,7 @@ const SuperAdminBringUp: React.FC = () => {
     });
 
     return buckets;
-  }, [documents]);
+  }, [filteredDocuments]);
 
   const totalCount = grouped.overdue.length + grouped.today.length + grouped.upcoming.length;
 
@@ -2581,12 +2664,10 @@ const SuperAdminBringUp: React.FC = () => {
   const handleSelectDocument = useCallback(async (doc: Document) => {
     setIsFetchingDocument(true);
     try {
-      // Fetch the full document with all relations (including follow-ups)
       const result = await dispatch(fetchDocumentById(doc.id)).unwrap();
       setSelectedDocument(result);
     } catch (error) {
       console.error('Failed to fetch document details:', error);
-      // Fallback to the list data
       setSelectedDocument(doc);
       toast.error('Could not load full document details');
     } finally {
@@ -2628,7 +2709,6 @@ const SuperAdminBringUp: React.FC = () => {
       setShowOtpModal(false);
       setOtpValue('');
       setSigningDocId(null);
-      // Refresh the document after signing
       const refreshed = await dispatch(fetchDocumentById(signingDocId)).unwrap();
       setSelectedDocument(refreshed);
       showToast({ type: 'success', message: 'Document signed successfully.' });
@@ -2712,12 +2792,7 @@ const SuperAdminBringUp: React.FC = () => {
       const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
       setSelectedDocument(refreshed);
     }
-    const params: DocumentFilters = {
-      page: 1,
-      limit: PAGE_SIZE,
-      has_bring_up_date: true,
-    };
-    dispatch(fetchDocuments(params));
+    refreshDocuments();
   };
 
   // ─── Push Back handlers ─────────────────────────────────────────────
@@ -2737,7 +2812,6 @@ const SuperAdminBringUp: React.FC = () => {
   ) => {
     setReassignLoading(true);
     try {
-      // TODO: replace with dispatch(reassignMark({ markId, data })) when available
       console.warn('reassignMark not implemented yet', { markId, data });
       toast.error('Push back is not yet available. Please wait for the update.');
       setTimeout(() => {
@@ -2761,6 +2835,7 @@ const SuperAdminBringUp: React.FC = () => {
         const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
         setSelectedDocument(refreshed);
       }
+      refreshDocuments();
     } catch (error) {
       toast.error(typeof error === 'string' ? error : 'Failed to create follow-up');
     }
@@ -2774,6 +2849,7 @@ const SuperAdminBringUp: React.FC = () => {
         const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
         setSelectedDocument(refreshed);
       }
+      refreshDocuments();
     } catch (error) {
       toast.error(typeof error === 'string' ? error : 'Failed to complete follow-up');
     }
@@ -2787,8 +2863,28 @@ const SuperAdminBringUp: React.FC = () => {
         const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
         setSelectedDocument(refreshed);
       }
+      refreshDocuments();
     } catch (error) {
       toast.error(typeof error === 'string' ? error : 'Failed to cancel follow-up');
+    }
+  };
+
+  // ─── File Away Follow-Up handler ────────────────────────────────────────────
+  const handleFileAwayFollowUp = async (followUpId: string, input: FileAwayFollowUpInput) => {
+    try {
+      await dispatch(fileAwayFollowUp(input)).unwrap();
+      toast.success('Document filed away successfully');
+      // Close the follow-up modal if open
+      setShowFollowUpModal(false);
+      setSelectedFollowUpId(null);
+      // Clear selected document if it was the one filed away
+      if (selectedDocument && selectedDocument.id === input.document_id) {
+        setSelectedDocument(null);
+      }
+      // Refresh the document list to remove the filed away document
+      refreshDocuments();
+    } catch (error) {
+      toast.error(typeof error === 'string' ? error : 'Failed to file away document');
     }
   };
 
@@ -2895,6 +2991,7 @@ const SuperAdminBringUp: React.FC = () => {
               const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
               setSelectedDocument(refreshed);
             }
+            refreshDocuments();
           }}
         />
       )}
@@ -2926,7 +3023,6 @@ const SuperAdminBringUp: React.FC = () => {
                 No documents with bring‑up dates.
               </div>
             ) : (
-              /* ─── ONLY OVERDUE AND UPCOMING BUCKETS ─── */
               (['overdue', 'upcoming'] as BringUpBucket[]).map((bucket) => {
                 const docs = grouped[bucket];
                 if (docs.length === 0) return null;
@@ -3017,6 +3113,7 @@ const SuperAdminBringUp: React.FC = () => {
               onViewFollowUpDetails={handleViewFollowUpDetails}
               onCompleteFollowUp={handleCompleteFollowUp}
               onCancelFollowUp={handleCancelFollowUp}
+              onFileAwayFollowUp={handleFileAwayFollowUp}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center px-4">

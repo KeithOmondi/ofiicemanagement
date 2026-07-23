@@ -88,6 +88,7 @@ import {
   type DocumentEntityType,
   type DocumentStatus,
 } from '../../store/slices/helpdeskDocumentsSlice';
+import { useSocket } from '../../socket/client';
 import toast, { Toaster } from 'react-hot-toast';
 import {
   X,
@@ -219,8 +220,6 @@ function getErrorMessage(error: unknown): string {
   }
   return 'An unknown error occurred';
 }
-
-
 
 // ── Shared UI Primitives ──────────────────────────────────────────────────
 
@@ -1861,17 +1860,29 @@ const HelpdeskTickets: React.FC = () => {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
 
+  // ── Initialize Socket for real-time updates ──────────────────────────────
+  const { joinTicketRoom, leaveTicketRoom } = useSocket();
+
   useEffect(() => {
+    // Fetch tickets on mount and when filters change
     dispatch(fetchTickets(filters));
   }, [dispatch, filters]);
 
   useEffect(() => {
     if (selectedId) {
       dispatch(fetchTicketById(selectedId));
+      // Join the ticket room for real-time updates
+      joinTicketRoom(selectedId);
     } else {
       dispatch(clearSelectedTicket());
     }
-  }, [dispatch, selectedId]);
+
+    return () => {
+      if (selectedId) {
+        leaveTicketRoom(selectedId);
+      }
+    };
+  }, [dispatch, selectedId, joinTicketRoom, leaveTicketRoom]);
 
   const handleFilterChange = (key: keyof TicketFilters, value: string | undefined) => {
     dispatch(setFilters({ [key]: value }));
