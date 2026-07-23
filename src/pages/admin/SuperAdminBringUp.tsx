@@ -2869,24 +2869,27 @@ const SuperAdminBringUp: React.FC = () => {
     }
   };
 
-  // ─── File Away Follow-Up handler ────────────────────────────────────────────
-  const handleFileAwayFollowUp = async (followUpId: string, input: FileAwayFollowUpInput) => {
-    try {
-      await dispatch(fileAwayFollowUp(input)).unwrap();
-      toast.success('Document filed away successfully');
-      // Close the follow-up modal if open
-      setShowFollowUpModal(false);
-      setSelectedFollowUpId(null);
-      // Clear selected document if it was the one filed away
-      if (selectedDocument && selectedDocument.id === input.document_id) {
-        setSelectedDocument(null);
-      }
-      // Refresh the document list to remove the filed away document
-      refreshDocuments();
-    } catch (error) {
-      toast.error(typeof error === 'string' ? error : 'Failed to file away document');
+// ─── File Away Follow-Up handler ────────────────────────────────────────────
+const handleFileAwayFollowUp = async (followUpId: string, input: FileAwayFollowUpInput) => {
+  try {
+    // Use followUpId for logging or tracking
+    console.log(`Filing away follow-up: ${followUpId} for document: ${input.document_id}`);
+    
+    await dispatch(fileAwayFollowUp(input)).unwrap();
+    toast.success('Document filed away successfully');
+    // Close the follow-up modal if open
+    setShowFollowUpModal(false);
+    setSelectedFollowUpId(null);
+    // Clear selected document if it was the one filed away
+    if (selectedDocument && selectedDocument.id === input.document_id) {
+      setSelectedDocument(null);
     }
-  };
+    // Refresh the document list to remove the filed away document
+    refreshDocuments();
+  } catch (error) {
+    toast.error(typeof error === 'string' ? error : 'Failed to file away document');
+  }
+};
 
   const handleViewFollowUpDetails = (followUpId: string) => {
     setSelectedFollowUpId(followUpId);
