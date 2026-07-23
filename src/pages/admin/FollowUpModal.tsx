@@ -12,7 +12,7 @@ import {
   updateFollowUp,
 } from '../../store/slices/documentSlice';
 import { fetchUsers, selectAllUsers, selectUsersListLoading } from '../../store/slices/userSlice';
-import type { FollowUpWithComments, FollowUpStatus } from '../../types/documents.types';
+import type { FollowUpStatus, FollowUpComment } from '../../types/documents.types';
 import { format } from 'date-fns';
 
 // ─── Spinner ──────────────────────────────────────────────────────────────────
@@ -24,13 +24,7 @@ const Spinner: React.FC<{ className?: string }> = ({ className = 'h-4 w-4' }) =>
   </svg>
 );
 
-// ─── formatFileSize ───────────────────────────────────────────────────────────
 
-const formatFileSize = (bytes: number | null): string => {
-  if (!bytes) return '';
-  const kb = bytes / 1024;
-  return kb < 1024 ? `${Math.round(kb)}KB` : `${(kb / 1024).toFixed(1)}MB`;
-};
 
 // ─── Follow-Up Status Badge ───────────────────────────────────────────────────
 
@@ -133,20 +127,31 @@ const FollowUpModal: React.FC<FollowUpModalProps> = ({ followUpId, onClose, onUp
     }
   }, [dispatch, followUpId]);
 
+  // ✅ FIX: Split into separate effects - one for data fetching, one for form population
+  // This avoids cascading renders
+
+  // Effect 1: Initial data fetch
   useEffect(() => {
     fetchData();
+  }, [fetchData]);
+
+  // Effect 2: Fetch users (only once)
+  useEffect(() => {
     dispatch(fetchUsers({ is_active: true, limit: 100 }));
-  }, [dispatch, fetchData, followUpId]);
+  }, [dispatch]);
 
-  // ── Populate edit form when data loads ─────────────────────────────────────
-
+  // Effect 3: Populate edit form when data loads (no state updates in render)
   useEffect(() => {
     if (currentFollowUp) {
-      setEditNotes(currentFollowUp.notes || '');
-      setEditAssignedTo(currentFollowUp.assigned_to || '');
-      setEditDueDate(currentFollowUp.due_date ? currentFollowUp.due_date.split('T')[0] : '');
-      setEditPriority(currentFollowUp.priority || 'normal');
-      setEditStatus(currentFollowUp.status || 'pending');
+      // Set edit form values directly without triggering additional state updates
+      const timer = setTimeout(() => {
+        setEditNotes(currentFollowUp.notes || '');
+        setEditAssignedTo(currentFollowUp.assigned_to || '');
+        setEditDueDate(currentFollowUp.due_date ? currentFollowUp.due_date.split('T')[0] : '');
+        setEditPriority(currentFollowUp.priority || 'normal');
+        setEditStatus(currentFollowUp.status || 'pending');
+      }, 0);
+      return () => clearTimeout(timer);
     }
   }, [currentFollowUp]);
 
@@ -192,7 +197,7 @@ const FollowUpModal: React.FC<FollowUpModalProps> = ({ followUpId, onClose, onUp
 
   const handleCancel = async () => {
     const reason = window.prompt('Please provide a reason for cancelling this follow-up:');
-    if (reason === null) return; // User cancelled the prompt
+    if (reason === null) return;
     if (!reason.trim()) {
       toast.error('Cancellation reason is required');
       return;
@@ -281,13 +286,14 @@ const FollowUpModal: React.FC<FollowUpModalProps> = ({ followUpId, onClose, onUp
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   if (loading && !currentFollowUp) {
-    return (
+    return createPortal(
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
         <div className="flex flex-col items-center gap-3 rounded-xl bg-white p-8 shadow-xl">
           <Spinner className="h-8 w-8 text-[#1E4620]" />
           <p className="text-sm text-stone-500">Loading follow-up...</p>
         </div>
-      </div>
+      </div>,
+      document.body
     );
   }
 
@@ -343,7 +349,7 @@ const FollowUpModal: React.FC<FollowUpModalProps> = ({ followUpId, onClose, onUp
                 ✕ Cancel
               </button>
             )}
-            {canEdit && !isEditing && (
+            {canEdit && !isEditing && !isCompleted && !isCancelled && (
               <button
                 onClick={() => setIsEditing(true)}
                 className="inline-flex items-center gap-1 rounded bg-blue-100 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-200 transition-colors"
@@ -564,7 +570,7 @@ const FollowUpModal: React.FC<FollowUpModalProps> = ({ followUpId, onClose, onUp
             {comments.length === 0 ? (
               <p className="text-xs text-slate-400 italic">No comments yet.</p>
             ) : (
-              comments.map((comment) => (
+              comments.map((comment: FollowUpComment) => (
                 <div key={comment.id} className="flex gap-2.5 rounded-lg bg-white border border-slate-100 p-2.5">
                   <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
                     {(comment.user_name || 'U').charAt(0).toUpperCase()}
@@ -576,7 +582,7 @@ const FollowUpModal: React.FC<FollowUpModalProps> = ({ followUpId, onClose, onUp
                     </div>
                     <p className="mt-0.5 whitespace-pre-wrap text-xs text-slate-700">{comment.comment}</p>
                     {comment.file_url && (
-                      <div className="mt-1.5 flex items-center gap-1.5">
+                      <div className="mt-1.5">
                         <a
                           href={comment.file_url}
                           target="_blank"
@@ -589,9 +595,6 @@ const FollowUpModal: React.FC<FollowUpModalProps> = ({ followUpId, onClose, onUp
                           </svg>
                           Attachment
                         </a>
-                        {comment.file_size_bytes && (
-                          <span className="text-[9px] text-slate-400">({formatFileSize(comment.file_size_bytes)})</span>
-                        )}
                       </div>
                     )}
                   </div>
