@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useAppDispatch, useAppSelector } from "../../../store/hook";
 import {
   fetchFullTask,
@@ -16,9 +16,12 @@ import {
   selectSelectedTask,
   selectSelectedTaskDetails,
   selectTasksLoading,
+  selectTasksError,
+  clearError,
 } from "../../../store/slices/tasksSlice";
-import type { Subtask } from "../../../types/tasks.types";
+import type { Subtask, TaskStatus, Priority, TaskVisibility } from "../../../types/tasks.types";
 import { selectAllUsers } from "../../../store/slices/userSlice";
+import { toast } from "react-hot-toast";
 
 interface ToDoModalProps {
   show: boolean;
@@ -31,21 +34,28 @@ const ToDoModal: React.FC<ToDoModalProps> = ({ show, onClose, taskId }) => {
   const task = useAppSelector(selectSelectedTask);
   const details = useAppSelector(selectSelectedTaskDetails);
   const loading = useAppSelector(selectTasksLoading);
+  const error = useAppSelector(selectTasksError);
   const users = useAppSelector(selectAllUsers);
 
   // ── Edit state ──
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
   const [editedDescription, setEditedDescription] = useState("");
+  const [editedStatus, setEditedStatus] = useState<TaskStatus>("todo");
+  const [editedPriority, setEditedPriority] = useState<Priority>("normal");
+  const [editedVisibility, setEditedVisibility] = useState<TaskVisibility>("team");
 
   const [noteText, setNoteText] = useState("");
   const [subtaskInput, setSubtaskInput] = useState("");
   const [reminderDate, setReminderDate] = useState("");
   const initialLoad = useRef(true);
 
+  // ─── All hooks must be called before any returns ──────────────────────
+
   // ─── Fetch task when modal opens ──────────────────────────────────────
   useEffect(() => {
     if (show && taskId) {
+      dispatch(clearError());
       dispatch(fetchFullTask(taskId));
     }
   }, [show, taskId, dispatch]);
@@ -56,9 +66,11 @@ const ToDoModal: React.FC<ToDoModalProps> = ({ show, onClose, taskId }) => {
       setNoteText("");
       setSubtaskInput("");
       setReminderDate("");
-      // Initialize edit fields when task loads
       setEditedTitle(task.title);
       setEditedDescription(task.description || "");
+      setEditedStatus(task.status);
+      setEditedPriority(task.priority);
+      setEditedVisibility(task.visibility);
       setIsEditing(false);
     }
     if (initialLoad.current) {
@@ -70,13 +82,199 @@ const ToDoModal: React.FC<ToDoModalProps> = ({ show, onClose, taskId }) => {
   useEffect(() => {
     if (!show) {
       dispatch(clearSelectedTask());
+      dispatch(clearError());
     }
   }, [show, dispatch]);
 
-  // ─── Early returns ──────────────────────────────────────────────────
+  // ─── Error handling ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (error) {
+      toast.error(error);
+      dispatch(clearError());
+    }
+  }, [error, dispatch]);
+
+  // ─── Handlers ──────────────────────────────────────────────────────────
+  const handleMarkComplete = useCallback(async () => {
+    if (!task) return;
+    try {
+      const newStatus = task.status === "done" ? "todo" : "done";
+      const newProgress = newStatus === "done" ? 100 : 0;
+      await dispatch(
+        updateTask({
+          id: task.id,
+          data: { status: newStatus, progress: newProgress },
+        })
+      ).unwrap();
+      toast.success(`Task ${newStatus === "done" ? "completed" : "reopened"} successfully`);
+      dispatch(fetchFullTask(task.id));
+    } catch (error) {
+      toast.error("Failed to update task status. Please try again.");
+      console.error(error);
+    }
+  }, [dispatch, task]);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!task) return;
+    if (!editedTitle.trim()) {
+      toast.error("Task title is required");
+      return;
+    }
+    try {
+      await dispatch(
+        updateTask({
+          id: task.id,
+          data: {
+            title: editedTitle.trim(),
+            description: editedDescription.trim() || null,
+            status: editedStatus,
+            priority: editedPriority,
+            visibility: editedVisibility,
+          },
+        })
+      ).unwrap();
+      setIsEditing(false);
+      toast.success("Task updated successfully");
+      dispatch(fetchFullTask(task.id));
+    } catch (error) {
+      toast.error("Failed to save changes. Please try again.");
+      console.error(error);
+    }
+  }, [dispatch, task, editedTitle, editedDescription, editedStatus, editedPriority, editedVisibility]);
+
+  const handleCancelEdit = useCallback(() => {
+    setIsEditing(false);
+    if (task) {
+      setEditedTitle(task.title);
+      setEditedDescription(task.description || "");
+      setEditedStatus(task.status);
+      setEditedPriority(task.priority);
+      setEditedVisibility(task.visibility);
+    }
+  }, [task]);
+
+  const handleAddSubtask = useCallback(async () => {
+    if (!task) return;
+    if (!subtaskInput.trim()) return;
+    try {
+      await dispatch(
+        createSubtask({ 
+          task_id: task.id, 
+          title: subtaskInput.trim(),
+          priority: "normal",
+        })
+      ).unwrap();
+      setSubtaskInput("");
+      toast.success("Subtask added successfully");
+      dispatch(fetchFullTask(task.id));
+    } catch (error) {
+      toast.error("Failed to add subtask.");
+      console.error(error);
+    }
+  }, [dispatch, task, subtaskInput]);
+
+  const handleToggleSubtask = useCallback(async (subtask: Subtask) => {
+    if (!task) return;
+    try {
+      await dispatch(
+        updateSubtask({
+          id: subtask.id,
+          data: { completed: !subtask.completed },
+        })
+      ).unwrap();
+      dispatch(fetchFullTask(task.id));
+    } catch (error) {
+      toast.error("Failed to update subtask.");
+      console.error(error);
+    }
+  }, [dispatch, task]);
+
+  const handleDeleteSubtask = useCallback(async (subtaskId: string) => {
+    if (!task) return;
+    try {
+      await dispatch(deleteSubtask(subtaskId)).unwrap();
+      toast.success("Subtask deleted successfully");
+      dispatch(fetchFullTask(task.id));
+    } catch (error) {
+      toast.error("Failed to delete subtask.");
+      console.error(error);
+    }
+  }, [dispatch, task]);
+
+  const handleAddNote = useCallback(async () => {
+    if (!task) return;
+    if (!noteText.trim()) return;
+    try {
+      await dispatch(
+        createTaskNote({ 
+          task_id: task.id, 
+          content: noteText.trim(),
+          is_internal: false,
+        })
+      ).unwrap();
+      setNoteText("");
+      toast.success("Note added successfully");
+      dispatch(fetchFullTask(task.id));
+    } catch (error) {
+      toast.error("Failed to add note.");
+      console.error(error);
+    }
+  }, [dispatch, task, noteText]);
+
+  const handleDeleteNote = useCallback(async (noteId: string) => {
+    if (!task) return;
+    try {
+      await dispatch(deleteTaskNote(noteId)).unwrap();
+      toast.success("Note deleted successfully");
+      dispatch(fetchFullTask(task.id));
+    } catch (error) {
+      toast.error("Failed to delete note.");
+      console.error(error);
+    }
+  }, [dispatch, task]);
+
+  const handleAddReminder = useCallback(async () => {
+    if (!task) return;
+    if (!reminderDate) return;
+    try {
+      await dispatch(
+        createReminder({
+          task_id: task.id,
+          remind_at: new Date(reminderDate).toISOString(),
+          repeat: "none",
+        })
+      ).unwrap();
+      setReminderDate("");
+      toast.success("Reminder added successfully");
+      dispatch(fetchFullTask(task.id));
+    } catch (error) {
+      toast.error("Failed to add reminder.");
+      console.error(error);
+    }
+  }, [dispatch, task, reminderDate]);
+
+  const handleDeleteReminder = useCallback(async (reminderId: string) => {
+    if (!task) return;
+    try {
+      await dispatch(deleteReminder(reminderId)).unwrap();
+      toast.success("Reminder deleted successfully");
+      dispatch(fetchFullTask(task.id));
+    } catch (error) {
+      toast.error("Failed to delete reminder.");
+      console.error(error);
+    }
+  }, [dispatch, task]);
+
+  const getUserName = useCallback((id: string) => {
+    const user = users.find((u) => u.id === id);
+    return user ? user.full_name : id;
+  }, [users]);
+
+  // ─── Early returns AFTER all hooks ──────────────────────────────────
   if (!show) return null;
 
-  if (loading) {
+  // ─── Render loading state ─────────────────────────────────────────────
+  if (loading && !task) {
     return (
       <div className="fixed inset-0 bg-slate-950/40 flex items-center justify-center z-[1000] backdrop-blur-sm p-4">
         <div className="bg-white rounded-2xl p-10 w-full max-w-xl text-center text-slate-500 animate-pulse font-medium shadow-2xl">
@@ -86,6 +284,7 @@ const ToDoModal: React.FC<ToDoModalProps> = ({ show, onClose, taskId }) => {
     );
   }
 
+  // ─── Render error state ─────────────────────────────────────────────
   if (!task) {
     return (
       <div className="fixed inset-0 bg-slate-950/40 flex items-center justify-center z-[1000] backdrop-blur-sm p-4">
@@ -96,144 +295,7 @@ const ToDoModal: React.FC<ToDoModalProps> = ({ show, onClose, taskId }) => {
     );
   }
 
-  // ─── Handlers ──────────────────────────────────────────────────────────
-  const handleMarkComplete = async () => {
-    try {
-      const newStatus = task.status === "done" ? "todo" : "done";
-      const newProgress = newStatus === "done" ? 100 : 0;
-      await dispatch(
-        updateTask({
-          id: task.id,
-          data: { id: task.id, status: newStatus, progress: newProgress },
-        })
-      ).unwrap();
-      dispatch(fetchFullTask(task.id));
-    } catch (error) {
-      alert("Failed to update task status. Please try again.");
-      console.error(error);
-    }
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editedTitle.trim()) {
-      alert("Task title is required");
-      return;
-    }
-    try {
-      await dispatch(
-        updateTask({
-          id: task.id,
-          data: {
-            id: task.id,
-            title: editedTitle.trim(),
-            description: editedDescription.trim() || null,
-          },
-        })
-      ).unwrap();
-      setIsEditing(false);
-      dispatch(fetchFullTask(task.id));
-    } catch (error) {
-      alert("Failed to save changes. Please try again.");
-      console.error(error);
-    }
-  };
-
-  const handleAddSubtask = async () => {
-    if (!subtaskInput.trim()) return;
-    try {
-      await dispatch(
-        createSubtask({ task_id: task.id, title: subtaskInput.trim() })
-      ).unwrap();
-      setSubtaskInput("");
-      dispatch(fetchFullTask(task.id));
-    } catch (error) {
-      alert("Failed to add subtask.");
-      console.error(error);
-    }
-  };
-
-  const handleToggleSubtask = async (subtask: Subtask) => {
-    try {
-      await dispatch(
-        updateSubtask({
-          id: subtask.id,
-          data: { id: subtask.id, completed: !subtask.completed },
-        })
-      ).unwrap();
-      dispatch(fetchFullTask(task.id));
-    } catch (error) {
-      alert("Failed to update subtask.");
-      console.error(error);
-    }
-  };
-
-  const handleDeleteSubtask = async (subtaskId: string) => {
-    try {
-      await dispatch(deleteSubtask(subtaskId)).unwrap();
-      dispatch(fetchFullTask(task.id));
-    } catch (error) {
-      alert("Failed to delete subtask.");
-      console.error(error);
-    }
-  };
-
-  const handleAddNote = async () => {
-    if (!noteText.trim()) return;
-    try {
-      await dispatch(
-        createTaskNote({ task_id: task.id, content: noteText.trim() })
-      ).unwrap();
-      setNoteText("");
-      dispatch(fetchFullTask(task.id));
-    } catch (error) {
-      alert("Failed to add note.");
-      console.error(error);
-    }
-  };
-
-  const handleDeleteNote = async (noteId: string) => {
-    try {
-      await dispatch(deleteTaskNote(noteId)).unwrap();
-      dispatch(fetchFullTask(task.id));
-    } catch (error) {
-      alert("Failed to delete note.");
-      console.error(error);
-    }
-  };
-
-  const handleAddReminder = async () => {
-    if (!reminderDate) return;
-    try {
-      await dispatch(
-        createReminder({
-          task_id: task.id,
-          remind_at: new Date(reminderDate),
-        })
-      ).unwrap();
-      setReminderDate("");
-      dispatch(fetchFullTask(task.id));
-    } catch (error) {
-      alert("Failed to add reminder.");
-      console.error(error);
-    }
-  };
-
-  const handleDeleteReminder = async (reminderId: string) => {
-    try {
-      await dispatch(deleteReminder(reminderId)).unwrap();
-      dispatch(fetchFullTask(task.id));
-    } catch (error) {
-      alert("Failed to delete reminder.");
-      console.error(error);
-    }
-  };
-
-  const getUserName = (id: string) => {
-    const user = users.find((u) => u.id === id);
-    return user ? user.full_name : id;
-  };
-
-  // ─── Render ──────────────────────────────────────────────────────────
+  // ─── Main Render ──────────────────────────────────────────────────────────
   return (
     <div
       className="fixed inset-0 bg-slate-950/40 flex items-center justify-center z-[1000] backdrop-blur-sm p-4"
@@ -278,7 +340,7 @@ const ToDoModal: React.FC<ToDoModalProps> = ({ show, onClose, taskId }) => {
         {/* ─── Task Title ───────────────────────────────────────────────── */}
         <div className="px-6 pt-3 pb-4 flex items-start gap-3">
           {isEditing ? (
-            <div className="flex-1">
+            <div className="flex-1 space-y-3">
               <input
                 type="text"
                 value={editedTitle}
@@ -289,21 +351,72 @@ const ToDoModal: React.FC<ToDoModalProps> = ({ show, onClose, taskId }) => {
               <textarea
                 value={editedDescription}
                 onChange={(e) => setEditedDescription(e.target.value)}
-                className="w-full mt-2 px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 bg-white focus:border-[#A37F0C] focus:ring-1 focus:ring-[#A37F0C] outline-none transition resize-y min-h-[60px]"
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 bg-white focus:border-[#A37F0C] focus:ring-1 focus:ring-[#A37F0C] outline-none transition resize-y min-h-[60px]"
                 placeholder="Task description"
               />
-              <button
-                onClick={handleSaveEdit}
-                className="mt-2 px-4 py-1.5 rounded-lg bg-[#A37F0C] text-white text-xs font-bold hover:bg-[#856404] transition shadow-sm"
-              >
-                Save changes
-              </button>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Status</label>
+                  <select
+                    value={editedStatus}
+                    onChange={(e) => setEditedStatus(e.target.value as TaskStatus)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 bg-white focus:border-[#A37F0C] focus:ring-1 focus:ring-[#A37F0C] outline-none transition"
+                  >
+                    <option value="todo">To Do</option>
+                    <option value="inprogress">In Progress</option>
+                    <option value="done">Done</option>
+                    <option value="overdue">Overdue</option>
+                    <option value="pending_approval">Pending Approval</option>
+                    <option value="blocked">Blocked</option>
+                    <option value="review">Review</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Priority</label>
+                  <select
+                    value={editedPriority}
+                    onChange={(e) => setEditedPriority(e.target.value as Priority)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 bg-white focus:border-[#A37F0C] focus:ring-1 focus:ring-[#A37F0C] outline-none transition"
+                  >
+                    <option value="low">Low</option>
+                    <option value="normal">Normal</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Visibility</label>
+                  <select
+                    value={editedVisibility}
+                    onChange={(e) => setEditedVisibility(e.target.value as TaskVisibility)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm text-slate-700 bg-white focus:border-[#A37F0C] focus:ring-1 focus:ring-[#A37F0C] outline-none transition"
+                  >
+                    <option value="public">Public</option>
+                    <option value="private">Private</option>
+                    <option value="team">Team</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSaveEdit}
+                  className="px-4 py-2 rounded-lg bg-[#A37F0C] text-white text-sm font-bold hover:bg-[#856404] transition shadow-sm"
+                >
+                  Save changes
+                </button>
+                <button
+                  onClick={handleCancelEdit}
+                  className="px-4 py-2 rounded-lg border border-slate-300 text-slate-600 text-sm font-bold hover:bg-slate-50 transition"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           ) : (
             <div className="flex-1">
               <h1 className="font-serif text-2xl font-bold text-[#1E3F20] tracking-wide m-0 uppercase">
                 {task.title}
-                <span className="text-lg text-slate-400 font-normal ml-2">↓</span>
               </h1>
               {task.description && (
                 <p className="text-sm text-slate-600 mt-1 leading-relaxed">{task.description}</p>
@@ -334,7 +447,13 @@ const ToDoModal: React.FC<ToDoModalProps> = ({ show, onClose, taskId }) => {
             </span>
           )}
           <span className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
-            👤 {task.assignee === "GROUP" ? "Group Task" : getUserName(task.assignee)}
+            👤 {task.assignee === "GROUP" ? "Group Task" : getUserName(task.assignee || "")}
+          </span>
+          <span className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
+            ⭐ {task.priority}
+          </span>
+          <span className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600">
+            🔍 {task.visibility}
           </span>
         </div>
 
@@ -342,7 +461,7 @@ const ToDoModal: React.FC<ToDoModalProps> = ({ show, onClose, taskId }) => {
         <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/50">
           <div className="flex justify-between mb-2">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Notes
+              Notes ({details?.notes?.length || 0})
             </span>
           </div>
           <textarea
@@ -417,6 +536,9 @@ const ToDoModal: React.FC<ToDoModalProps> = ({ show, onClose, taskId }) => {
                 >
                   {subtask.title}
                 </span>
+                {subtask.assigned_to && (
+                  <span className="text-xs text-slate-400">→ {subtask.assigned_to}</span>
+                )}
                 <button
                   onClick={() => handleDeleteSubtask(subtask.id)}
                   className="text-slate-300 hover:text-red-500 transition text-xs"
@@ -447,33 +569,42 @@ const ToDoModal: React.FC<ToDoModalProps> = ({ show, onClose, taskId }) => {
         {/* ─── Reminders ──────────────────────────────────────────────────── */}
         <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/30">
           <span className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2.5">
-            Reminders
+            Reminders ({details?.reminders?.length || 0})
           </span>
-          {details?.reminders.map((reminder) => (
-            <div
-              key={reminder.id}
-              className="flex justify-between items-center p-2 px-3 bg-white border border-slate-100 rounded-lg mb-1.5 text-sm text-slate-700 shadow-2xs"
-            >
-              <span className="flex items-center gap-1.5 font-medium">
-                ⏰{" "}
-                {new Date(reminder.remind_at).toLocaleString("en-KE", {
-                  day: "numeric",
-                  month: "short",
-                  year: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-                {reminder.sent && <span className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded">(sent)</span>}
-              </span>
-              <button
-                onClick={() => handleDeleteReminder(reminder.id)}
-                className="text-slate-300 hover:text-red-500 transition text-xs"
-              >
-                ✕
-              </button>
+          {details?.reminders && details.reminders.length > 0 && (
+            <div className="space-y-1.5 mb-3">
+              {details.reminders.map((reminder) => (
+                <div
+                  key={reminder.id}
+                  className="flex justify-between items-center p-2 px-3 bg-white border border-slate-100 rounded-lg text-sm text-slate-700 shadow-2xs"
+                >
+                  <span className="flex items-center gap-1.5 font-medium">
+                    ⏰{" "}
+                    {new Date(reminder.remind_at).toLocaleString("en-KE", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                    {reminder.sent && <span className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded">(sent)</span>}
+                    {reminder.repeat && reminder.repeat !== "none" && (
+                      <span className="text-xs text-blue-600 font-semibold bg-blue-50 px-1.5 py-0.5 rounded">
+                        🔄 {reminder.repeat}
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    onClick={() => handleDeleteReminder(reminder.id)}
+                    className="text-slate-300 hover:text-red-500 transition text-xs"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-          <div className="flex gap-2 mt-2">
+          )}
+          <div className="flex gap-2">
             <input
               type="datetime-local"
               value={reminderDate}
@@ -497,8 +628,34 @@ const ToDoModal: React.FC<ToDoModalProps> = ({ show, onClose, taskId }) => {
         {/* ─── Attachments ───────────────────────────────────────────────── */}
         <div className="px-6 py-5 pb-6">
           <span className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-            Attachments
+            Attachments ({task.attachments?.length || 0})
           </span>
+          {task.attachments && task.attachments.length > 0 && (
+            <div className="space-y-1.5 mb-3">
+              {task.attachments.map((attachment) => (
+                <div
+                  key={attachment.id}
+                  className="flex justify-between items-center p-2 px-3 bg-slate-50 border border-slate-100 rounded-lg text-sm"
+                >
+                  <span className="flex items-center gap-2">
+                    <span>📄</span>
+                    <span className="text-slate-700">{attachment.file_name}</span>
+                    <span className="text-xs text-slate-400">
+                      ({(attachment.file_size / 1024).toFixed(1)} KB)
+                    </span>
+                  </span>
+                  <a
+                    href={attachment.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+                  >
+                    Download
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
           <div
             className="border-2 border-dashed border-slate-200 bg-slate-50/50 rounded-xl p-5 text-center cursor-pointer transition hover:border-[#A37F0C] hover:bg-[#FDFBF7]"
             onDragOver={(e) => {
@@ -526,7 +683,7 @@ const ToDoModal: React.FC<ToDoModalProps> = ({ show, onClose, taskId }) => {
               input.click();
             }}
           >
-            <div className="text-sm font-semibold text-slate-500">📎 Click to add or drop your layout documents here</div>
+            <div className="text-sm font-semibold text-slate-500">📎 Click to add or drop your files here</div>
           </div>
         </div>
       </div>
