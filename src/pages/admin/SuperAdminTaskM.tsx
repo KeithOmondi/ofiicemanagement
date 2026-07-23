@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAppDispatch, useAppSelector } from "../../store/hook";
 import {
   fetchProjects,
@@ -9,6 +9,13 @@ import {
   selectStats,
   toggleTaskDone as toggleTaskDoneAction,
   createTask,
+  fetchDashboardStats,
+  fetchUserStats,
+  selectDashboardStats,
+  selectTasksLoading,
+  selectTasksError,
+  clearError,
+  fetchMembers,
 } from "../../store/slices/tasksSlice";
 import {
   selectAllUsers,
@@ -16,7 +23,7 @@ import {
   fetchUsers,
   fetchCurrentUser,
 } from "../../store/slices/userSlice";
-import type { TaskStatus, Task, Project } from "../../types/tasks.types";
+import type { Task, Project, TaskStatus, Priority, TaskType } from "../../types/tasks.types";
 import type { User } from "../../store/slices/userSlice";
 
 // ─── Modal imports ──────────────────────────────────────────
@@ -25,6 +32,11 @@ import AddTaskModal from "./taskmodals/AddTaskModal";
 import AddStandaloneModal from "./taskmodals/AddStandaloneModal";
 import ToDoModal from "./taskmodals/ToDoModal";
 import AddPersonalTaskModal from "./taskmodals/AddPersonalTaskModal";
+
+// ─── Constants ──────────────────────────────────────────────
+const TASK_TYPES: TaskType[] = ['task', 'bug', 'feature', 'improvement', 'support', 'maintenance'];
+const PRIORITIES: Priority[] = ['low', 'normal', 'high', 'urgent', 'critical'];
+const STATUSES: TaskStatus[] = ['todo', 'inprogress', 'done', 'overdue', 'pending_approval', 'blocked', 'review'];
 
 // ─── Helpers ──────────────────────────────────────────────
 const fmtDate = (dateStr: string): string => {
@@ -60,11 +72,12 @@ const priorityBadge = (p: string) => {
     high: { label: "High", color: "text-amber-700 ring-amber-600/20", bg: "bg-amber-50" },
     normal: { label: "Normal", color: "text-emerald-700 ring-emerald-600/20", bg: "bg-emerald-50" },
     low: { label: "Low", color: "text-slate-600 ring-slate-500/10", bg: "bg-slate-50" },
+    critical: { label: "Critical", color: "text-rose-700 ring-rose-600/20", bg: "bg-rose-50" },
   };
   const info = map[p] || { label: p, color: "text-slate-700 ring-slate-600/10", bg: "bg-slate-50" };
   return (
     <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${info.color} ${info.bg}`}>
-      {p === "urgent" && <span className="mr-1 h-1.5 w-1.5 rounded-full bg-red-500" />}
+      {(p === "urgent" || p === "critical") && <span className="mr-1 h-1.5 w-1.5 rounded-full bg-red-500" />}
       {p === "high" && <span className="mr-1 h-1.5 w-1.5 rounded-full bg-amber-500" />}
       {info.label}
     </span>
@@ -80,7 +93,8 @@ const getColorFromId = (id: string): string => {
   return `hsl(${hue}, 65%, 45%)`;
 };
 
-const memberAvatar = (userId: string, size: number = 24, usersMap: Record<string, User>) => {
+const memberAvatar = (userId: string | null, size: number = 24, usersMap: Record<string, User>) => {
+  if (!userId) return null;
   const user = usersMap[userId];
   if (!user) return null;
   return (
@@ -117,17 +131,25 @@ const deadlineTag = (dateStr: string, status: TaskStatus) => {
 // ─── Main Component ──────────────────────────────────────────
 const SuperAdminTaskM: React.FC = () => {
   const dispatch = useAppDispatch();
+  
+  // ── Redux state ──
   const projects = useAppSelector(selectAllProjects);
   const standaloneTasks = useAppSelector(selectStandaloneTasks);
   const selectedTask = useAppSelector(selectSelectedTask);
   const stats = useAppSelector(selectStats);
+  const dashboardStats = useAppSelector(selectDashboardStats);
   const users = useAppSelector(selectAllUsers);
   const currentUser = useAppSelector(selectCurrentUser);
+  const loading = useAppSelector(selectTasksLoading);
+  const error = useAppSelector(selectTasksError);
 
   // ── Local UI state ──
   const [currentView, setCurrentView] = useState<"projects" | "board" | "independent" | "todo">("projects");
   const [filterAssignee, setFilterAssignee] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<TaskStatus | "">("");
+  const [filterPriority, setFilterPriority] = useState<Priority | "">("");
+  const [filterType, setFilterType] = useState<TaskType | "">("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
   const [showAddProjectModal, setShowAddProjectModal] = useState(false);
   const [showAddTaskModal, setShowAddTaskModal] = useState(false);
@@ -139,6 +161,7 @@ const SuperAdminTaskM: React.FC = () => {
 
   // ── Fetch data on mount ──
   useEffect(() => {
+    // Fetch users from user slice
     dispatch(fetchUsers({
       page: 1,
       limit: 100,
@@ -146,39 +169,50 @@ const SuperAdminTaskM: React.FC = () => {
       sort_order: 'DESC'
     }));
     dispatch(fetchCurrentUser());
+    
+    // Fetch members from tasks slice
+    dispatch(fetchMembers());
 
+    // Fetch projects and tasks
     dispatch(fetchProjects())
       .then(() => {
         dispatch(fetchTasks({}));
       });
+
+    // Fetch dashboard stats
+    dispatch(fetchDashboardStats());
+    dispatch(fetchUserStats());
+    
+    // Clear any existing errors
+    dispatch(clearError());
   }, [dispatch]);
 
   // ── Handlers ──
-  const closeAllModals = () => {
+  const closeAllModals = useCallback(() => {
     setShowAddProjectModal(false);
     setShowAddTaskModal(false);
     setShowAddStandaloneModal(false);
     setShowAddPersonalModal(false);
     setShowToDoModal(false);
-  };
+  }, []);
 
-  const openAddTaskModal = (project: Project) => {
+  const openAddTaskModal = useCallback((project: Project) => {
     closeAllModals();
     setSelectedProject(project);
     setShowAddTaskModal(true);
-  };
+  }, [closeAllModals]);
 
-  const openToDoModal = (taskId: string) => {
+  const openToDoModal = useCallback((taskId: string) => {
     closeAllModals();
     setSelectedTaskId(taskId);
     setShowToDoModal(true);
-  };
+  }, [closeAllModals]);
 
-  const toggleTaskDone = (taskId: string, projectId: string | null) => {
+  const toggleTaskDone = useCallback((taskId: string, projectId: string | null) => {
     dispatch(toggleTaskDoneAction({ taskId, projectId }));
-  };
+  }, [dispatch]);
 
-  const handleQuickAddTask = (projectId: string, title: string) => {
+  const handleQuickAddTask = useCallback((projectId: string, title: string) => {
     if (!currentUser) return;
     dispatch(createTask({
       project_id: projectId,
@@ -188,22 +222,39 @@ const SuperAdminTaskM: React.FC = () => {
       priority: "normal",
       deadline: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
       start_date: null,
+      type: "task",
+      visibility: "team",
+      tags: [],
+      estimated_hours: null,
+      parent_task_id: null,
     }));
-  };
+  }, [dispatch, currentUser]);
 
-  // ── Build user map for avatar lookups, ensure current user is included ──
-  const usersMap = users.reduce((acc, user) => {
-    acc[user.id] = user;
-    return acc;
-  }, {} as Record<string, User>);
+  // ── Memoized values ──
+  const usersMap = useMemo(() => {
+    const map = users.reduce((acc, user) => {
+      acc[user.id] = user;
+      return acc;
+    }, {} as Record<string, User>);
+    
+    // Ensure current user is in the map
+    if (currentUser && !map[currentUser.id]) {
+      map[currentUser.id] = currentUser;
+    }
+    return map;
+  }, [users, currentUser]);
 
-  // ✅ Ensure current user is in the map (in case fetchUsers hasn't completed)
-  if (currentUser && !usersMap[currentUser.id]) {
-    usersMap[currentUser.id] = currentUser;
-  }
+  // Memoize stats display values
+  const statsDisplay = useMemo(() => {
+    const todo = dashboardStats?.by_status?.todo ?? stats.todo;
+    const inprogress = dashboardStats?.by_status?.inprogress ?? stats.inprogress;
+    const overdue = dashboardStats?.overdue ?? stats.overdue;
+    const done = dashboardStats?.by_status?.done ?? stats.done;
+    return { todo, inprogress, overdue, done };
+  }, [dashboardStats, stats]);
 
   // ── Helper: render a single task row ──
-  const renderTaskRow = (task: Task, projectId: string | null, projectMembers: string[] = []) => {
+  const renderTaskRow = useCallback((task: Task, projectId: string | null, projectMembers: string[] = []) => {
     const isSelected = selectedTask?.id === task.id;
     const status = getStatus(task);
     return (
@@ -232,7 +283,7 @@ const SuperAdminTaskM: React.FC = () => {
           className="w-1.5 h-7 rounded-full flex-shrink-0"
           style={{
             background:
-              task.priority === "urgent"
+              task.priority === "critical" || task.priority === "urgent"
                 ? "#ef4444"
                 : task.priority === "high"
                 ? "#f59e0b"
@@ -253,6 +304,18 @@ const SuperAdminTaskM: React.FC = () => {
           {task.description && (
             <p className="text-xs text-slate-400 truncate mt-0.5">{task.description}</p>
           )}
+          <div className="flex gap-1 mt-1 flex-wrap">
+            {task.type && (
+              <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">
+                {task.type}
+              </span>
+            )}
+            {task.tags && task.tags.slice(0, 3).map((tag) => (
+              <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded">
+                #{tag}
+              </span>
+            ))}
+          </div>
         </div>
 
         <div className="flex flex-shrink-0 pl-2">
@@ -266,31 +329,95 @@ const SuperAdminTaskM: React.FC = () => {
         </div>
       </div>
     );
-  };
+  }, [selectedTask, openToDoModal, toggleTaskDone, usersMap]);
 
   // ─── Render Views ──
-  const renderStats = () => (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-      {[
-        { val: stats.todo, label: "Todo", icon: "📋", border: "border-slate-200", bg: "bg-slate-50" },
-        { val: stats.inprogress, label: "In Progress", icon: "⏳", border: "border-amber-500", bg: "bg-amber-50/40" },
-        { val: stats.overdue, label: "Overdue", icon: "🚨", border: "border-rose-500", bg: "bg-rose-50/30" },
-        { val: stats.done, label: "Completed", icon: "✅", border: "border-emerald-500", bg: "bg-emerald-50/30" },
-      ].map((card, i) => (
-        <div key={i} className={`bg-white p-5 rounded-2xl border-l-4 ${card.border} shadow-sm ring-1 ring-slate-100 transition-transform hover:-translate-y-0.5`}>
-          <div className="flex items-center gap-4">
-            <div className={`w-12 h-12 rounded-xl ${card.bg} flex items-center justify-center text-xl`}>{card.icon}</div>
-            <div>
-              <h4 className="text-2xl font-bold tracking-tight text-slate-800">{card.val}</h4>
-              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mt-0.5">{card.label}</p>
+  const renderStats = useCallback(() => {
+    const { todo, inprogress, overdue, done } = statsDisplay;
+    
+    // If loading, show skeleton
+    if (loading) {
+      return (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="bg-white p-5 rounded-2xl border-l-4 border-slate-200 shadow-sm ring-1 ring-slate-100 animate-pulse">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-slate-200" />
+                <div className="flex-1">
+                  <div className="h-7 w-12 bg-slate-200 rounded" />
+                  <div className="h-3 w-16 bg-slate-200 rounded mt-1" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+        {[
+          { val: todo, label: "Todo", icon: "📋", border: "border-slate-200", bg: "bg-slate-50" },
+          { val: inprogress, label: "In Progress", icon: "⏳", border: "border-amber-500", bg: "bg-amber-50/40" },
+          { val: overdue, label: "Overdue", icon: "🚨", border: "border-rose-500", bg: "bg-rose-50/30" },
+          { val: done, label: "Completed", icon: "✅", border: "border-emerald-500", bg: "bg-emerald-50/30" },
+        ].map((card, i) => (
+          <div key={i} className={`bg-white p-5 rounded-2xl border-l-4 ${card.border} shadow-sm ring-1 ring-slate-100 transition-transform hover:-translate-y-0.5`}>
+            <div className="flex items-center gap-4">
+              <div className={`w-12 h-12 rounded-xl ${card.bg} flex items-center justify-center text-xl`}>{card.icon}</div>
+              <div>
+                <h4 className="text-2xl font-bold tracking-tight text-slate-800">{card.val}</h4>
+                <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mt-0.5">{card.label}</p>
+              </div>
             </div>
           </div>
-        </div>
-      ))}
-    </div>
-  );
+        ))}
+      </div>
+    );
+  }, [statsDisplay, loading]);
 
-  const renderProjectsView = () => {
+  const renderProjectsView = useCallback(() => {
+    if (loading && projects.length === 0) {
+      return (
+        <div className="space-y-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-100 overflow-hidden animate-pulse">
+              <div className="px-6 py-5 bg-slate-800 h-32" />
+              <div className="h-1.5 bg-slate-100" />
+              <div className="px-6 py-8 space-y-3">
+                {[1, 2, 3].map((j) => (
+                  <div key={j} className="flex items-center gap-4">
+                    <div className="w-5 h-5 bg-slate-200 rounded" />
+                    <div className="flex-1 h-4 bg-slate-200 rounded" />
+                    <div className="w-6 h-6 bg-slate-200 rounded-full" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-8 text-center">
+          <div className="text-4xl mb-4">⚠️</div>
+          <h3 className="text-lg font-bold text-red-700 mb-2">Error Loading Projects</h3>
+          <p className="text-sm text-red-600 mb-4">{error}</p>
+          <button 
+            className="px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors"
+            onClick={() => {
+              dispatch(clearError());
+              dispatch(fetchProjects());
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+
     return (
       <div id="projectsList" className="space-y-6">
         <div className="flex justify-end">
@@ -317,6 +444,20 @@ const SuperAdminTaskM: React.FC = () => {
           if (filterStatus) {
             tasks = tasks.filter((t) => getStatus(t) === filterStatus);
           }
+          if (filterPriority) {
+            tasks = tasks.filter((t) => t.priority === filterPriority);
+          }
+          if (filterType) {
+            tasks = tasks.filter((t) => t.type === filterType);
+          }
+          if (searchQuery) {
+            const query = searchQuery.toLowerCase();
+            tasks = tasks.filter((t) => 
+              t.title.toLowerCase().includes(query) || 
+              (t.description && t.description.toLowerCase().includes(query)) ||
+              (t.tags && t.tags.some(tag => tag.toLowerCase().includes(query)))
+            );
+          }
 
           return (
             <div
@@ -341,6 +482,11 @@ const SuperAdminTaskM: React.FC = () => {
                       <span className="text-xs text-slate-400">
                         {prog}% complete · {proj.tasks.length} tasks
                       </span>
+                      {proj.tags && proj.tags.length > 0 && (
+                        <span className="text-xs text-slate-400">
+                          🏷️ {proj.tags.join(', ')}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -373,7 +519,7 @@ const SuperAdminTaskM: React.FC = () => {
                 <div id={`tasklist_${proj.id}`}>
                   {tasks.length === 0 && (
                     <div className="px-6 py-8 text-sm text-slate-400 text-center bg-slate-50/20">
-                      No tasks matches the current configuration.
+                      No tasks match the current filters.
                     </div>
                   )}
                   {tasks.map((t) => renderTaskRow(t, proj.id, proj.members))}
@@ -398,7 +544,7 @@ const SuperAdminTaskM: React.FC = () => {
             </div>
           );
         })}
-        {projects.length === 0 && (
+        {projects.length === 0 && !loading && !error && (
           <div className="text-center py-20 bg-white rounded-2xl border border-slate-100 shadow-sm">
             <div className="text-5xl mb-4">📂</div>
             <h3 className="text-lg font-bold text-slate-700 mb-2">No Projects Yet</h3>
@@ -410,13 +556,14 @@ const SuperAdminTaskM: React.FC = () => {
         )}
       </div>
     );
-  };
+  }, [projects, loading, error, filterAssignee, filterStatus, filterPriority, filterType, searchQuery, closeAllModals, openAddTaskModal, renderTaskRow, handleQuickAddTask, usersMap, dispatch]);
 
-  const renderBoardView = () => {
+  const renderBoardView = useCallback(() => {
     const allTasks = [
       ...projects.flatMap((p) => p.tasks.map((t) => ({ ...t, projectTitle: p.title, projectId: p.id }))),
       ...standaloneTasks.map((t) => ({ ...t, projectTitle: "Standalone", projectId: null })),
     ];
+    
     type ColKey = "todo" | "inprogress" | "overdue" | "done";
     const cols: Record<ColKey, { label: string; dotColor: string; bg: string; tasks: typeof allTasks }> = {
       todo: { label: "Todo", dotColor: "bg-slate-400", bg: "bg-slate-50/80 ring-slate-100", tasks: [] },
@@ -424,11 +571,13 @@ const SuperAdminTaskM: React.FC = () => {
       overdue: { label: "Overdue", dotColor: "bg-rose-500", bg: "bg-rose-50/20 ring-rose-100/50", tasks: [] },
       done: { label: "Completed", dotColor: "bg-emerald-500", bg: "bg-emerald-50/20 ring-emerald-100/50", tasks: [] },
     };
+    
     allTasks.forEach((t) => {
       const s = getStatus(t);
       if (s in cols) cols[s as ColKey].tasks.push(t);
       else cols.todo.tasks.push(t);
     });
+    
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 items-start">
         {Object.entries(cols).map(([key, col]) => (
@@ -475,9 +624,9 @@ const SuperAdminTaskM: React.FC = () => {
         ))}
       </div>
     );
-  };
+  }, [projects, standaloneTasks, selectedTask, openToDoModal, usersMap]);
 
-  const renderStandaloneView = () => {
+  const renderStandaloneView = useCallback(() => {
     let tasks = standaloneTasks;
     if (filterAssignee) {
       tasks = tasks.filter((t) => t.assignee === filterAssignee);
@@ -485,6 +634,21 @@ const SuperAdminTaskM: React.FC = () => {
     if (filterStatus) {
       tasks = tasks.filter((t) => getStatus(t) === filterStatus);
     }
+    if (filterPriority) {
+      tasks = tasks.filter((t) => t.priority === filterPriority);
+    }
+    if (filterType) {
+      tasks = tasks.filter((t) => t.type === filterType);
+    }
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      tasks = tasks.filter((t) => 
+        t.title.toLowerCase().includes(query) || 
+        (t.description && t.description.toLowerCase().includes(query)) ||
+        (t.tags && t.tags.some(tag => tag.toLowerCase().includes(query)))
+      );
+    }
+    
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 ring-1 ring-slate-100 overflow-hidden">
         <div className="px-6 py-4.5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
@@ -505,9 +669,9 @@ const SuperAdminTaskM: React.FC = () => {
         </div>
       </div>
     );
-  };
+  }, [standaloneTasks, filterAssignee, filterStatus, filterPriority, filterType, searchQuery, closeAllModals, renderTaskRow]);
 
-  const renderTodoView = () => {
+  const renderTodoView = useCallback(() => {
     const allTasks = [
       ...projects.flatMap((p) => p.tasks.map((t) => ({ ...t, projectTitle: p.title, projectId: p.id }))),
       ...standaloneTasks.map((t) => ({ ...t, projectTitle: "Standalone", projectId: null })),
@@ -515,6 +679,7 @@ const SuperAdminTaskM: React.FC = () => {
     const todoTasks = allTasks.filter(
       (t) => getStatus(t) === "todo" && t.assignee === currentUser?.id
     );
+    
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 ring-1 ring-slate-100 overflow-hidden">
         <div className="px-6 py-4.5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
@@ -537,8 +702,9 @@ const SuperAdminTaskM: React.FC = () => {
         </div>
       </div>
     );
-  };
+  }, [projects, standaloneTasks, currentUser, closeAllModals, renderTaskRow]);
 
+  // ─── Main Render ──────────────────────────────────────────
   return (
     <div className="p-6 font-sans bg-slate-50/50 min-h-screen text-slate-600 antialiased">
       {renderStats()}
@@ -566,18 +732,47 @@ const SuperAdminTaskM: React.FC = () => {
         </div>
         <div className="flex gap-2 items-center flex-wrap sm:justify-end">
           {currentView !== "todo" && (
-            <select
-              className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
-              value={filterAssignee}
-              onChange={(e) => setFilterAssignee(e.target.value)}
-            >
-              <option value="">All Members</option>
-              {users.map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.full_name} {user.pj_number ? `(${user.pj_number})` : ''}
-                </option>
-              ))}
-            </select>
+            <>
+              <input
+                type="text"
+                placeholder="Search tasks..."
+                className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 w-32 sm:w-40"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+              <select
+                className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+                value={filterAssignee}
+                onChange={(e) => setFilterAssignee(e.target.value)}
+              >
+                <option value="">All Members</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.full_name} {user.pj_number ? `(${user.pj_number})` : ''}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+                value={filterPriority}
+                onChange={(e) => setFilterPriority(e.target.value as Priority | "")}
+              >
+                <option value="">All Priorities</option>
+                {PRIORITIES.map((p) => (
+                  <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
+                ))}
+              </select>
+              <select
+                className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value as TaskType | "")}
+              >
+                <option value="">All Types</option>
+                {TASK_TYPES.map((type) => (
+                  <option key={type} value={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>
+                ))}
+              </select>
+            </>
           )}
           <select
             className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
@@ -585,10 +780,9 @@ const SuperAdminTaskM: React.FC = () => {
             onChange={(e) => setFilterStatus(e.target.value as TaskStatus | "")}
           >
             <option value="">All Statuses</option>
-            <option value="todo">Todo</option>
-            <option value="inprogress">In Progress</option>
-            <option value="done">Done</option>
-            <option value="overdue">Overdue</option>
+            {STATUSES.map((status) => (
+              <option key={status} value={status}>{status.charAt(0).toUpperCase() + status.slice(1)}</option>
+            ))}
           </select>
         </div>
       </div>
