@@ -1356,7 +1356,8 @@ interface FollowUpCardProps {
   onViewDetails: (followUpId: string) => void;
   onComplete: (followUpId: string, input: CompleteFollowUpInput) => Promise<void> | void;
   onCancel: (followUpId: string, input: CancelFollowUpInput) => Promise<void> | void;
-  onFileAway?: (followUpId: string, input: FileAwayFollowUpInput) => Promise<void> | void;
+  // FIXED: Remove the followUpId parameter
+  onFileAway?: (input: FileAwayFollowUpInput) => Promise<void> | void;
   documentId: string;
 }
 
@@ -1396,20 +1397,22 @@ const FollowUpCard: React.FC<FollowUpCardProps> = ({
   };
 
   const handleFileAway = async () => {
-    if (isProcessing) return;
-    setIsProcessing(true);
-    try {
-      await onFileAway?.(followUp.id, {
-        document_id: documentId,
-        mark_id: followUp.mark_id || undefined,
-        notes: followUp.notes,
-        completion_notes: `Filed away by ${currentUserId}`,
-      });
-      toast.success('Document filed away successfully');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+  if (isProcessing) return;
+  setIsProcessing(true);
+  try {
+    await onFileAway?.({
+      document_id: documentId,
+      mark_id: followUp.mark_id || undefined,
+      notes: followUp.notes,
+      completion_notes: `Filed away by ${currentUserId}`,
+    });
+    toast.success('Document filed away successfully');
+  } catch (error) {
+    toast.error(typeof error === 'string' ? error : 'Failed to file away document');
+  } finally {
+    setIsProcessing(false);
+  }
+};
 
   const handleCancelSubmit = async () => {
     if (!cancelReason.trim() || isProcessing) return;
@@ -1581,7 +1584,8 @@ interface FollowUpsPanelProps {
   onViewDetails: (followUpId: string) => void;
   onComplete: (followUpId: string, input: CompleteFollowUpInput) => Promise<void> | void;
   onCancel: (followUpId: string, input: CancelFollowUpInput) => Promise<void> | void;
-  onFileAway?: (followUpId: string, input: FileAwayFollowUpInput) => Promise<void> | void;
+  // FIXED: Remove the followUpId parameter
+  onFileAway?: (input: FileAwayFollowUpInput) => Promise<void> | void;
 }
 
 const FollowUpsPanel: React.FC<FollowUpsPanelProps> = ({
@@ -1629,6 +1633,7 @@ interface CreateFollowUpModalProps {
   markId: string;
   onClose: () => void;
   onCreate: (input: CreateFollowUpInput) => void;
+  onFileAway: (input: CreateFollowUpInput) => void;
 }
 
 const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
@@ -1636,6 +1641,7 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
   markId,
   onClose,
   onCreate,
+  onFileAway,
 }) => {
   const dispatch = useAppDispatch();
   const users = useAppSelector(selectAllUsers);
@@ -1674,7 +1680,7 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
       return;
     }
     setError(null);
-    onCreate({
+    onFileAway({
       document_id: document.id,
       mark_id: markId,
       notes: notes.trim(),
@@ -2125,7 +2131,8 @@ interface DocumentEditorProps {
   onViewFollowUpDetails?: (followUpId: string) => void;
   onCompleteFollowUp?: (followUpId: string, input: CompleteFollowUpInput) => Promise<void>;
   onCancelFollowUp?: (followUpId: string, input: CancelFollowUpInput) => Promise<void>;
-  onFileAwayFollowUp?: (followUpId: string, input: FileAwayFollowUpInput) => Promise<void>;
+  // FIXED: Remove the followUpId parameter since it's not needed
+  onFileAwayFollowUp?: (input: FileAwayFollowUpInput) => Promise<void>;
 }
 
 const DocumentEditor: React.FC<DocumentEditorProps> = ({
@@ -2190,7 +2197,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
   const followUps = document.follow_ups || [];
 
-  // ─── View Follow-ups handler ──────────────────────────────────────────────
   const handleViewFollowUps = () => {
     if (followUps.length === 0) {
       toast('No follow-ups have been created for this document yet.', {
@@ -2294,7 +2300,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
-          {/* ─── Mark button ─────────────────────────────── */}
           {onMark && document.status !== 'filed' && (
             <button
               onClick={onMark}
@@ -2307,7 +2312,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
-          {/* ─── Push Back button ─────────────────────────── */}
           {onReassign && document.active_mark && (
             <button
               onClick={onReassign}
@@ -2370,10 +2374,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
-          {/* ─── Follow-Up buttons section ───────────────────────────────────── */}
           {isSuperAdmin && document.active_mark && (
             <div className="flex items-center gap-1.5">
-              {/* Add Follow-Up button */}
               {onAddFollowUp && (
                 <button
                   onClick={onAddFollowUp}
@@ -2386,7 +2388,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                 </button>
               )}
 
-              {/* View Details button */}
               {onViewFollowUpDetails && (
                 <button
                   onClick={handleViewFollowUps}
@@ -2547,6 +2548,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
+// src/pages/documents/SuperAdminBringUp.tsx
+
 const SuperAdminBringUp: React.FC = () => {
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
@@ -2615,19 +2618,28 @@ const SuperAdminBringUp: React.FC = () => {
     }
   }, [error, dispatch]);
 
-  // ─── Group documents by bucket ──────────────────────────────────────────────
-  // Filter out documents that have been filed away (all follow-ups are filed_away)
+  // ─── FIXED: Filter documents by checking the MOST RECENT follow-up ───
   const filteredDocuments = useMemo(() => {
     return documents.filter((doc) => {
       const followUps = doc.follow_ups || [];
-      // If all follow-ups are filed_away or completed, hide the document
-      const allFiledOrCompleted = followUps.every(
-        (f) => f.status === 'filed_away' || f.status === 'completed' || f.status === 'cancelled'
-      );
-      // If there are no follow-ups, keep the document (it hasn't been filed away)
+      
+      // If there are no follow-ups, keep the document
       if (followUps.length === 0) return true;
-      // Keep the document if it has at least one active follow-up
-      return !allFiledOrCompleted;
+      
+      // Sort by created_at descending to get the most recent follow-up
+      const sorted = [...followUps].sort((a, b) => 
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      
+      const mostRecent = sorted[0];
+      
+      // If the most recent follow-up is filed_away, completed, or cancelled, hide it
+      if (mostRecent.status === 'filed_away') return false;
+      if (mostRecent.status === 'completed') return false;
+      if (mostRecent.status === 'cancelled') return false;
+      
+      // Keep the document if the most recent follow-up is active
+      return mostRecent.status === 'pending' || mostRecent.status === 'in_progress';
     });
   }, [documents]);
 
@@ -2826,6 +2838,29 @@ const SuperAdminBringUp: React.FC = () => {
 
   // ─── Follow-Up handlers ─────────────────────────────────────────────────────
 
+  // ─── Create and File Away in one flow ──────────────────────────────────────
+  const handleCreateAndFileAway = async (input: CreateFollowUpInput) => {
+    try {
+      await dispatch(createFollowUp(input)).unwrap();
+      await dispatch(fileAwayFollowUp({
+        document_id: input.document_id,
+        mark_id: input.mark_id,
+        notes: input.notes,
+        completion_notes: `Filed away by ${user?.full_name ?? user?.id}`,
+      })).unwrap();
+
+      toast.success('Document filed away successfully');
+      setShowCreateFollowUp(false);
+      
+      if (selectedDocument && selectedDocument.id === input.document_id) {
+        setSelectedDocument(null);
+      }
+      refreshDocuments();
+    } catch (error) {
+      toast.error(typeof error === 'string' ? error : 'Failed to file away document');
+    }
+  };
+
   const handleCreateFollowUp = async (input: CreateFollowUpInput) => {
     try {
       await dispatch(createFollowUp(input)).unwrap();
@@ -2869,27 +2904,24 @@ const SuperAdminBringUp: React.FC = () => {
     }
   };
 
-// ─── File Away Follow-Up handler ────────────────────────────────────────────
-const handleFileAwayFollowUp = async (followUpId: string, input: FileAwayFollowUpInput) => {
-  try {
-    // Use followUpId for logging or tracking
-    console.log(`Filing away follow-up: ${followUpId} for document: ${input.document_id}`);
-    
-    await dispatch(fileAwayFollowUp(input)).unwrap();
-    toast.success('Document filed away successfully');
-    // Close the follow-up modal if open
-    setShowFollowUpModal(false);
-    setSelectedFollowUpId(null);
-    // Clear selected document if it was the one filed away
-    if (selectedDocument && selectedDocument.id === input.document_id) {
-      setSelectedDocument(null);
+  // ─── File Away Follow-Up handler ────────────────────────────────────────────
+  const handleFileAwayFollowUp = async (input: FileAwayFollowUpInput) => {
+    try {
+      await dispatch(fileAwayFollowUp(input)).unwrap();
+      toast.success('Document filed away successfully');
+      
+      setShowFollowUpModal(false);
+      setSelectedFollowUpId(null);
+      
+      if (selectedDocument && selectedDocument.id === input.document_id) {
+        setSelectedDocument(null);
+      }
+      
+      refreshDocuments();
+    } catch (error) {
+      toast.error(typeof error === 'string' ? error : 'Failed to file away document');
     }
-    // Refresh the document list to remove the filed away document
-    refreshDocuments();
-  } catch (error) {
-    toast.error(typeof error === 'string' ? error : 'Failed to file away document');
-  }
-};
+  };
 
   const handleViewFollowUpDetails = (followUpId: string) => {
     setSelectedFollowUpId(followUpId);
@@ -2978,6 +3010,7 @@ const handleFileAwayFollowUp = async (followUpId: string, input: FileAwayFollowU
           markId={selectedDocument.active_mark.id}
           onClose={() => setShowCreateFollowUp(false)}
           onCreate={handleCreateFollowUp}
+          onFileAway={handleCreateAndFileAway}
         />
       )}
 
@@ -3026,7 +3059,7 @@ const handleFileAwayFollowUp = async (followUpId: string, input: FileAwayFollowU
                 No documents with bring‑up dates.
               </div>
             ) : (
-              (['overdue', 'upcoming'] as BringUpBucket[]).map((bucket) => {
+              (['overdue', 'today', 'upcoming'] as BringUpBucket[]).map((bucket) => {
                 const docs = grouped[bucket];
                 if (docs.length === 0) return null;
                 return (

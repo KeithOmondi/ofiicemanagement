@@ -1,6 +1,6 @@
 // src/pages/documents/FollowUpModal.tsx
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'react-hot-toast';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
@@ -23,8 +23,6 @@ const Spinner: React.FC<{ className?: string }> = ({ className = 'h-4 w-4' }) =>
     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
   </svg>
 );
-
-
 
 // ─── Follow-Up Status Badge ───────────────────────────────────────────────────
 
@@ -91,6 +89,11 @@ interface FollowUpModalProps {
   onUpdate?: () => void;
 }
 
+// NOTE: Render this component with a `key={followUpId}` prop from the parent
+// so React remounts it fresh whenever the follow-up being viewed changes.
+// That gives local UI state (isEditing, commentText, etc.) a clean reset
+// without needing a "reset on prop change" effect.
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 const FollowUpModal: React.FC<FollowUpModalProps> = ({ followUpId, onClose, onUpdate }) => {
@@ -106,9 +109,12 @@ const FollowUpModal: React.FC<FollowUpModalProps> = ({ followUpId, onClose, onUp
   const [commentFile, setCommentFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Edit state ─────────────────────────────────────────────────────────────
+  // Populated on demand when the user opens the edit form (see
+  // handleStartEditing) — not synced from currentFollowUp via an effect,
+  // since these fields are unused until editing actually begins.
 
   const [isEditing, setIsEditing] = useState(false);
   const [editNotes, setEditNotes] = useState('');
@@ -127,35 +133,27 @@ const FollowUpModal: React.FC<FollowUpModalProps> = ({ followUpId, onClose, onUp
     }
   }, [dispatch, followUpId]);
 
-  // ✅ FIX: Split into separate effects - one for data fetching, one for form population
-  // This avoids cascading renders
-
-  // Effect 1: Initial data fetch
+  // ─── Effect 1: Initial data fetch ──────────────────────────────────────────
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  // Effect 2: Fetch users (only once)
+  // ─── Effect 2: Fetch users (only once) ────────────────────────────────────
   useEffect(() => {
     dispatch(fetchUsers({ is_active: true, limit: 100 }));
   }, [dispatch]);
 
-  // Effect 3: Populate edit form when data loads (no state updates in render)
-  useEffect(() => {
-    if (currentFollowUp) {
-      // Set edit form values directly without triggering additional state updates
-      const timer = setTimeout(() => {
-        setEditNotes(currentFollowUp.notes || '');
-        setEditAssignedTo(currentFollowUp.assigned_to || '');
-        setEditDueDate(currentFollowUp.due_date ? currentFollowUp.due_date.split('T')[0] : '');
-        setEditPriority(currentFollowUp.priority || 'normal');
-        setEditStatus(currentFollowUp.status || 'pending');
-      }, 0);
-      return () => clearTimeout(timer);
-    }
-  }, [currentFollowUp]);
+  // ─── Handlers ────────────────────────────────────────────────────────────────
 
-  // ── Handlers ────────────────────────────────────────────────────────────────
+  const handleStartEditing = () => {
+    if (!currentFollowUp) return;
+    setEditNotes(currentFollowUp.notes || '');
+    setEditAssignedTo(currentFollowUp.assigned_to || '');
+    setEditDueDate(currentFollowUp.due_date ? currentFollowUp.due_date.split('T')[0] : '');
+    setEditPriority(currentFollowUp.priority || 'normal');
+    setEditStatus(currentFollowUp.status || 'pending');
+    setIsEditing(true);
+  };
 
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -351,7 +349,7 @@ const FollowUpModal: React.FC<FollowUpModalProps> = ({ followUpId, onClose, onUp
             )}
             {canEdit && !isEditing && !isCompleted && !isCancelled && (
               <button
-                onClick={() => setIsEditing(true)}
+                onClick={handleStartEditing}
                 className="inline-flex items-center gap-1 rounded bg-blue-100 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-200 transition-colors"
               >
                 ✎ Edit

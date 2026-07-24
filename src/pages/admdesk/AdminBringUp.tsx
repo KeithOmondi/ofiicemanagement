@@ -1178,6 +1178,8 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
 
 // ─── Row ───────────────────────────────────────────────────────────────────
 
+// ─── Row ───────────────────────────────────────────────────────────────────
+
 interface BringUpRowProps {
   document: DocType & { annotations?: DocumentAnnotation[] };
   bucket: BringUpBucket;
@@ -1195,12 +1197,10 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
   onPreview,
   onDelete,
 }) => {
-  // ✅ MOVE ALL HOOKS TO THE TOP BEFORE ANY CONDITIONAL RETURNS
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   
   const mark = document.active_mark;
-  
-  // ✅ Now we can do the early return after all hooks
   if (!mark?.bring_up_date) return null;
 
   const needsResponse = document.status === 'pending_review' && document.assigned_to === currentUserId;
@@ -1211,7 +1211,6 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
   const hasSuperAdminRemarks = !!mark?.instructions;
   const hasUrgentAnnotations = annotations.some((a: DocumentAnnotation) => a.is_urgent);
 
-  // ─── Check if document can be deleted (all follow-ups are terminal) ──────
   const canDelete = followUps.length > 0 && followUps.every(
     f => f.status === 'filed_away' || f.status === 'completed' || f.status === 'cancelled'
   );
@@ -1223,204 +1222,258 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
     }
   };
 
+  // Get status indicators
+  const statusIndicators = [];
+  if (needsResponse) statusIndicators.push({ label: 'Response Needed', color: 'red' });
+  if (activeFollowUps.length > 0) statusIndicators.push({ label: `${activeFollowUps.length} Follow-up${activeFollowUps.length > 1 ? 's' : ''}`, color: 'blue' });
+  if (hasAnnotations) statusIndicators.push({ label: `${annotations.length} Annotation${annotations.length > 1 ? 's' : ''}`, color: 'purple' });
+  if (hasSuperAdminRemarks) statusIndicators.push({ label: 'Registrar\'s Note', color: 'amber' });
+
   return (
     <>
-      <div className="flex items-start justify-between gap-4 rounded-xl border border-slate-100 bg-white p-5 hover:shadow-md transition-all duration-200">
-        <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onPreview(document)}>
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm font-semibold text-slate-800 truncate">{document.title}</p>
-            
-            <span
-              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${BUCKET_COLOR[bucket]}`}
-            >
-              {BUCKET_LABEL[bucket]}
-            </span>
+      <div 
+        className={`group rounded-xl border transition-all duration-200 bg-white ${
+          expanded ? 'border-amber-200 shadow-md' : 'border-slate-100 hover:shadow-md hover:border-slate-200'
+        }`}
+      >
+        {/* ─── Main Row ────────────────────────────────────────────────────── */}
+        <div className="flex items-start justify-between gap-4 p-4">
+          <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onPreview(document)}>
+            {/* Title & Status */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold text-slate-800 truncate">{document.title}</p>
+              
+              {/* Bucket Badge */}
+              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${BUCKET_COLOR[bucket]}`}>
+                {BUCKET_LABEL[bucket]}
+              </span>
 
-            {/* ─── Registrar's Note Indicator ────────────────────────────────── */}
+              {/* Status Indicators - Compact pills */}
+              {statusIndicators.map((ind, idx) => (
+                <span 
+                  key={idx}
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${
+                    ind.color === 'red' ? 'bg-red-50 text-red-700 border-red-200' :
+                    ind.color === 'blue' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                    ind.color === 'purple' ? 'bg-purple-50 text-purple-700 border-purple-200' :
+                    'bg-amber-50 text-amber-700 border-amber-200'
+                  }`}
+                >
+                  {ind.color === 'red' && '⚠️'}
+                  {ind.color === 'blue' && '📋'}
+                  {ind.color === 'purple' && '💬'}
+                  {ind.color === 'amber' && '📝'}
+                  {ind.label}
+                </span>
+              ))}
+            </div>
+
+            {/* Quick Info - Department & Assignee */}
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+              {mark.marked_to_dept_name && (
+                <span className="flex items-center gap-1">
+                  <span className="text-slate-400">Dept:</span>
+                  <span className="text-slate-700 font-medium">{mark.marked_to_dept_name}</span>
+                </span>
+              )}
+              {mark.assigned_to_name && (
+                <span className="flex items-center gap-1">
+                  <span className="text-slate-400">Assigned to:</span>
+                  <span className="text-slate-700 font-medium">{mark.assigned_to_name}</span>
+                </span>
+              )}
+              {mark.priority && mark.priority !== 'normal' && (
+                <PriorityBadge priority={mark.priority} />
+              )}
+              <span className="text-slate-400">·</span>
+              <span className="text-slate-400">Due: {formatDateDisplay(mark.bring_up_date)}</span>
+            </div>
+
+            {/* ─── Registrar's Note Preview (collapsible) ────────────────── */}
             {hasSuperAdminRemarks && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200">
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              <div 
+                className="mt-2 flex items-start gap-2 cursor-pointer hover:bg-amber-50/50 rounded-md p-1.5 -ml-1.5 transition-colors"
+                onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+              >
+                <svg className={`h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                 </svg>
-                Registrar's Note
-              </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-amber-700 font-medium">
+                    <span className="font-semibold">Registrar's Note:</span>
+                    <span className="ml-1 font-normal line-clamp-1">
+                      {mark.instructions}
+                    </span>
+                  </p>
+                </div>
+              </div>
             )}
 
-            {/* ─── Annotation Indicator ────────────────────────────────────── */}
-            {hasAnnotations && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200">
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-                {annotations.length} annotation{annotations.length > 1 ? 's' : ''}
-                {hasUrgentAnnotations && (
-                  <span className="ml-0.5 text-red-500">· ⚠️</span>
+            {/* ─── Expanded Details ──────────────────────────────────────── */}
+            {expanded && (
+              <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
+                {/* Full Registrar's Note */}
+                {hasSuperAdminRemarks && (
+                  <div className="bg-amber-50/70 rounded-lg p-3 border border-amber-100">
+                    <div className="flex items-start gap-2">
+                      <svg className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-semibold text-amber-800">Registrar's Instructions</span>
+                          <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
+                            {mark.marked_by_name || 'Registrar'}
+                          </span>
+                          {mark.bring_up_date && (
+                            <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
+                              📅 {formatDateDisplay(mark.bring_up_date)}
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-sm text-stone-700 whitespace-pre-wrap">
+                          {mark.instructions}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 )}
-              </span>
-            )}
 
+                {/* Annotations */}
+                {hasAnnotations && (
+                  <div className="bg-purple-50/70 rounded-lg p-3 border border-purple-100">
+                    <div className="flex items-start gap-2">
+                      <svg className="h-4 w-4 text-purple-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-semibold text-purple-800">
+                            Annotations ({annotations.length})
+                          </span>
+                          {hasUrgentAnnotations && (
+                            <span className="text-[10px] text-red-600 bg-red-100 px-2 py-0.5 rounded-full">
+                              ⚠️ Urgent
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 space-y-1.5">
+                          {annotations.slice(-2).map((annotation: DocumentAnnotation) => (
+                            <div key={annotation.id} className="text-xs bg-white rounded-md p-2 border border-purple-100">
+                              <div className="flex items-center justify-between">
+                                <span className="font-semibold text-purple-700">
+                                  {annotation.annotated_by_name || 'Unknown'}
+                                </span>
+                                <span className="text-[10px] text-slate-400">
+                                  {formatDateDisplay(annotation.created_at)}
+                                </span>
+                              </div>
+                              <p className="text-stone-700 mt-0.5">
+                                {annotation.comment}
+                                {annotation.is_urgent && (
+                                  <span className="ml-2 text-red-500 font-medium">[URGENT]</span>
+                                )}
+                              </p>
+                            </div>
+                          ))}
+                          {annotations.length > 2 && (
+                            <p className="text-[10px] text-purple-500 text-center">
+                              +{annotations.length - 2} more annotations
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Follow-ups Summary */}
+                {followUps.length > 0 && (
+                  <div className="bg-blue-50/70 rounded-lg p-3 border border-blue-100">
+                    <div className="flex items-start gap-2">
+                      <svg className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-semibold text-blue-800">
+                            Follow-ups ({followUps.length})
+                          </span>
+                          <span className="text-[10px] text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                            {activeFollowUps.length} active
+                          </span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          {followUps.slice(0, 2).map((f) => (
+                            <div key={f.id} className="inline-flex items-center gap-1.5 bg-white rounded-md px-2.5 py-1 border border-blue-100 text-xs">
+                              <span className="text-stone-700 truncate max-w-[120px]">
+                                {f.notes}
+                              </span>
+                              <FollowUpStatusBadge status={f.status} />
+                            </div>
+                          ))}
+                          {followUps.length > 2 && (
+                            <span className="inline-flex items-center text-xs text-blue-600 font-medium">
+                              +{followUps.length - 2} more
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ─── Actions ───────────────────────────────────────────────────── */}
+          <div className="flex flex-col items-end gap-2 flex-shrink-0">
             {needsResponse && (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-700 border border-red-200">
-                ⚠️ Response needed
-              </span>
+              <button
+                onClick={() => onRespond(document)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
+                Respond
+              </button>
             )}
             
-            {activeFollowUps.length > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700 border border-blue-200">
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-                {activeFollowUps.length} follow-up{activeFollowUps.length > 1 ? 's' : ''}
-              </span>
-            )}
+            <button
+              onClick={() => onPreview(document)}
+              className="inline-flex items-center justify-center px-4 py-2 rounded-lg text-xs font-semibold text-white bg-[#A37F0C] hover:bg-[#856404] transition shadow-sm"
+            >
+              Open File
+            </button>
 
-            {/* ─── Delete Indicator ────────────────────────────────────────── */}
             {canDelete && onDelete && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700 border border-red-200">
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
-                Ready to delete
-              </span>
+                Delete
+              </button>
+            )}
+
+            {/* Expand/Collapse toggle */}
+            {((hasSuperAdminRemarks || hasAnnotations || followUps.length > 0)) && (
+              <button
+                onClick={() => setExpanded(!expanded)}
+                className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1"
+              >
+                {expanded ? 'Show less' : 'Show more'}
+                <svg className={`h-3 w-3 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
             )}
           </div>
-
-          {/* ─── Super Admin's Instructions/Remarks ────────────────────────────── */}
-          {mark.instructions && (
-            <div className="mt-2 bg-amber-50 border-l-3 border-amber-400 rounded-md p-2.5">
-              <div className="flex items-start gap-2">
-                <svg className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-xs text-amber-800 font-medium">
-                      <span className="font-semibold">Registrar's remarks:</span>
-                    </p>
-                    <span className="text-[9px] text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full">
-                      {mark.marked_by_name || 'Registrar'}
-                    </span>
-                    {mark.bring_up_date && (
-                      <span className="text-[9px] text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full">
-                        📅 {formatDateDisplay(mark.bring_up_date)}
-                      </span>
-                    )}
-                    {mark.priority && mark.priority !== 'normal' && (
-                      <PriorityBadge priority={mark.priority} />
-                    )}
-                  </div>
-                  <p className="text-xs text-stone-700 mt-0.5 line-clamp-2">
-                    {mark.instructions}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ─── Annotation Preview ────────────────────────────────────────────── */}
-          {hasAnnotations && (
-            <div className="mt-2 bg-purple-50 border-l-3 border-purple-400 rounded-md p-2.5">
-              <div className="flex items-start gap-2">
-                <svg className="h-4 w-4 text-purple-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-xs text-purple-800 font-medium">
-                      <span className="font-semibold">Latest annotation:</span>
-                    </p>
-                    {hasUrgentAnnotations && (
-                      <span className="text-[9px] text-red-500 font-medium">⚠️ Urgent</span>
-                    )}
-                  </div>
-                  <p className="text-xs text-stone-700 mt-0.5 line-clamp-1">
-                    {annotations[annotations.length - 1].comment}
-                  </p>
-                  <p className="text-[10px] text-purple-500 mt-0.5">
-                    by {annotations[annotations.length - 1].annotated_by_name || 'Unknown'}
-                    {annotations.length > 1 && (
-                      <span className="ml-1">· +{annotations.length - 1} more</span>
-                    )}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-            {mark.marked_by_name && (
-              <span className="flex items-center gap-1">
-                <span className="text-slate-400">Marked by:</span>
-                <span className="text-slate-700 font-medium">{mark.marked_by_name}</span>
-              </span>
-            )}
-            {mark.marked_to_dept_name && (
-              <span className="flex items-center gap-1">
-                <span className="text-slate-400">Dept:</span>
-                <span className="text-slate-700 font-medium">{mark.marked_to_dept_name}</span>
-              </span>
-            )}
-            {mark.assigned_to_name && (
-              <span className="flex items-center gap-1">
-                <span className="text-slate-400">Assigned to:</span>
-                <span className="text-slate-700 font-medium">{mark.assigned_to_name}</span>
-              </span>
-            )}
-            {mark.priority && mark.priority !== 'normal' && (
-              <PriorityBadge priority={mark.priority} />
-            )}
-          </div>
-        </div>
-
-        <div className="flex flex-col items-end gap-2 flex-shrink-0">
-          {needsResponse && (
-            <button
-              onClick={() => onRespond(document)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-              </svg>
-              Respond
-            </button>
-          )}
-          <button
-            onClick={() => onPreview(document)}
-            className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-[#A37F0C] hover:bg-[#856404] transition shadow-sm"
-          >
-            Open File
-          </button>
-          {canDelete && onDelete && (
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-red-600 hover:bg-red-700 transition shadow-sm"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-              Delete
-            </button>
-          )}
-          {hasSuperAdminRemarks && (
-            <span className="text-[9px] text-amber-500 flex items-center gap-1">
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3" />
-              </svg>
-              Has registrar's note
-            </span>
-          )}
-          {hasAnnotations && (
-            <span className="text-[9px] text-purple-500 flex items-center gap-1">
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3" />
-              </svg>
-              Has annotations
-            </span>
-          )}
         </div>
       </div>
 
