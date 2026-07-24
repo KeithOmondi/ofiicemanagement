@@ -694,6 +694,7 @@ export interface ProtocolEvent {
   id: string;
   s_no: number | null;
   activity: string;
+  venue: string | null; // UPDATED: Venue/Location of the protocol event
   period_from: string | null;
   period_to: string | null;
   officers_assigned: string | null;
@@ -711,6 +712,7 @@ export interface ProtocolEvent {
 
 export interface CreateProtocolEventInput {
   activity: string;
+  venue?: string; // UPDATED: Venue/Location of the protocol event
   period_from?: string;
   period_to?: string;
   officers_assigned?: string;
@@ -2215,7 +2217,7 @@ export const fetchDocumentViewStatus = createAsyncThunk(
 );
 
 /* ============================================================
-   THUNKS - PROTOCOL SUPPORT
+   THUNKS - PROTOCOL SUPPORT (UPDATED with venue)
 ============================================================ */
 
 export const fetchProtocolEvents = createAsyncThunk(
@@ -3883,7 +3885,7 @@ const helpdeskSlice = createSlice({
         state.error = action.payload as string;
       });
 
-    /* ──────── PROTOCOL EVENTS ──────────────────────────────────────────── */
+    /* ──────── PROTOCOL EVENTS (UPDATED with venue) ───────────────────── */
     builder
       .addCase(fetchProtocolEvents.pending, (state) => {
         state.loading.protocol = true;
@@ -4302,6 +4304,53 @@ export const selectDocumentViewedAt = (documentId: string) => (state: { helpdesk
 export const selectDocumentViewers = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.documentViewStatus?.viewers || [];
 
+// ─── Protocol Selectors with Venue ─────────────────────────────────────────
+
+export const selectProtocolEventsByStatus =
+  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.protocolEvents.filter((p) => p.status === status);
+
+export const selectProtocolEventsByVenue =
+  (venue: string) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.protocolEvents.filter(
+      (p) => p.venue && p.venue.toLowerCase().includes(venue.toLowerCase())
+    );
+
+export const selectProtocolEventsByActivity =
+  (activity: string) => (state: { helpdesk: HelpDeskState }) =>
+    state.helpdesk.protocolEvents.filter(
+      (p) => p.activity.toLowerCase().includes(activity.toLowerCase())
+    );
+
+export const selectProtocolEventsWithDSA = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.protocolEvents.filter((p) => p.dsa_required === true);
+
+export const selectProtocolEventsWithoutDSA = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.protocolEvents.filter((p) => p.dsa_required === false);
+
+export const selectPendingProtocolCount = (state: {
+  helpdesk: HelpDeskState;
+}) =>
+  state.helpdesk.protocolEvents.filter((p) => p.status === "Pending").length;
+
+export const selectTotalProtocolDSA = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.protocolEvents.reduce((sum, p) => sum + p.total_dsa, 0);
+
+export const selectProtocolVenueSummary = (state: { helpdesk: HelpDeskState }) => {
+  const venues: Record<string, { count: number; events: ProtocolEvent[] }> = {};
+  
+  state.helpdesk.protocolEvents.forEach((event) => {
+    const key = event.venue || "No Venue";
+    if (!venues[key]) {
+      venues[key] = { count: 0, events: [] };
+    }
+    venues[key].count += 1;
+    venues[key].events.push(event);
+  });
+  
+  return venues;
+};
+
 // ─── Pending Counts ─────────────────────────────────────────────────────────
 
 export const selectAwaitingUtilityItemsCount = (state: {
@@ -4358,11 +4407,6 @@ export const selectPendingSecurityRequestsCount = (state: {
   state.helpdesk.securityRequests.filter(
     (r) => r.status === "Pending" || r.status === "In Progress",
   ).length;
-
-export const selectPendingProtocolCount = (state: {
-  helpdesk: HelpDeskState;
-}) =>
-  state.helpdesk.protocolEvents.filter((p) => p.status === "Pending").length;
 
 export const selectPendingTicketsCount = (state: {
   helpdesk: HelpDeskState;
@@ -4453,8 +4497,5 @@ export const selectTotalPartHeardDSA = (state: { helpdesk: HelpDeskState }) =>
 
 export const selectTotalServiceWeekDSA = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.serviceWeeks.reduce((sum, w) => sum + w.total_dsa, 0);
-
-export const selectTotalProtocolDSA = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.protocolEvents.reduce((sum, p) => sum + p.total_dsa, 0);
 
 export default helpdeskSlice.reducer;

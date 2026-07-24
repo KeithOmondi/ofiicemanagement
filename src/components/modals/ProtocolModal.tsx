@@ -1,6 +1,6 @@
 // src/components/modals/ProtocolModal.tsx
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   createProtocolEvent,
@@ -11,6 +11,7 @@ import {
   type DSADetailInput,
   type Status,
   type CreateProtocolEventInput,
+  type DSAParentType,
 } from '../../store/slices/helpdeskSlice';
 import {
   selectCurrentUser,
@@ -18,6 +19,16 @@ import {
   uploadSignature,
   deleteSignature,
 } from '../../store/slices/userSlice';
+import {
+  uploadHelpdeskDocument,
+  linkHelpdeskDocument,
+  type DocumentFormat,
+} from '../../store/slices/helpdeskDocumentsSlice';
+import {
+  fetchJudges,
+  selectAllJudges,
+  selectJudgesLoading,
+} from '../../store/slices/JudgesSlice';
 import {
   X,
   Loader2,
@@ -37,8 +48,11 @@ import {
   Image,
   User,
   AlertCircle,
+  MapPin, // NEW: For venue icon
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
+import { generateProtocolMemoPdf } from '../../utils/generateProtocolPdf';
+import { generateProtocolMemoExcel } from '../../utils/generateProtocolExcel';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -225,10 +239,116 @@ function SignatureSection({ userSignature, onUpload, onRemove, isLoading }: Sign
   );
 }
 
+// ─── Judge Combobox ─────────────────────────────────────────────────────────
+
+interface JudgeComboboxProps {
+  value: string;
+  onChange: (value: string) => void;
+  judges: { id: string; name: string; pj_number: string; daily_dsa_rate: number }[];
+  judgesLoading: boolean;
+  placeholder?: string;
+  disabled?: boolean;
+}
+
+const JudgeCombobox: React.FC<JudgeComboboxProps> = ({
+  value,
+  onChange,
+  judges,
+  judgesLoading,
+  placeholder = 'Select or type judge name...',
+  disabled = false,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [inputValue, setInputValue] = useState(value);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setInputValue(value);
+  }
+
+  const filteredJudges = useMemo(() => {
+    const search = inputValue.toLowerCase().trim();
+    if (!search) return judges;
+    return judges.filter(
+      (j) =>
+        j.name.toLowerCase().includes(search) ||
+        j.pj_number.toLowerCase().includes(search)
+    );
+  }, [inputValue, judges]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleSelectJudge = (judge: { id: string; name: string; pj_number: string; daily_dsa_rate: number }) => {
+    setInputValue(judge.name);
+    setPrevValue(judge.name);
+    onChange(judge.name);
+    setIsOpen(false);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputValue(val);
+    setPrevValue(val);
+    onChange(val);
+    setIsOpen(true);
+  };
+
+  const handleInputFocus = () => {
+    setIsOpen(true);
+  };
+
+  return (
+    <div ref={wrapperRef} className="relative w-full">
+      <input
+        type="text"
+        value={inputValue}
+        onChange={handleInputChange}
+        onFocus={handleInputFocus}
+        placeholder={placeholder}
+        disabled={disabled || judgesLoading}
+        className={`w-full rounded border border-stone-200 bg-white px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none ${disabled || judgesLoading ? 'bg-stone-100 text-stone-400 cursor-not-allowed' : ''}`}
+      />
+      {isOpen && filteredJudges.length > 0 && !judgesLoading && (
+        <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded border border-stone-200 bg-white shadow-lg">
+          {filteredJudges.map((judge) => (
+            <button
+              key={judge.id}
+              type="button"
+              onClick={() => handleSelectJudge(judge)}
+              className="flex w-full items-center justify-between px-3 py-2 text-left text-xs hover:bg-stone-50 transition-colors border-b border-stone-100 last:border-0"
+            >
+              <span className="font-medium text-stone-800">{judge.name}</span>
+              <span className="text-stone-400">
+                PJ: {judge.pj_number} · Rate: {judge.daily_dsa_rate.toLocaleString()}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+      {judgesLoading && (
+        <div className="absolute inset-y-0 right-2 flex items-center">
+          <Loader2 size={14} className="animate-spin text-stone-400" />
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Types for Basic Info ──────────────────────────────────────────────────
 
 interface BasicInfoState {
   activity: string;
+  venue: string; // NEW: Venue/Location field
   period_from: string;
   period_to: string;
   officers_assigned: string;
@@ -266,6 +386,22 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({ basicInfo, setBasicInfo }
               className={inputClasses}
               required
             />
+          </div>
+
+          {/* NEW: Venue/Location Field */}
+          <div>
+            <FieldLabel>Venue / Location</FieldLabel>
+            <div className="relative">
+              <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+              <input
+                type="text"
+                value={basicInfo.venue}
+                onChange={(e) => handleChange('venue', e.target.value)}
+                placeholder="e.g. Milimani Law Courts, Court Room 3"
+                className={`${inputClasses} pl-9`}
+              />
+            </div>
+            <p className="mt-1 text-xs text-stone-400">Where the protocol event will take place</p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -340,8 +476,12 @@ interface DSADetailsFormProps {
   onAddRow: () => void;
   onRemoveRow: (index: number) => void;
   onChange: (index: number, field: keyof Omit<DSADetailInput, 'id'>, value: string | number) => void;
+  onJudgeNameChange: (index: number, value: string) => void;
   calculateTotal: (rate: number, days: number) => number;
+  judges: { id: string; name: string; pj_number: string; daily_dsa_rate: number }[];
+  judgesLoading: boolean;
   dsaRequired: boolean;
+  daysFromDates: number;
 }
 
 const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
@@ -349,8 +489,12 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
   onAddRow,
   onRemoveRow,
   onChange,
+  onJudgeNameChange,
   calculateTotal,
+  judges,
+  judgesLoading,
   dsaRequired,
+  daysFromDates,
 }) => {
   // If DSA is not required, show a message and skip the form
   if (!dsaRequired) {
@@ -380,6 +524,11 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
             <Users size={16} className="text-[#c9a84c]" />
             <h4 className="text-sm font-semibold text-stone-800">DSA Details</h4>
             <span className="text-xs text-stone-400">({dsaDetails.length} members)</span>
+            {daysFromDates > 0 && (
+              <span className="ml-2 text-xs bg-[#c9a84c]/20 text-[#1a3d1c] px-2 py-0.5 rounded-full">
+                {daysFromDates} days (from date range)
+              </span>
+            )}
           </div>
           <GoldButton size="sm" onClick={onAddRow} icon={<Plus size={14} />}>
             Add Member
@@ -396,7 +545,7 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-stone-200 text-left text-[10px] uppercase text-stone-500">
-                <th className="pb-2 pr-2 font-semibold">Name</th>
+                <th className="pb-2 pr-2 font-semibold">Judge Name</th>
                 <th className="pb-2 pr-2 font-semibold">PJ Number</th>
                 <th className="pb-2 pr-2 font-semibold">Designation</th>
                 <th className="pb-2 pr-2 font-semibold text-right">Rate (KES)</th>
@@ -406,68 +555,71 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
               </tr>
             </thead>
             <tbody>
-              {dsaDetails.map((detail, index) => (
-                <tr key={index} className="border-b border-stone-100">
-                  <td className="py-2 pr-2">
-                    <input
-                      type="text"
-                      value={detail.judge_name}
-                      onChange={(e) => onChange(index, 'judge_name', e.target.value)}
-                      placeholder="Full name"
-                      className="w-full rounded border border-stone-200 px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none"
-                    />
-                  </td>
-                  <td className="py-2 pr-2">
-                    <input
-                      type="text"
-                      value={detail.pj_number}
-                      onChange={(e) => onChange(index, 'pj_number', e.target.value)}
-                      placeholder="PJ-XXX"
-                      className="w-full rounded border border-stone-200 px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none"
-                    />
-                  </td>
-                  <td className="py-2 pr-2">
-                    <input
-                      type="text"
-                      list="designation-suggestions"
-                      value={detail.designation || ''}
-                      onChange={(e) => onChange(index, 'designation', e.target.value)}
-                      placeholder="e.g. Judge"
-                      className="w-full rounded border border-stone-200 px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none"
-                    />
-                  </td>
-                  <td className="py-2 pr-2">
-                    <input
-                      type="number"
-                      value={detail.dsa_per_day || ''}
-                      onChange={(e) => onChange(index, 'dsa_per_day', parseFloat(e.target.value) || 0)}
-                      placeholder="0"
-                      className="w-24 rounded border border-stone-200 px-2 py-1 text-right text-xs focus:border-[#1a3d1c] focus:outline-none"
-                    />
-                  </td>
-                  <td className="py-2 pr-2">
-                    <input
-                      type="number"
-                      value={detail.days || ''}
-                      onChange={(e) => onChange(index, 'days', parseInt(e.target.value) || 0)}
-                      placeholder="0"
-                      className="w-16 rounded border border-stone-200 px-2 py-1 text-right text-xs focus:border-[#1a3d1c] focus:outline-none"
-                    />
-                  </td>
-                  <td className="py-2 pr-2 text-right font-medium text-emerald-700">
-                    {calculateTotal(detail.dsa_per_day, detail.days).toLocaleString()}
-                  </td>
-                  <td className="py-2 text-center">
-                    <button
-                      onClick={() => onRemoveRow(index)}
-                      disabled={dsaDetails.length <= 1}
-                      className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    >
-                      <X size={14} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {dsaDetails.map((detail, index) => {
+                const days = detail.days || daysFromDates;
+                return (
+                  <tr key={index} className="border-b border-stone-100">
+                    <td className="py-2 pr-2 min-w-[180px]">
+                      <JudgeCombobox
+                        value={detail.judge_name}
+                        onChange={(val) => onJudgeNameChange(index, val)}
+                        judges={judges}
+                        judgesLoading={judgesLoading}
+                        placeholder="Select or type judge name..."
+                      />
+                    </td>
+                    <td className="py-2 pr-2">
+                      <input
+                        type="text"
+                        value={detail.pj_number}
+                        onChange={(e) => onChange(index, 'pj_number', e.target.value)}
+                        placeholder="Enter PJ number"
+                        className="w-full rounded border border-stone-200 px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none"
+                      />
+                    </td>
+                    <td className="py-2 pr-2">
+                      <input
+                        type="text"
+                        list="designation-suggestions"
+                        value={detail.designation || ''}
+                        onChange={(e) => onChange(index, 'designation', e.target.value)}
+                        placeholder="e.g. Judge"
+                        className="w-full rounded border border-stone-200 px-2 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none"
+                      />
+                    </td>
+                    <td className="py-2 pr-2">
+                      <input
+                        type="number"
+                        value={detail.dsa_per_day || ''}
+                        onChange={(e) => onChange(index, 'dsa_per_day', parseFloat(e.target.value) || 0)}
+                        placeholder="0"
+                        className="w-24 rounded border border-stone-200 px-2 py-1 text-right text-xs focus:border-[#1a3d1c] focus:outline-none"
+                      />
+                    </td>
+                    <td className="py-2 pr-2">
+                      <input
+                        type="number"
+                        value={days || ''}
+                        onChange={(e) => onChange(index, 'days', parseInt(e.target.value) || daysFromDates)}
+                        placeholder={String(daysFromDates || 0)}
+                        className="w-16 rounded border border-stone-200 px-2 py-1 text-right text-xs focus:border-[#1a3d1c] focus:outline-none"
+                      />
+                    </td>
+                    <td className="py-2 pr-2 text-right font-medium text-emerald-700">
+                      {calculateTotal(detail.dsa_per_day, days).toLocaleString()}
+                    </td>
+                    <td className="py-2 text-center">
+                      <button
+                        onClick={() => onRemoveRow(index)}
+                        disabled={dsaDetails.length <= 1}
+                        className="rounded p-1 text-red-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr className="border-t-2 border-stone-200 bg-stone-100">
@@ -475,7 +627,7 @@ const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
                   Grand Total:
                 </td>
                 <td className="py-3 pr-2 text-right font-bold text-[#1a3d1c]">
-                  {dsaDetails.reduce((sum, d) => sum + (d.dsa_per_day * d.days), 0).toLocaleString()}
+                  {dsaDetails.reduce((sum, d) => sum + (d.dsa_per_day * (d.days || daysFromDates)), 0).toLocaleString()}
                 </td>
                 <td></td>
               </tr>
@@ -498,31 +650,10 @@ interface MemoPreviewProps {
   onEdit: () => void;
   onEditDsa: () => void;
   signatureUrl?: string | null;
+  onDocumentUploaded?: (documentId: string) => void;
 }
 
-type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
-
-// Define the shared data structure for downloads
-interface DownloadSharedData {
-  to: string;
-  from: string;
-  ref: string;
-  date: string;
-  subject: string;
-  bodyText: string;
-  rows: {
-    judgeName: string;
-    pjNumber: string;
-    designation: string;
-    rate: number;
-    days: number;
-    total: number;
-    notes: string;
-  }[];
-  grandTotal: number;
-  signatoryName: string;
-  dsaRequired: boolean;
-}
+type DownloadFormat = 'pdf' | 'xlsx';
 
 const MemoPreview: React.FC<MemoPreviewProps> = ({
   basicInfo,
@@ -533,8 +664,10 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   onEdit,
   onEditDsa,
   signatureUrl,
+  onDocumentUploaded,
 }) => {
   const currentUser = useAppSelector((state) => state.auth.user);
+  const dispatch = useAppDispatch();
 
   const validDetails = dsaDetails.filter(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0);
   const grandTotal = calculateGrandTotal();
@@ -558,8 +691,9 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
     return generated.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
   });
 
+  // NEW: Include venue in body text
   const [bodyText, setBodyText] = useState(() =>
-    `The following is a detailed breakdown of the protocol event "${basicInfo.activity}" for the period ${formatDate(basicInfo.period_from)} to ${formatDate(basicInfo.period_to)}.\n\n${basicInfo.officers_assigned ? `Officers Assigned: ${basicInfo.officers_assigned}` : ''}\n${basicInfo.remarks ? `Remarks: ${basicInfo.remarks}` : ''}`
+    `The following is a detailed breakdown of the protocol event "${basicInfo.activity}"${basicInfo.venue ? ` at ${basicInfo.venue}` : ''} for the period ${formatDate(basicInfo.period_from)} to ${formatDate(basicInfo.period_to)}.\n\n${basicInfo.officers_assigned ? `Officers Assigned: ${basicInfo.officers_assigned}` : ''}\n${basicInfo.remarks ? `Remarks: ${basicInfo.remarks}` : ''}`
   );
 
   const [signatoryName, setSignatoryName] = useState(() => currentUser?.full_name || '');
@@ -578,15 +712,15 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
       rate: d.dsa_per_day,
       days: d.days,
       total: calculateTotal(d.dsa_per_day, d.days),
-      notes: '',
     }));
 
   const handleDownload = async (format: DownloadFormat) => {
     setShowDownloadMenu(false);
     setDownloadingFormat(format);
+
     try {
       const rows = buildRows();
-      const shared: DownloadSharedData = {
+      const shared = {
         to: toField,
         from: fromField,
         ref: refField,
@@ -595,40 +729,59 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         bodyText,
         rows,
         grandTotal,
+        amountInWords: '',
         signatoryName,
         dsaRequired: basicInfo.dsa_required,
+        venue: basicInfo.venue, // NEW: Pass venue to PDF/Excel generator
+        officersAssigned: basicInfo.officers_assigned,
+        remarks: basicInfo.remarks,
+        periodFrom: basicInfo.period_from,
+        periodTo: basicInfo.period_to,
       };
 
-      // Simulate download - in production, these would use actual utilities
-      console.log(`Downloading ${format}:`, shared);
-      toast.success(`${format.toUpperCase()} download would start here.`);
-      
-      // Uncomment when utilities are available:
-      // if (format === 'docx') {
-      //   await generateProtocolMemoDocx({
-      //     ...shared,
-      //     crestUrl: JUDICIARY_CREST_SRC,
-      //     signatureUrl: signatureUrl || undefined,
-      //   });
-      // } else if (format === 'pdf') {
-      //   await generateProtocolMemoPdf({
-      //     ...shared,
-      //     crestUrl: JUDICIARY_CREST_SRC,
-      //     signatureUrl: signatureUrl || undefined,
-      //   });
-      // } else {
-      //   generateProtocolMemoExcel(shared);
-      // }
+      let blob: Blob | null = null;
+
+      if (format === 'pdf') {
+        blob = await generateProtocolMemoPdf({
+          ...shared,
+          crestUrl: JUDICIARY_CREST_SRC,
+          signatureUrl: signatureUrl || undefined,
+        });
+      } else if (format === 'xlsx') {
+        blob = generateProtocolMemoExcel(shared);
+      }
+
+      if (!blob) {
+        throw new Error('Generator returned no blob');
+      }
+
+      const safeRef = (refField || 'memo').replace(/[\\/:*?"<>|]/g, '-');
+      const filename = `${safeRef}.${format}`;
+
+      const result = await dispatch(
+        uploadHelpdeskDocument({
+          blob,
+          filename,
+          ref: refField,
+          subject: subjectField,
+          entity_type: 'protocol',
+          format: format as DocumentFormat,
+        })
+      ).unwrap();
+
+      onDocumentUploaded?.(result.id);
+
+      toast.success(`${format.toUpperCase()} document saved to the system.`);
+
     } catch (err) {
-      console.error(`Failed to generate ${format} memo:`, err);
-      toast.error('Failed to generate document. Please try again.');
+      console.error(`Failed to generate/upload ${format} memo:`, err);
+      toast.error('Failed to save document. Please try again.');
     } finally {
       setDownloadingFormat(null);
     }
   };
 
   const downloadLabels: Record<DownloadFormat, string> = {
-    docx: 'Preparing Word…',
     pdf: 'Preparing PDF…',
     xlsx: 'Preparing Excel…',
   };
@@ -667,13 +820,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
               <>
                 <div className="fixed inset-0 z-0" onClick={() => setShowDownloadMenu(false)} />
                 <div className="absolute right-0 z-10 mt-1 w-44 overflow-hidden rounded-lg border border-stone-200 bg-white py-1 shadow-lg">
-                  <button
-                    onClick={() => handleDownload('docx')}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50"
-                  >
-                    <FileText size={14} className="text-blue-600" />
-                    Word (.docx)
-                  </button>
                   <button
                     onClick={() => handleDownload('pdf')}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50"
@@ -769,6 +915,16 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
             rows={4}
             className={`${editableLineClasses} block w-full resize-none leading-relaxed`}
           />
+
+          {/* NEW: Display venue in preview */}
+          {basicInfo.venue && (
+            <div className="rounded-lg bg-stone-50 p-3 border border-stone-200">
+              <p className="text-sm">
+                <span className="font-medium text-stone-700">Venue:</span>{' '}
+                <span className="text-stone-800">{basicInfo.venue}</span>
+              </p>
+            </div>
+          )}
 
           {/* DSA Table - Only show if DSA is required and there is data */}
           {basicInfo.dsa_required && hasDsaData && (
@@ -880,11 +1036,15 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
   const mutating = useAppSelector((state) => state.helpdesk.loading.mutating);
   const currentUser = useAppSelector(selectCurrentUser);
   const signatureLoading = useAppSelector(selectUsersSignatureLoading);
+  const judges = useAppSelector(selectAllJudges);
+  const judgesLoading = useAppSelector(selectJudgesLoading);
+  const judgesFetchedRef = useRef(false);
 
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
   const [basicInfo, setBasicInfo] = useState<BasicInfoState>({
     activity: '',
+    venue: '', // NEW: Initialize venue
     period_from: '',
     period_to: '',
     officers_assigned: '',
@@ -896,14 +1056,40 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
     { judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: 0, notes: '' },
   ]);
 
+  const [pendingDocumentId, setPendingDocumentId] = useState<string | undefined>();
+
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+
+  // ── Fetch judges when modal opens ──────────────────────────────────────
+  useEffect(() => {
+    if (isOpen && !judgesFetchedRef.current && !judgesLoading) {
+      judgesFetchedRef.current = true;
+      dispatch(fetchJudges({ is_active: true, limit: 100 }));
+    }
+  }, [isOpen, judgesLoading, dispatch]);
+
+  // ── Compute days from date range ───────────────────────────────────────
+  const computeDays = (start: string, end: string): number => {
+    if (!start || !end) return 0;
+    const s = new Date(start);
+    const e = new Date(end);
+    if (isNaN(s.getTime()) || isNaN(e.getTime())) return 0;
+    const diffTime = e.getTime() - s.getTime();
+    if (diffTime < 0) return 0;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+    return diffDays;
+  };
+
+  const daysFromDates = computeDays(basicInfo.period_from, basicInfo.period_to);
 
   if (isOpen !== prevIsOpen) {
     setPrevIsOpen(isOpen);
 
     if (isOpen && editingItem) {
+      // UPDATED: Include venue when editing
       setBasicInfo({
         activity: editingItem.activity || '',
+        venue: editingItem.venue || '', // NEW: Set venue from editing item
         period_from: editingItem.period_from || '',
         period_to: editingItem.period_to || '',
         officers_assigned: editingItem.officers_assigned || '',
@@ -929,20 +1115,23 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
     } else if (isOpen && !editingItem) {
       setBasicInfo({
         activity: '',
+        venue: '', // NEW: Initialize venue
         period_from: '',
         period_to: '',
         officers_assigned: '',
         remarks: '',
         dsa_required: false,
       });
-      setDsaDetails([{ judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: 0, notes: '' }]);
+      setDsaDetails([{ judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: daysFromDates, notes: '' }]);
       setCurrentStep(1);
     }
+    setPendingDocumentId(undefined);
   }
 
   const resetForm = () => {
     setBasicInfo({
       activity: '',
+      venue: '', // NEW: Reset venue
       period_from: '',
       period_to: '',
       officers_assigned: '',
@@ -951,10 +1140,18 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
     });
     setDsaDetails([{ judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: 0, notes: '' }]);
     setCurrentStep(1);
+    setPendingDocumentId(undefined);
   };
 
   const handleAddDsaRow = () => {
-    setDsaDetails([...dsaDetails, { judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: 0, notes: '' }]);
+    setDsaDetails([...dsaDetails, { 
+      judge_name: '', 
+      pj_number: '', 
+      designation: '', 
+      dsa_per_day: 0, 
+      days: daysFromDates, 
+      notes: '' 
+    }]);
   };
 
   const handleRemoveDsaRow = (index: number) => {
@@ -966,6 +1163,14 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
     const updated = [...dsaDetails];
     updated[index] = { ...updated[index], [field]: value };
     setDsaDetails(updated);
+  };
+
+  const handleJudgeNameChange = (index: number, value: string) => {
+    setDsaDetails((prev) => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], judge_name: value };
+      return updated;
+    });
   };
 
   const calculateTotal = (dsa_per_day: number, days: number): number => {
@@ -995,6 +1200,10 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
     }
   };
 
+  const handleMemoUploaded = (docId: string) => {
+    setPendingDocumentId(docId);
+  };
+
   const handleNextStep = () => {
     if (currentStep === 1) {
       if (!basicInfo.activity.trim()) {
@@ -1003,7 +1212,6 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
       }
       setCurrentStep(2);
     } else if (currentStep === 2) {
-      // ✅ DSA is optional - only validate if DSA is required
       if (basicInfo.dsa_required) {
         const hasValidRow = dsaDetails.some(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0);
         if (!hasValidRow) {
@@ -1022,7 +1230,6 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
 
   const handleCreate = async () => {
     try {
-      // ✅ Only include DSA details if DSA is required
       let dsaData: Omit<DSADetailInput, 'id'>[] = [];
       if (basicInfo.dsa_required) {
         dsaData = dsaDetails
@@ -1034,11 +1241,14 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
             dsa_per_day: d.dsa_per_day,
             days: d.days,
             notes: undefined,
+            parent_type: 'protocol' as DSAParentType,
           }));
       }
 
+      // UPDATED: Include venue in the input
       const input: CreateProtocolEventInput = {
         activity: basicInfo.activity.trim(),
+        venue: basicInfo.venue.trim() || undefined, // NEW: Include venue
         period_from: basicInfo.period_from || undefined,
         period_to: basicInfo.period_to || undefined,
         officers_assigned: basicInfo.officers_assigned.trim() || undefined,
@@ -1047,15 +1257,35 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
         dsa_details: dsaData,
       };
 
+      let createdId: string | undefined;
+
       if (editingItem) {
         await dispatch(updateProtocolStatus({
           id: editingItem.id,
           status: 'Pending' as Status,
         })).unwrap();
         toast.success('Protocol event updated successfully.');
+        createdId = editingItem.id;
       } else {
-        await dispatch(createProtocolEvent(input)).unwrap();
+        const result = await dispatch(createProtocolEvent(input)).unwrap();
         toast.success('Protocol event created successfully.');
+        createdId = result?.id;
+      }
+
+      // ─── Link the document if one was created ──────────────────────────
+      if (pendingDocumentId && createdId) {
+        try {
+          await dispatch(
+            linkHelpdeskDocument({
+              id: pendingDocumentId,
+              entity_type: 'protocol',
+              entity_id: createdId,
+            })
+          ).unwrap();
+          toast.success('Memo linked to the record.');
+        } catch {
+          toast.error('Record created, but failed to link the memo. You can attach it manually later.');
+        }
       }
 
       await dispatch(fetchProtocolEvents({}));
@@ -1152,8 +1382,12 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
               onAddRow={handleAddDsaRow}
               onRemoveRow={handleRemoveDsaRow}
               onChange={handleDsaChange}
+              onJudgeNameChange={handleJudgeNameChange}
               calculateTotal={calculateTotal}
+              judges={judges}
+              judgesLoading={judgesLoading}
               dsaRequired={basicInfo.dsa_required}
+              daysFromDates={daysFromDates}
             />
           )}
           {currentStep === 3 && (
@@ -1174,6 +1408,7 @@ export const ProtocolModal: React.FC<ProtocolModalProps> = ({
                 onEdit={() => setCurrentStep(1)}
                 onEditDsa={() => setCurrentStep(2)}
                 signatureUrl={currentUser?.signature_url}
+                onDocumentUploaded={handleMemoUploaded}
               />
             </div>
           )}

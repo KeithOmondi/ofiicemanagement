@@ -1,6 +1,6 @@
 // src/pages/Helpdesk.tsx
 
-import React, { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import React, { useState, useEffect, useRef, type ChangeEvent, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   // Actions
@@ -2654,6 +2654,8 @@ function VisaTab() {
 
 // ─── Protocol Tab ─────────────────────────────────────────────────────────────
 
+// ─── Protocol Tab ─────────────────────────────────────────────────────────────
+
 function ProtocolTab() {
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllProtocolEvents);
@@ -2665,6 +2667,38 @@ function ProtocolTab() {
   const [editingItem, setEditingItem] = useState<ProtocolEvent | null>(null);
   const [selectedItem, setSelectedItem] = useState<ProtocolEvent | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterVenue, setFilterVenue] = useState<string>('');
+
+  // Get unique venues for filter dropdown
+  const uniqueVenues = useMemo(() => {
+    const venues = new Set<string>();
+    data.forEach(item => {
+      if (item.venue) venues.add(item.venue);
+    });
+    return Array.from(venues).sort();
+  }, [data]);
+
+  // Filter data by search term and venue
+  const filteredData = useMemo(() => {
+    let filtered = data;
+    
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(item =>
+        item.activity.toLowerCase().includes(term) ||
+        (item.venue && item.venue.toLowerCase().includes(term)) ||
+        (item.officers_assigned && item.officers_assigned.toLowerCase().includes(term)) ||
+        (item.remarks && item.remarks.toLowerCase().includes(term))
+      );
+    }
+    
+    if (filterVenue) {
+      filtered = filtered.filter(item => item.venue === filterVenue);
+    }
+    
+    return filtered;
+  }, [data, searchTerm, filterVenue]);
 
   const handleAdd = () => {
     setEditingItem(null);
@@ -2709,16 +2743,46 @@ function ProtocolTab() {
           </div>
         }
       >
+        {/* Filter Bar */}
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[200px]">
+            <input
+              type="text"
+              placeholder="Search by activity, venue, officers..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800 placeholder:text-stone-400 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+            />
+          </div>
+          {uniqueVenues.length > 0 && (
+            <div className="min-w-[180px]">
+              <select
+                value={filterVenue}
+                onChange={(e) => setFilterVenue(e.target.value)}
+                className="w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+              >
+                <option value="">All Venues</option>
+                {uniqueVenues.map(venue => (
+                  <option key={venue} value={venue}>{venue}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="text-sm text-stone-500">
+            {filteredData.length} {filteredData.length === 1 ? 'event' : 'events'}
+          </div>
+        </div>
+
         <TableWithActions
-          data={data}
+          data={filteredData}
           loading={loading}
           columns={[
             { key: 's_no', label: 'S/No.' },
             { key: 'activity', label: 'Activity' },
+            { key: 'venue', label: 'Venue' },
             { key: 'period_from', label: 'Period From' },
             { key: 'period_to', label: 'Period To' },
             { key: 'officers_assigned', label: 'Officers Assigned' },
-            { key: 'remarks', label: 'Remarks' },
             { key: 'dsa_required', label: 'DSA', align: 'center' },
             { key: 'total_dsa', label: 'Total DSA', align: 'right' },
             { key: 'status', label: 'Status', align: 'center' },
@@ -2734,12 +2798,31 @@ function ProtocolTab() {
                   {item.activity}
                 </button>
               </td>
+              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">
+                {item.venue ? (
+                  <span className="inline-flex items-center gap-1">
+                    <MapPin size={12} className="text-stone-400" />
+                    {item.venue}
+                  </span>
+                ) : '—'}
+              </td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.period_from)}</td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.period_to)}</td>
               <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.officers_assigned || '—'}</td>
-              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.remarks || '—'}</td>
-              <td className="px-3 py-2 text-center text-stone-600">{item.dsa_required ? 'Yes' : 'No'}</td>
-              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+              <td className="px-3 py-2 text-center">
+                {item.dsa_required ? (
+                  <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                    Yes
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center rounded-full bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-500">
+                    No
+                  </span>
+                )}
+              </td>
+              <td className="px-3 py-2 text-right font-medium text-emerald-700">
+                {formatCurrency(item.total_dsa)}
+              </td>
               <td className="px-3 py-2 text-center">
                 <StatusDropdown
                   status={item.status}
@@ -2778,31 +2861,110 @@ function ProtocolTab() {
           onStatusChange={handleStatusChange}
           mutating={mutating}
           renderContent={(item) => (
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="text-stone-500">Period:</span>
-                <p className="font-medium">{formatDate(item.period_from)} — {formatDate(item.period_to)}</p>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                {/* Venue field */}
+                <div className="col-span-2">
+                  <span className="text-stone-500">Venue / Location:</span>
+                  <p className="font-medium flex items-center gap-2">
+                    <MapPin size={14} className="text-stone-400" />
+                    {item.venue || 'Not specified'}
+                  </p>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-stone-500">Period:</span>
+                  <p className="font-medium">
+                    {formatDate(item.period_from)} — {formatDate(item.period_to)}
+                  </p>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-stone-500">Officers Assigned:</span>
+                  <p className="font-medium">{item.officers_assigned || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-stone-500">DSA Required:</span>
+                  <p className="font-medium">
+                    {item.dsa_required ? (
+                      <span className="text-emerald-600 font-semibold">Yes</span>
+                    ) : (
+                      <span className="text-stone-500">No</span>
+                    )}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-stone-500">Total DSA:</span>
+                  <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+                </div>
+                <div>
+                  <span className="text-stone-500">Members:</span>
+                  <p className="font-medium">{item.dsa_details?.length || 0}</p>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-stone-500">Remarks:</span>
+                  <p className="font-medium">{item.remarks || '—'}</p>
+                </div>
               </div>
-              <div>
-                <span className="text-stone-500">Officers Assigned:</span>
-                <p className="font-medium">{item.officers_assigned || '—'}</p>
-              </div>
-              <div>
-                <span className="text-stone-500">DSA Required:</span>
-                <p className="font-medium">{item.dsa_required ? 'Yes' : 'No'}</p>
-              </div>
-              <div>
-                <span className="text-stone-500">Total DSA:</span>
-                <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
-              </div>
-              <div>
-                <span className="text-stone-500">Members:</span>
-                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
-              </div>
-              <div className="col-span-2">
-                <span className="text-stone-500">Remarks:</span>
-                <p className="font-medium">{item.remarks || '—'}</p>
-              </div>
+
+              {/* DSA Details Table */}
+              {item.dsa_required && item.dsa_details && item.dsa_details.length > 0 && (
+                <div className="mt-4 border-t border-stone-200 pt-4">
+                  <span className="text-stone-500 block mb-3 font-semibold">DSA Details:</span>
+                  <div className="overflow-x-auto rounded-lg border border-stone-200">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-stone-50">
+                          <th className="border-b border-stone-200 px-3 py-2 text-left font-semibold text-stone-600">#</th>
+                          <th className="border-b border-stone-200 px-3 py-2 text-left font-semibold text-stone-600">Name</th>
+                          <th className="border-b border-stone-200 px-3 py-2 text-left font-semibold text-stone-600">PJ No.</th>
+                          <th className="border-b border-stone-200 px-3 py-2 text-left font-semibold text-stone-600">Designation</th>
+                          <th className="border-b border-stone-200 px-3 py-2 text-right font-semibold text-stone-600">Rate (KES)</th>
+                          <th className="border-b border-stone-200 px-3 py-2 text-right font-semibold text-stone-600">Days</th>
+                          <th className="border-b border-stone-200 px-3 py-2 text-right font-semibold text-stone-600">Total (KES)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {item.dsa_details.map((detail, idx) => (
+                          <tr key={detail.id || idx} className="hover:bg-stone-50 transition-colors">
+                            <td className="border-b border-stone-100 px-3 py-2 text-center text-stone-500">{idx + 1}</td>
+                            <td className="border-b border-stone-100 px-3 py-2 font-medium text-stone-800">{detail.judge_name}</td>
+                            <td className="border-b border-stone-100 px-3 py-2 text-stone-600">{detail.pj_number}</td>
+                            <td className="border-b border-stone-100 px-3 py-2 text-stone-600">{detail.designation || '—'}</td>
+                            <td className="border-b border-stone-100 px-3 py-2 text-right text-stone-600">{formatCurrency(detail.dsa_per_day)}</td>
+                            <td className="border-b border-stone-100 px-3 py-2 text-right text-stone-600">{detail.days}</td>
+                            <td className="border-b border-stone-100 px-3 py-2 text-right font-medium text-emerald-700">{formatCurrency(detail.total)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-stone-50 font-bold">
+                          <td colSpan={6} className="border-t-2 border-stone-200 px-3 py-3 text-right text-stone-800">Grand Total:</td>
+                          <td className="border-t-2 border-stone-200 px-3 py-3 text-right text-emerald-700">
+                            {formatCurrency(item.total_dsa)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Show message when DSA is required but no details */}
+              {item.dsa_required && (!item.dsa_details || item.dsa_details.length === 0) && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center">
+                  <p className="text-sm text-amber-700">
+                    <span className="font-medium">⚠️ DSA Required:</span> No DSA details have been added for this event.
+                  </p>
+                </div>
+              )}
+
+              {/* Show message when DSA is not required */}
+              {!item.dsa_required && (
+                <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50 p-4 text-center">
+                  <p className="text-sm text-stone-500">
+                    <span className="font-medium text-stone-700">Note:</span> DSA is not required for this protocol event.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         />
