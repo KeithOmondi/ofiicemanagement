@@ -1,4 +1,5 @@
 // src/pages/MemoandLetters.tsx
+
 import React, { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import { useAppDispatch, useAppSelector } from "../../store/hook";
 import {
@@ -16,6 +17,11 @@ import {
   updateMark,
   regeneratePdf,
   releaseDocument,
+  // ── Bring Up thunks ──────────────────────────────────────────────────
+  setBringUp,
+  updateBringUp,
+  completeBringUp,
+  fetchDocumentById,
 } from "../../store/slices/documentSlice";
 import { hasRole } from "../../store/slices/authSlice";
 import {
@@ -33,6 +39,10 @@ import type {
   DocumentStatus,
   DocumentType,
   DocumentFilters,
+  // ── Bring Up types ──────────────────────────────────────────────────
+  SetBringUpInput,
+  UpdateBringUpInput,
+  CompleteBringUpInput,
 } from "../../types/documents.types";
 import type { User } from "../../store/slices/userSlice";
 import type { DepartmentWithUserCount } from "../../store/slices/departmentsSlice";
@@ -129,7 +139,7 @@ const Spinner: React.FC<{ className?: string }> = ({
   </svg>
 );
 
-// (5) StickyNote (unchanged)
+// (5) StickyNote - Updated to use document.bring_up_date
 interface StickyNoteProps {
   authorName: string;
   initialText: string;
@@ -452,7 +462,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   );
 };
 
-// (6) ListItem – updated to show mark info for new statuses
+// (6) ListItem – updated with bring up date
 const ListItem: React.FC<{
   document: Document;
   selected: boolean;
@@ -514,6 +524,14 @@ const ListItem: React.FC<{
           <span className="truncate">
             {document.reference_no || document.created_by_name || "RHC"}
           </span>
+          {document.bring_up_date && (
+            <>
+              <span>·</span>
+              <span className="text-amber-600 font-medium">
+                📅 {format(new Date(document.bring_up_date), "dd MMM yyyy")}
+              </span>
+            </>
+          )}
         </div>
 
         {document.is_signed && (
@@ -1495,6 +1513,220 @@ const LetterDisplay = forwardRef<DisplayHandle, LetterDisplayProps>(({
 
 LetterDisplay.displayName = 'LetterDisplay';
 
+// ─── Bring Up Modal ───────────────────────────────────────────────────────────
+
+interface BringUpModalProps {
+  document: Document;
+  onClose: () => void;
+  onSetBringUp: (input: SetBringUpInput) => Promise<void>;
+  onUpdateBringUp: (input: UpdateBringUpInput) => Promise<void>;
+  onCompleteBringUp: (input: CompleteBringUpInput) => Promise<void>;
+  isSetting: boolean;
+  isUpdating: boolean;
+  isCompleting: boolean;
+}
+
+const BringUpModal: React.FC<BringUpModalProps> = ({
+  document,
+  onClose,
+  onSetBringUp,
+  onUpdateBringUp,
+  onCompleteBringUp,
+  isSetting,
+  isUpdating,
+  isCompleting,
+}) => {
+  const dispatch = useAppDispatch();
+  const users = useAppSelector(selectAllUsers);
+  const usersLoading = useAppSelector(selectUsersListLoading);
+
+  const [bringUpDate, setBringUpDate] = useState<string>(
+    document.bring_up_date ? new Date(document.bring_up_date).toISOString().split('T')[0] : ''
+  );
+  const [notes, setNotes] = useState<string>(document.bring_up_notes || '');
+  const [assignTo, setAssignTo] = useState<string>(document.assigned_to || '');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    dispatch(fetchUsers({ is_active: true, limit: 100 }));
+  }, [dispatch]);
+
+  const isEditing = !!document.bring_up_date;
+  const isCompleted = !!document.bring_up_completed_at;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bringUpDate) {
+      setError('Please select a bring up date');
+      return;
+    }
+    setError(null);
+
+    try {
+      if (isEditing) {
+        await onUpdateBringUp({
+          bring_up_date: new Date(bringUpDate).toISOString(),
+          notes: notes || undefined,
+        });
+      } else {
+        await onSetBringUp({
+          bring_up_date: new Date(bringUpDate).toISOString(),
+          notes: notes || undefined,
+          assign_to: assignTo || undefined,
+        });
+      }
+      onClose();
+    } catch (err) {
+      setError(typeof err === 'string' ? err : 'Failed to set bring up date');
+    }
+  };
+
+  const handleComplete = async () => {
+    try {
+      await onCompleteBringUp({
+        notes: notes || undefined,
+      });
+      onClose();
+    } catch (err) {
+      setError(typeof err === 'string' ? err : 'Failed to complete bring up');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-bold text-stone-900 flex items-center gap-2">
+            <svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            {isEditing ? 'Update Bring Up Date' : 'Set Bring Up Date'}
+          </h2>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-lg leading-none">
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Document
+            </label>
+            <div className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700 font-medium truncate">
+              {document.title}
+            </div>
+          </div>
+
+          {document.bring_up_date && !document.bring_up_completed_at && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+              <p><strong>Current Bring Up Date:</strong> {new Date(document.bring_up_date).toLocaleDateString()}</p>
+              {document.bring_up_notes && <p className="mt-1"><strong>Notes:</strong> {document.bring_up_notes}</p>}
+            </div>
+          )}
+
+          {isCompleted && (
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800">
+              <p><strong>✅ Bring Up Completed</strong></p>
+              <p className="mt-1">Completed on: {new Date(document.bring_up_completed_at!).toLocaleDateString()}</p>
+              {document.bring_up_notes && <p className="mt-1"><strong>Notes:</strong> {document.bring_up_notes}</p>}
+            </div>
+          )}
+
+          {!isCompleted && (
+            <>
+              <div>
+                <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                  Bring Up Date *
+                </label>
+                <input
+                  type="date"
+                  value={bringUpDate}
+                  onChange={(e) => setBringUpDate(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                  Notes <span className="font-normal text-stone-400 normal-case">(optional)</span>
+                </label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  placeholder="Add any notes about this bring up..."
+                  className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
+                />
+              </div>
+
+              {!isEditing && (
+                <div>
+                  <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                    Assign To <span className="font-normal text-stone-400 normal-case">(optional)</span>
+                  </label>
+                  <select
+                    value={assignTo}
+                    onChange={(e) => setAssignTo(e.target.value)}
+                    className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none disabled:bg-stone-50 disabled:text-stone-400"
+                    disabled={usersLoading}
+                  >
+                    <option value="">
+                      {usersLoading ? 'Loading users…' : '— Assign to specific user (optional) —'}
+                    </option>
+                    {users.filter(u => u.is_active).map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.full_name} — {u.pj_number}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </>
+          )}
+
+          {error && (
+            <div className="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-200">
+              {error}
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
+            >
+              Cancel
+            </button>
+            {isEditing && !isCompleted && (
+              <button
+                type="button"
+                onClick={handleComplete}
+                disabled={isCompleting}
+                className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+              >
+                {isCompleting ? <Spinner className="h-3.5 w-3.5" /> : '✓ Complete'}
+              </button>
+            )}
+            {!isCompleted && (
+              <button
+                type="submit"
+                disabled={isSetting || isUpdating || !bringUpDate}
+                className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+              >
+                {(isSetting || isUpdating) ? <Spinner className="h-3.5 w-3.5" /> : null}
+                {isEditing ? 'Update Bring Up' : 'Set Bring Up'}
+              </button>
+            )}
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 // ─── DocumentEditor ────────────────────────────────────────────────────────
 
 type SaveState = "idle" | "saving" | "saved" | "unsaved" | "error";
@@ -1511,7 +1743,7 @@ interface DocumentEditorProps {
   document: Document;
   currentUserName: string;
   isSuperAdmin: boolean;
-  isReleased?: boolean;                             // <-- NEW PROP
+  isReleased?: boolean;
   onBack: () => void;
   onSave?: (id: string, body: string) => Promise<void>;
   onFieldUpdate?: (field: string, value: string) => void;
@@ -1522,7 +1754,7 @@ interface DocumentEditorProps {
   onMark?: () => void;
   onAcknowledge?: () => void;
   onComplete?: () => void;
-  onUpdateMark?: (markId: string, text: string, date: string | null) => void;
+  onUpdateMark?: (markId: string, text: string) => void; // Removed date parameter
   onDownload?: () => void;
   onRegeneratePdf?: () => Promise<void>;
   isRegeneratingPdf?: boolean;
@@ -1531,13 +1763,18 @@ interface DocumentEditorProps {
   onSignatureBoxChange?: (pos: { x: number; y: number; width: number; height: number }) => void;
   onAutoSignaturePosition?: (pos: { x: number; y: number; width: number; height: number }) => void;
   isOtpModalOpen?: boolean;
+  // ── Bring Up handlers ──────────────────────────────────────────────────────
+  onOpenBringUp?: () => void;
+  isSettingBringUp?: boolean;
+  isUpdatingBringUp?: boolean;
+  isCompletingBringUp?: boolean;
 }
 
 const DocumentEditor: React.FC<DocumentEditorProps> = ({
   document,
   currentUserName,
   isSuperAdmin,
-  isReleased = false,                              // <-- DEFAULT
+  isReleased = false,
   onBack,
   onSave,
   onFieldUpdate,
@@ -1557,6 +1794,10 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onSignatureBoxChange,
   onAutoSignaturePosition,
   isOtpModalOpen = false,
+  onOpenBringUp,
+  isSettingBringUp = false,
+  isUpdatingBringUp = false,
+  isCompletingBringUp = false,
 }) => {
   const isComposed = document.type === "memo" || document.type === "letter";
   const isEditable = !!onSave && isComposed;
@@ -1572,7 +1813,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const [showResponses, setShowResponses] = useState(false);
 
   const stickyNoteText = document.active_mark?.instructions ?? "";
-  const stickyNoteDate = document.active_mark?.bring_up_date ?? null;
+  const stickyNoteDate = document.bring_up_date ?? null;
   const noteAuthor = document.active_mark
     ? (document.created_by_name ?? currentUserName)
     : currentUserName;
@@ -1773,10 +2014,14 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       </div>`,
     );
 
-  const handleStickyNoteSave = (text: string, date: string | null) => {
+  // ─── Updated: Handle sticky note save ──────────────────────────────────────
+  const handleStickyNoteSave = (text: string, _date: string | null) => {
     if (document.active_mark && onUpdateMark) {
-      onUpdateMark(document.active_mark.id, text, date);
+      onUpdateMark(document.active_mark.id, text);
     }
+    // _date is intentionally ignored - bring_up_date is now handled at the document level
+    // via the Bring Up modal. The date parameter is kept for API compatibility with StickyNote.
+    void _date; // This tells ESLint the parameter is intentionally unused
   };
 
   const handleDownload = () => {
@@ -1810,6 +2055,10 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const needsHiddenMeasurer =
     isComposed && !!document.file_url && showSignatureBox && !isEditMode;
 
+  const hasBringUp = !!document.bring_up_date;
+  const isBringUpCompleted = !!document.bring_up_completed_at;
+  const isBringUpOverdue = hasBringUp && !isBringUpCompleted && new Date(document.bring_up_date!) < new Date();
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="flex items-center justify-between gap-2 sm:gap-3 bg-white border-b border-stone-200 px-3 sm:px-4 py-2.5 flex-wrap">
@@ -1830,9 +2079,53 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           <span className="text-xs text-stone-400 hidden sm:inline">
             {formattedDate}
           </span>
+          {hasBringUp && !isBringUpCompleted && (
+            <span className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest ${
+              isBringUpOverdue 
+                ? 'bg-red-100 text-red-700 border border-red-200' 
+                : 'bg-amber-100 text-amber-700 border border-amber-200'
+            }`}>
+              📅 {format(new Date(document.bring_up_date!), 'dd MMM yyyy')}
+              {isBringUpOverdue && ' ⚠️ OVERDUE'}
+            </span>
+          )}
+          {isBringUpCompleted && (
+            <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest bg-emerald-100 text-emerald-700 border border-emerald-200">
+              ✅ Completed
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
+          {/* Bring Up button */}
+          {isSuperAdmin && onOpenBringUp && (
+            <button
+              onClick={onOpenBringUp}
+              disabled={isSettingBringUp || isUpdatingBringUp || isCompletingBringUp}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                hasBringUp && !isBringUpCompleted
+                  ? isBringUpOverdue
+                    ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
+                    : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                  : isBringUpCompleted
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {(isSettingBringUp || isUpdatingBringUp || isCompletingBringUp) ? (
+                <Spinner className="h-3 w-3" />
+              ) : (
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <line x1="16" y1="2" x2="16" y2="6" />
+                  <line x1="8" y1="2" x2="8" y2="6" />
+                  <line x1="3" y1="10" x2="21" y2="10" />
+                </svg>
+              )}
+              {hasBringUp && !isBringUpCompleted ? 'Update Bring Up' : hasBringUp ? 'Bring Up Completed' : 'Set Bring Up'}
+            </button>
+          )}
+
           {!isReleased && showEditControls && (
             <button
               onClick={toggleEditMode}
@@ -2327,7 +2620,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     </div>
   );
 };
-
 // ─── MarkModal (unchanged) ─────────────────────────────────────────────
 
 interface MarkModalProps {
@@ -2854,6 +3146,9 @@ const MemoandLetters: React.FC = () => {
   const [showReleaseModal, setShowReleaseModal] = useState(false);
   const [isReleasing, setIsReleasing] = useState(false);
 
+  // ── Bring Up state ──────────────────────────────────────────────────────────
+  const [showBringUpModal, setShowBringUpModal] = useState(false);
+
   const canUpload = hasRole(user, "staff") || hasRole(user, "super_admin");
   const canAdmin = hasRole(user, "dept_head") || hasRole(user, "super_admin");
   const isSuperAdmin = hasRole(user, "super_admin");
@@ -3031,6 +3326,46 @@ const MemoandLetters: React.FC = () => {
     setShowReleaseModal(true);
   };
 
+  // ─── Bring Up handlers ──────────────────────────────────────────────────────
+
+  const handleOpenBringUp = () => {
+    setShowBringUpModal(true);
+  };
+
+  const handleSetBringUp = async (input: SetBringUpInput) => {
+    if (!selectedDocument) return;
+    await dispatch(setBringUp({ id: selectedDocument.id, input })).unwrap();
+    const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+    setSelectedDocument(refreshed);
+    refreshDocuments();
+    toast.success('Bring up date set successfully');
+  };
+
+  const handleUpdateBringUp = async (input: UpdateBringUpInput) => {
+    if (!selectedDocument) return;
+    await dispatch(updateBringUp({ id: selectedDocument.id, input })).unwrap();
+    const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+    setSelectedDocument(refreshed);
+    refreshDocuments();
+    toast.success('Bring up date updated successfully');
+  };
+
+  const handleCompleteBringUp = async (input: CompleteBringUpInput) => {
+    if (!selectedDocument) return;
+    await dispatch(completeBringUp({ id: selectedDocument.id, input })).unwrap();
+    const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+    setSelectedDocument(refreshed);
+    refreshDocuments();
+    toast.success('Bring up completed successfully');
+  };
+
+  const refreshDocuments = useCallback(() => {
+    const params: DocumentFilters = { page: 1, limit: 10 };
+    if (activeTab === "my_action") params.for_my_action = true;
+    if (searchQuery) params.search = searchQuery;
+    dispatch(fetchDocuments(params));
+  }, [dispatch, activeTab, searchQuery]);
+
   const handleMark = (
     id: string,
     data: {
@@ -3085,13 +3420,14 @@ const MemoandLetters: React.FC = () => {
     }
   };
 
-  const handleUpdateMark = (markId: string, text: string, date: string | null) => {
-    dispatch(updateMark({ markId, instructions: text, bring_up_date: date }));
+  // ─── Updated: handleUpdateMark - no longer accepts date ──────────────────────
+  const handleUpdateMark = (markId: string, text: string) => {
+    // Update mark instructions only (bring_up_date removed from mark)
+    dispatch(updateMark({ markId, instructions: text }));
     if (selectedDocument && selectedDocument.active_mark) {
       const updatedMark = {
         ...selectedDocument.active_mark,
         instructions: text,
-        bring_up_date: date,
       };
       setSelectedDocument({
         ...selectedDocument,
@@ -3139,6 +3475,9 @@ const MemoandLetters: React.FC = () => {
   }
 
   const isSigningInProgress = !!actionInProgress.signing;
+  const isSettingBringUp = !!actionInProgress.settingBringUp;
+  const isUpdatingBringUp = !!actionInProgress.updatingBringUp;
+  const isCompletingBringUp = !!actionInProgress.completingBringUp;
 
   return (
     <div className="flex flex-col h-full">
@@ -3335,7 +3674,7 @@ const MemoandLetters: React.FC = () => {
               document={selectedDocument}
               currentUserName={user?.full_name ?? "Registrar"}
               isSuperAdmin={isSuperAdmin}
-              isReleased={selectedDocument.status === 'released'}     // <-- PASS RELEASED STATUS
+              isReleased={selectedDocument.status === 'released'}
               onBack={() => setSelectedDocument(null)}
               onSave={
                 (isSuperAdmin && (selectedDocument.type === 'memo' || selectedDocument.type === 'letter')) ||
@@ -3358,7 +3697,6 @@ const MemoandLetters: React.FC = () => {
                   ? () => handleSend(selectedDocument.id)
                   : undefined
               }
-              // ─── Always allow marking for SuperAdmin ─────────────
               onMark={
                 canAdmin && selectedDocument.status !== "filed"
                   ? () => setShowMarkModal(true)
@@ -3389,6 +3727,10 @@ const MemoandLetters: React.FC = () => {
               onSignatureBoxChange={handleSignatureBoxChange}
               onAutoSignaturePosition={handleSignatureBoxChange}
               isOtpModalOpen={showOtpModal}
+              onOpenBringUp={isSuperAdmin ? handleOpenBringUp : undefined}
+              isSettingBringUp={isSettingBringUp}
+              isUpdatingBringUp={isUpdatingBringUp}
+              isCompletingBringUp={isCompletingBringUp}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center px-4">
@@ -3439,6 +3781,20 @@ const MemoandLetters: React.FC = () => {
           isReleasing={isReleasing}
           users={users}
           departments={departments}
+        />
+      )}
+
+      {/* ─── Bring Up Modal ───────────────────────────────────────────────── */}
+      {showBringUpModal && selectedDocument && (
+        <BringUpModal
+          document={selectedDocument}
+          onClose={() => setShowBringUpModal(false)}
+          onSetBringUp={handleSetBringUp}
+          onUpdateBringUp={handleUpdateBringUp}
+          onCompleteBringUp={handleCompleteBringUp}
+          isSetting={isSettingBringUp}
+          isUpdating={isUpdatingBringUp}
+          isCompleting={isCompletingBringUp}
         />
       )}
 

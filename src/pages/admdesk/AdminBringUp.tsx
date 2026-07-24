@@ -696,9 +696,10 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
                   <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
                     {document.active_mark.marked_by_name || 'Registrar'}
                   </span>
-                  {document.active_mark.bring_up_date && (
+                  {/* ─── UPDATED: Use document.bring_up_date ─────────────────── */}
+                  {document.bring_up_date && (
                     <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
-                      📅 Bring up: {formatDateDisplay(document.active_mark.bring_up_date)}
+                      📅 Bring up: {formatDateDisplay(document.bring_up_date)}
                     </span>
                   )}
                   {document.active_mark.priority && document.active_mark.priority !== 'normal' && (
@@ -836,7 +837,7 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
               key={document.id}
               authorName={document.active_mark.marked_by_name ?? 'Registrar'}
               text={document.active_mark.instructions}
-              bringUpDate={document.active_mark.bring_up_date}
+              bringUpDate={document.bring_up_date}
             />
           )}
           {renderPreview()}
@@ -1176,10 +1177,6 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
 
 // ─── Row ───────────────────────────────────────────────────────────────────
 
-// ─── Row ───────────────────────────────────────────────────────────────────
-
-// ─── Row ───────────────────────────────────────────────────────────────────
-
 interface BringUpRowProps {
   document: DocType & { annotations?: DocumentAnnotation[] };
   bucket: BringUpBucket;
@@ -1201,7 +1198,9 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
   const [expanded, setExpanded] = useState(false);
   
   const mark = document.active_mark;
-  if (!mark?.bring_up_date) return null;
+  // ─── UPDATED: Use document.bring_up_date instead of mark.bring_up_date ────
+  const bringUpDate = document.bring_up_date;
+  if (!bringUpDate) return null;
 
   const needsResponse = document.status === 'pending_review' && document.assigned_to === currentUserId;
   const followUps = document.follow_ups || [];
@@ -1270,23 +1269,23 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
 
             {/* Quick Info - Department & Assignee */}
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-              {mark.marked_to_dept_name && (
+              {mark?.marked_to_dept_name && (
                 <span className="flex items-center gap-1">
                   <span className="text-slate-400">Dept:</span>
                   <span className="text-slate-700 font-medium">{mark.marked_to_dept_name}</span>
                 </span>
               )}
-              {mark.assigned_to_name && (
+              {mark?.assigned_to_name && (
                 <span className="flex items-center gap-1">
                   <span className="text-slate-400">Assigned to:</span>
                   <span className="text-slate-700 font-medium">{mark.assigned_to_name}</span>
                 </span>
               )}
-              {mark.priority && mark.priority !== 'normal' && (
+              {mark?.priority && mark.priority !== 'normal' && (
                 <PriorityBadge priority={mark.priority} />
               )}
               <span className="text-slate-400">·</span>
-              <span className="text-slate-400">Due: {formatDateDisplay(mark.bring_up_date)}</span>
+              <span className="text-slate-400">Due: {formatDateDisplay(bringUpDate)}</span>
             </div>
 
             {/* ─── Registrar's Note Preview (collapsible) ────────────────── */}
@@ -1325,9 +1324,10 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
                           <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
                             {mark.marked_by_name || 'Registrar'}
                           </span>
-                          {mark.bring_up_date && (
+                          {/* ─── UPDATED: Use document.bring_up_date ──────── */}
+                          {document.bring_up_date && (
                             <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
-                              📅 {formatDateDisplay(mark.bring_up_date)}
+                              📅 {formatDateDisplay(document.bring_up_date)}
                             </span>
                           )}
                         </div>
@@ -1563,8 +1563,9 @@ const AdminBringUp: React.FC = () => {
     }
   }, [error, dispatch]);
 
+  // ─── UPDATED: Filter documents with bring_up_date at document level ────
   const grouped = useMemo(() => {
-    const withBringUp = documents.filter((d) => !!d.active_mark?.bring_up_date);
+    const withBringUp = documents.filter((d) => !!d.bring_up_date);
 
     const buckets: Record<BringUpBucket, DocType[]> = {
       overdue: [],
@@ -1573,14 +1574,14 @@ const AdminBringUp: React.FC = () => {
     };
 
     withBringUp.forEach((doc) => {
-      const bucket = getBucket(doc.active_mark!.bring_up_date!);
+      const bucket = getBucket(doc.bring_up_date!);
       buckets[bucket].push(doc);
     });
 
     (Object.keys(buckets) as BringUpBucket[]).forEach((key) => {
       buckets[key].sort((a, b) => {
-        const aDate = parseDate(a.active_mark!.bring_up_date!)?.getTime() ?? 0;
-        const bDate = parseDate(b.active_mark!.bring_up_date!)?.getTime() ?? 0;
+        const aDate = parseDate(a.bring_up_date!)?.getTime() ?? 0;
+        const bDate = parseDate(b.bring_up_date!)?.getTime() ?? 0;
         return aDate - bDate;
       });
     });
@@ -1694,7 +1695,7 @@ const AdminBringUp: React.FC = () => {
         <div className="mb-6 border-b border-slate-200 pb-4">
           <h1 className="text-2xl font-bold text-[#1E3F20]">Bring Up Portal</h1>
           <p className="text-sm text-slate-500 mt-1">
-            {loading ? 'Loading documents…' : `${totalCount} active document${totalCount !== 1 ? 's' : ''} with a bring-up window assignment`}
+            {loading ? 'Loading documents…' : `${totalCount} active document${totalCount !== 1 ? 's' : ''} with a bring-up deadline assigned`}
           </p>
         </div>
 

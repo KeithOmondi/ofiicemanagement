@@ -20,6 +20,10 @@ import {
   fileAwayFollowUp,
   completeFollowUp,
   cancelFollowUp,
+  // ── Bring Up thunks ──────────────────────────────────────────────────
+  setBringUp,
+  updateBringUp,
+  completeBringUp,
 } from '../../store/slices/documentSlice';
 import { hasRole } from '../../store/slices/authSlice';
 import {
@@ -44,6 +48,12 @@ import type {
   CompleteFollowUpInput,
   CancelFollowUpInput,
   FileAwayFollowUpInput,
+  // ── Bring Up types ──────────────────────────────────────────────────
+  BringUpStatus,
+  SetBringUpInput,
+  UpdateBringUpInput,
+  CompleteBringUpInput,
+  //BringUpFilters,
 } from '../../types/documents.types';
 import { format } from 'date-fns';
 import FollowUpModal from './FollowUpModal';
@@ -119,6 +129,30 @@ const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => (
     className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${STATUS_STYLES[status]}`}
   >
     {STATUS_LABELS[status]}
+  </span>
+);
+
+// ─── Bring Up Status Badge ────────────────────────────────────────────────────
+
+const BRING_UP_STATUS_STYLES: Record<BringUpStatus, string> = {
+  pending: 'bg-amber-100 text-amber-700 border border-amber-200',
+  completed: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+  overdue: 'bg-red-100 text-red-700 border border-red-200',
+  all: 'bg-stone-100 text-stone-600 border border-stone-200',
+};
+
+const BRING_UP_STATUS_LABELS: Record<BringUpStatus, string> = {
+  pending: 'PENDING',
+  completed: 'COMPLETED',
+  overdue: 'OVERDUE',
+  all: 'ALL',
+};
+
+const BringUpStatusBadge: React.FC<{ status: BringUpStatus }> = ({ status }) => (
+  <span
+    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${BRING_UP_STATUS_STYLES[status]}`}
+  >
+    {BRING_UP_STATUS_LABELS[status]}
   </span>
 );
 
@@ -277,6 +311,9 @@ const ListItem: React.FC<ListItemProps> = ({
               </span>
             )}
             <StatusBadge status={document.status} />
+            {document.bring_up_status && (
+              <BringUpStatusBadge status={document.bring_up_status} />
+            )}
           </div>
         </div>
 
@@ -296,6 +333,14 @@ const ListItem: React.FC<ListItemProps> = ({
           <span className="truncate">
             {document.reference_no || document.created_by_name || 'RHC'}
           </span>
+          {document.bring_up_date && (
+            <>
+              <span>·</span>
+              <span className="text-amber-600 font-medium">
+                📅 {format(new Date(document.bring_up_date), 'dd MMM yyyy')}
+              </span>
+            </>
+          )}
         </div>
 
         {document.is_signed && (
@@ -1356,7 +1401,6 @@ interface FollowUpCardProps {
   onViewDetails: (followUpId: string) => void;
   onComplete: (followUpId: string, input: CompleteFollowUpInput) => Promise<void> | void;
   onCancel: (followUpId: string, input: CancelFollowUpInput) => Promise<void> | void;
-  // FIXED: Remove the followUpId parameter
   onFileAway?: (input: FileAwayFollowUpInput) => Promise<void> | void;
   documentId: string;
 }
@@ -1397,22 +1441,22 @@ const FollowUpCard: React.FC<FollowUpCardProps> = ({
   };
 
   const handleFileAway = async () => {
-  if (isProcessing) return;
-  setIsProcessing(true);
-  try {
-    await onFileAway?.({
-      document_id: documentId,
-      mark_id: followUp.mark_id || undefined,
-      notes: followUp.notes,
-      completion_notes: `Filed away by ${currentUserId}`,
-    });
-    toast.success('Document filed away successfully');
-  } catch (error) {
-    toast.error(typeof error === 'string' ? error : 'Failed to file away document');
-  } finally {
-    setIsProcessing(false);
-  }
-};
+    if (isProcessing) return;
+    setIsProcessing(true);
+    try {
+      await onFileAway?.({
+        document_id: documentId,
+        mark_id: followUp.mark_id || undefined,
+        notes: followUp.notes,
+        completion_notes: `Filed away by ${currentUserId}`,
+      });
+      toast.success('Document filed away successfully');
+    } catch (error) {
+      toast.error(typeof error === 'string' ? error : 'Failed to file away document');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const handleCancelSubmit = async () => {
     if (!cancelReason.trim() || isProcessing) return;
@@ -1584,7 +1628,6 @@ interface FollowUpsPanelProps {
   onViewDetails: (followUpId: string) => void;
   onComplete: (followUpId: string, input: CompleteFollowUpInput) => Promise<void> | void;
   onCancel: (followUpId: string, input: CancelFollowUpInput) => Promise<void> | void;
-  // FIXED: Remove the followUpId parameter
   onFileAway?: (input: FileAwayFollowUpInput) => Promise<void> | void;
 }
 
@@ -2109,6 +2152,220 @@ const OtpModal: React.FC<OtpModalProps> = ({
   </div>
 );
 
+// ─── Bring Up Modal ───────────────────────────────────────────────────────────
+
+interface BringUpModalProps {
+  document: Document;
+  onClose: () => void;
+  onSetBringUp: (input: SetBringUpInput) => Promise<void>;
+  onUpdateBringUp: (input: UpdateBringUpInput) => Promise<void>;
+  onCompleteBringUp: (input: CompleteBringUpInput) => Promise<void>;
+  isSetting: boolean;
+  isUpdating: boolean;
+  isCompleting: boolean;
+}
+
+const BringUpModal: React.FC<BringUpModalProps> = ({
+  document,
+  onClose,
+  onSetBringUp,
+  onUpdateBringUp,
+  onCompleteBringUp,
+  isSetting,
+  isUpdating,
+  isCompleting,
+}) => {
+  const [bringUpDate, setBringUpDate] = useState<string>(
+    document.bring_up_date ? new Date(document.bring_up_date).toISOString().split('T')[0] : ''
+  );
+  const [notes, setNotes] = useState<string>(document.bring_up_notes || '');
+  const [assignTo, setAssignTo] = useState<string>(document.assigned_to || '');
+  const [error, setError] = useState<string | null>(null);
+
+  const dispatch = useAppDispatch();
+  const users = useAppSelector(selectAllUsers);
+  const usersLoading = useAppSelector(selectUsersListLoading);
+
+  useEffect(() => {
+    dispatch(fetchUsers({ is_active: true, limit: 100 }));
+  }, [dispatch]);
+
+  const isEditing = !!document.bring_up_date;
+  const isCompleted = !!document.bring_up_completed_at;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bringUpDate) {
+      setError('Please select a bring up date');
+      return;
+    }
+    setError(null);
+
+    try {
+      if (isEditing) {
+        await onUpdateBringUp({
+          bring_up_date: new Date(bringUpDate).toISOString(),
+          notes: notes || undefined,
+        });
+      } else {
+        await onSetBringUp({
+          bring_up_date: new Date(bringUpDate).toISOString(),
+          notes: notes || undefined,
+          assign_to: assignTo || undefined,
+        });
+      }
+      onClose();
+    } catch (err) {
+      setError(typeof err === 'string' ? err : 'Failed to set bring up date');
+    }
+  };
+
+  const handleComplete = async () => {
+    try {
+      await onCompleteBringUp({
+        notes: notes || undefined,
+      });
+      onClose();
+    } catch (err) {
+      setError(typeof err === 'string' ? err : 'Failed to complete bring up');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-bold text-stone-900 flex items-center gap-2">
+            <svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            {isEditing ? 'Update Bring Up Date' : 'Set Bring Up Date'}
+          </h2>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-lg leading-none">
+            ✕
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Document
+            </label>
+            <div className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700 font-medium truncate">
+              {document.title}
+            </div>
+          </div>
+
+          {document.bring_up_date && !document.bring_up_completed_at && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
+              <p><strong>Current Bring Up Date:</strong> {new Date(document.bring_up_date).toLocaleDateString()}</p>
+              {document.bring_up_notes && <p className="mt-1"><strong>Notes:</strong> {document.bring_up_notes}</p>}
+            </div>
+          )}
+
+          {isCompleted && (
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800">
+              <p><strong>✅ Bring Up Completed</strong></p>
+              <p className="mt-1">Completed on: {new Date(document.bring_up_completed_at!).toLocaleDateString()}</p>
+              {document.bring_up_notes && <p className="mt-1"><strong>Notes:</strong> {document.bring_up_notes}</p>}
+            </div>
+          )}
+
+          {!isCompleted && (
+            <>
+              <div>
+                <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                  Bring Up Date *
+                </label>
+                <input
+                  type="date"
+                  value={bringUpDate}
+                  onChange={(e) => setBringUpDate(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                  Notes <span className="font-normal text-stone-400 normal-case">(optional)</span>
+                </label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  placeholder="Add any notes about this bring up..."
+                  className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
+                />
+              </div>
+
+              {!isEditing && (
+                <div>
+                  <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                    Assign To <span className="font-normal text-stone-400 normal-case">(optional)</span>
+                  </label>
+                  <select
+                    value={assignTo}
+                    onChange={(e) => setAssignTo(e.target.value)}
+                    className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none disabled:bg-stone-50 disabled:text-stone-400"
+                    disabled={usersLoading}
+                  >
+                    <option value="">
+                      {usersLoading ? 'Loading users…' : '— Assign to specific user (optional) —'}
+                    </option>
+                    {users.filter(u => u.is_active).map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.full_name} — {u.pj_number}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </>
+          )}
+
+          {error && (
+            <div className="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-200">
+              {error}
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
+            >
+              Cancel
+            </button>
+            {isEditing && !isCompleted && (
+              <button
+                type="button"
+                onClick={handleComplete}
+                disabled={isCompleting}
+                className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+              >
+                {isCompleting ? <Spinner className="h-3.5 w-3.5" /> : '✓ Complete'}
+              </button>
+            )}
+            {!isCompleted && (
+              <button
+                type="submit"
+                disabled={isSetting || isUpdating || !bringUpDate}
+                className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+              >
+                {(isSetting || isUpdating) ? <Spinner className="h-3.5 w-3.5" /> : null}
+                {isEditing ? 'Update Bring Up' : 'Set Bring Up'}
+              </button>
+            )}
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 // ─── Document Editor ──────────────────────────────────────────────────────────
 
 interface DocumentEditorProps {
@@ -2131,8 +2388,12 @@ interface DocumentEditorProps {
   onViewFollowUpDetails?: (followUpId: string) => void;
   onCompleteFollowUp?: (followUpId: string, input: CompleteFollowUpInput) => Promise<void>;
   onCancelFollowUp?: (followUpId: string, input: CancelFollowUpInput) => Promise<void>;
-  // FIXED: Remove the followUpId parameter since it's not needed
   onFileAwayFollowUp?: (input: FileAwayFollowUpInput) => Promise<void>;
+  // ── Bring Up handlers ──────────────────────────────────────────────────────
+  onOpenBringUp?: () => void;
+  isSettingBringUp?: boolean;
+  isUpdatingBringUp?: boolean;
+  isCompletingBringUp?: boolean;
 }
 
 const DocumentEditor: React.FC<DocumentEditorProps> = ({
@@ -2156,6 +2417,10 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onCompleteFollowUp,
   onCancelFollowUp,
   onFileAwayFollowUp,
+  onOpenBringUp,
+  isSettingBringUp = false,
+  isUpdatingBringUp = false,
+  isCompletingBringUp = false,
 }) => {
   const { user } = useAppSelector((state) => state.auth);
   const isComposed = document.type === 'memo' || document.type === 'letter';
@@ -2168,7 +2433,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const [showFollowUps, setShowFollowUps] = useState(true);
 
   const stickyNoteText = document.active_mark?.instructions ?? '';
-  const stickyNoteDate = document.active_mark?.bring_up_date ?? null;
+  const stickyNoteDate = document.bring_up_date ?? null;
   const noteAuthor = document.active_mark
     ? (document.created_by_name ?? currentUserName)
     : currentUserName;
@@ -2220,6 +2485,10 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   };
 
+  const hasBringUp = !!document.bring_up_date;
+  const isBringUpCompleted = !!document.bring_up_completed_at;
+  const isBringUpOverdue = hasBringUp && !isBringUpCompleted && new Date(document.bring_up_date!) < new Date();
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Title bar */}
@@ -2241,9 +2510,53 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           <span className="text-xs text-stone-400 hidden sm:inline">
             {formattedDate}
           </span>
+          {hasBringUp && !isBringUpCompleted && (
+            <span className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest ${
+              isBringUpOverdue 
+                ? 'bg-red-100 text-red-700 border border-red-200' 
+                : 'bg-amber-100 text-amber-700 border border-amber-200'
+            }`}>
+              📅 {format(new Date(document.bring_up_date!), 'dd MMM yyyy')}
+              {isBringUpOverdue && ' ⚠️ OVERDUE'}
+            </span>
+          )}
+          {isBringUpCompleted && (
+            <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest bg-emerald-100 text-emerald-700 border border-emerald-200">
+              ✅ Completed
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
+          {/* Bring Up button */}
+          {isSuperAdmin && onOpenBringUp && (
+            <button
+              onClick={onOpenBringUp}
+              disabled={isSettingBringUp || isUpdatingBringUp || isCompletingBringUp}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                hasBringUp && !isBringUpCompleted
+                  ? isBringUpOverdue
+                    ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
+                    : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                  : isBringUpCompleted
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                    : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {(isSettingBringUp || isUpdatingBringUp || isCompletingBringUp) ? (
+                <Spinner className="h-3 w-3" />
+              ) : (
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <line x1="16" y1="2" x2="16" y2="6" />
+                  <line x1="8" y1="2" x2="8" y2="6" />
+                  <line x1="3" y1="10" x2="21" y2="10" />
+                </svg>
+              )}
+              {hasBringUp && !isBringUpCompleted ? 'Update Bring Up' : hasBringUp ? 'Bring Up Completed' : 'Set Bring Up'}
+            </button>
+          )}
+
           {/* Responses button */}
           <button
             onClick={handleOpenResponses}
@@ -2548,8 +2861,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-// src/pages/documents/SuperAdminBringUp.tsx
-
 const SuperAdminBringUp: React.FC = () => {
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
@@ -2582,6 +2893,9 @@ const SuperAdminBringUp: React.FC = () => {
   const [showCreateFollowUp, setShowCreateFollowUp] = useState(false);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [selectedFollowUpId, setSelectedFollowUpId] = useState<string | null>(null);
+
+  // ─── Bring Up state ──────────────────────────────────────────────────
+  const [showBringUpModal, setShowBringUpModal] = useState(false);
 
   // ─── Fetch document selection ──────────────────────────────────────
   const [isFetchingDocument, setIsFetchingDocument] = useState(false);
@@ -2618,7 +2932,7 @@ const SuperAdminBringUp: React.FC = () => {
     }
   }, [error, dispatch]);
 
-  // ─── FIXED: Filter documents by checking the MOST RECENT follow-up ───
+  // ─── Filter documents by checking the MOST RECENT follow-up ───────────
   const filteredDocuments = useMemo(() => {
     return documents.filter((doc) => {
       const followUps = doc.follow_ups || [];
@@ -2644,7 +2958,7 @@ const SuperAdminBringUp: React.FC = () => {
   }, [documents]);
 
   const grouped = useMemo(() => {
-    const withBringUp = filteredDocuments.filter((d) => !!d.active_mark?.bring_up_date);
+    const withBringUp = filteredDocuments.filter((d) => !!d.bring_up_date);
 
     const buckets: Record<BringUpBucket, Document[]> = {
       overdue: [],
@@ -2653,14 +2967,14 @@ const SuperAdminBringUp: React.FC = () => {
     };
 
     withBringUp.forEach((doc) => {
-      const bucket = getBucket(doc.active_mark!.bring_up_date!);
+      const bucket = getBucket(doc.bring_up_date!);
       buckets[bucket].push(doc);
     });
 
     (Object.keys(buckets) as BringUpBucket[]).forEach((key) => {
       buckets[key].sort((a, b) => {
-        const aDate = parseDate(a.active_mark!.bring_up_date!)?.getTime() ?? 0;
-        const bDate = parseDate(b.active_mark!.bring_up_date!)?.getTime() ?? 0;
+        const aDate = parseDate(a.bring_up_date!)?.getTime() ?? 0;
+        const bDate = parseDate(b.bring_up_date!)?.getTime() ?? 0;
         return aDate - bDate;
       });
     });
@@ -2768,20 +3082,62 @@ const SuperAdminBringUp: React.FC = () => {
   const handleAcknowledge = (id: string) => dispatch(acknowledgeMark(id));
   const handleComplete = (id: string) => dispatch(completeMark(id));
 
-  const handleUpdateMark = (markId: string, text: string, date: string | null) => {
-    dispatch(updateMark({ markId, instructions: text, bring_up_date: date }));
-    if (selectedDocument && selectedDocument.active_mark) {
-      const updatedMark = {
-        ...selectedDocument.active_mark,
-        instructions: text,
-        bring_up_date: date,
-      };
-      setSelectedDocument({
-        ...selectedDocument,
-        active_mark: updatedMark,
-      });
+  // ─── Update Mark handler (instructions only) ──────────────────────────────────
+
+const handleUpdateMark = useCallback((markId: string, text: string, date: string | null) => {
+  // 1. Update the mark instructions
+  dispatch(updateMark({ markId, instructions: text }));
+  
+  // 2. Update the local state for the mark
+  if (selectedDocument && selectedDocument.active_mark) {
+    const updatedMark = {
+      ...selectedDocument.active_mark,
+      instructions: text,
+    };
+    setSelectedDocument({
+      ...selectedDocument,
+      active_mark: updatedMark,
+    });
+  }
+  
+  // 3. If there's a date change, update the document's bring_up_date
+  if (selectedDocument) {
+    const currentBringUpDate = selectedDocument.bring_up_date;
+    const newDate = date ? new Date(date).toISOString() : null;
+    
+    // Only update if the date has changed
+    if (currentBringUpDate !== newDate) {
+      if (newDate) {
+        // If there's a date, update it via the bring up API
+        dispatch(updateBringUp({
+          id: selectedDocument.id,
+          input: {
+            bring_up_date: newDate,
+            notes: selectedDocument.bring_up_notes || undefined
+          }
+        })).then(() => {
+          // Refresh the document after updating
+          if (selectedDocument) {
+            dispatch(fetchDocumentById(selectedDocument.id)).then((result) => {
+              if (fetchDocumentById.fulfilled.match(result)) {
+                setSelectedDocument(result.payload);
+              }
+            });
+            refreshDocuments();
+          }
+        }).catch((error) => {
+          toast.error(typeof error === 'string' ? error : 'Failed to update bring up date');
+        });
+      } else {
+        // If date is null, show a message to use the Bring Up modal
+        toast('To clear the bring up date, please use the "Set Bring Up" button above.', {
+          icon: 'ℹ️',
+          duration: 4000,
+        });
+      }
     }
-  };
+  }
+}, [dispatch, selectedDocument, refreshDocuments]);
 
   const handleDownload = () => {
     if (!selectedDocument?.file_url) {
@@ -2838,7 +3194,6 @@ const SuperAdminBringUp: React.FC = () => {
 
   // ─── Follow-Up handlers ─────────────────────────────────────────────────────
 
-  // ─── Create and File Away in one flow ──────────────────────────────────────
   const handleCreateAndFileAway = async (input: CreateFollowUpInput) => {
     try {
       await dispatch(createFollowUp(input)).unwrap();
@@ -2904,7 +3259,6 @@ const SuperAdminBringUp: React.FC = () => {
     }
   };
 
-  // ─── File Away Follow-Up handler ────────────────────────────────────────────
   const handleFileAwayFollowUp = async (input: FileAwayFollowUpInput) => {
     try {
       await dispatch(fileAwayFollowUp(input)).unwrap();
@@ -2928,6 +3282,39 @@ const SuperAdminBringUp: React.FC = () => {
     setShowFollowUpModal(true);
   };
 
+  // ─── Bring Up handlers ──────────────────────────────────────────────────────
+
+  const handleOpenBringUp = () => {
+    setShowBringUpModal(true);
+  };
+
+  const handleSetBringUp = async (input: SetBringUpInput) => {
+    if (!selectedDocument) return;
+    await dispatch(setBringUp({ id: selectedDocument.id, input })).unwrap();
+    const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+    setSelectedDocument(refreshed);
+    refreshDocuments();
+    toast.success('Bring up date set successfully');
+  };
+
+  const handleUpdateBringUp = async (input: UpdateBringUpInput) => {
+    if (!selectedDocument) return;
+    await dispatch(updateBringUp({ id: selectedDocument.id, input })).unwrap();
+    const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+    setSelectedDocument(refreshed);
+    refreshDocuments();
+    toast.success('Bring up date updated successfully');
+  };
+
+  const handleCompleteBringUp = async (input: CompleteBringUpInput) => {
+    if (!selectedDocument) return;
+    await dispatch(completeBringUp({ id: selectedDocument.id, input })).unwrap();
+    const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+    setSelectedDocument(refreshed);
+    refreshDocuments();
+    toast.success('Bring up completed successfully');
+  };
+
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   if (!canView) {
@@ -2947,6 +3334,9 @@ const SuperAdminBringUp: React.FC = () => {
   }
 
   const isSigningInProgress = !!actionInProgress.signing;
+  const isSettingBringUp = !!actionInProgress.settingBringUp;
+  const isUpdatingBringUp = !!actionInProgress.updatingBringUp;
+  const isCompletingBringUp = !!actionInProgress.completingBringUp;
 
   return (
     <div className="flex flex-col h-full bg-[#F4F7F4]">
@@ -3029,6 +3419,20 @@ const SuperAdminBringUp: React.FC = () => {
             }
             refreshDocuments();
           }}
+        />
+      )}
+
+      {/* ─── Bring Up Modal ───────────────────────────────────────────────── */}
+      {showBringUpModal && selectedDocument && (
+        <BringUpModal
+          document={selectedDocument}
+          onClose={() => setShowBringUpModal(false)}
+          onSetBringUp={handleSetBringUp}
+          onUpdateBringUp={handleUpdateBringUp}
+          onCompleteBringUp={handleCompleteBringUp}
+          isSetting={isSettingBringUp}
+          isUpdating={isUpdatingBringUp}
+          isCompleting={isCompletingBringUp}
         />
       )}
 
@@ -3150,6 +3554,10 @@ const SuperAdminBringUp: React.FC = () => {
               onCompleteFollowUp={handleCompleteFollowUp}
               onCancelFollowUp={handleCancelFollowUp}
               onFileAwayFollowUp={handleFileAwayFollowUp}
+              onOpenBringUp={handleOpenBringUp}
+              isSettingBringUp={isSettingBringUp}
+              isUpdatingBringUp={isUpdatingBringUp}
+              isCompletingBringUp={isCompletingBringUp}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center px-4">

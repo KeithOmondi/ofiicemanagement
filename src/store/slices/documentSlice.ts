@@ -47,7 +47,15 @@ import type {
   FollowUpFilters,
   FollowUpWithComments,
   FollowUpSummary,
-  FollowUpStatus, // Import the status type
+  FollowUpStatus,
+  // ── Bring Up types ────────────────────────────────────────────────
+  BringUpHistoryEntry,
+  BringUpSummary,
+  BringUpFilters,
+  SetBringUpInput,
+  UpdateBringUpInput,
+  CompleteBringUpInput,
+  BringUpStatus,
 } from "../../types/documents.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -70,6 +78,15 @@ interface DocumentState {
     totalPages: number;
   } | null;
   followUpSummary: FollowUpSummary | null;
+  // ── Bring Up state ──────────────────────────────────────────────────────
+  bringUpHistory: BringUpHistoryEntry[];
+  bringUpSummary: BringUpSummary | null;
+  bringUpPagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  } | null;
   lastFetchParams: DocumentFilters | null;
   loading: boolean;
   error: string | null;
@@ -108,6 +125,12 @@ interface DocumentState {
     addingFollowUpComment?: string;
     fetchingFollowUps?: boolean;
     fetchingFollowUpSummary?: boolean;
+    // ── Bring Up actions ──────────────────────────────────────────────────
+    settingBringUp?: string;
+    updatingBringUp?: string;
+    completingBringUp?: string;
+    fetchingBringUps?: boolean;
+    fetchingBringUpSummary?: boolean;
   };
 }
 
@@ -124,6 +147,10 @@ const initialState: DocumentState = {
   followUpComments: [],
   followUpPagination: null,
   followUpSummary: null,
+  // ── Bring Up initial state ──────────────────────────────────────────────
+  bringUpHistory: [],
+  bringUpSummary: null,
+  bringUpPagination: null,
   loading: false,
   error: null,
   pagination: null,
@@ -651,21 +678,136 @@ export const deleteAnnotation = createAsyncThunk(
   },
 );
 
-// ── Update Mark (instructions & bring‑up date) ──────────────────────────────
+// ── Update Mark (instructions only - bring_up_date removed) ──────────────────
 
 export const updateMark = createAsyncThunk(
   "documents/updateMark",
   async (
-    { markId, instructions, bring_up_date }: 
-    { markId: string; instructions: string; bring_up_date: string | null },
+    { markId, instructions }: 
+    { markId: string; instructions: string },
     { rejectWithValue }
   ) => {
     try {
       const response = await axiosClient.patch<{
         success: boolean;
         data: DocumentMark;
-      }>(`/documents/marks/${markId}`, { instructions, bring_up_date });
+      }>(`/documents/marks/${markId}`, { instructions });
       return { markId, updatedMark: response.data.data };
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ════════════════════════════════════════════════════════════════════════════
+//  BRING UP THUNKS (NEW)
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── Set Bring Up Date (Super Admin only) ────────────────────────────────────
+
+export const setBringUp = createAsyncThunk(
+  "documents/setBringUp",
+  async (
+    { id, input }: { id: string; input: SetBringUpInput },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/bring-up`, input);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Update Bring Up Date (Super Admin only) ─────────────────────────────────
+
+export const updateBringUp = createAsyncThunk(
+  "documents/updateBringUp",
+  async (
+    { id, input }: { id: string; input: UpdateBringUpInput },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.put<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/bring-up`, input);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Complete Bring Up ────────────────────────────────────────────────────────
+
+export const completeBringUp = createAsyncThunk(
+  "documents/completeBringUp",
+  async (
+    { id, input }: { id: string; input: CompleteBringUpInput },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.patch<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/bring-up/complete`, input);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Fetch Bring Ups ──────────────────────────────────────────────────────────
+
+export const fetchBringUps = createAsyncThunk(
+  "documents/fetchBringUps",
+  async (filters: BringUpFilters, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: DocumentPaginationResponse;
+      }>("/documents/bring-ups", { params: filters });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Fetch Bring Up Summary ──────────────────────────────────────────────────
+
+export const fetchBringUpSummary = createAsyncThunk(
+  "documents/fetchBringUpSummary",
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: BringUpSummary;
+      }>("/documents/bring-ups/summary");
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Fetch Bring Up History ──────────────────────────────────────────────────
+
+export const fetchBringUpHistory = createAsyncThunk(
+  "documents/fetchBringUpHistory",
+  async (documentId: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: BringUpHistoryEntry[];
+      }>(`/documents/${documentId}/bring-up-history`);
+      return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
@@ -1038,6 +1180,12 @@ const documentSlice = createSlice({
     clearFollowUpComments: (state) => {
       state.followUpComments = [];
     },
+    // ── Bring Up reducers ──────────────────────────────────────────────────
+    clearBringUps: (state) => {
+      state.bringUpHistory = [];
+      state.bringUpPagination = null;
+      state.bringUpSummary = null;
+    },
     resetState: () => initialState,
     // ── Optimistic follow-up updates ──────────────────────────────────────
     optimisticUpdateFollowUpStatus: (state, action: PayloadAction<{ followUpId: string; status: FollowUpStatus }>) => {
@@ -1048,6 +1196,21 @@ const documentSlice = createSlice({
       }
       if (state.currentFollowUp?.id === followUpId) {
         state.currentFollowUp.status = status;
+      }
+    },
+    // ── Optimistic Bring Up updates ───────────────────────────────────────
+    optimisticUpdateBringUpStatus: (state, action: PayloadAction<{ documentId: string; status: BringUpStatus }>) => {
+      const { documentId, status } = action.payload;
+      const docIndex = state.documents.findIndex(d => d.id === documentId);
+      if (docIndex !== -1) {
+        state.documents[docIndex].bring_up_status = status;
+      }
+      if (state.currentDocument?.id === documentId) {
+        state.currentDocument.bring_up_status = status;
+      }
+      const myIndex = state.myMarked.findIndex(d => d.id === documentId);
+      if (myIndex !== -1) {
+        state.myMarked[myIndex].bring_up_status = status;
       }
     },
   },
@@ -1113,6 +1276,7 @@ const documentSlice = createSlice({
           state.loading = false;
           state.currentDocument = action.payload;
           state.responses = action.payload.responses ?? [];
+          state.bringUpHistory = action.payload.bring_up_history ?? [];
         },
       )
       .addCase(fetchDocumentById.rejected, (state, action) => {
@@ -1637,7 +1801,6 @@ const documentSlice = createSlice({
               active_mark: {
                 ...doc.active_mark,
                 instructions: updatedMark.instructions,
-                bring_up_date: updatedMark.bring_up_date,
               },
             };
           }
@@ -1650,7 +1813,6 @@ const documentSlice = createSlice({
             active_mark: {
               ...state.currentDocument.active_mark,
               instructions: updatedMark.instructions,
-              bring_up_date: updatedMark.bring_up_date,
             },
           };
         }
@@ -1662,7 +1824,6 @@ const documentSlice = createSlice({
               active_mark: {
                 ...doc.active_mark,
                 instructions: updatedMark.instructions,
-                bring_up_date: updatedMark.bring_up_date,
               },
             };
           }
@@ -1753,6 +1914,136 @@ const documentSlice = createSlice({
         },
       )
       .addCase(fetchDocumentsByFolder.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ════════════════════════════════════════════════════════════════════════
+      //  BRING UP EXTRA REDUCERS
+      // ════════════════════════════════════════════════════════════════════════
+
+      // ── setBringUp ──────────────────────────────────────────────────────────
+      .addCase(setBringUp.pending, (state, action) => {
+        state.actionInProgress.settingBringUp = action.meta.arg.id;
+        state.error = null;
+      })
+      .addCase(setBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
+        state.actionInProgress.settingBringUp = undefined;
+        const index = state.documents.findIndex(d => d.id === action.payload.id);
+        if (index !== -1) state.documents[index] = action.payload;
+        if (state.currentDocument?.id === action.payload.id) {
+          state.currentDocument = {
+            ...state.currentDocument,
+            ...action.payload,
+          };
+        }
+        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
+        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+      })
+      .addCase(setBringUp.rejected, (state, action) => {
+        state.actionInProgress.settingBringUp = undefined;
+        state.error = action.payload as string;
+      })
+
+      // ── updateBringUp ──────────────────────────────────────────────────────
+      .addCase(updateBringUp.pending, (state, action) => {
+        state.actionInProgress.updatingBringUp = action.meta.arg.id;
+        state.error = null;
+      })
+      .addCase(updateBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
+        state.actionInProgress.updatingBringUp = undefined;
+        const index = state.documents.findIndex(d => d.id === action.payload.id);
+        if (index !== -1) state.documents[index] = action.payload;
+        if (state.currentDocument?.id === action.payload.id) {
+          state.currentDocument = {
+            ...state.currentDocument,
+            ...action.payload,
+          };
+        }
+        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
+        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+      })
+      .addCase(updateBringUp.rejected, (state, action) => {
+        state.actionInProgress.updatingBringUp = undefined;
+        state.error = action.payload as string;
+      })
+
+      // ── completeBringUp ────────────────────────────────────────────────────
+      .addCase(completeBringUp.pending, (state, action) => {
+        state.actionInProgress.completingBringUp = action.meta.arg.id;
+        state.error = null;
+      })
+      .addCase(completeBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
+        state.actionInProgress.completingBringUp = undefined;
+        const index = state.documents.findIndex(d => d.id === action.payload.id);
+        if (index !== -1) state.documents[index] = action.payload;
+        if (state.currentDocument?.id === action.payload.id) {
+          state.currentDocument = {
+            ...state.currentDocument,
+            ...action.payload,
+          };
+        }
+        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
+        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+      })
+      .addCase(completeBringUp.rejected, (state, action) => {
+        state.actionInProgress.completingBringUp = undefined;
+        state.error = action.payload as string;
+      })
+
+      // ── fetchBringUps ──────────────────────────────────────────────────────
+      .addCase(fetchBringUps.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.actionInProgress.fetchingBringUps = true;
+      })
+      .addCase(fetchBringUps.fulfilled, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.fetchingBringUps = false;
+        state.documents = action.payload.data;
+        state.bringUpPagination = {
+          total: action.payload.total,
+          page: action.payload.page,
+          limit: action.payload.limit,
+          totalPages: action.payload.totalPages,
+        };
+      })
+      .addCase(fetchBringUps.rejected, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.fetchingBringUps = false;
+        state.error = action.payload as string;
+      })
+
+      // ── fetchBringUpSummary ────────────────────────────────────────────────
+      .addCase(fetchBringUpSummary.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.actionInProgress.fetchingBringUpSummary = true;
+      })
+      .addCase(fetchBringUpSummary.fulfilled, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.fetchingBringUpSummary = false;
+        state.bringUpSummary = action.payload;
+      })
+      .addCase(fetchBringUpSummary.rejected, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.fetchingBringUpSummary = false;
+        state.error = action.payload as string;
+      })
+
+      // ── fetchBringUpHistory ────────────────────────────────────────────────
+      .addCase(fetchBringUpHistory.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(fetchBringUpHistory.fulfilled, (state, action) => {
+        state.loading = false;
+        state.bringUpHistory = action.payload;
+        if (state.currentDocument) {
+          state.currentDocument.bring_up_history = action.payload;
+        }
+      })
+      .addCase(fetchBringUpHistory.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
@@ -2068,8 +2359,10 @@ export const {
   clearFollowUps,
   clearCurrentFollowUp,
   clearFollowUpComments,
+  clearBringUps,
   resetState,
   optimisticUpdateFollowUpStatus,
+  optimisticUpdateBringUpStatus,
 } = documentSlice.actions;
 
 // ── Selectors ─────────────────────────────────────────────────────────────────
@@ -2180,6 +2473,32 @@ export const selectIsFetchingFollowUps = (state: { documents: DocumentState }) =
 
 export const selectIsFetchingFollowUpSummary = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.fetchingFollowUpSummary || false;
+
+// ── Bring Up selectors ──────────────────────────────────────────────────────
+
+export const selectBringUpHistory = (state: { documents: DocumentState }) =>
+  state.documents.bringUpHistory;
+
+export const selectBringUpSummary = (state: { documents: DocumentState }) =>
+  state.documents.bringUpSummary;
+
+export const selectBringUpPagination = (state: { documents: DocumentState }) =>
+  state.documents.bringUpPagination;
+
+export const selectIsSettingBringUp = (state: { documents: DocumentState }, documentId: string) =>
+  state.documents.actionInProgress.settingBringUp === documentId;
+
+export const selectIsUpdatingBringUp = (state: { documents: DocumentState }, documentId: string) =>
+  state.documents.actionInProgress.updatingBringUp === documentId;
+
+export const selectIsCompletingBringUp = (state: { documents: DocumentState }, documentId: string) =>
+  state.documents.actionInProgress.completingBringUp === documentId;
+
+export const selectIsFetchingBringUps = (state: { documents: DocumentState }) =>
+  state.documents.actionInProgress.fetchingBringUps || false;
+
+export const selectIsFetchingBringUpSummary = (state: { documents: DocumentState }) =>
+  state.documents.actionInProgress.fetchingBringUpSummary || false;
 
 export type { DocumentState };
 
