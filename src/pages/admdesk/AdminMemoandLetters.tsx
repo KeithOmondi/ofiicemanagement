@@ -1,4 +1,5 @@
-// src/pages/admin/AdminMemoandLetters.tsx (or wherever this component lives)
+// src/pages/admin/AdminMemoandLetters.tsx
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useAppDispatch, useAppSelector } from "../../store/hook";
 import {
@@ -113,7 +114,7 @@ const formatFileSize = (bytes: number | null): string => {
   return kb < 1024 ? `${Math.round(kb)}KB` : `${(kb / 1024).toFixed(1)}MB`;
 };
 
-// (4) StickyNote (unchanged)
+// (4) StickyNote - UPDATED to use document.bring_up_date
 interface StickyNoteProps {
   authorName: string;
   initialText: string;
@@ -1188,7 +1189,7 @@ interface DocumentEditorProps {
   onMark?: () => void;
   onAcknowledge?: () => void;
   onComplete?: () => void;
-  onUpdateMark?: (markId: string, text: string, date: string | null) => void;
+  onUpdateMark?: (markId: string, text: string) => void;
   onDownload?: () => void;
 }
 
@@ -1222,7 +1223,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const [showResponses, setShowResponses] = useState(false);
 
   const stickyNoteText = document.active_mark?.instructions ?? "";
-  const stickyNoteDate = document.active_mark?.bring_up_date ?? null;
+  // UPDATED: Use document.bring_up_date instead of active_mark.bring_up_date
+  const stickyNoteDate = document.bring_up_date ?? null;
   const noteAuthor = document.active_mark
     ? (document.created_by_name ?? currentUserName)
     : currentUserName;
@@ -1371,12 +1373,14 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       </div>`,
     );
 
-  const handleStickyNoteSave = (text: string, date: string | null) => {
+  // ─── Sticky note save handler ──────────────────────────────────────────
+  const handleStickyNoteSave = (text: string, _date: string | null) => {
     if (document.active_mark && onUpdateMark) {
-      onUpdateMark(document.active_mark.id, text, date);
-    } else {
-      console.warn("Cannot save sticky note – no onUpdateMark handler provided");
+      // Update mark instructions only (bring_up_date moved to document level)
+      onUpdateMark(document.active_mark.id, text);
     }
+    // _date is intentionally ignored - bring_up_date is now handled at the document level
+    void _date;
   };
 
   const handleDownload = () => {
@@ -2081,13 +2085,13 @@ const AdminMemoandLetters: React.FC = () => {
     }
   };
 
-  const handleUpdateMark = (markId: string, text: string, date: string | null) => {
-    dispatch(updateMark({ markId, instructions: text, bring_up_date: date }));
+  // ─── Update Mark handler (instructions only) ──────────────────────────────
+  const handleUpdateMark = (markId: string, text: string) => {
+    dispatch(updateMark({ markId, instructions: text }));
     if (selectedDocument && selectedDocument.active_mark) {
       const updatedMark = {
         ...selectedDocument.active_mark,
         instructions: text,
-        bring_up_date: date,
       };
       setSelectedDocument({
         ...selectedDocument,

@@ -1110,8 +1110,9 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
             <StickyNote
               key={document.id}
               authorName={document.active_mark.marked_by_name ?? 'Registrar'}
+              // UPDATED: Use document.bring_up_date instead of active_mark.bring_up_date
               text={document.active_mark.instructions}
-              bringUpDate={document.active_mark.bring_up_date}
+              bringUpDate={document.bring_up_date}
             />
           )}
           {renderPreview()}
