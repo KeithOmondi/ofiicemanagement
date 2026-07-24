@@ -43,6 +43,16 @@ export type RequestType =
 export type RemarkType = "Onboarding" | "Release";
 export type GeneralRequestCategory = "Security" | "Personnel" | "Administrative";
 
+// ─── DSA Parent Types ──────────────────────────────────────────────────────
+
+export type DSAParentType =
+  | "circuit"
+  | "special_bench"
+  | "part_heard"
+  | "service_week"
+  | "other_payment"
+  | "protocol";
+
 // ─── Unified General Request ──────────────────────────────────────────────
 
 export interface GeneralRequest {
@@ -69,9 +79,8 @@ export interface GeneralRequest {
   created_by: string | null;
   created_at: string;
   updated_at: string;
-  // ─── NEW FIELDS ──────────────────────────────────────────────────────────
-  rank?: string | null;           // Officer's rank (for Driver/Bodyguard)
-  reporting_date?: string | null; // Expected reporting date
+  rank?: string | null;
+  reporting_date?: string | null;
 }
 
 /**
@@ -92,7 +101,7 @@ export interface CreateGeneralRequestInput {
   remark_type?: RemarkType;
   request_date?: string;
   location?: string;
-  firearm_type?: string; // Conditionally required – see business rule above.
+  firearm_type?: string;
   force_number?: string;
   officer_name?: string;
   assigned_to?: string;
@@ -100,7 +109,6 @@ export interface CreateGeneralRequestInput {
   notes?: string;
   email?: string;
   send_email?: boolean;
-  // ─── NEW FIELDS ──────────────────────────────────────────────────────────
   rank?: string;
   reporting_date?: string;
 }
@@ -122,13 +130,12 @@ export interface UpdateGeneralRequestInput {
   remark_type?: RemarkType;
   request_date?: string;
   location?: string;
-  firearm_type?: string; // Conditionally required – see business rule above.
+  firearm_type?: string;
   force_number?: string;
   officer_name?: string;
   assigned_to?: string;
   priority?: string;
   notes?: string;
-  // ─── NEW FIELDS ──────────────────────────────────────────────────────────
   rank?: string;
   reporting_date?: string;
 }
@@ -390,6 +397,7 @@ export interface DSADetail {
   requisition_number: string | null;
   requisition_initiation_date: string | null;
   payment_status: DSAPaymentStatus;
+  parent_type?: DSAParentType;
 }
 
 export interface DSADetailInput {
@@ -407,6 +415,7 @@ export interface DSADetailInput {
   requisition_number?: string;
   requisition_initiation_date?: string;
   payment_status?: DSAPaymentStatus;
+  parent_type?: DSAParentType;
 }
 
 // ─── Circuits ────────────────────────────────────────────────────────────────
@@ -424,6 +433,7 @@ export interface Circuit {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  parent_type?: "circuit";
 }
 
 export interface CreateCircuitInput {
@@ -448,6 +458,7 @@ export interface OtherPayment {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  parent_type?: "other_payment";
 }
 
 export interface CreateOtherPaymentInput {
@@ -473,6 +484,7 @@ export interface SpecialBench {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  parent_type?: "special_bench";
 }
 
 export interface CreateSpecialBenchInput {
@@ -507,6 +519,7 @@ export interface PartHeard {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  parent_type?: "part_heard";
 }
 
 export interface CreatePartHeardInput {
@@ -541,6 +554,7 @@ export interface ServiceWeek {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  parent_type?: "service_week";
 }
 
 export interface CreateServiceWeekInput {
@@ -692,6 +706,7 @@ export interface ProtocolEvent {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  parent_type?: "protocol";
 }
 
 export interface CreateProtocolEventInput {
@@ -729,6 +744,7 @@ export interface DSAReportRow {
   requisition_number: string | null;
   requisition_initiation_date: string | null;
   payment_status: DSAPaymentStatus;
+  parent_type?: DSAParentType;
 }
 
 export interface DSAReportFilters {
@@ -4001,7 +4017,7 @@ export const {
 } = helpdeskSlice.actions;
 
 /* ============================================================
-   SELECTORS (unchanged, all present)
+   SELECTORS
 ============================================================ */
 
 // ─── All Data ──────────────────────────────────────────────────────────────

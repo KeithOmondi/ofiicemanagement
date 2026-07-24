@@ -536,48 +536,6 @@ const BasicInfoForm: React.FC<BasicInfoFormProps> = ({ mode, basicInfo, setBasic
 
 // ─── Step 2: DSA Details Form (with judges integration) ──────────────────
 
-interface DSADetailsFormProps {
-  dsaDetails: Omit<DSADetailInput, 'id'>[];
-  onAddRow: () => void;
-  onRemoveRow: (index: number) => void;
-  onChange: (index: number, field: keyof Omit<DSADetailInput, 'id'>, value: string | number) => void;
-  onJudgeSelect: (index: number, judgeId: string) => void;
-  onJudgeNameChange: (index: number, value: string) => void;
-  calculateTotal: (rate: number, days: number) => number;
-  judges: { id: string; name: string; pj_number: string; daily_dsa_rate: number }[];
-  judgesLoading: boolean;
-  daysFromDates: number; // computed days from start/end dates
-}
-
-// ─── Combobox component for judge name ─────────────────────────────────────
-
-interface JudgeComboboxProps {
-  value: string;
-  onChange: (value: string) => void;
-  judges: { id: string; name: string; pj_number: string; daily_dsa_rate: number }[];
-  judgesLoading: boolean;
-  placeholder?: string;
-  disabled?: boolean;
-}
-
-
-
-// ─── Step 2: DSA Details Form (with judges integration) ──────────────────
-
-interface DSADetailsFormProps {
-  dsaDetails: Omit<DSADetailInput, 'id'>[];
-  onAddRow: () => void;
-  onRemoveRow: (index: number) => void;
-  onChange: (index: number, field: keyof Omit<DSADetailInput, 'id'>, value: string | number) => void;
-  onJudgeNameChange: (index: number, value: string) => void;
-  calculateTotal: (rate: number, days: number) => number;
-  judges: { id: string; name: string; pj_number: string; daily_dsa_rate: number }[];
-  judgesLoading: boolean;
-  daysFromDates: number;
-}
-
-// ─── Combobox component for judge name ─────────────────────────────────────
-
 interface JudgeComboboxProps {
   value: string;
   onChange: (value: string) => void;
@@ -599,17 +557,12 @@ const JudgeCombobox: React.FC<JudgeComboboxProps> = ({
   const [inputValue, setInputValue] = useState(value);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  // Keep inputValue in sync with the `value` prop without an effect.
-  // This is React's recommended "adjust state during render" pattern —
-  // it runs synchronously in the render itself, not after commit, so
-  // it doesn't cause an extra render pass the way an effect would.
   const [prevValue, setPrevValue] = useState(value);
   if (value !== prevValue) {
     setPrevValue(value);
     setInputValue(value);
   }
 
-  // Derived data — no state, no effect, just computed on every render.
   const filteredJudges = useMemo(() => {
     const search = inputValue.toLowerCase().trim();
     if (!search) return judges;
@@ -620,9 +573,6 @@ const JudgeCombobox: React.FC<JudgeComboboxProps> = ({
     );
   }, [inputValue, judges]);
 
-  // Legitimate effect: subscribing to a real external system (DOM events).
-  // setState happens inside the event callback, not synchronously in the
-  // effect body, so this one doesn't trigger the warning.
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
@@ -635,7 +585,7 @@ const JudgeCombobox: React.FC<JudgeComboboxProps> = ({
 
   const handleSelectJudge = (judge: { id: string; name: string; pj_number: string; daily_dsa_rate: number }) => {
     setInputValue(judge.name);
-    setPrevValue(judge.name); // keep the render-time sync check consistent
+    setPrevValue(judge.name);
     onChange(judge.name);
     setIsOpen(false);
   };
@@ -643,7 +593,7 @@ const JudgeCombobox: React.FC<JudgeComboboxProps> = ({
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setInputValue(val);
-    setPrevValue(val); // avoid the sync check clobbering this on next render
+    setPrevValue(val);
     onChange(val);
     setIsOpen(true);
   };
@@ -688,6 +638,18 @@ const JudgeCombobox: React.FC<JudgeComboboxProps> = ({
     </div>
   );
 };
+
+interface DSADetailsFormProps {
+  dsaDetails: Omit<DSADetailInput, 'id'>[];
+  onAddRow: () => void;
+  onRemoveRow: (index: number) => void;
+  onChange: (index: number, field: keyof Omit<DSADetailInput, 'id'>, value: string | number) => void;
+  onJudgeNameChange: (index: number, value: string) => void;
+  calculateTotal: (rate: number, days: number) => number;
+  judges: { id: string; name: string; pj_number: string; daily_dsa_rate: number }[];
+  judgesLoading: boolean;
+  daysFromDates: number;
+}
 
 const DSADetailsForm: React.FC<DSADetailsFormProps> = ({
   dsaDetails,
@@ -839,6 +801,16 @@ interface MemoPreviewProps {
 
 type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
 
+// ─── Entity Type Map (for document uploads) ──────────────────────────────
+// These must match the DocumentEntityType used in helpdeskDocumentsSlice
+const DOCUMENT_ENTITY_TYPE_MAP: Record<CircuitModalMode, DocumentEntityType> = {
+  circuit: 'circuit',
+  bench: 'bench',
+  partHeard: 'partHeard',
+  serviceWeek: 'serviceWeek',
+  otherPayment: 'otherPayment',
+};
+
 const MemoPreview: React.FC<MemoPreviewProps> = ({
   mode,
   basicInfo,
@@ -971,21 +943,13 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
       const safeRef = (refField || 'memo').replace(/[\\/:*?"<>|]/g, '-');
       const filename = `${safeRef}.${format}`;
 
-      const entityTypeMap: Record<CircuitModalMode, DocumentEntityType> = {
-        circuit: 'circuit',
-        bench: 'bench',
-        partHeard: 'partHeard',
-        serviceWeek: 'serviceWeek',
-        otherPayment: 'otherPayment',
-      };
-
       const result = await dispatch(
         uploadHelpdeskDocument({
           blob,
           filename,
           ref: refField,
           subject: subjectField,
-          entity_type: entityTypeMap[mode],
+          entity_type: DOCUMENT_ENTITY_TYPE_MAP[mode],
           format: format as DocumentFormat,
         })
       ).unwrap();
@@ -1418,23 +1382,6 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     });
   };
 
-  // ── Judge selection: derives judge_name, pj_number, and dsa_per_day ─────
-  const handleJudgeSelect = (index: number, judgeId: string) => {
-    const judge = judges.find((j) => j.id === judgeId);
-    if (judge) {
-      setDsaDetails((prev) => {
-        const updated = [...prev];
-        updated[index] = {
-          ...updated[index],
-          judge_name: judge.name,
-          pj_number: judge.pj_number,
-          dsa_per_day: judge.daily_dsa_rate,
-        };
-        return updated;
-      });
-    }
-  };
-
   // ── Judge name free text change ──────────────────────────────────────────
   const handleJudgeNameChange = (index: number, value: string) => {
     setDsaDetails((prev) => {
@@ -1617,12 +1564,13 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
         createdId = result?.id;
       }
 
+      // ─── Link the document if one was created ──────────────────────────
       if (pendingDocumentId && createdId) {
         try {
           await dispatch(
             linkHelpdeskDocument({
               id: pendingDocumentId,
-              entity_type: mode as DocumentEntityType,
+              entity_type: DOCUMENT_ENTITY_TYPE_MAP[mode],
               entity_id: createdId,
             })
           ).unwrap();
@@ -1632,6 +1580,7 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
         }
       }
 
+      // ─── Refresh data ────────────────────────────────────────────────────
       switch (mode) {
         case 'circuit':
           await dispatch(fetchCircuits({}));
@@ -1757,7 +1706,6 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
               onAddRow={handleAddDsaRow}
               onRemoveRow={handleRemoveDsaRow}
               onChange={handleDsaChange}
-              onJudgeSelect={handleJudgeSelect}
               onJudgeNameChange={handleJudgeNameChange}
               calculateTotal={calculateTotal}
               judges={judges}

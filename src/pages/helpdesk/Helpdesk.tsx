@@ -1002,7 +1002,7 @@ function DSATab<T extends { id: string }>({
 
 interface EntityDetailModalProps<T> {
   item: T;
-  entityType: string;
+  entityType: DocumentEntityType;
   title: string;
   onClose: () => void;
   onEdit: () => void;
@@ -1024,11 +1024,8 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
   const dispatch = useAppDispatch();
   const allDocs = useAppSelector(selectAllHelpdeskDocuments);
   
-  // ✅ Cast entityType to DocumentEntityType once
-  const entityTypeTyped = entityType as DocumentEntityType;
-  
   const docs = allDocs.filter(
-    (d) => d.entity_type === entityTypeTyped && d.entity_id === item.id
+    (d) => d.entity_type === entityType && d.entity_id === item.id
   );
   const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
   const documentsUploading = useAppSelector(selectDocumentsUploading);
@@ -1041,10 +1038,10 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
 
   useEffect(() => {
     dispatch(fetchHelpdeskDocuments({ 
-      entity_type: entityTypeTyped, 
+      entity_type: entityType, 
       entity_id: item.id 
     }));
-  }, [dispatch, entityTypeTyped, item.id]);
+  }, [dispatch, entityType, item.id]);
 
   useEffect(() => {
     if (showLinkPicker) {
@@ -1089,14 +1086,14 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
           filename: file.name,
           ref: `${entityType.toUpperCase()}/${item.id.slice(0, 8)}`,
           subject: `Memo for ${title}`,
-          entity_type: entityTypeTyped,
+          entity_type: entityType,
           entity_id: item.id,
           format,
         })
       ).unwrap();
       toast.success('Document attached successfully.');
       dispatch(fetchHelpdeskDocuments({ 
-        entity_type: entityTypeTyped, 
+        entity_type: entityType, 
         entity_id: item.id 
       }));
     } catch (err) {
@@ -1110,13 +1107,13 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
     try {
       await dispatch(linkHelpdeskDocument({ 
         id: docId, 
-        entity_type: entityTypeTyped,
+        entity_type: entityType,
         entity_id: item.id 
       })).unwrap();
       toast.success('Document linked successfully.');
       setShowLinkPicker(false);
       dispatch(fetchHelpdeskDocuments({ 
-        entity_type: entityTypeTyped, 
+        entity_type: entityType, 
         entity_id: item.id 
       }));
     } catch (err) {
@@ -1129,7 +1126,7 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
       await dispatch(submitForApproval({ id: docId })).unwrap();
       toast.success('Document sent to the super admin for approval.');
       dispatch(fetchHelpdeskDocuments({ 
-        entity_type: entityTypeTyped, 
+        entity_type: entityType, 
         entity_id: item.id 
       }));
     } catch (err) {
@@ -1429,7 +1426,7 @@ function CircuitsTab() {
               </div>
               <div>
                 <span className="text-stone-500">Members:</span>
-                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
               </div>
             </div>
           )}
@@ -1719,7 +1716,7 @@ function BenchesTab() {
               </div>
               <div>
                 <span className="text-stone-500">Members:</span>
-                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
               </div>
             </div>
           )}
@@ -1865,7 +1862,7 @@ function PartHeardTab() {
               </div>
               <div>
                 <span className="text-stone-500">Members:</span>
-                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
               </div>
             </div>
           )}
@@ -2009,7 +2006,7 @@ function ServiceWeekTab() {
               </div>
               <div>
                 <span className="text-stone-500">Members:</span>
-                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
               </div>
             </div>
           )}
@@ -2849,10 +2846,10 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
   const utilityIds = utilities.map(u => u.id);
 
   const docs = allDocs.filter(d => 
-  d.entity_type === 'utility_memo' && 
-  d.entity_id !== null && 
-  utilityIds.includes(d.entity_id)
-);
+    d.entity_type === 'utility_memo' && 
+    d.entity_id !== null && 
+    utilityIds.includes(d.entity_id)
+  );
 
   // Fetch documents for each utility
   useEffect(() => {
