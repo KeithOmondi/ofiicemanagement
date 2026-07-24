@@ -2,11 +2,21 @@
 
 /**
  * Aide Request Status
+ * - `pending`: Request is pending review
  * - `in_progress`: Request is being processed
  * - `rejected`: Request was rejected
  * - `attached`: Officer has been attached
  */
-export type AideStatus = 'in_progress' | 'rejected' | 'attached';
+export type AideStatus = 'pending' | 'in_progress' | 'rejected' | 'attached';
+
+/**
+ * Sentry Request Status
+ * - `pending`: Request is pending review
+ * - `active`: Sentry service is active
+ * - `resolved`: Sentry service has been resolved
+ * - `rejected`: Request was rejected
+ */
+export type SentryStatus = 'pending' | 'active' | 'resolved' | 'rejected';
 
 /**
  * Police Officer Ranks
@@ -31,6 +41,21 @@ export type OfficerRank =
 export type UnitType = 'KPS' | 'APS' | 'GSU' | 'DCI' | 'VIPPU' | 'Other';
 
 /**
+ * Sort order options
+ */
+export type SortOrder = 'ASC' | 'DESC';
+
+/**
+ * Sortable fields for Aide requests
+ */
+export type AideSortField = 'created_at' | 'updated_at' | 'judge_name' | 'status';
+
+/**
+ * Sortable fields for Sentry requests
+ */
+export type SentrySortField = 'created_at' | 'updated_at' | 'judge_name' | 'status';
+
+/**
  * Aide Request - Complete entity returned from API
  */
 export interface AideRequest {
@@ -42,13 +67,28 @@ export interface AideRequest {
   current_station: string;
   current_unit: UnitType;
   proposed_assignment: string;
-  reporting_date: Date | string;
+  reporting_date: string | null;
   status: AideStatus;
   remarks: string | null;
   created_by: string;
   created_by_name: string;
-  created_at: Date | string;
-  updated_at: Date | string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Sentry Request - Complete entity returned from API
+ */
+export interface SentryRequest {
+  id: string;
+  judge_name: string;
+  residence_location: string;
+  status: SentryStatus;
+  remarks: string | null;
+  created_by: string;
+  created_by_name: string;
+  created_at: string;
+  updated_at: string;
 }
 
 /**
@@ -62,8 +102,16 @@ export interface CreateAideRequestInput {
   current_station: string;
   current_unit: UnitType;
   proposed_assignment: string;
-  reporting_date: Date | string;
-  status?: AideStatus; // Optional, defaults to 'in_progress'
+  reporting_date?: string | null; // Optional, can be null
+  remarks?: string;
+}
+
+/**
+ * Create Sentry Request - Input for creating a new sentry request
+ */
+export interface CreateSentryRequestInput {
+  judge_name: string;
+  residence_location: string;
   remarks?: string;
 }
 
@@ -78,8 +126,18 @@ export interface UpdateAideRequestInput {
   current_station?: string;
   current_unit?: UnitType;
   proposed_assignment?: string;
-  reporting_date?: Date | string;
+  reporting_date?: string | null; // Optional, can be null
   status?: AideStatus;
+  remarks?: string;
+}
+
+/**
+ * Update Sentry Request - Input for updating an existing sentry request
+ */
+export interface UpdateSentryRequestInput {
+  judge_name?: string;
+  residence_location?: string;
+  status?: SentryStatus;
   remarks?: string;
 }
 
@@ -93,8 +151,21 @@ export interface AideRequestFilters {
   current_station?: string;
   page?: number;
   limit?: number;
-  sort_by?: 'created_at' | 'updated_at' | 'judge_name' | 'status';
-  sort_order?: 'ASC' | 'DESC';
+  sort_by?: AideSortField;
+  sort_order?: SortOrder;
+}
+
+/**
+ * Sentry Request Filters - For list/query endpoints
+ */
+export interface SentryRequestFilters {
+  status?: SentryStatus;
+  judge_name?: string;
+  residence_location?: string;
+  page?: number;
+  limit?: number;
+  sort_by?: SentrySortField;
+  sort_order?: SortOrder;
 }
 
 /**
@@ -109,15 +180,39 @@ export interface AideRequestPaginationResponse {
 }
 
 /**
+ * Paginated Response for Sentry Requests
+ */
+export interface SentryRequestPaginationResponse {
+  data: SentryRequest[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+/**
  * Statistics for Aide Requests Dashboard
  */
 export interface AideRequestStats {
   total: number;
+  pending: number;
   in_progress: number;
   rejected: number;
   attached: number;
   by_station: Record<string, number>;
   by_unit: Record<string, number>;
+}
+
+/**
+ * Statistics for Sentry Requests Dashboard
+ */
+export interface SentryRequestStats {
+  total: number;
+  pending: number;
+  active: number;
+  resolved: number;
+  rejected: number;
+  by_location: Record<string, number>;
 }
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -141,7 +236,15 @@ export const OFFICER_RANKS: OfficerRank[] = [
 
 export const UNIT_TYPES: UnitType[] = ['KPS', 'APS', 'GSU', 'DCI', 'VIPPU', 'Other'];
 
-export const AIDE_STATUSES: AideStatus[] = ['in_progress', 'rejected', 'attached'];
+export const AIDE_STATUSES: AideStatus[] = ['pending', 'in_progress', 'rejected', 'attached'];
+
+export const SENTRY_STATUSES: SentryStatus[] = ['pending', 'active', 'resolved', 'rejected'];
+
+export const SORT_ORDERS: SortOrder[] = ['ASC', 'DESC'];
+
+export const AIDE_SORT_FIELDS: AideSortField[] = ['created_at', 'updated_at', 'judge_name', 'status'];
+
+export const SENTRY_SORT_FIELDS: SentrySortField[] = ['created_at', 'updated_at', 'judge_name', 'status'];
 
 // ─── Helper Functions ─────────────────────────────────────────────────────────
 
@@ -160,6 +263,7 @@ export const getUnitTypeLabel = (unit: UnitType): string => unit;
  */
 export const getAideStatusLabel = (status: AideStatus): string => {
   const labels: Record<AideStatus, string> = {
+    pending: 'Pending',
     in_progress: 'In Progress',
     rejected: 'Rejected',
     attached: 'Attached',
@@ -168,25 +272,92 @@ export const getAideStatusLabel = (status: AideStatus): string => {
 };
 
 /**
- * Get status color for UI badges
+ * Get display label for sentry status
+ */
+export const getSentryStatusLabel = (status: SentryStatus): string => {
+  const labels: Record<SentryStatus, string> = {
+    pending: 'Pending',
+    active: 'Active',
+    resolved: 'Resolved',
+    rejected: 'Rejected',
+  };
+  return labels[status];
+};
+
+/**
+ * Get status color for UI badges (Aide)
  */
 export const getAideStatusColor = (status: AideStatus): string => {
   const colors: Record<AideStatus, string> = {
-    in_progress: 'bg-blue-100 text-blue-700 border-blue-200',
-    rejected: 'bg-red-100 text-red-700 border-red-200',
-    attached: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    pending: 'bg-amber-50 text-amber-700 ring-amber-200',
+    in_progress: 'bg-blue-50 text-blue-700 ring-blue-200',
+    rejected: 'bg-red-50 text-red-700 ring-red-200',
+    attached: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
   };
   return colors[status];
 };
 
 /**
- * Get status dot color for UI
+ * Get status color for UI badges (Sentry)
+ */
+export const getSentryStatusColor = (status: SentryStatus): string => {
+  const colors: Record<SentryStatus, string> = {
+    pending: 'bg-amber-50 text-amber-700 ring-amber-200',
+    active: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+    resolved: 'bg-blue-50 text-blue-700 ring-blue-200',
+    rejected: 'bg-red-50 text-red-700 ring-red-200',
+  };
+  return colors[status];
+};
+
+/**
+ * Get status dot color for UI (Aide)
  */
 export const getAideStatusDotColor = (status: AideStatus): string => {
   const colors: Record<AideStatus, string> = {
+    pending: 'bg-amber-500',
     in_progress: 'bg-blue-500',
     rejected: 'bg-red-500',
     attached: 'bg-emerald-500',
+  };
+  return colors[status];
+};
+
+/**
+ * Get status dot color for UI (Sentry)
+ */
+export const getSentryStatusDotColor = (status: SentryStatus): string => {
+  const colors: Record<SentryStatus, string> = {
+    pending: 'bg-amber-500',
+    active: 'bg-emerald-500',
+    resolved: 'bg-blue-500',
+    rejected: 'bg-red-500',
+  };
+  return colors[status];
+};
+
+/**
+ * Get status text color for UI (Aide)
+ */
+export const getAideStatusTextColor = (status: AideStatus): string => {
+  const colors: Record<AideStatus, string> = {
+    pending: 'text-amber-700',
+    in_progress: 'text-blue-700',
+    rejected: 'text-red-700',
+    attached: 'text-emerald-700',
+  };
+  return colors[status];
+};
+
+/**
+ * Get status text color for UI (Sentry)
+ */
+export const getSentryStatusTextColor = (status: SentryStatus): string => {
+  const colors: Record<SentryStatus, string> = {
+    pending: 'text-amber-700',
+    active: 'text-emerald-700',
+    resolved: 'text-blue-700',
+    rejected: 'text-red-700',
   };
   return colors[status];
 };
@@ -219,29 +390,44 @@ export const sortOfficerRanks = (ranks: OfficerRank[]): OfficerRank[] => {
 };
 
 /**
- * Format date for display
+ * Format date for display (Aide)
  */
-export const formatAideDate = (date: Date | string | null | undefined): string => {
+export const formatAideDate = (date: string | null | undefined): string => {
   if (!date) return '—';
-  const d = typeof date === 'string' ? new Date(date) : date;
-  if (isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
+  try {
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
+  } catch {
+    return '—';
+  }
 };
 
 /**
- * Format date with time for display
+ * Format date with time for display (Aide)
  */
-export const formatAideDateTime = (date: Date | string | null | undefined): string => {
+export const formatAideDateTime = (date: string | null | undefined): string => {
   if (!date) return '—';
-  const d = typeof date === 'string' ? new Date(date) : date;
-  if (isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-KE', { 
-    day: '2-digit', 
-    month: 'short', 
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  try {
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString('en-KE', { 
+      day: '2-digit', 
+      month: 'short', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '—';
+  }
+};
+
+/**
+ * Format date with time for display (Sentry)
+ */
+export const formatSentryDateTime = (date: string | null | undefined): string => {
+  return formatAideDateTime(date);
 };
 
 /**
@@ -249,10 +435,10 @@ export const formatAideDateTime = (date: Date | string | null | undefined): stri
  */
 export const getOfficerRankColor = (rank: OfficerRank): string => {
   const order = getOfficerRankOrder(rank);
-  if (order <= 3) return 'bg-gray-100 text-gray-700 border-gray-200';
-  if (order <= 6) return 'bg-blue-100 text-blue-700 border-blue-200';
-  if (order <= 9) return 'bg-purple-100 text-purple-700 border-purple-200';
-  return 'bg-amber-100 text-amber-700 border-amber-200';
+  if (order <= 3) return 'bg-gray-100 text-gray-700 ring-gray-200';
+  if (order <= 6) return 'bg-blue-100 text-blue-700 ring-blue-200';
+  if (order <= 9) return 'bg-purple-100 text-purple-700 ring-purple-200';
+  return 'bg-amber-100 text-amber-700 ring-amber-200';
 };
 
 /**
@@ -260,12 +446,96 @@ export const getOfficerRankColor = (rank: OfficerRank): string => {
  */
 export const getUnitTypeColor = (unit: UnitType): string => {
   const colors: Record<UnitType, string> = {
-    KPS: 'bg-blue-100 text-blue-700 border-blue-200',
-    APS: 'bg-green-100 text-green-700 border-green-200',
-    GSU: 'bg-red-100 text-red-700 border-red-200',
-    DCI: 'bg-purple-100 text-purple-700 border-purple-200',
-    VIPPU: 'bg-amber-100 text-amber-700 border-amber-200',
-    Other: 'bg-gray-100 text-gray-700 border-gray-200',
+    KPS: 'bg-blue-100 text-blue-700 ring-blue-200',
+    APS: 'bg-green-100 text-green-700 ring-green-200',
+    GSU: 'bg-red-100 text-red-700 ring-red-200',
+    DCI: 'bg-purple-100 text-purple-700 ring-purple-200',
+    VIPPU: 'bg-amber-100 text-amber-700 ring-amber-200',
+    Other: 'bg-gray-100 text-gray-700 ring-gray-200',
   };
-  return colors[unit] || 'bg-gray-100 text-gray-700 border-gray-200';
+  return colors[unit] || 'bg-gray-100 text-gray-700 ring-gray-200';
+};
+
+/**
+ * Get default sort options for Aide requests
+ */
+export const getDefaultAideSort = (): { sort_by: AideSortField; sort_order: SortOrder } => ({
+  sort_by: 'created_at',
+  sort_order: 'DESC',
+});
+
+/**
+ * Get default sort options for Sentry requests
+ */
+export const getDefaultSentrySort = (): { sort_by: SentrySortField; sort_order: SortOrder } => ({
+  sort_by: 'created_at',
+  sort_order: 'DESC',
+});
+
+/**
+ * Check if an aide request is editable (not rejected or attached)
+ */
+export const isAideRequestEditable = (status: AideStatus): boolean => {
+  return status !== 'rejected' && status !== 'attached';
+};
+
+/**
+ * Check if an aide request is deletable (not attached)
+ */
+export const isAideRequestDeletable = (status: AideStatus): boolean => {
+  return status !== 'attached';
+};
+
+/**
+ * Check if a sentry request is editable
+ */
+export const isSentryRequestEditable = (status: SentryStatus): boolean => {
+  return status !== 'rejected' && status !== 'resolved';
+};
+
+/**
+ * Check if a sentry request is deletable
+ */
+export const isSentryRequestDeletable = (status: SentryStatus): boolean => {
+  return status !== 'active' && status !== 'resolved';
+};
+
+/**
+ * Get status options for Aide status filter
+ */
+export const getAideStatusFilterOptions = (): Array<{ value: AideStatus; label: string }> => {
+  return AIDE_STATUSES.map(status => ({
+    value: status,
+    label: getAideStatusLabel(status),
+  }));
+};
+
+/**
+ * Get status options for Sentry status filter
+ */
+export const getSentryStatusFilterOptions = (): Array<{ value: SentryStatus; label: string }> => {
+  return SENTRY_STATUSES.map(status => ({
+    value: status,
+    label: getSentryStatusLabel(status),
+  }));
+};
+
+/**
+ * Get rank options for dropdown
+ */
+export const getOfficerRankOptions = (): Array<{ value: OfficerRank; label: string }> => {
+  return OFFICER_RANKS.map(rank => ({
+    value: rank,
+    label: rank,
+  }));
+};
+
+/**
+ * Get unit options for dropdown
+ */
+export const getUnitTypeOptions = (): Array<{ value: UnitType; label: string }> => {
+  return UNIT_TYPES.map(unit => ({
+    value: unit,
+    label: unit,
+  }));
 };

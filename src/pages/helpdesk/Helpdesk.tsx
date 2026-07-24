@@ -1572,7 +1572,7 @@ function OtherPaymentsTab() {
               </div>
               <div>
                 <span className="text-stone-500">Members:</span>
-                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
               </div>
             </div>
           )}

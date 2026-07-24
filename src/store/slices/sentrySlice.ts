@@ -1,38 +1,36 @@
-// src/store/slices/aidesSlice.ts
+// src/store/slices/sentrySlice.ts
 
 import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
 import type { AxiosError } from 'axios';
 import axiosClient from '../../api/api';
 import type { RootState } from '../store';
 import type {
-  AideRequest,
-  AideStatus,
-  OfficerRank,
-  UnitType,
-  CreateAideRequestInput,
-  UpdateAideRequestInput,
-  AideRequestFilters,
-  AideRequestPaginationResponse,
-  AideRequestStats,
+  SentryRequest,
+  SentryStatus,
+  CreateSentryRequestInput,
+  UpdateSentryRequestInput,
+  SentryRequestFilters,
+  SentryRequestPaginationResponse,
+  SentryRequestStats,
 } from '../../types/aide.types';
 
 // ─── Re-export types for convenience ─────────────────────────────────────────
 
-export type { AideStatus, OfficerRank, UnitType, AideRequest, AideRequestStats };
+export type { SentryStatus, SentryRequest, SentryRequestStats };
 
 // ─── State Interface ─────────────────────────────────────────────────────────
 
-export interface AideState {
-  items: AideRequest[];
-  selectedItem: AideRequest | null;
+export interface SentryState {
+  items: SentryRequest[];
+  selectedItem: SentryRequest | null;
   pagination: {
     total: number;
     page: number;
     limit: number;
     totalPages: number;
   };
-  stats: AideRequestStats | null;
-  filters: AideRequestFilters;
+  stats: SentryRequestStats | null;
+  filters: SentryRequestFilters;
   loading: {
     list: boolean;
     detail: boolean;
@@ -63,7 +61,7 @@ type AxiosErrorWithResponse = AxiosError<AxiosErrorResponseData>;
 
 // ─── Initial State ────────────────────────────────────────────────────────────
 
-const initialState: AideState = {
+const initialState: SentryState = {
   items: [],
   selectedItem: null,
   pagination: {
@@ -103,12 +101,11 @@ const extractErrorMessage = (error: unknown): string => {
   );
 };
 
-const buildParams = (filters: AideRequestFilters): Record<string, string> => {
+const buildParams = (filters: SentryRequestFilters): Record<string, string> => {
   const params: Record<string, string> = {};
   if (filters.status) params.status = filters.status;
   if (filters.judge_name) params.judge_name = filters.judge_name;
-  if (filters.officer_name) params.officer_name = filters.officer_name;
-  if (filters.current_station) params.current_station = filters.current_station;
+  if (filters.residence_location) params.residence_location = filters.residence_location;
   if (filters.page) params.page = String(filters.page);
   if (filters.limit) params.limit = String(filters.limit);
   if (filters.sort_by) params.sort_by = filters.sort_by;
@@ -116,30 +113,11 @@ const buildParams = (filters: AideRequestFilters): Record<string, string> => {
   return params;
 };
 
-// ─── Helper: Format date for API ─────────────────────────────────────────────
-
-const formatDateForAPI = (date: string): string => {
-  // If it's already in YYYY-MM-DD format, return as is
-  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return date;
-  }
-  // If it's a date string that needs parsing
-  try {
-    const parsed = new Date(date);
-    if (!isNaN(parsed.getTime())) {
-      return parsed.toISOString().split('T')[0];
-    }
-    return date;
-  } catch {
-    return date;
-  }
-};
-
 // ─── Helper: Extract validation errors from response ─────────────────────────
 
 const extractValidationErrors = (error: unknown): string | null => {
   const axiosError = error as AxiosErrorWithResponse;
-  
+
   if (!axiosError.response?.data) {
     return null;
   }
@@ -174,18 +152,19 @@ const extractValidationErrors = (error: unknown): string | null => {
 // ─── Async Thunks ─────────────────────────────────────────────────────────────
 
 /**
- * Fetch all aide requests with pagination and filters
+ * Fetch all sentry requests with pagination and filters
+ * GET /api/v1/sentry
  */
-export const fetchAideRequests = createAsyncThunk<
-  AideRequestPaginationResponse,
-  AideRequestFilters | undefined,
+export const fetchSentryRequests = createAsyncThunk<
+  SentryRequestPaginationResponse,
+  SentryRequestFilters | undefined,
   { rejectValue: string }
 >(
-  'aides/fetchAll',
+  'sentry/fetchAll',
   async (filters = {}, { rejectWithValue }) => {
     try {
       const params = buildParams(filters);
-      const { data } = await axiosClient.get('/aide', { params });
+      const { data } = await axiosClient.get('/sentry', { params });
       return data.data || data;
     } catch (err) {
       return rejectWithValue(extractErrorMessage(err));
@@ -194,17 +173,18 @@ export const fetchAideRequests = createAsyncThunk<
 );
 
 /**
- * Fetch a single aide request by ID
+ * Fetch a single sentry request by ID
+ * GET /api/v1/sentry/:id
  */
-export const fetchAideRequestById = createAsyncThunk<
-  AideRequest,
+export const fetchSentryRequestById = createAsyncThunk<
+  SentryRequest,
   string,
   { rejectValue: string }
 >(
-  'aides/fetchById',
+  'sentry/fetchById',
   async (id, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.get(`/aide/${id}`);
+      const { data } = await axiosClient.get(`/sentry/${id}`);
       return data.data || data;
     } catch (err) {
       return rejectWithValue(extractErrorMessage(err));
@@ -213,136 +193,114 @@ export const fetchAideRequestById = createAsyncThunk<
 );
 
 /**
- * Create a new aide request
+ * Create a new sentry request
+ * POST /api/v1/sentry
  */
-export const createAideRequest = createAsyncThunk<
-  AideRequest,
-  CreateAideRequestInput,
+export const createSentryRequest = createAsyncThunk<
+  SentryRequest,
+  CreateSentryRequestInput,
   { rejectValue: string }
 >(
-  'aides/create',
+  'sentry/create',
   async (payload, { rejectWithValue }) => {
     try {
       // Prepare the payload for the API with proper typing
-      const apiPayload: CreateAideRequestInput = {
+      const apiPayload: CreateSentryRequestInput = {
         judge_name: payload.judge_name,
-        officer_rank: payload.officer_rank,
-        officer_name: payload.officer_name,
-        employment_number: payload.employment_number,
-        current_station: payload.current_station,
-        current_unit: payload.current_unit,
-        proposed_assignment: payload.proposed_assignment,
+        residence_location: payload.residence_location,
       };
-
-      // Only include reporting_date if it's provided (not null or undefined)
-      if (payload.reporting_date !== undefined && payload.reporting_date !== null) {
-        apiPayload.reporting_date = formatDateForAPI(payload.reporting_date);
-      }
 
       // Only include remarks if provided
       if (payload.remarks) {
         apiPayload.remarks = payload.remarks;
       }
 
-      console.log('📤 Creating aide request:', apiPayload);
-      
-      const { data } = await axiosClient.post('/aide', apiPayload);
+      console.log('📤 Creating sentry request:', apiPayload);
+
+      const { data } = await axiosClient.post('/sentry', apiPayload);
       return data.data || data;
     } catch (err) {
-      console.error('❌ Create aide request error:', err);
-      
+      console.error('❌ Create sentry request error:', err);
+
       const validationError = extractValidationErrors(err);
       if (validationError) {
         return rejectWithValue(validationError);
       }
-      
+
       const axiosError = err as AxiosErrorWithResponse;
       if (axiosError.response?.data?.message) {
         return rejectWithValue(axiosError.response.data.message);
       }
-      
+
       if (axiosError.response?.data?.error) {
         return rejectWithValue(axiosError.response.data.error);
       }
-      
+
       return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
 /**
- * Update an existing aide request
+ * Update an existing sentry request
+ * PUT /api/v1/sentry/:id
  */
-export const updateAideRequest = createAsyncThunk<
-  AideRequest,
-  { id: string; data: UpdateAideRequestInput },
+export const updateSentryRequest = createAsyncThunk<
+  SentryRequest,
+  { id: string; data: UpdateSentryRequestInput },
   { rejectValue: string }
 >(
-  'aides/update',
+  'sentry/update',
   async ({ id, data }, { rejectWithValue }) => {
     try {
       // Prepare the payload for the API with proper typing
-      const apiPayload: UpdateAideRequestInput = {};
-      
+      const apiPayload: UpdateSentryRequestInput = {};
+
       // Only include fields that are defined
       if (data.judge_name !== undefined) apiPayload.judge_name = data.judge_name;
-      if (data.officer_rank !== undefined) apiPayload.officer_rank = data.officer_rank;
-      if (data.officer_name !== undefined) apiPayload.officer_name = data.officer_name;
-      if (data.employment_number !== undefined) apiPayload.employment_number = data.employment_number;
-      if (data.current_station !== undefined) apiPayload.current_station = data.current_station;
-      if (data.current_unit !== undefined) apiPayload.current_unit = data.current_unit;
-      if (data.proposed_assignment !== undefined) apiPayload.proposed_assignment = data.proposed_assignment;
-      
-      // Handle reporting_date - can be string, null, or undefined
-      if (data.reporting_date !== undefined) {
-        if (data.reporting_date === null) {
-          apiPayload.reporting_date = null;
-        } else {
-          apiPayload.reporting_date = formatDateForAPI(data.reporting_date);
-        }
-      }
-      
+      if (data.residence_location !== undefined) apiPayload.residence_location = data.residence_location;
       if (data.status !== undefined) apiPayload.status = data.status;
       if (data.remarks !== undefined) apiPayload.remarks = data.remarks;
-      
-      console.log('📤 Updating aide request:', { id, data: apiPayload });
-      
-      const { data: responseData } = await axiosClient.put(`/aide/${id}`, apiPayload);
+
+      console.log('📤 Updating sentry request:', { id, data: apiPayload });
+
+      const { data: responseData } = await axiosClient.put(`/sentry/${id}`, apiPayload);
       return responseData.data || responseData;
     } catch (err) {
-      console.error('❌ Update aide request error:', err);
-      
+      console.error('❌ Update sentry request error:', err);
+
       const validationError = extractValidationErrors(err);
       if (validationError) {
         return rejectWithValue(validationError);
       }
-      
+
       const axiosError = err as AxiosErrorWithResponse;
       if (axiosError.response?.data?.message) {
         return rejectWithValue(axiosError.response.data.message);
       }
-      
+
       if (axiosError.response?.data?.error) {
         return rejectWithValue(axiosError.response.data.error);
       }
-      
+
       return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
 /**
- * Delete an aide request (soft delete)
+ * Delete a sentry request (soft delete)
+ * DELETE /api/v1/sentry/:id
  */
-export const deleteAideRequest = createAsyncThunk<
+export const deleteSentryRequest = createAsyncThunk<
   string,
   string,
   { rejectValue: string }
 >(
-  'aides/delete',
+  'sentry/delete',
   async (id, { rejectWithValue }) => {
     try {
-      await axiosClient.delete(`/aide/${id}`);
+      await axiosClient.delete(`/sentry/${id}`);
       return id;
     } catch (err) {
       return rejectWithValue(extractErrorMessage(err));
@@ -351,17 +309,18 @@ export const deleteAideRequest = createAsyncThunk<
 );
 
 /**
- * Fetch aide request statistics
+ * Fetch sentry request statistics
+ * GET /api/v1/sentry/stats
  */
-export const fetchAideStats = createAsyncThunk<
-  AideRequestStats,
+export const fetchSentryStats = createAsyncThunk<
+  SentryRequestStats,
   { start_date?: string; end_date?: string } | undefined,
   { rejectValue: string }
 >(
-  'aides/fetchStats',
+  'sentry/fetchStats',
   async (params = {}, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.get('/aide/stats', { params });
+      const { data } = await axiosClient.get('/sentry/stats', { params });
       return data.data || data;
     } catch (err) {
       return rejectWithValue(extractErrorMessage(err));
@@ -371,17 +330,17 @@ export const fetchAideStats = createAsyncThunk<
 
 // ─── Slice ────────────────────────────────────────────────────────────────────
 
-const aidesSlice = createSlice({
-  name: 'aides',
+const sentrySlice = createSlice({
+  name: 'sentry',
   initialState,
   reducers: {
-    setFilters(state, action: PayloadAction<Partial<AideRequestFilters>>) {
+    setSentryFilters(state, action: PayloadAction<Partial<SentryRequestFilters>>) {
       state.filters = { ...state.filters, ...action.payload };
       if (action.payload.page === undefined) {
         state.filters.page = 1;
       }
     },
-    resetFilters(state) {
+    resetSentryFilters(state) {
       state.filters = {
         page: 1,
         limit: 20,
@@ -389,19 +348,19 @@ const aidesSlice = createSlice({
         sort_order: 'DESC',
       };
     },
-    clearSelectedItem(state) {
+    clearSelectedSentryItem(state) {
       state.selectedItem = null;
     },
-    clearError(state) {
+    clearSentryError(state) {
       state.error = null;
     },
-    clearSuccess(state) {
+    clearSentrySuccess(state) {
       state.success = false;
     },
-    resetState: () => initialState,
-    optimisticUpdateStatus(
+    resetSentryState: () => initialState,
+    optimisticUpdateSentryStatus(
       state,
-      action: PayloadAction<{ id: string; status: AideStatus }>
+      action: PayloadAction<{ id: string; status: SentryStatus }>
     ) {
       const { id, status } = action.payload;
       const index = state.items.findIndex((item) => item.id === id);
@@ -415,11 +374,11 @@ const aidesSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchAideRequests.pending, (state) => {
+      .addCase(fetchSentryRequests.pending, (state) => {
         state.loading.list = true;
         state.error = null;
       })
-      .addCase(fetchAideRequests.fulfilled, (state, action: PayloadAction<AideRequestPaginationResponse>) => {
+      .addCase(fetchSentryRequests.fulfilled, (state, action: PayloadAction<SentryRequestPaginationResponse>) => {
         state.loading.list = false;
         state.items = action.payload.data;
         state.pagination = {
@@ -429,17 +388,17 @@ const aidesSlice = createSlice({
           totalPages: action.payload.totalPages,
         };
       })
-      .addCase(fetchAideRequests.rejected, (state, action) => {
+      .addCase(fetchSentryRequests.rejected, (state, action) => {
         state.loading.list = false;
         state.error = action.payload as string;
       });
 
     builder
-      .addCase(fetchAideRequestById.pending, (state) => {
+      .addCase(fetchSentryRequestById.pending, (state) => {
         state.loading.detail = true;
         state.error = null;
       })
-      .addCase(fetchAideRequestById.fulfilled, (state, action: PayloadAction<AideRequest>) => {
+      .addCase(fetchSentryRequestById.fulfilled, (state, action: PayloadAction<SentryRequest>) => {
         state.loading.detail = false;
         state.selectedItem = action.payload;
         const index = state.items.findIndex((item) => item.id === action.payload.id);
@@ -447,37 +406,37 @@ const aidesSlice = createSlice({
           state.items[index] = action.payload;
         }
       })
-      .addCase(fetchAideRequestById.rejected, (state, action) => {
+      .addCase(fetchSentryRequestById.rejected, (state, action) => {
         state.loading.detail = false;
         state.error = action.payload as string;
       });
 
     builder
-      .addCase(createAideRequest.pending, (state) => {
+      .addCase(createSentryRequest.pending, (state) => {
         state.loading.create = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(createAideRequest.fulfilled, (state, action: PayloadAction<AideRequest>) => {
+      .addCase(createSentryRequest.fulfilled, (state, action: PayloadAction<SentryRequest>) => {
         state.loading.create = false;
         state.success = true;
         state.items.unshift(action.payload);
         state.pagination.total += 1;
         state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
       })
-      .addCase(createAideRequest.rejected, (state, action) => {
+      .addCase(createSentryRequest.rejected, (state, action) => {
         state.loading.create = false;
         state.error = action.payload as string;
         state.success = false;
       });
 
     builder
-      .addCase(updateAideRequest.pending, (state) => {
+      .addCase(updateSentryRequest.pending, (state) => {
         state.loading.update = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(updateAideRequest.fulfilled, (state, action: PayloadAction<AideRequest>) => {
+      .addCase(updateSentryRequest.fulfilled, (state, action: PayloadAction<SentryRequest>) => {
         state.loading.update = false;
         state.success = true;
         const index = state.items.findIndex((item) => item.id === action.payload.id);
@@ -488,19 +447,19 @@ const aidesSlice = createSlice({
           state.selectedItem = action.payload;
         }
       })
-      .addCase(updateAideRequest.rejected, (state, action) => {
+      .addCase(updateSentryRequest.rejected, (state, action) => {
         state.loading.update = false;
         state.error = action.payload as string;
         state.success = false;
       });
 
     builder
-      .addCase(deleteAideRequest.pending, (state) => {
+      .addCase(deleteSentryRequest.pending, (state) => {
         state.loading.delete = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(deleteAideRequest.fulfilled, (state, action: PayloadAction<string>) => {
+      .addCase(deleteSentryRequest.fulfilled, (state, action: PayloadAction<string>) => {
         state.loading.delete = false;
         state.success = true;
         state.items = state.items.filter((item) => item.id !== action.payload);
@@ -510,22 +469,22 @@ const aidesSlice = createSlice({
           state.selectedItem = null;
         }
       })
-      .addCase(deleteAideRequest.rejected, (state, action) => {
+      .addCase(deleteSentryRequest.rejected, (state, action) => {
         state.loading.delete = false;
         state.error = action.payload as string;
         state.success = false;
       });
 
     builder
-      .addCase(fetchAideStats.pending, (state) => {
+      .addCase(fetchSentryStats.pending, (state) => {
         state.loading.stats = true;
         state.error = null;
       })
-      .addCase(fetchAideStats.fulfilled, (state, action: PayloadAction<AideRequestStats>) => {
+      .addCase(fetchSentryStats.fulfilled, (state, action: PayloadAction<SentryRequestStats>) => {
         state.loading.stats = false;
         state.stats = action.payload;
       })
-      .addCase(fetchAideStats.rejected, (state, action) => {
+      .addCase(fetchSentryStats.rejected, (state, action) => {
         state.loading.stats = false;
         state.error = action.payload as string;
       });
@@ -535,68 +494,60 @@ const aidesSlice = createSlice({
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
 export const {
-  setFilters,
-  resetFilters,
-  clearSelectedItem,
-  clearError,
-  clearSuccess,
-  resetState,
-  optimisticUpdateStatus,
-} = aidesSlice.actions;
+  setSentryFilters,
+  resetSentryFilters,
+  clearSelectedSentryItem,
+  clearSentryError,
+  clearSentrySuccess,
+  resetSentryState,
+  optimisticUpdateSentryStatus,
+} = sentrySlice.actions;
 
 // ─── Selectors ───────────────────────────────────────────────────────────────
 
-export const selectAllAides = (state: RootState) => state.aides.items;
-export const selectSelectedAide = (state: RootState) => state.aides.selectedItem;
-export const selectAidePagination = (state: RootState) => state.aides.pagination;
-export const selectAideStats = (state: RootState) => state.aides.stats;
-export const selectAideFilters = (state: RootState) => state.aides.filters;
-export const selectAideLoading = (state: RootState) => state.aides.loading;
-export const selectAideListLoading = (state: RootState) => state.aides.loading.list;
-export const selectAideDetailLoading = (state: RootState) => state.aides.loading.detail;
-export const selectAideMutating = (state: RootState) =>
-  state.aides.loading.create || state.aides.loading.update || state.aides.loading.delete;
-export const selectAideError = (state: RootState) => state.aides.error;
-export const selectAideSuccess = (state: RootState) => state.aides.success;
-export const selectAideTotal = (state: RootState) => state.aides.pagination.total;
+export const selectAllSentryRequests = (state: RootState) => state.sentry.items;
+export const selectSelectedSentry = (state: RootState) => state.sentry.selectedItem;
+export const selectSentryPagination = (state: RootState) => state.sentry.pagination;
+export const selectSentryStats = (state: RootState) => state.sentry.stats;
+export const selectSentryFilters = (state: RootState) => state.sentry.filters;
+export const selectSentryLoading = (state: RootState) => state.sentry.loading;
+export const selectSentryListLoading = (state: RootState) => state.sentry.loading.list;
+export const selectSentryDetailLoading = (state: RootState) => state.sentry.loading.detail;
+export const selectSentryMutating = (state: RootState) =>
+  state.sentry.loading.create || state.sentry.loading.update || state.sentry.loading.delete;
+export const selectSentryError = (state: RootState) => state.sentry.error;
+export const selectSentrySuccess = (state: RootState) => state.sentry.success;
+export const selectSentryTotal = (state: RootState) => state.sentry.pagination.total;
 
-export const selectAidesByStatus = (status: AideStatus) => (state: RootState) =>
-  state.aides.items.filter((item) => item.status === status);
+export const selectSentryByStatus = (status: SentryStatus) => (state: RootState) =>
+  state.sentry.items.filter((item) => item.status === status);
 
-export const selectInProgressAides = (state: RootState) =>
-  state.aides.items.filter((item) => item.status === 'in_progress');
+export const selectPendingSentry = (state: RootState) =>
+  state.sentry.items.filter((item) => item.status === 'pending');
 
-export const selectAttachedAides = (state: RootState) =>
-  state.aides.items.filter((item) => item.status === 'attached');
+export const selectActiveSentry = (state: RootState) =>
+  state.sentry.items.filter((item) => item.status === 'active');
 
-export const selectRejectedAides = (state: RootState) =>
-  state.aides.items.filter((item) => item.status === 'rejected');
+export const selectResolvedSentry = (state: RootState) =>
+  state.sentry.items.filter((item) => item.status === 'resolved');
 
-export const selectPendingAides = (state: RootState) =>
-  state.aides.items.filter((item) => item.status === 'pending');
+export const selectRejectedSentry = (state: RootState) =>
+  state.sentry.items.filter((item) => item.status === 'rejected');
 
-export const selectAideTotalCount = (state: RootState) => state.aides.stats?.total || 0;
-export const selectAideInProgressCount = (state: RootState) => state.aides.stats?.in_progress || 0;
-export const selectAideAttachedCount = (state: RootState) => state.aides.stats?.attached || 0;
-export const selectAideRejectedCount = (state: RootState) => state.aides.stats?.rejected || 0;
-export const selectAidePendingCount = (state: RootState) => state.aides.stats?.pending || 0;
+export const selectSentryTotalCount = (state: RootState) => state.sentry.stats?.total || 0;
+export const selectSentryPendingCount = (state: RootState) => state.sentry.stats?.pending || 0;
+export const selectSentryActiveCount = (state: RootState) => state.sentry.stats?.active || 0;
+export const selectSentryResolvedCount = (state: RootState) => state.sentry.stats?.resolved || 0;
+export const selectSentryRejectedCount = (state: RootState) => state.sentry.stats?.rejected || 0;
 
-export const selectAidesByJudgeName = (judgeName: string) => (state: RootState) =>
-  state.aides.items.filter((item) =>
+export const selectSentryByJudgeName = (judgeName: string) => (state: RootState) =>
+  state.sentry.items.filter((item) =>
     item.judge_name.toLowerCase().includes(judgeName.toLowerCase())
   );
 
-export const selectAidesByOfficerName = (officerName: string) => (state: RootState) =>
-  state.aides.items.filter((item) =>
-    item.officer_name.toLowerCase().includes(officerName.toLowerCase())
+export const selectSentryByLocation = (location: string) => (state: RootState) =>
+  state.sentry.items.filter((item) =>
+    item.residence_location.toLowerCase().includes(location.toLowerCase())
   );
 
-export const selectAidesByStation = (station: string) => (state: RootState) =>
-  state.aides.items.filter((item) =>
-    item.current_station.toLowerCase().includes(station.toLowerCase())
-  );
-
-export const selectAidesByUnit = (unit: UnitType) => (state: RootState) =>
-  state.aides.items.filter((item) => item.current_unit === unit);
-
-export default aidesSlice.reducer;
+export default sentrySlice.reducer;

@@ -1,6 +1,6 @@
-// src/pages/Helpdesk.tsx - Updated version with document support for all tabs
+// src/pages/Helpdesk.tsx
 
-import React, { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import React, { useState, useEffect, useRef, type ChangeEvent, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   // Actions
@@ -72,6 +72,8 @@ import {
   type ClubMembership,
   type JudgeUtility,
   type UtilityStatus,
+  type RequestType,
+  type RemarkType,
 } from '../../store/slices/helpdeskSlice';
 
 // ─── Helpdesk Documents imports ───────────────────────────────────────────────
@@ -123,12 +125,38 @@ import {
   Send,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
-import UtilitiesModal, { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
+import UtilitiesModal from '../../components/modals/UtilitiesModal';
 import { ProtocolModal } from '../../components/modals/ProtocolModal';
 import { VisaModal } from '../../components/modals/VisaModal';
 import { RequestModal } from '../../components/modals/RequestModal';
 import ClubModal from '../../components/Layout/ClubModal';
 import { toast } from 'react-hot-toast';
+
+// ─── Constants for request types ────────────────────────────────────────────
+const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
+  Driver: 'Driver',
+  Bodyguard: 'Bodyguard',
+  Firearm: 'Firearm',
+  'Current Station': 'Current Station',
+  'Force Number': 'Force Number',
+  'Residence Security': 'Residence Security',
+  Sentry: 'Sentry',
+};
+
+const REQUEST_TYPE_COLORS: Record<RequestType, string> = {
+  Driver: 'bg-blue-50 text-blue-700 border-blue-200',
+  Bodyguard: 'bg-purple-50 text-purple-700 border-purple-200',
+  Firearm: 'bg-red-50 text-red-700 border-red-200',
+  'Current Station': 'bg-green-50 text-green-700 border-green-200',
+  'Force Number': 'bg-orange-50 text-orange-700 border-orange-200',
+  'Residence Security': 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  Sentry: 'bg-gray-50 text-gray-700 border-gray-200',
+};
+
+const REMARK_TYPE_LABELS: Record<RemarkType, string> = {
+  Onboarding: 'Onboarding',
+  Release: 'Release',
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -196,28 +224,19 @@ const getStatusIcon = (status: string): React.ReactNode => {
   }
 };
 
-const getStatusOptions = (): Status[] => {
-  return ['Pending', 'Signed', 'Rejected', 'In Progress', 'Completed', 'Active', 'Resolved'];
-};
+// Full list of statuses for most modules
+const FULL_STATUS_OPTIONS: Status[] = [
+  'Pending',
+  'Signed',
+  'Rejected',
+  'In Progress',
+  'Completed',
+  'Active',
+  'Resolved',
+];
 
-// ─── Document helpers ─────────────────────────────────────────────────────────
-
-const documentStatusColor = (status: DocumentStatus): string => {
-  const map: Record<DocumentStatus, string> = {
-    draft: 'bg-stone-100 text-stone-600 ring-stone-200',
-    pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
-    approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-    rejected: 'bg-red-50 text-red-700 ring-red-200',
-    returned: 'bg-orange-50 text-orange-700 ring-orange-200',
-  };
-  return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
-};
-
-const documentFormatIcon = (format: DocumentFormat) => {
-  if (format === 'xlsx') return <FileSpreadsheet size={16} className="text-emerald-600" />;
-  if (format === 'docx') return <FileText size={16} className="text-blue-600" />;
-  return <FileText size={16} className="text-red-600" />;
-};
+// Limited list for General Requests (per user request)
+const GENERAL_REQUEST_STATUS_OPTIONS: Status[] = ['Active', 'Rejected', 'Resolved'];
 
 // ─── UI Components ────────────────────────────────────────────────────────────
 
@@ -429,18 +448,19 @@ function ConfirmDialog({
   );
 }
 
-// ─── Status Dropdown ─────────────────────────────────────────────────────────
+// ─── Status Dropdown ────────────────────────────────────────────────────────────
 
 function StatusDropdown({
   status,
   onStatusChange,
   disabled,
+  options = FULL_STATUS_OPTIONS,
 }: {
   status: string;
   onStatusChange: (status: Status) => void;
   disabled?: boolean;
+  options?: Status[];
 }) {
-  const options = getStatusOptions();
   return (
     <div className="inline-flex items-center gap-1.5">
       <span className="text-stone-500">{getStatusIcon(status)}</span>
@@ -613,7 +633,6 @@ function UtilitiesTab({
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState<JudgeUtility | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [showMemoModal, setShowMemoModal] = useState(false);
 
   const handleAdd = () => {
     setEditingItem(null);
@@ -654,18 +673,6 @@ function UtilitiesTab({
     }
   };
 
-  const handleMemoGenerated = (docId: string) => {
-    console.log('Memo generated with document ID:', docId);
-    toast.success('Memo generated successfully');
-    setShowMemoModal(false);
-    dispatch(fetchUtilities({}));
-    dispatch(fetchHelpDeskStats());
-  };
-
-  const handleOpenMemoModal = () => {
-    setShowMemoModal(true);
-  };
-
   return (
     <>
       <Panel
@@ -674,9 +681,6 @@ function UtilitiesTab({
         action={
           <div className="flex gap-2">
             <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
-            <GoldOutlineButton icon={<FileText className="h-3.5 w-3.5" />} onClick={handleOpenMemoModal}>
-              Generate Memo
-            </GoldOutlineButton>
             <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
               Add Utility
             </GoldOutlineButton>
@@ -747,17 +751,11 @@ function UtilitiesTab({
           loading={mutating}
         />
       )}
-
-      <UtilitiesMemoModal
-        isOpen={showMemoModal}
-        onClose={() => setShowMemoModal(false)}
-        judges={data}
-        memoType="all"
-        onMemoGenerated={handleMemoGenerated}
-      />
     </>
   );
 }
+
+// ─── Utility Status Dropdown ─────────────────────────────────────────────────
 
 function UtilityStatusDropdown({
   status,
@@ -827,7 +825,180 @@ function UtilityStatusDropdown({
   );
 }
 
-// ─── Generic Detail Modal with Document Support ────────────────────────────
+// ─── Club Tab ─────────────────────────────────────────────────────────────────
+
+function ClubTab() {
+  const dispatch = useAppDispatch();
+  const data = useAppSelector(selectAllClubMemberships);
+  const loading = useAppSelector((state) => state.helpdesk.loading.club);
+  const mutating = useAppSelector(selectHelpDeskMutating);
+
+  const [showModal, setShowModal] = useState(false);
+  const [editingItem, setEditingItem] = useState<ClubMembership | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleAdd = () => {
+    setEditingItem(null);
+    setShowModal(true);
+  };
+
+  const handleEdit = (item: ClubMembership) => {
+    setEditingItem(item);
+    setShowModal(true);
+  };
+
+  const handleStatusChange = async (id: string, status: Status) => {
+    await dispatch(updateClubMembershipStatus({ id, status }));
+    await dispatch(fetchClubMemberships({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    await dispatch(deleteClubMembership(deleteTarget));
+    await dispatch(fetchClubMemberships({}));
+    await dispatch(fetchHelpDeskStats());
+    setDeleteTarget(null);
+  };
+
+  return (
+    <>
+      <Panel
+        title="Club Membership"
+        icon={<Users className="h-4 w-4" />}
+        action={
+          <div className="flex gap-2">
+            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
+            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
+              Add Club
+            </GoldOutlineButton>
+          </div>
+        }
+      >
+        <TableWithActions
+          data={data}
+          loading={loading}
+          columns={[
+            { key: 'pj_no', label: 'PJ No.' },
+            { key: 'judge_name', label: 'Judge' },
+            { key: 'club_name', label: 'Club' },
+            { key: 'entry_fee', label: 'Entry Fee', align: 'right' },
+            { key: 'annual_fee', label: 'Annual Fee', align: 'right' },
+            { key: 'court', label: 'Court' },
+            { key: 'status', label: 'Status', align: 'center' },
+          ]}
+          renderRow={(item: ClubMembership) => (
+            <>
+              <td className="px-3 py-2 font-mono text-xs text-stone-600">{item.pj_no || '—'}</td>
+              <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
+              <td className="px-3 py-2 text-stone-600">{item.club_name}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.entry_fee)}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.annual_fee)}</td>
+              <td className="px-3 py-2 text-stone-600">{item.court || '—'}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+            </>
+          )}
+          onEdit={handleEdit}
+          onDelete={(id) => setDeleteTarget(id)}
+          mutating={mutating}
+          extraActions={(item: ClubMembership) => (
+            <button
+              onClick={() => console.log('View club:', item)}
+              disabled={mutating}
+              className="rounded p-1 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50"
+              title="View Details"
+            >
+              <Eye className="h-3.5 w-3.5" />
+            </button>
+          )}
+        />
+      </Panel>
+
+      <ClubModal
+        isOpen={showModal}
+        onClose={() => {
+          setShowModal(false);
+          setEditingItem(null);
+        }}
+        editingItem={editingItem}
+      />
+
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete Club Membership?"
+          message="This action cannot be undone."
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
+          loading={mutating}
+        />
+      )}
+    </>
+  );
+}
+
+// ─── Generic DSA Tab ─────────────────────────────────────────────────────────
+
+interface DSATabProps<T> {
+  title: string;
+  icon: React.ReactNode;
+  data: T[];
+  loading: boolean;
+  mutating: boolean;
+  columns: { key: string; label: string; align?: 'left' | 'right' | 'center' }[];
+  renderRow: (item: T) => React.ReactNode;
+  onAdd: () => void;
+  onEdit: (item: T) => void;
+  onDelete: (id: string) => void;
+  onView?: (item: T) => void;
+}
+
+function DSATab<T extends { id: string }>({
+  title,
+  icon,
+  data,
+  loading,
+  mutating,
+  columns,
+  renderRow,
+  onAdd,
+  onEdit,
+  onDelete,
+  onView,
+}: DSATabProps<T>) {
+  return (
+    <Panel
+      title={title}
+      icon={icon}
+      action={
+        <div className="flex gap-2">
+          <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
+          <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={onAdd}>
+            Add {title.slice(0, -1)}
+          </GoldOutlineButton>
+        </div>
+      }
+    >
+      <TableWithActions
+        data={data}
+        loading={loading}
+        columns={columns}
+        renderRow={renderRow}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        mutating={mutating}
+        onView={onView}
+      />
+    </Panel>
+  );
+}
+
+// ─── Entity Detail Modal with Documents ──────────────────────────────────────
 
 interface EntityDetailModalProps<T> {
   item: T;
@@ -838,7 +1009,6 @@ interface EntityDetailModalProps<T> {
   onStatusChange: (id: string, status: Status) => void;
   mutating: boolean;
   renderContent: (item: T) => React.ReactNode;
-  currentUserRole?: 'dept_head' | 'super_admin' | 'staff';
 }
 
 function EntityDetailModal<T extends { id: string; status: Status; created_at: string; updated_at: string }>({
@@ -850,10 +1020,10 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
   onStatusChange,
   mutating,
   renderContent,
-  currentUserRole = 'dept_head',
 }: EntityDetailModalProps<T>) {
   const dispatch = useAppDispatch();
   const allDocs = useAppSelector(selectAllHelpdeskDocuments);
+  
   const docs = allDocs.filter(
     (d) => d.entity_type === entityType && d.entity_id === item.id
   );
@@ -867,7 +1037,10 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    dispatch(fetchHelpdeskDocuments({ entity_type: entityType, entity_id: item.id }));
+    dispatch(fetchHelpdeskDocuments({ 
+      entity_type: entityType, 
+      entity_id: item.id 
+    }));
   }, [dispatch, entityType, item.id]);
 
   useEffect(() => {
@@ -875,6 +1048,23 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
       dispatch(fetchHelpdeskDocuments({ unlinked: true }));
     }
   }, [dispatch, showLinkPicker]);
+
+  const documentStatusColor = (status: DocumentStatus): string => {
+    const map: Record<DocumentStatus, string> = {
+      draft: 'bg-stone-100 text-stone-600 ring-stone-200',
+      pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
+      approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+      rejected: 'bg-red-50 text-red-700 ring-red-200',
+      returned: 'bg-orange-50 text-orange-700 ring-orange-200',
+    };
+    return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+  };
+
+  const documentFormatIcon = (format: DocumentFormat) => {
+    if (format === 'xlsx') return <FileSpreadsheet size={16} className="text-emerald-600" />;
+    if (format === 'docx') return <FileText size={16} className="text-blue-600" />;
+    return <FileText size={16} className="text-red-600" />;
+  };
 
   const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -902,7 +1092,10 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
         })
       ).unwrap();
       toast.success('Document attached successfully.');
-      dispatch(fetchHelpdeskDocuments({ entity_type: entityType, entity_id: item.id }));
+      dispatch(fetchHelpdeskDocuments({ 
+        entity_type: entityType, 
+        entity_id: item.id 
+      }));
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to attach document.');
     } finally {
@@ -912,10 +1105,17 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
 
   const handleLinkExisting = async (docId: string) => {
     try {
-      await dispatch(linkHelpdeskDocument({ id: docId, entity_type: entityType, entity_id: item.id })).unwrap();
+      await dispatch(linkHelpdeskDocument({ 
+        id: docId, 
+        entity_type: entityType,
+        entity_id: item.id 
+      })).unwrap();
       toast.success('Document linked successfully.');
       setShowLinkPicker(false);
-      dispatch(fetchHelpdeskDocuments({ entity_type: entityType, entity_id: item.id }));
+      dispatch(fetchHelpdeskDocuments({ 
+        entity_type: entityType, 
+        entity_id: item.id 
+      }));
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to link document.');
     }
@@ -925,7 +1125,10 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
     try {
       await dispatch(submitForApproval({ id: docId })).unwrap();
       toast.success('Document sent to the super admin for approval.');
-      dispatch(fetchHelpdeskDocuments({ entity_type: entityType, entity_id: item.id }));
+      dispatch(fetchHelpdeskDocuments({ 
+        entity_type: entityType, 
+        entity_id: item.id 
+      }));
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to submit for approval.');
     }
@@ -1021,7 +1224,7 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
               <p className="mt-2 text-xs text-stone-400 italic">Loading documents…</p>
             ) : docs.length === 0 ? (
               <p className="mt-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-3 text-xs text-stone-400">
-                No documents attached yet. Upload a document or link an existing one above.
+                No documents attached yet. Upload or link a document above.
               </p>
             ) : (
               <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
@@ -1055,7 +1258,7 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                         <ExternalLink size={12} />
                         View
                       </a>
-                      {doc.status === 'draft' && currentUserRole === 'dept_head' && (
+                      {doc.status === 'draft' && (
                         <GhostButton
                           onClick={() => handleSendForApproval(doc.id)}
                           disabled={!!documentActionLoading[doc.id]?.submitting}
@@ -1096,253 +1299,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
   );
 }
 
-// ─── Club Tab ─────────────────────────────────────────────────────────────────
-
-function ClubTab() {
-  const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllClubMemberships);
-  const loading = useAppSelector((state) => state.helpdesk.loading.club);
-  const mutating = useAppSelector(selectHelpDeskMutating);
-
-  const [showModal, setShowModal] = useState(false);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [editingItem, setEditingItem] = useState<ClubMembership | null>(null);
-  const [selectedItem, setSelectedItem] = useState<ClubMembership | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-
-  const handleAdd = () => {
-    setEditingItem(null);
-    setShowModal(true);
-  };
-
-  const handleEdit = (item: ClubMembership) => {
-    setEditingItem(item);
-    setShowModal(true);
-  };
-
-  const handleView = (item: ClubMembership) => {
-    setSelectedItem(item);
-    setShowDetailModal(true);
-  };
-
-  const handleStatusChange = async (id: string, status: Status) => {
-    await dispatch(updateClubMembershipStatus({ id, status }));
-    await dispatch(fetchClubMemberships({}));
-    await dispatch(fetchHelpDeskStats());
-  };
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    await dispatch(deleteClubMembership(deleteTarget));
-    await dispatch(fetchClubMemberships({}));
-    await dispatch(fetchHelpDeskStats());
-    setDeleteTarget(null);
-  };
-
-  return (
-    <>
-      <Panel
-        title="Club Membership"
-        icon={<Users className="h-4 w-4" />}
-        action={
-          <div className="flex gap-2">
-            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
-            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
-              Add Club
-            </GoldOutlineButton>
-          </div>
-        }
-      >
-        <TableWithActions
-          data={data}
-          loading={loading}
-          columns={[
-            { key: 'pj_no', label: 'PJ No.' },
-            { key: 'judge_name', label: 'Judge' },
-            { key: 'club_name', label: 'Club' },
-            { key: 'entry_fee', label: 'Entry Fee', align: 'right' },
-            { key: 'annual_fee', label: 'Annual Fee', align: 'right' },
-            { key: 'court', label: 'Court' },
-            { key: 'status', label: 'Status', align: 'center' },
-          ]}
-          renderRow={(item: ClubMembership) => (
-            <>
-              <td className="px-3 py-2 font-mono text-xs text-stone-600">{item.pj_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
-              <td className="px-3 py-2 text-stone-600">{item.club_name}</td>
-              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.entry_fee)}</td>
-              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.annual_fee)}</td>
-              <td className="px-3 py-2 text-stone-600">{item.court || '—'}</td>
-              <td className="px-3 py-2 text-center">
-                <StatusDropdown
-                  status={item.status}
-                  onStatusChange={(s) => handleStatusChange(item.id, s)}
-                  disabled={mutating}
-                />
-              </td>
-            </>
-          )}
-          onEdit={handleEdit}
-          onDelete={(id) => setDeleteTarget(id)}
-          mutating={mutating}
-          onView={handleView}
-        />
-      </Panel>
-
-      <ClubModal
-        isOpen={showModal}
-        onClose={() => {
-          setShowModal(false);
-          setEditingItem(null);
-        }}
-        editingItem={editingItem}
-      />
-
-      {showDetailModal && selectedItem && (
-        <EntityDetailModal
-          item={selectedItem}
-          entityType="club"
-          title={selectedItem.judge_name}
-          onClose={() => setShowDetailModal(false)}
-          onEdit={() => {
-            setShowDetailModal(false);
-            handleEdit(selectedItem);
-          }}
-          onStatusChange={handleStatusChange}
-          mutating={mutating}
-          renderContent={(item: ClubMembership) => (
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="text-stone-500">Club Name:</span>
-                <p className="font-medium">{item.club_name}</p>
-              </div>
-              <div>
-                <span className="text-stone-500">Court:</span>
-                <p className="font-medium">{item.court || '—'}</p>
-              </div>
-              <div>
-                <span className="text-stone-500">Entry Fee:</span>
-                <p className="font-bold text-emerald-700">{formatCurrency(item.entry_fee)}</p>
-              </div>
-              <div>
-                <span className="text-stone-500">Annual Fee:</span>
-                <p className="font-bold text-emerald-700">{formatCurrency(item.annual_fee)}</p>
-              </div>
-              <div>
-                <span className="text-stone-500">PJ Number:</span>
-                <p className="font-medium">{item.pj_no || '—'}</p>
-              </div>
-            </div>
-          )}
-        />
-      )}
-
-      {deleteTarget && (
-        <ConfirmDialog
-          title="Delete Club Membership?"
-          message="This action cannot be undone."
-          onConfirm={handleDelete}
-          onCancel={() => setDeleteTarget(null)}
-          loading={mutating}
-        />
-      )}
-    </>
-  );
-}
-
-// ─── Generic DSA Tab ─────────────────────────────────────────────────────────
-
-interface DSATabProps<T> {
-  title: string;
-  icon: React.ReactNode;
-  data: T[];
-  loading: boolean;
-  mutating: boolean;
-  columns: { key: string; label: string; align?: 'left' | 'right' | 'center' }[];
-  renderRow: (item: T) => React.ReactNode;
-  onAdd: () => void;
-  onEdit: (item: T) => void;
-  onDelete: (id: string) => void;
-  onView?: (item: T) => void;
-  entityType: DocumentEntityType;
-  renderDetailContent: (item: T) => React.ReactNode;
-}
-
-function DSATab<T extends { id: string; status: Status; created_at: string; updated_at: string }>({
-  title,
-  icon,
-  data,
-  loading,
-  mutating,
-  columns,
-  renderRow,
-  onAdd,
-  onEdit,
-  onDelete,
-  onView,
-  entityType,
-  renderDetailContent,
-}: DSATabProps<T>) {
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<T | null>(null);
-
-  const handleView = (item: T) => {
-    setSelectedItem(item);
-    setShowDetailModal(true);
-    if (onView) onView(item);
-  };
-
-  // Placeholder status change - will be overridden by parent
-  const handleStatusChange = async (id: string, status: Status) => {
-    // This will be handled by the parent component
-    console.log('Status change:', id, status);
-  };
-
-  return (
-    <>
-      <Panel
-        title={title}
-        icon={icon}
-        action={
-          <div className="flex gap-2">
-            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
-            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={onAdd}>
-              Add {title.slice(0, -1)}
-            </GoldOutlineButton>
-          </div>
-        }
-      >
-        <TableWithActions
-          data={data}
-          loading={loading}
-          columns={columns}
-          renderRow={renderRow}
-          onEdit={onEdit}
-          onDelete={onDelete}
-          mutating={mutating}
-          onView={handleView}
-        />
-      </Panel>
-
-      {showDetailModal && selectedItem && (
-        <EntityDetailModal
-          item={selectedItem}
-          entityType={entityType}
-          title={title.slice(0, -1)}
-          onClose={() => setShowDetailModal(false)}
-          onEdit={() => {
-            setShowDetailModal(false);
-            onEdit(selectedItem);
-          }}
-          onStatusChange={handleStatusChange}
-          mutating={mutating}
-          renderContent={renderDetailContent}
-        />
-      )}
-    </>
-  );
-}
-
 // ─── Circuits Tab ────────────────────────────────────────────────────────────
 
 function CircuitsTab() {
@@ -1352,7 +1308,9 @@ function CircuitsTab() {
   const mutating = useAppSelector(selectHelpDeskMutating);
 
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState<Circuit | null>(null);
+  const [selectedItem, setSelectedItem] = useState<Circuit | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -1363,6 +1321,11 @@ function CircuitsTab() {
   const handleEdit = (item: Circuit) => {
     setEditingItem(item);
     setShowModal(true);
+  };
+
+  const handleView = (item: Circuit) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -1396,7 +1359,17 @@ function CircuitsTab() {
         ]}
         renderRow={(item: Circuit) => (
           <>
-            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
+            <td className="px-3 py-2">
+              <button
+                onClick={() => handleView(item)}
+                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+              >
+                {item.name}
+              </button>
+              {item.location && (
+                <span className="ml-2 text-xs text-stone-400">({item.location})</span>
+              )}
+            </td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
             <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
@@ -1412,27 +1385,7 @@ function CircuitsTab() {
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
-        entityType="circuit"
-        renderDetailContent={(item: Circuit) => (
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <span className="text-stone-500">Location:</span>
-              <p className="font-medium">{item.location || '—'}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Period:</span>
-              <p className="font-medium">{formatDate(item.start_date)} — {formatDate(item.end_date)}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Total DSA:</span>
-              <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Members:</span>
-              <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
-            </div>
-          </div>
-        )}
+        onView={handleView}
       />
 
       <CircuitModal
@@ -1444,6 +1397,41 @@ function CircuitsTab() {
         mode="circuit"
         editingItem={editingItem}
       />
+
+      {showDetailModal && selectedItem && (
+        <EntityDetailModal
+          item={selectedItem}
+          entityType="circuit"
+          title={selectedItem.name}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Location:</span>
+                <p className="font-medium">{item.location || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Period:</span>
+                <p className="font-medium">{formatDate(item.start_date)} — {formatDate(item.end_date)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Total DSA:</span>
+                <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Members:</span>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -1467,7 +1455,9 @@ function OtherPaymentsTab() {
   const mutating = useAppSelector(selectHelpDeskMutating);
 
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState<OtherPayment | null>(null);
+  const [selectedItem, setSelectedItem] = useState<OtherPayment | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -1478,6 +1468,11 @@ function OtherPaymentsTab() {
   const handleEdit = (item: OtherPayment) => {
     setEditingItem(item);
     setShowModal(true);
+  };
+
+  const handleView = (item: OtherPayment) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -1512,7 +1507,14 @@ function OtherPaymentsTab() {
         ]}
         renderRow={(item: OtherPayment) => (
           <>
-            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
+            <td className="px-3 py-2">
+              <button
+                onClick={() => handleView(item)}
+                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+              >
+                {item.name}
+              </button>
+            </td>
             <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.description || '—'}</td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
@@ -1529,27 +1531,7 @@ function OtherPaymentsTab() {
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
-        entityType="otherPayment"
-        renderDetailContent={(item: OtherPayment) => (
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <span className="text-stone-500">Description:</span>
-              <p className="font-medium">{item.description || '—'}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Period:</span>
-              <p className="font-medium">{formatDate(item.start_date)} — {formatDate(item.end_date)}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Total DSA:</span>
-              <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Members:</span>
-              <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
-            </div>
-          </div>
-        )}
+        onView={handleView}
       />
 
       <CircuitModal
@@ -1561,6 +1543,41 @@ function OtherPaymentsTab() {
         mode="otherPayment"
         editingItem={editingItem}
       />
+
+      {showDetailModal && selectedItem && (
+        <EntityDetailModal
+          item={selectedItem}
+          entityType="otherPayment"
+          title={selectedItem.name}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Description:</span>
+                <p className="font-medium">{item.description || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Period:</span>
+                <p className="font-medium">{formatDate(item.start_date)} — {formatDate(item.end_date)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Total DSA:</span>
+                <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Members:</span>
+                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -1584,7 +1601,9 @@ function BenchesTab() {
   const mutating = useAppSelector(selectHelpDeskMutating);
 
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState<SpecialBench | null>(null);
+  const [selectedItem, setSelectedItem] = useState<SpecialBench | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -1595,6 +1614,11 @@ function BenchesTab() {
   const handleEdit = (item: SpecialBench) => {
     setEditingItem(item);
     setShowModal(true);
+  };
+
+  const handleView = (item: SpecialBench) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -1628,7 +1652,14 @@ function BenchesTab() {
         ]}
         renderRow={(item: SpecialBench) => (
           <>
-            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
+            <td className="px-3 py-2">
+              <button
+                onClick={() => handleView(item)}
+                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+              >
+                {item.name}
+              </button>
+            </td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
             <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
@@ -1644,27 +1675,7 @@ function BenchesTab() {
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
-        entityType="bench"
-        renderDetailContent={(item: SpecialBench) => (
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <span className="text-stone-500">Bench Name:</span>
-              <p className="font-medium">{item.name}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Period:</span>
-              <p className="font-medium">{formatDate(item.start_date)} — {formatDate(item.end_date)}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Total DSA:</span>
-              <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Members:</span>
-              <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
-            </div>
-          </div>
-        )}
+        onView={handleView}
       />
 
       <CircuitModal
@@ -1676,6 +1687,41 @@ function BenchesTab() {
         mode="bench"
         editingItem={editingItem}
       />
+
+      {showDetailModal && selectedItem && (
+        <EntityDetailModal
+          item={selectedItem}
+          entityType="bench"
+          title={selectedItem.name}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Bench Name:</span>
+                <p className="font-medium">{item.name}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Period:</span>
+                <p className="font-medium">{formatDate(item.start_date)} — {formatDate(item.end_date)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Total DSA:</span>
+                <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Members:</span>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -1699,7 +1745,9 @@ function PartHeardTab() {
   const mutating = useAppSelector(selectHelpDeskMutating);
 
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState<PartHeard | null>(null);
+  const [selectedItem, setSelectedItem] = useState<PartHeard | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -1710,6 +1758,11 @@ function PartHeardTab() {
   const handleEdit = (item: PartHeard) => {
     setEditingItem(item);
     setShowModal(true);
+  };
+
+  const handleView = (item: PartHeard) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -1744,7 +1797,14 @@ function PartHeardTab() {
         ]}
         renderRow={(item: PartHeard) => (
           <>
-            <td className="px-3 py-2 font-medium text-stone-800">{item.case_reference}</td>
+            <td className="px-3 py-2">
+              <button
+                onClick={() => handleView(item)}
+                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+              >
+                {item.case_reference}
+              </button>
+            </td>
             <td className="px-3 py-2 text-stone-600">{item.approved_by || '—'}</td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
             <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
@@ -1761,27 +1821,7 @@ function PartHeardTab() {
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
-        entityType="partHeard"
-        renderDetailContent={(item: PartHeard) => (
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <span className="text-stone-500">Approved By:</span>
-              <p className="font-medium">{item.approved_by || '—'}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Period:</span>
-              <p className="font-medium">{formatDate(item.start_date)} — {formatDate(item.end_date)}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Total DSA:</span>
-              <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Members:</span>
-              <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
-            </div>
-          </div>
-        )}
+        onView={handleView}
       />
 
       <CircuitModal
@@ -1793,6 +1833,41 @@ function PartHeardTab() {
         mode="partHeard"
         editingItem={editingItem}
       />
+
+      {showDetailModal && selectedItem && (
+        <EntityDetailModal
+          item={selectedItem}
+          entityType="partHeard"
+          title={selectedItem.case_reference}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Approved By:</span>
+                <p className="font-medium">{item.approved_by || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Period:</span>
+                <p className="font-medium">{formatDate(item.start_date)} — {formatDate(item.end_date)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Total DSA:</span>
+                <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Members:</span>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -1816,7 +1891,9 @@ function ServiceWeekTab() {
   const mutating = useAppSelector(selectHelpDeskMutating);
 
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState<ServiceWeek | null>(null);
+  const [selectedItem, setSelectedItem] = useState<ServiceWeek | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   const handleAdd = () => {
@@ -1827,6 +1904,11 @@ function ServiceWeekTab() {
   const handleEdit = (item: ServiceWeek) => {
     setEditingItem(item);
     setShowModal(true);
+  };
+
+  const handleView = (item: ServiceWeek) => {
+    setSelectedItem(item);
+    setShowDetailModal(true);
   };
 
   const handleStatusChange = async (id: string, status: Status) => {
@@ -1860,7 +1942,14 @@ function ServiceWeekTab() {
         ]}
         renderRow={(item: ServiceWeek) => (
           <>
-            <td className="px-3 py-2 font-medium text-stone-800">{item.name}</td>
+            <td className="px-3 py-2">
+              <button
+                onClick={() => handleView(item)}
+                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+              >
+                {item.name}
+              </button>
+            </td>
             <td className="px-3 py-2 text-stone-600">{item.week_number}</td>
             <td className="px-3 py-2 text-stone-600">{item.year}</td>
             <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
@@ -1876,27 +1965,7 @@ function ServiceWeekTab() {
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
-        entityType="serviceWeek"
-        renderDetailContent={(item: ServiceWeek) => (
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <span className="text-stone-500">Week Number:</span>
-              <p className="font-medium">Week {item.week_number}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Year:</span>
-              <p className="font-medium">{item.year}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Total DSA:</span>
-              <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
-            </div>
-            <div>
-              <span className="text-stone-500">Members:</span>
-              <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
-            </div>
-          </div>
-        )}
+        onView={handleView}
       />
 
       <CircuitModal
@@ -1908,6 +1977,41 @@ function ServiceWeekTab() {
         mode="serviceWeek"
         editingItem={editingItem}
       />
+
+      {showDetailModal && selectedItem && (
+        <EntityDetailModal
+          item={selectedItem}
+          entityType="serviceWeek"
+          title={selectedItem.name}
+          onClose={() => setShowDetailModal(false)}
+          onEdit={() => {
+            setShowDetailModal(false);
+            handleEdit(selectedItem);
+          }}
+          onStatusChange={handleStatusChange}
+          mutating={mutating}
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Week Number:</span>
+                <p className="font-medium">Week {item.week_number}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Year:</span>
+                <p className="font-medium">{item.year}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Total DSA:</span>
+                <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Members:</span>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
+              </div>
+            </div>
+          )}
+        />
+      )}
 
       {deleteTarget && (
         <ConfirmDialog
@@ -1993,7 +2097,14 @@ function MedicalClaimsTab() {
           renderRow={(item: MedicalClaim) => (
             <>
               <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.officer_name}</td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.officer_name}
+                </button>
+              </td>
               <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.claim_amount)}</td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.date_forwarded_dhr)}</td>
               <td className="px-3 py-2 text-center">
@@ -2035,7 +2146,7 @@ function MedicalClaimsTab() {
           }}
           onStatusChange={handleStatusChange}
           mutating={mutating}
-          renderContent={(item: MedicalClaim) => (
+          renderContent={(item) => (
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
                 <span className="text-stone-500">Claim Amount:</span>
@@ -2071,7 +2182,12 @@ function MedicalClaimsTab() {
   );
 }
 
-// ─── General Requests Tab ────────────────────────────────────────────────────
+// ─── General Requests Tab ─────────────────────────────────────────────────
+
+interface ExtendedGeneralRequest extends GeneralRequest {
+  rank?: string;
+  reporting_date?: string;
+}
 
 function GeneralRequestsTab() {
   const dispatch = useAppDispatch();
@@ -2084,6 +2200,12 @@ function GeneralRequestsTab() {
   const [editingItem, setEditingItem] = useState<GeneralRequest | null>(null);
   const [selectedItem, setSelectedItem] = useState<GeneralRequest | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
+  const handleStatusChange = async (id: string, status: Status) => {
+    await dispatch(updateGeneralRequestStatus({ id, status }));
+    await dispatch(fetchGeneralRequests({}));
+    await dispatch(fetchHelpDeskStats());
+  };
 
   const handleAdd = () => {
     setEditingItem(null);
@@ -2100,12 +2222,6 @@ function GeneralRequestsTab() {
     setShowDetailModal(true);
   };
 
-  const handleStatusChange = async (id: string, status: Status) => {
-    await dispatch(updateGeneralRequestStatus({ id, status }));
-    await dispatch(fetchGeneralRequests({}));
-    await dispatch(fetchHelpDeskStats());
-  };
-
   const handleDelete = async () => {
     if (!deleteTarget) return;
     await dispatch(deleteGeneralRequest(deleteTarget));
@@ -2117,7 +2233,7 @@ function GeneralRequestsTab() {
   return (
     <>
       <Panel
-        title="General Requests"
+        title="General / Personnel Requests"
         icon={<FileText className="h-4 w-4" />}
         action={
           <div className="flex gap-2">
@@ -2128,40 +2244,128 @@ function GeneralRequestsTab() {
           </div>
         }
       >
-        <TableWithActions
-          data={data}
-          loading={loading}
-          columns={[
-            { key: 's_no', label: 'S/No.' },
-            { key: 'judge_name', label: "Judge's Name" },
-            { key: 'request', label: 'Request' },
-            { key: 'date_received', label: 'Date Received' },
-            { key: 'officer_assigned', label: 'Officer Assigned' },
-            { key: 'status', label: 'Status', align: 'center' },
-            { key: 'remarks', label: 'Remarks' },
-          ]}
-          renderRow={(item: GeneralRequest) => (
-            <>
-              <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
-              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.request}</td>
-              <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
-              <td className="px-3 py-2 text-stone-600">{item.officer_assigned || '—'}</td>
-              <td className="px-3 py-2 text-center">
-                <StatusDropdown
-                  status={item.status}
-                  onStatusChange={(s) => handleStatusChange(item.id, s)}
-                  disabled={mutating}
-                />
-              </td>
-              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.remarks || '—'}</td>
-            </>
-          )}
-          onEdit={handleEdit}
-          onDelete={(id) => setDeleteTarget(id)}
-          mutating={mutating}
-          onView={handleView}
-        />
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-stone-200 text-xs uppercase text-stone-400">
+                <th className="px-3 py-2 font-medium">S/No.</th>
+                <th className="px-3 py-2 font-medium">Ticket #</th>
+                <th className="px-3 py-2 font-medium">Judge</th>
+                <th className="px-3 py-2 font-medium">Station</th>
+                <th className="px-3 py-2 font-medium">Type</th>
+                <th className="px-3 py-2 font-medium">Firearm Type</th>
+                <th className="px-3 py-2 font-medium">Officer</th>
+                <th className="px-3 py-2 font-medium">Rank</th>
+                <th className="px-3 py-2 font-medium">Force No.</th>
+                <th className="px-3 py-2 font-medium">Request Date</th>
+                <th className="px-3 py-2 font-medium">Reporting Date</th>
+                <th className="px-3 py-2 font-medium">Date Recv'd</th>
+                <th className="px-3 py-2 font-medium">Officer Assigned</th>
+                <th className="px-3 py-2 font-medium">Assigned To</th>
+                <th className="px-3 py-2 font-medium">Remark Type</th>
+                <th className="px-3 py-2 font-medium">Remarks</th>
+                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 text-center">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {loading ? (
+                <tr>
+                  <td colSpan={18} className="px-3 py-8 text-center">
+                    <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c] mx-auto" />
+                  </td>
+                </tr>
+              ) : data.length === 0 ? (
+                <tr>
+                  <td colSpan={18} className="px-3 py-8 text-center text-stone-400">
+                    No records found. Click 'Add' to create one.
+                  </td>
+                </tr>
+              ) : (
+                data.map((item) => {
+                  const extended = item as ExtendedGeneralRequest;
+                  return (
+                    <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+                      <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-stone-500">{item.ticket_number || '—'}</td>
+                      <td className="px-3 py-2">
+                        <button
+                          onClick={() => handleView(item)}
+                          className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                        >
+                          {item.judge_name}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2 text-stone-600">{item.location || '—'}</td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                            REQUEST_TYPE_COLORS[item.request_type as RequestType] || 'bg-stone-50 text-stone-600 border-stone-200'
+                          }`}
+                        >
+                          {item.request_type ? REQUEST_TYPE_LABELS[item.request_type as RequestType] : '—'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-stone-600">{item.firearm_type || '—'}</td>
+                      <td className="px-3 py-2 text-stone-600">{item.officer_name || '—'}</td>
+                      <td className="px-3 py-2 text-stone-600">{extended.rank || '—'}</td>
+                      <td className="px-3 py-2 text-stone-600">{item.force_number || '—'}</td>
+                      <td className="px-3 py-2 text-stone-600">{formatDate(item.request_date)}</td>
+                      <td className="px-3 py-2 text-stone-600">
+                        {extended.reporting_date ? formatDate(extended.reporting_date) : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
+                      <td className="px-3 py-2 text-stone-600">{item.officer_assigned || '—'}</td>
+                      <td className="px-3 py-2 text-stone-600">{item.assigned_to || '—'}</td>
+                      <td className="px-3 py-2 text-stone-600">
+                        {item.remark_type ? REMARK_TYPE_LABELS[item.remark_type as RemarkType] : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-stone-600 max-w-xs truncate" title={item.remarks || ''}>
+                        {item.remarks || '—'}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <StatusDropdown
+                          status={item.status}
+                          onStatusChange={(s) => handleStatusChange(item.id, s)}
+                          disabled={mutating}
+                          options={GENERAL_REQUEST_STATUS_OPTIONS}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => handleView(item)}
+                            disabled={mutating}
+                            className="rounded p-1 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50"
+                            title="View Details"
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleEdit(item)}
+                            disabled={mutating}
+                            className="rounded p-1 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50"
+                            title="Edit"
+                          >
+                            <Edit className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setDeleteTarget(item.id)}
+                            disabled={mutating}
+                            className="rounded p-1 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </Panel>
 
       <RequestModal
@@ -2186,30 +2390,79 @@ function GeneralRequestsTab() {
           }}
           onStatusChange={handleStatusChange}
           mutating={mutating}
-          renderContent={(item: GeneralRequest) => (
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="text-stone-500">Request:</span>
-                <p className="font-medium">{item.request || '—'}</p>
+          renderContent={(item) => {
+            const extended = item as ExtendedGeneralRequest;
+            return (
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-stone-500">Request Type:</span>
+                  <p className="font-medium">{item.request_type ? REQUEST_TYPE_LABELS[item.request_type as RequestType] : '—'}</p>
+                </div>
+                <div>
+                  <span className="text-stone-500">Station:</span>
+                  <p className="font-medium">{item.location || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-stone-500">Ticket Number:</span>
+                  <p className="font-mono text-xs">{item.ticket_number || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-stone-500">Request Date:</span>
+                  <p className="font-medium">{formatDate(item.request_date)}</p>
+                </div>
+                {extended.reporting_date && (
+                  <div>
+                    <span className="text-stone-500">Reporting Date:</span>
+                    <p className="font-medium">{formatDate(extended.reporting_date)}</p>
+                  </div>
+                )}
+                {extended.rank && (
+                  <div>
+                    <span className="text-stone-500">Rank:</span>
+                    <p className="font-medium">{extended.rank}</p>
+                  </div>
+                )}
+                {item.force_number && (
+                  <div>
+                    <span className="text-stone-500">Force Number:</span>
+                    <p className="font-medium">{item.force_number}</p>
+                  </div>
+                )}
+                {item.officer_name && (
+                  <div>
+                    <span className="text-stone-500">Officer Name:</span>
+                    <p className="font-medium">{item.officer_name}</p>
+                  </div>
+                )}
+                {item.firearm_type && (
+                  <div>
+                    <span className="text-stone-500">Firearm Type:</span>
+                    <p className="font-medium">{item.firearm_type}</p>
+                  </div>
+                )}
+                <div>
+                  <span className="text-stone-500">Date Received:</span>
+                  <p className="font-medium">{formatDate(item.date_received)}</p>
+                </div>
+                <div>
+                  <span className="text-stone-500">Officer Assigned:</span>
+                  <p className="font-medium">{item.officer_assigned || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-stone-500">Assigned To:</span>
+                  <p className="font-medium">{item.assigned_to || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-stone-500">Remark Type:</span>
+                  <p className="font-medium">{item.remark_type ? REMARK_TYPE_LABELS[item.remark_type as RemarkType] : '—'}</p>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-stone-500">Remarks:</span>
+                  <p className="font-medium">{item.remarks || '—'}</p>
+                </div>
               </div>
-              <div>
-                <span className="text-stone-500">Date Received:</span>
-                <p className="font-medium">{formatDate(item.date_received)}</p>
-              </div>
-              <div>
-                <span className="text-stone-500">Officer Assigned:</span>
-                <p className="font-medium">{item.officer_assigned || '—'}</p>
-              </div>
-              <div>
-                <span className="text-stone-500">Remarks:</span>
-                <p className="font-medium">{item.remarks || '—'}</p>
-              </div>
-              <div>
-                <span className="text-stone-500">S/No.:</span>
-                <p className="font-medium">{item.s_no || '—'}</p>
-              </div>
-            </div>
-          )}
+            );
+          }}
         />
       )}
 
@@ -2300,7 +2553,14 @@ function VisaTab() {
           renderRow={(item: VisaRequest) => (
             <>
               <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.judge_name}</td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.judge_name}
+                </button>
+              </td>
               <td className="px-3 py-2 text-stone-600">{item.destination_country}</td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.date_of_travel)}</td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.date_of_return)}</td>
@@ -2344,7 +2604,7 @@ function VisaTab() {
           }}
           onStatusChange={handleStatusChange}
           mutating={mutating}
-          renderContent={(item: VisaRequest) => (
+          renderContent={(item) => (
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
                 <span className="text-stone-500">Destination:</span>
@@ -2394,6 +2654,8 @@ function VisaTab() {
 
 // ─── Protocol Tab ─────────────────────────────────────────────────────────────
 
+// ─── Protocol Tab ─────────────────────────────────────────────────────────────
+
 function ProtocolTab() {
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllProtocolEvents);
@@ -2405,6 +2667,38 @@ function ProtocolTab() {
   const [editingItem, setEditingItem] = useState<ProtocolEvent | null>(null);
   const [selectedItem, setSelectedItem] = useState<ProtocolEvent | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterVenue, setFilterVenue] = useState<string>('');
+
+  // Get unique venues for filter dropdown
+  const uniqueVenues = useMemo(() => {
+    const venues = new Set<string>();
+    data.forEach(item => {
+      if (item.venue) venues.add(item.venue);
+    });
+    return Array.from(venues).sort();
+  }, [data]);
+
+  // Filter data by search term and venue
+  const filteredData = useMemo(() => {
+    let filtered = data;
+    
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(item =>
+        item.activity.toLowerCase().includes(term) ||
+        (item.venue && item.venue.toLowerCase().includes(term)) ||
+        (item.officers_assigned && item.officers_assigned.toLowerCase().includes(term)) ||
+        (item.remarks && item.remarks.toLowerCase().includes(term))
+      );
+    }
+    
+    if (filterVenue) {
+      filtered = filtered.filter(item => item.venue === filterVenue);
+    }
+    
+    return filtered;
+  }, [data, searchTerm, filterVenue]);
 
   const handleAdd = () => {
     setEditingItem(null);
@@ -2449,16 +2743,46 @@ function ProtocolTab() {
           </div>
         }
       >
+        {/* Filter Bar */}
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[200px]">
+            <input
+              type="text"
+              placeholder="Search by activity, venue, officers..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800 placeholder:text-stone-400 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+            />
+          </div>
+          {uniqueVenues.length > 0 && (
+            <div className="min-w-[180px]">
+              <select
+                value={filterVenue}
+                onChange={(e) => setFilterVenue(e.target.value)}
+                className="w-full rounded-md border border-stone-200 bg-white px-3 py-2 text-sm text-stone-800 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+              >
+                <option value="">All Venues</option>
+                {uniqueVenues.map(venue => (
+                  <option key={venue} value={venue}>{venue}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="text-sm text-stone-500">
+            {filteredData.length} {filteredData.length === 1 ? 'event' : 'events'}
+          </div>
+        </div>
+
         <TableWithActions
-          data={data}
+          data={filteredData}
           loading={loading}
           columns={[
             { key: 's_no', label: 'S/No.' },
             { key: 'activity', label: 'Activity' },
+            { key: 'venue', label: 'Venue' },
             { key: 'period_from', label: 'Period From' },
             { key: 'period_to', label: 'Period To' },
             { key: 'officers_assigned', label: 'Officers Assigned' },
-            { key: 'remarks', label: 'Remarks' },
             { key: 'dsa_required', label: 'DSA', align: 'center' },
             { key: 'total_dsa', label: 'Total DSA', align: 'right' },
             { key: 'status', label: 'Status', align: 'center' },
@@ -2466,13 +2790,39 @@ function ProtocolTab() {
           renderRow={(item: ProtocolEvent) => (
             <>
               <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-              <td className="px-3 py-2 font-medium text-stone-800">{item.activity}</td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.activity}
+                </button>
+              </td>
+              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">
+                {item.venue ? (
+                  <span className="inline-flex items-center gap-1">
+                    <MapPin size={12} className="text-stone-400" />
+                    {item.venue}
+                  </span>
+                ) : '—'}
+              </td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.period_from)}</td>
               <td className="px-3 py-2 text-stone-600">{formatDate(item.period_to)}</td>
               <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.officers_assigned || '—'}</td>
-              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.remarks || '—'}</td>
-              <td className="px-3 py-2 text-center text-stone-600">{item.dsa_required ? 'Yes' : 'No'}</td>
-              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+              <td className="px-3 py-2 text-center">
+                {item.dsa_required ? (
+                  <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                    Yes
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center rounded-full bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-500">
+                    No
+                  </span>
+                )}
+              </td>
+              <td className="px-3 py-2 text-right font-medium text-emerald-700">
+                {formatCurrency(item.total_dsa)}
+              </td>
               <td className="px-3 py-2 text-center">
                 <StatusDropdown
                   status={item.status}
@@ -2510,32 +2860,111 @@ function ProtocolTab() {
           }}
           onStatusChange={handleStatusChange}
           mutating={mutating}
-          renderContent={(item: ProtocolEvent) => (
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="text-stone-500">Period:</span>
-                <p className="font-medium">{formatDate(item.period_from)} — {formatDate(item.period_to)}</p>
+          renderContent={(item) => (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                {/* Venue field */}
+                <div className="col-span-2">
+                  <span className="text-stone-500">Venue / Location:</span>
+                  <p className="font-medium flex items-center gap-2">
+                    <MapPin size={14} className="text-stone-400" />
+                    {item.venue || 'Not specified'}
+                  </p>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-stone-500">Period:</span>
+                  <p className="font-medium">
+                    {formatDate(item.period_from)} — {formatDate(item.period_to)}
+                  </p>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-stone-500">Officers Assigned:</span>
+                  <p className="font-medium">{item.officers_assigned || '—'}</p>
+                </div>
+                <div>
+                  <span className="text-stone-500">DSA Required:</span>
+                  <p className="font-medium">
+                    {item.dsa_required ? (
+                      <span className="text-emerald-600 font-semibold">Yes</span>
+                    ) : (
+                      <span className="text-stone-500">No</span>
+                    )}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-stone-500">Total DSA:</span>
+                  <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
+                </div>
+                <div>
+                  <span className="text-stone-500">Members:</span>
+                  <p className="font-medium">{item.dsa_details?.length || 0}</p>
+                </div>
+                <div className="col-span-2">
+                  <span className="text-stone-500">Remarks:</span>
+                  <p className="font-medium">{item.remarks || '—'}</p>
+                </div>
               </div>
-              <div>
-                <span className="text-stone-500">Officers Assigned:</span>
-                <p className="font-medium">{item.officers_assigned || '—'}</p>
-              </div>
-              <div>
-                <span className="text-stone-500">DSA Required:</span>
-                <p className="font-medium">{item.dsa_required ? 'Yes' : 'No'}</p>
-              </div>
-              <div>
-                <span className="text-stone-500">Total DSA:</span>
-                <p className="font-bold text-emerald-700">{formatCurrency(item.total_dsa)}</p>
-              </div>
-              <div>
-                <span className="text-stone-500">Members:</span>
-                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
-              </div>
-              <div className="col-span-2">
-                <span className="text-stone-500">Remarks:</span>
-                <p className="font-medium">{item.remarks || '—'}</p>
-              </div>
+
+              {/* DSA Details Table */}
+              {item.dsa_required && item.dsa_details && item.dsa_details.length > 0 && (
+                <div className="mt-4 border-t border-stone-200 pt-4">
+                  <span className="text-stone-500 block mb-3 font-semibold">DSA Details:</span>
+                  <div className="overflow-x-auto rounded-lg border border-stone-200">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-stone-50">
+                          <th className="border-b border-stone-200 px-3 py-2 text-left font-semibold text-stone-600">#</th>
+                          <th className="border-b border-stone-200 px-3 py-2 text-left font-semibold text-stone-600">Name</th>
+                          <th className="border-b border-stone-200 px-3 py-2 text-left font-semibold text-stone-600">PJ No.</th>
+                          <th className="border-b border-stone-200 px-3 py-2 text-left font-semibold text-stone-600">Designation</th>
+                          <th className="border-b border-stone-200 px-3 py-2 text-right font-semibold text-stone-600">Rate (KES)</th>
+                          <th className="border-b border-stone-200 px-3 py-2 text-right font-semibold text-stone-600">Days</th>
+                          <th className="border-b border-stone-200 px-3 py-2 text-right font-semibold text-stone-600">Total (KES)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {item.dsa_details.map((detail, idx) => (
+                          <tr key={detail.id || idx} className="hover:bg-stone-50 transition-colors">
+                            <td className="border-b border-stone-100 px-3 py-2 text-center text-stone-500">{idx + 1}</td>
+                            <td className="border-b border-stone-100 px-3 py-2 font-medium text-stone-800">{detail.judge_name}</td>
+                            <td className="border-b border-stone-100 px-3 py-2 text-stone-600">{detail.pj_number}</td>
+                            <td className="border-b border-stone-100 px-3 py-2 text-stone-600">{detail.designation || '—'}</td>
+                            <td className="border-b border-stone-100 px-3 py-2 text-right text-stone-600">{formatCurrency(detail.dsa_per_day)}</td>
+                            <td className="border-b border-stone-100 px-3 py-2 text-right text-stone-600">{detail.days}</td>
+                            <td className="border-b border-stone-100 px-3 py-2 text-right font-medium text-emerald-700">{formatCurrency(detail.total)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-stone-50 font-bold">
+                          <td colSpan={6} className="border-t-2 border-stone-200 px-3 py-3 text-right text-stone-800">Grand Total:</td>
+                          <td className="border-t-2 border-stone-200 px-3 py-3 text-right text-emerald-700">
+                            {formatCurrency(item.total_dsa)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Show message when DSA is required but no details */}
+              {item.dsa_required && (!item.dsa_details || item.dsa_details.length === 0) && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center">
+                  <p className="text-sm text-amber-700">
+                    <span className="font-medium">⚠️ DSA Required:</span> No DSA details have been added for this event.
+                  </p>
+                </div>
+              )}
+
+              {/* Show message when DSA is not required */}
+              {!item.dsa_required && (
+                <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50 p-4 text-center">
+                  <p className="text-sm text-stone-500">
+                    <span className="font-medium text-stone-700">Note:</span> DSA is not required for this protocol event.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         />
@@ -2564,11 +2993,153 @@ interface JudgeDetailModalProps {
 }
 
 function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetailModalProps) {
+  const dispatch = useAppDispatch();
+  const allDocs = useAppSelector(selectAllHelpdeskDocuments);
+  const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
+  const documentsUploading = useAppSelector(selectDocumentsUploading);
+  const documentActionLoading = useAppSelector(selectDocumentActionLoading);
+  const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
+  const isLinking = useAppSelector(selectDocumentLinking);
+
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Get all utility IDs
+  const utilityIds = utilities.map(u => u.id);
+
+  const docs = allDocs.filter(d => 
+    d.entity_type === 'utility_memo' && 
+    d.entity_id !== null && 
+    utilityIds.includes(d.entity_id)
+  );
+
+  // Fetch documents for each utility
+  useEffect(() => {
+    utilityIds.forEach(id => {
+      dispatch(fetchHelpdeskDocuments({ 
+        entity_type: 'utility_memo', 
+        entity_id: id 
+      }));
+    });
+  }, [dispatch, utilityIds]);
+
+  useEffect(() => {
+    if (showLinkPicker) {
+      dispatch(fetchHelpdeskDocuments({ unlinked: true }));
+    }
+  }, [dispatch, showLinkPicker]);
+
+  const documentStatusColor = (status: DocumentStatus): string => {
+    const map: Record<DocumentStatus, string> = {
+      draft: 'bg-stone-100 text-stone-600 ring-stone-200',
+      pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
+      approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+      rejected: 'bg-red-50 text-red-700 ring-red-200',
+      returned: 'bg-orange-50 text-orange-700 ring-orange-200',
+    };
+    return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+  };
+
+  const documentFormatIcon = (format: DocumentFormat) => {
+    if (format === 'xlsx') return <FileSpreadsheet size={16} className="text-emerald-600" />;
+    if (format === 'docx') return <FileText size={16} className="text-blue-600" />;
+    return <FileText size={16} className="text-red-600" />;
+  };
+
+  const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    const format: DocumentFormat | null =
+      ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ext === 'xlsx' ? 'xlsx' : null;
+    if (!format) {
+      toast.error('Please upload a PDF, Word (.docx), or Excel (.xlsx) file.');
+      e.target.value = '';
+      return;
+    }
+
+    // Attach to the first utility (or you could let user choose which one)
+    const targetUtilityId = utilityIds[0];
+    if (!targetUtilityId) {
+      toast.error('No utility record found to attach this document to.');
+      e.target.value = '';
+      return;
+    }
+
+    try {
+      await dispatch(
+        uploadHelpdeskDocument({
+          blob: file,
+          filename: file.name,
+          ref: `UTILITY/${targetUtilityId.slice(0, 8)}`,
+          subject: `Memo for ${judgeName}`,
+          entity_type: 'utility_memo',
+          entity_id: targetUtilityId,
+          format,
+        })
+      ).unwrap();
+      toast.success('Document attached successfully.');
+      // Refresh documents for all utilities
+      utilityIds.forEach(id => {
+        dispatch(fetchHelpdeskDocuments({ 
+          entity_type: 'utility_memo', 
+          entity_id: id 
+        }));
+      });
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to attach document.');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleLinkExisting = async (docId: string) => {
+    const targetUtilityId = utilityIds[0];
+    if (!targetUtilityId) {
+      toast.error('No utility record found to link this document to.');
+      return;
+    }
+
+    try {
+      await dispatch(linkHelpdeskDocument({ 
+        id: docId, 
+        entity_type: 'utility_memo',
+        entity_id: targetUtilityId 
+      })).unwrap();
+      toast.success('Document linked successfully.');
+      setShowLinkPicker(false);
+      utilityIds.forEach(id => {
+        dispatch(fetchHelpdeskDocuments({ 
+          entity_type: 'utility_memo', 
+          entity_id: id 
+        }));
+      });
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to link document.');
+    }
+  };
+
+  const handleSendForApproval = async (docId: string) => {
+    try {
+      await dispatch(submitForApproval({ id: docId })).unwrap();
+      toast.success('Document sent to the super admin for approval.');
+      utilityIds.forEach(id => {
+        dispatch(fetchHelpdeskDocuments({ 
+          entity_type: 'utility_memo', 
+          entity_id: id 
+        }));
+      });
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to submit for approval.');
+    }
+  };
+
   const totalItems = utilities.reduce((acc, u) => acc + u.items.length, 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-xl bg-white shadow-2xl">
+      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#1a3d1c] text-white">
@@ -2577,7 +3148,7 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
             <div>
               <h3 className="text-lg font-semibold text-[#1a3d1c]">{judgeName}</h3>
               <p className="text-sm text-stone-500">
-                {totalItems} utility item{totalItems !== 1 ? 's' : ''}
+                {totalItems} utility item{totalItems !== 1 ? 's' : ''} • {docs.length} document{docs.length !== 1 ? 's' : ''}
               </p>
             </div>
           </div>
@@ -2587,10 +3158,12 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
         </div>
 
         <div className="max-h-[65vh] overflow-y-auto p-6">
+          {/* Utility Items */}
           {totalItems === 0 ? (
             <EmptyState message={`No utility records found for ${judgeName}.`} />
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-4 mb-6">
+              <h4 className="text-sm font-semibold text-stone-700">Utility Items</h4>
               {utilities.map((utility) => (
                 <div
                   key={utility.id}
@@ -2644,6 +3217,138 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
               ))}
             </div>
           )}
+
+          {/* ─── Documents Section ──────────────────────────────────────── */}
+          <div className="border-t border-stone-200 pt-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
+                <FileText size={16} className="text-[#c9a84c]" />
+                Supporting Documents ({docs.length})
+              </h3>
+              <div className="flex gap-2">
+                <GhostButton
+                  onClick={() => setShowLinkPicker((v) => !v)}
+                  icon={<Paperclip size={14} />}
+                >
+                  Link Existing
+                </GhostButton>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.xlsx"
+                  onChange={handleAttachDocument}
+                  className="hidden"
+                  disabled={documentsUploading || utilityIds.length === 0}
+                />
+                <GhostButton
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={documentsUploading || utilityIds.length === 0}
+                  icon={documentsUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                >
+                  {documentsUploading ? 'Uploading…' : 'Attach Document'}
+                </GhostButton>
+              </div>
+            </div>
+
+            {utilityIds.length === 0 && (
+              <p className="mt-2 text-[11px] text-amber-600">
+                ⚠️ No utility record found. Documents cannot be attached until a utility record exists.
+              </p>
+            )}
+
+            {showLinkPicker && (
+              <div className="mt-2 rounded-lg border border-stone-200 bg-white p-2 max-h-48 overflow-y-auto">
+                {unlinkedDocuments.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-stone-400 italic">No unlinked documents found.</p>
+                ) : (
+                  <ul className="divide-y divide-stone-100">
+                    {unlinkedDocuments.map((doc) => (
+                      <li key={doc.id} className="flex items-center justify-between gap-2 px-2 py-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {documentFormatIcon(doc.format)}
+                          <span className="truncate text-sm text-stone-700">{doc.subject}</span>
+                          <span className="shrink-0 text-[11px] text-stone-400">{doc.ref}</span>
+                        </div>
+                        <GhostButton
+                          onClick={() => handleLinkExisting(doc.id)}
+                          disabled={isLinking || utilityIds.length === 0}
+                          icon={isLinking ? <Loader2 size={12} className="animate-spin" /> : undefined}
+                        >
+                          Attach
+                        </GhostButton>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {documentsLoading && docs.length === 0 ? (
+              <p className="mt-2 text-xs text-stone-400 italic">Loading documents…</p>
+            ) : docs.length === 0 ? (
+              <p className="mt-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-3 text-xs text-stone-400">
+                No documents attached yet. Generate a memo from the edit view, upload a document, or link an existing one.
+              </p>
+            ) : (
+              <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
+                {docs.map((doc) => (
+                  <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {documentFormatIcon(doc.format)}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
+                        <div className="mt-0.5 flex items-center gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
+                          >
+                            {doc.status.replace('_', ' ')}
+                          </span>
+                          <span className="text-[11px] text-stone-400">{doc.ref}</span>
+                          <span className="text-[11px] text-stone-400 uppercase">{doc.format}</span>
+                        </div>
+                        {doc.status === 'rejected' && doc.rejection_reason && (
+                          <p className="mt-1 text-[11px] text-red-600">Reason: {doc.rejection_reason}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <a
+                        href={doc.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
+                      >
+                        <ExternalLink size={12} />
+                        View
+                      </a>
+                      {doc.status === 'draft' && (
+                        <GhostButton
+                          onClick={() => handleSendForApproval(doc.id)}
+                          disabled={!!documentActionLoading[doc.id]?.submitting}
+                          icon={
+                            documentActionLoading[doc.id]?.submitting ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Send size={12} />
+                            )
+                          }
+                        >
+                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
+                        </GhostButton>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="mt-6 border-t border-stone-100 pt-4 text-xs text-stone-400">
+            <div className="grid grid-cols-2 gap-1">
+              <span>Total Utilities: {utilities.length}</span>
+              <span>Total Items: {totalItems}</span>
+            </div>
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">

@@ -1112,7 +1112,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
                   <thead>
                     <tr>
                       <th className="border border-black px-2 py-1 text-left text-xs font-bold">#</th>
-                      <th className="border border-black px-2 py-1 text-left text-xs font-bold">Judge Name</th>
+                      <th className="border border-black px-2 py-1 text-left text-xs font-bold">Particulars</th>
                       <th className="border border-black px-2 py-1 text-left text-xs font-bold">P.J Number</th>
                       <th className="border border-black px-2 py-1 text-left text-xs font-bold">Designation</th>
                       <th className="border border-black px-2 py-1 text-right text-xs font-bold">Rate (KES)</th>
