@@ -57,9 +57,9 @@ const STATUS_STYLES: Record<DocumentStatus, string> = {
   draft: "bg-stone-100 text-stone-500 border border-stone-200",
   uploaded: "bg-blue-50 text-blue-700 border border-blue-100",
   pending_review: "bg-amber-50 text-amber-700 border border-amber-100",
-  dept_assigned: "bg-violet-50 text-violet-700 border border-violet-100",   // NEW
-  user_assigned: "bg-indigo-50 text-indigo-700 border border-indigo-100",   // NEW
-  marked: "bg-violet-50 text-violet-700 border border-violet-100",          // legacy
+  dept_assigned: "bg-violet-50 text-violet-700 border border-violet-100",
+  user_assigned: "bg-indigo-50 text-indigo-700 border border-indigo-100",
+  marked: "bg-violet-50 text-violet-700 border border-violet-100",
   in_progress: "bg-indigo-50 text-indigo-700 border border-indigo-100",
   completed: "bg-emerald-50 text-emerald-700 border border-emerald-100",
   filed: "bg-stone-100 text-stone-500 border border-stone-200",
@@ -71,9 +71,9 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
   draft: "DRAFT",
   uploaded: "UPLOADED",
   pending_review: "PENDING",
-  dept_assigned: "DEPT ASSIGNED",   // NEW
-  user_assigned: "USER ASSIGNED",   // NEW
-  marked: "MARKED",                 // legacy
+  dept_assigned: "DEPT ASSIGNED",
+  user_assigned: "USER ASSIGNED",
+  marked: "MARKED",
   in_progress: "IN PROGRESS",
   completed: "COMPLETED",
   filed: "FILED",
@@ -89,10 +89,12 @@ const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => (
   </span>
 );
 
-// (2) DocIcon
-const DOC_ICON_COLORS: Record<DocumentType, string> = {
+// (2) DocIcon – UPDATED to include certificate
+// (2) DocIcon – UPDATED to include certificate
+const DOC_ICON_COLORS: Partial<Record<DocumentType, string>> = {
   memo: "text-amber-500",
   letter: "text-stone-400",
+  certificate: "text-amber-600",
   judgment: "text-amber-600",
   ruling: "text-violet-600",
   order: "text-blue-600",
@@ -462,7 +464,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   );
 };
 
-// (6) ListItem – updated with bring up date
+// (6) ListItem – updated with bring up date and certificate support
 const ListItem: React.FC<{
   document: Document;
   selected: boolean;
@@ -670,7 +672,7 @@ const AnnotationsPanel: React.FC<{ document: Document }> = ({
   </div>
 );
 
-// (9) DocumentFallback (unchanged)
+// (9) DocumentFallback – UPDATED to include certificate
 const DocumentFallback: React.FC<{ document: Document }> = ({
   document: doc,
 }) => (
@@ -698,7 +700,7 @@ const DocumentFallback: React.FC<{ document: Document }> = ({
     </div>
     <div className="border-t-2 border-stone-700 mt-4 mb-6" />
     <h2 className="text-center text-sm sm:text-base font-bold tracking-widest uppercase text-stone-800 mb-6 sm:mb-8">
-      {doc.type === "memo" ? "MEMO" : "LETTER"}
+      {doc.type === "memo" ? "MEMO" : doc.type === "letter" ? "LETTER" : "CERTIFICATE"}
     </h2>
     <div className="text-sm text-stone-300 italic text-center py-8 sm:py-12">
       Document body will appear here…
@@ -1754,7 +1756,7 @@ interface DocumentEditorProps {
   onMark?: () => void;
   onAcknowledge?: () => void;
   onComplete?: () => void;
-  onUpdateMark?: (markId: string, text: string) => void; // Removed date parameter
+  onUpdateMark?: (markId: string, text: string) => void;
   onDownload?: () => void;
   onRegeneratePdf?: () => Promise<void>;
   isRegeneratingPdf?: boolean;
@@ -1799,7 +1801,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   isUpdatingBringUp = false,
   isCompletingBringUp = false,
 }) => {
-  const isComposed = document.type === "memo" || document.type === "letter";
+  // ─── UPDATED: Include certificate in isComposed ──────────────────────────
+  const isComposed = document.type === "memo" || document.type === "letter" || document.type === "certificate";
   const isEditable = !!onSave && isComposed;
 
   const formattedDate = document.created_at
@@ -1967,12 +1970,14 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     };
   }, []);
 
-  useEffect(() => {
-    if (isEditMode && editorRef.current) {
-      editorRef.current.innerHTML = bodyHtml;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEditMode]);
+  const lastRenderedBodyRef = useRef<string>('');
+
+useEffect(() => {
+  if (isEditMode && editorRef.current && bodyHtml !== lastRenderedBodyRef.current) {
+    editorRef.current.innerHTML = bodyHtml;
+    lastRenderedBodyRef.current = bodyHtml;
+  }
+}, [isEditMode, bodyHtml]);
 
   useEffect(() => {
     if (!isEditable) return;
@@ -2019,9 +2024,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     if (document.active_mark && onUpdateMark) {
       onUpdateMark(document.active_mark.id, text);
     }
-    // _date is intentionally ignored - bring_up_date is now handled at the document level
-    // via the Bring Up modal. The date parameter is kept for API compatibility with StickyNote.
-    void _date; // This tells ESLint the parameter is intentionally unused
+    void _date;
   };
 
   const handleDownload = () => {
@@ -2211,7 +2214,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
-          {/* ─── Mark button – always shown for SuperAdmin ────────────── */}
           {onMark && document.status !== "filed" && (
             <button
               onClick={onMark}
@@ -2481,7 +2483,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   isSuperAdmin={isSuperAdmin}
                   bodyHtml={bodyHtml}
                 />
-              ) : (
+              ) : document.type === 'letter' ? (
                 <LetterDisplay
                   ref={displayRef}
                   document={document}
@@ -2494,6 +2496,9 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   isSuperAdmin={isSuperAdmin}
                   bodyHtml={bodyHtml}
                 />
+              ) : (
+                // ─── Certificate fallback ──────────────────────────────────────
+                <DocumentFallback document={document} />
               )}
             </div>
           </div>
@@ -2517,7 +2522,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   onFieldChange={handleFieldChange}
                   bodyHtml={bodyHtml}
                 />
-              ) : (
+              ) : document.type === 'letter' ? (
                 <LetterDisplay
                   ref={displayRef}
                   document={document}
@@ -2532,6 +2537,117 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   onFieldChange={handleFieldChange}
                   bodyHtml={bodyHtml}
                 />
+              ) : (
+                // ─── Certificate edit mode ─────────────────────────────────────
+                <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col">
+                  <div className="flex justify-center mb-3">
+                    <img
+                      src="/JOB_LOGO.jpg"
+                      alt="Judiciary of Kenya crest"
+                      className="h-[78px] w-auto object-contain"
+                      onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
+                    />
+                  </div>
+                  <div className="text-center mt-2 mb-4">
+                    <p className="text-[19px] font-bold uppercase leading-snug">
+                      OFFICE OF THE REGISTRAR HIGH COURT
+                    </p>
+                  </div>
+                  <div className="border-t-[2.5px] border-black mb-6" />
+
+                  <div className="flex justify-between text-[13px] font-bold mb-6">
+                    <span className="flex items-baseline gap-1">
+                      Ref:
+                      <input
+                        type="text"
+                        value={fieldValues.reference_no}
+                        onChange={(e) => handleFieldChange('reference_no', e.target.value)}
+                        className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
+                        placeholder="RHC/CERT/___"
+                      />
+                    </span>
+                    <input
+                      type="date"
+                      value={fieldValues.document_date}
+                      onChange={(e) => handleFieldChange('document_date', e.target.value)}
+                      className="bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 text-right"
+                    />
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-1">
+                      To (Recipient)
+                    </label>
+                    <textarea
+                      value={fieldValues.to_recipient}
+                      onChange={(e) => handleFieldChange('to_recipient', e.target.value)}
+                      placeholder="Recipient address block"
+                      rows={2}
+                      className="w-full resize-none bg-transparent border-0 focus:outline-none placeholder:text-stone-300 placeholder:italic text-[13px]"
+                    />
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-1">
+                      Certificate Title *
+                    </label>
+                    <input
+                      type="text"
+                      value={fieldValues.subject}
+                      onChange={(e) => handleFieldChange('subject', e.target.value)}
+                      className="w-full bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 text-[13px] font-bold uppercase"
+                      placeholder="CERTIFICATE OF SERVICE OF FOREIGN PROCESS"
+                    />
+                  </div>
+
+                  <div
+                    ref={editorRef}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onInput={handleInput}
+                    onBlur={handleManualSave}
+                    data-placeholder="Start typing the certificate body…"
+                    className="min-h-[300px] text-[13px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none border-2 border-dashed border-[#c9a84c]/50 rounded p-1"
+                  />
+
+                  <div className="mt-12">
+                    <input
+                      type="text"
+                      value={fieldValues.signature_name}
+                      onChange={(e) => handleFieldChange('signature_name', e.target.value)}
+                      className="font-bold uppercase text-[13px] bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full max-w-xs"
+                      placeholder="Signatory name"
+                    />
+                    <input
+                      type="text"
+                      value={fieldValues.signature_title}
+                      onChange={(e) => handleFieldChange('signature_title', e.target.value)}
+                      className="font-bold underline uppercase text-[13px] bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full max-w-xs mt-1"
+                      placeholder="Title"
+                    />
+                  </div>
+
+                  <div className="mt-4">
+                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-1">
+                      From (Department)
+                    </label>
+                    <input
+                      type="text"
+                      value={fieldValues.from_sender}
+                      onChange={(e) => handleFieldChange('from_sender', e.target.value)}
+                      className="w-full bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 text-[13px]"
+                      placeholder="e.g., Office of the Registrar High Court"
+                    />
+                  </div>
+
+                  <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
+                    <div className="flex-1 text-[10px] leading-tight text-stone-700">
+                      <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
+                      <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
+                      <p className="font-bold text-[#1E4620] mt-1">Justice Be Our Shield and Defender</p>
+                    </div>
+                  </div>
+                </div>
               )
             ) : document.file_url ? (
               <FilePreview document={document} />
@@ -2549,7 +2665,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   isSuperAdmin={isSuperAdmin}
                   bodyHtml={bodyHtml}
                 />
-              ) : (
+              ) : document.type === 'letter' ? (
                 <LetterDisplay
                   ref={displayRef}
                   document={document}
@@ -2562,6 +2678,61 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   isSuperAdmin={isSuperAdmin}
                   bodyHtml={bodyHtml}
                 />
+              ) : (
+                // ─── Certificate display ──────────────────────────────────────
+                <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col">
+                  <div className="flex justify-center mb-3">
+                    <img
+                      src="/JOB_LOGO.jpg"
+                      alt="Judiciary of Kenya crest"
+                      className="h-[78px] w-auto object-contain"
+                      onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
+                    />
+                  </div>
+                  <div className="text-center mt-2 mb-4">
+                    <p className="text-[19px] font-bold uppercase leading-snug">
+                      OFFICE OF THE REGISTRAR HIGH COURT
+                    </p>
+                  </div>
+                  <div className="border-t-[2.5px] border-black mb-6" />
+
+                  <div className="flex justify-between text-[13px] font-bold mb-6">
+                    <span className="flex items-baseline gap-1">
+                      Ref: {document.reference_no || '—'}
+                    </span>
+                    <span>{formattedDate}</span>
+                  </div>
+
+                  <div className="mb-4">
+                    <p className="text-[13px]">{document.to_recipient || ''}</p>
+                  </div>
+
+                  <div className="mb-4">
+                    <p className="font-bold text-center block text-base uppercase">{document.subject || document.title}</p>
+                  </div>
+
+                  <div
+                    className="min-h-[300px] text-[13px] leading-[1.8] text-justify"
+                    dangerouslySetInnerHTML={{ __html: document.body || '' }}
+                  />
+
+                  <div className="mt-12">
+                    <div className="font-bold uppercase text-[13px]">{document.signature_name || ''}</div>
+                    <div className="font-bold underline uppercase text-[13px]">{document.signature_title || 'Registrar, High Court'}</div>
+                  </div>
+
+                  <div className="mt-4">
+                    <p className="text-[13px]">{document.from_sender || ''}</p>
+                  </div>
+
+                  <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
+                    <div className="flex-1 text-[10px] leading-tight text-stone-700">
+                      <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
+                      <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
+                      <p className="font-bold text-[#1E4620] mt-1">Justice Be Our Shield and Defender</p>
+                    </div>
+                  </div>
+                </div>
               )
             ) : (
               <DocumentFallback document={document} />
@@ -3124,7 +3295,7 @@ const MemoandLetters: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showMarkModal, setShowMarkModal] = useState(false);
-  const [showComposer, setShowComposer] = useState<"memo" | "letter" | null>(null);
+  const [showComposer, setShowComposer] = useState<"memo" | "letter" | "certificate" | null>(null);
   const [signToast, setSignToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [isCreating] = useState(false);
 
@@ -3154,8 +3325,9 @@ const MemoandLetters: React.FC = () => {
   const isSuperAdmin = hasRole(user, "super_admin");
   const canView = !!user;
 
+  // ─── UPDATED: Filter to include certificates ────────────────────────────────
   const memoLetterDocs = useMemo(
-    () => documents.filter((doc) => doc.type === "memo" || doc.type === "letter"),
+    () => documents.filter((doc) => doc.type === "memo" || doc.type === "letter" || doc.type === "certificate"),
     [documents]
   );
 
@@ -3224,13 +3396,11 @@ const MemoandLetters: React.FC = () => {
   const handleSignatureBoxChange = (pos: { x: number; y: number; width: number; height: number }) => {
     setSignatureBoxPosition(pos);
   };
-  // ── End signature box handlers ──
 
   const handleOtpSubmit = async () => {
     if (!signingDocId || !otpValue.trim()) return;
     setOtpError(null);
 
-    // Always get the position from the signature box
     const PDF_PAGE_WIDTH_PT = 595.28;
     const pageSurfaceEl = window.document.querySelector('.pdf-page-surface');
     const renderedPageWidthPx = pageSurfaceEl
@@ -3238,10 +3408,8 @@ const MemoandLetters: React.FC = () => {
       : 794;
     const scale = PDF_PAGE_WIDTH_PT / renderedPageWidthPx;
     
-    // Use a minimal Y offset since the anchor is immediately before the signature block
-    // The backend's anchor detection uses -60, we use a tiny nudge to match
     const positionX = signatureBoxPosition.x * scale;
-    const positionY = (signatureBoxPosition.y + 5) * scale; // Reduced from 20 to 5 for better alignment
+    const positionY = (signatureBoxPosition.y + 5) * scale;
     const positionWidth = signatureBoxPosition.width * scale;
     const positionHeight = signatureBoxPosition.height * scale;
 
@@ -3420,9 +3588,7 @@ const MemoandLetters: React.FC = () => {
     }
   };
 
-  // ─── Updated: handleUpdateMark - no longer accepts date ──────────────────────
   const handleUpdateMark = (markId: string, text: string) => {
-    // Update mark instructions only (bring_up_date removed from mark)
     dispatch(updateMark({ markId, instructions: text }));
     if (selectedDocument && selectedDocument.active_mark) {
       const updatedMark = {
@@ -3512,10 +3678,10 @@ const MemoandLetters: React.FC = () => {
       <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b border-stone-200 bg-white flex-wrap">
         <div className="min-w-0">
           <h1 className="text-base sm:text-lg font-bold text-stone-900 tracking-tight truncate">
-            Memos & Letters
+            Memos, Letters & Certificates
           </h1>
           <p className="text-[11px] sm:text-xs text-stone-400 mt-0.5 hidden sm:block">
-            Compose, edit, and manage your official correspondence
+            Compose, edit, and manage your official documents
           </p>
         </div>
 
@@ -3535,7 +3701,13 @@ const MemoandLetters: React.FC = () => {
             >
               <span>✉️</span> New Letter
             </button>
-            {/* ─── Mark button – always enabled for SuperAdmin ─────────── */}
+            <button
+              onClick={() => setShowComposer("certificate")}
+              disabled={isCreating}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-50"
+            >
+              <span>📜</span> New Certificate
+            </button>
             <button
               onClick={() => selectedDocument && setShowMarkModal(true)}
               disabled={!selectedDocument || !canAdmin}
@@ -3564,7 +3736,7 @@ const MemoandLetters: React.FC = () => {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Search memos & letters..."
+                placeholder="Search documents..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 pl-8 text-xs placeholder:text-stone-400 focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620] focus:bg-white"
@@ -3608,9 +3780,9 @@ const MemoandLetters: React.FC = () => {
               </div>
             ) : memoLetterDocs.length === 0 ? (
               <div className="px-4 py-12 text-center">
-                <p className="text-sm text-stone-400">No memos or letters found.</p>
+                <p className="text-sm text-stone-400">No documents found.</p>
                 {canUpload && (
-                  <p className="text-xs text-stone-300 mt-1">Click "New Memo" or "New Letter" to start.</p>
+                  <p className="text-xs text-stone-300 mt-1">Click "New Memo", "New Letter", or "New Certificate" to start.</p>
                 )}
               </div>
             ) : (
@@ -3677,7 +3849,7 @@ const MemoandLetters: React.FC = () => {
               isReleased={selectedDocument.status === 'released'}
               onBack={() => setSelectedDocument(null)}
               onSave={
-                (isSuperAdmin && (selectedDocument.type === 'memo' || selectedDocument.type === 'letter')) ||
+                (isSuperAdmin && (selectedDocument.type === 'memo' || selectedDocument.type === 'letter' || selectedDocument.type === 'certificate')) ||
                 (canUpload && selectedDocument.status !== "filed")
                   ? handleSaveBody
                   : undefined
@@ -3717,7 +3889,7 @@ const MemoandLetters: React.FC = () => {
               onUpdateMark={handleUpdateMark}
               onDownload={handleDownload}
               onRegeneratePdf={
-                isSuperAdmin && (selectedDocument.type === 'memo' || selectedDocument.type === 'letter')
+                isSuperAdmin && (selectedDocument.type === 'memo' || selectedDocument.type === 'letter' || selectedDocument.type === 'certificate')
                   ? handleRegeneratePdf
                   : undefined
               }
@@ -3738,7 +3910,7 @@ const MemoandLetters: React.FC = () => {
                 <svg className="mx-auto h-12 w-12 text-stone-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                <p className="mt-3 text-sm font-semibold text-stone-500">Select a memo or letter</p>
+                <p className="mt-3 text-sm font-semibold text-stone-500">Select a document</p>
                 <p className="mt-1 text-xs text-stone-400 leading-relaxed">
                   Choose a document from the list, or create a new one to start writing.
                 </p>
@@ -3784,7 +3956,6 @@ const MemoandLetters: React.FC = () => {
         />
       )}
 
-      {/* ─── Bring Up Modal ───────────────────────────────────────────────── */}
       {showBringUpModal && selectedDocument && (
         <BringUpModal
           document={selectedDocument}

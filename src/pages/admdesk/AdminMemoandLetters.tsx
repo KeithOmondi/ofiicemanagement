@@ -37,14 +37,14 @@ import TemplateComposerModal from "../../components/templates/TemplateComposerMo
 
 // ─── All the helper components ──────────────────────────────────────────────
 
-// (1) StatusBadge – updated to support new statuses
+// (1) StatusBadge
 const STATUS_STYLES: Record<DocumentStatus, string> = {
   draft: "bg-stone-100 text-stone-500 border border-stone-200",
   uploaded: "bg-blue-50 text-blue-700 border border-blue-100",
   pending_review: "bg-amber-50 text-amber-700 border border-amber-100",
-  dept_assigned: "bg-violet-50 text-violet-700 border border-violet-100",   // NEW
-  user_assigned: "bg-indigo-50 text-indigo-700 border border-indigo-100",   // NEW
-  marked: "bg-violet-50 text-violet-700 border border-violet-100",          // legacy
+  dept_assigned: "bg-violet-50 text-violet-700 border border-violet-100",
+  user_assigned: "bg-indigo-50 text-indigo-700 border border-indigo-100",
+  marked: "bg-violet-50 text-violet-700 border border-violet-100",
   in_progress: "bg-indigo-50 text-indigo-700 border border-indigo-100",
   completed: "bg-emerald-50 text-emerald-700 border border-emerald-100",
   filed: "bg-stone-100 text-stone-500 border border-stone-200",
@@ -56,9 +56,9 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
   draft: "DRAFT",
   uploaded: "UPLOADED",
   pending_review: "PENDING",
-  dept_assigned: "DEPT ASSIGNED",   // NEW
-  user_assigned: "USER ASSIGNED",   // NEW
-  marked: "MARKED",                 // legacy
+  dept_assigned: "DEPT ASSIGNED",
+  user_assigned: "USER ASSIGNED",
+  marked: "MARKED",
   in_progress: "IN PROGRESS",
   completed: "COMPLETED",
   filed: "FILED",
@@ -74,10 +74,11 @@ const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => (
   </span>
 );
 
-// (2) DocIcon (unchanged)
+// (2) DocIcon – UPDATED to include certificate
 const DOC_ICON_COLORS: Record<DocumentType, string> = {
   memo: "text-amber-500",
   letter: "text-stone-400",
+  certificate: "text-amber-600",
   judgment: "text-amber-600",
   ruling: "text-violet-600",
   order: "text-blue-600",
@@ -107,14 +108,14 @@ const DocIcon: React.FC<{ type: DocumentType; className?: string }> = ({
   </svg>
 );
 
-// (3) formatFileSize (unchanged)
+// (3) formatFileSize
 const formatFileSize = (bytes: number | null): string => {
   if (!bytes) return "";
   const kb = bytes / 1024;
   return kb < 1024 ? `${Math.round(kb)}KB` : `${(kb / 1024).toFixed(1)}MB`;
 };
 
-// (4) StickyNote - UPDATED to use document.bring_up_date
+// (4) StickyNote
 interface StickyNoteProps {
   authorName: string;
   initialText: string;
@@ -439,7 +440,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   );
 };
 
-// (5) ListItem – updated to show mark info for new statuses
+// (5) ListItem
 const ListItem: React.FC<{
   document: Document;
   selected: boolean;
@@ -541,7 +542,7 @@ const ListItem: React.FC<{
   );
 };
 
-// (6) AnnotationCard (unchanged)
+// (6) AnnotationCard
 const AnnotationCard: React.FC<{
   title: string;
   department: string;
@@ -589,7 +590,7 @@ const AnnotationCard: React.FC<{
   </div>
 );
 
-// (7) AnnotationsPanel (unchanged)
+// (7) AnnotationsPanel
 const AnnotationsPanel: React.FC<{ document: Document }> = ({
   document: doc,
 }) => (
@@ -632,7 +633,7 @@ const AnnotationsPanel: React.FC<{ document: Document }> = ({
   </div>
 );
 
-// (8) DocumentFallback (unchanged)
+// (8) DocumentFallback
 const DocumentFallback: React.FC<{ document: Document }> = ({
   document: doc,
 }) => (
@@ -660,7 +661,7 @@ const DocumentFallback: React.FC<{ document: Document }> = ({
     </div>
     <div className="border-t-2 border-stone-700 mt-4 mb-6" />
     <h2 className="text-center text-sm sm:text-base font-bold tracking-widest uppercase text-stone-800 mb-6 sm:mb-8">
-      {doc.type === "memo" ? "MEMO" : "LETTER"}
+      {doc.type === "memo" ? "MEMO" : doc.type === "letter" ? "LETTER" : "CERTIFICATE"}
     </h2>
     <div className="text-sm text-stone-300 italic text-center py-8 sm:py-12">
       Document body will appear here…
@@ -668,7 +669,7 @@ const DocumentFallback: React.FC<{ document: Document }> = ({
   </div>
 );
 
-// (9) FilePreview (unchanged)
+// (9) FilePreview
 const FilePreview: React.FC<{ document: Document }> = ({ document: doc }) => {
   const fileUrl = doc.file_url;
 
@@ -734,7 +735,7 @@ const FilePreview: React.FC<{ document: Document }> = ({ document: doc }) => {
   );
 };
 
-// (10) Spinner (unchanged)
+// (10) Spinner
 const Spinner: React.FC<{ className?: string }> = ({
   className = "h-3.5 w-3.5",
 }) => (
@@ -744,7 +745,7 @@ const Spinner: React.FC<{ className?: string }> = ({
   </svg>
 );
 
-// (11) ResponsesPanel (unchanged)
+// (11) ResponsesPanel
 const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
   const dispatch = useAppDispatch();
   const responses = useAppSelector((state) => state.documents.responses);
@@ -828,7 +829,7 @@ const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
   );
 };
 
-// (12) MemoDisplay - updated to support editable TO/FROM for super admin
+// (12) MemoDisplay
 interface MemoFields {
   to: string;
   from: string;
@@ -973,7 +974,7 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
   );
 };
 
-// (13) LetterDisplay – updated for field editing (unchanged except using correct column names)
+// (13) LetterDisplay
 const GOLD = '#C29B38';
 
 interface LetterFields {
@@ -1156,7 +1157,116 @@ const LetterDisplay: React.FC<LetterDisplayProps> = ({
   );
 };
 
-// (14) DocumentEditor – updated Mark button condition
+// ─── CertificateDisplay component ──────────────────────────────────────────────
+
+interface CertificateFields {
+  ref: string;
+  date: string;
+  to: string;
+  from: string;
+  signatureName: string;
+  signatureTitle: string;
+  ruleReference: string;
+  datedLine: string;
+  signatoryLines: string[];
+  draftedByInitials: string;
+}
+
+interface CertificateDisplayProps {
+  document: Document;
+  isEditable: boolean;
+  canEditFields: boolean;
+  fields: CertificateFields;
+  onFieldChange: (field: keyof CertificateFields, value: string) => void;
+  onFieldBlur: () => void;
+  editorRef: React.RefObject<HTMLDivElement | null>;
+  handleInput: () => void;
+  handleManualSave: () => void;
+}
+
+const CertificateDisplay: React.FC<CertificateDisplayProps> = ({
+  document: doc,
+  isEditable,
+  fields,
+  editorRef,
+  handleInput,
+  handleManualSave,
+}) => {
+  // Use the contentEditable div for the entire body
+  // The body already contains the intro paragraph, numbered clauses, and closing paragraph
+
+  return (
+    <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col">
+      <div className="flex justify-center mb-3">
+        <img
+          src="/JOB_LOGO.jpg"
+          alt="Judiciary of Kenya crest"
+          className="h-[78px] w-auto object-contain"
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = 'none';
+          }}
+        />
+      </div>
+
+      <div className="text-center mt-2 mb-4">
+        <p className="text-[19px] font-bold uppercase leading-snug">
+          OFFICE OF THE REGISTRAR HIGH COURT
+        </p>
+      </div>
+
+      <div className="border-t-[2.5px] border-black mb-6" />
+
+      {/* Certificate Title */}
+      <div className="text-center mb-1">
+        <p className="text-[16px] font-bold uppercase">{doc.title}</p>
+      </div>
+
+      {/* Rule Reference */}
+      <div className="text-center mb-6">
+        <p className="text-[13px] font-bold">{fields.ruleReference}</p>
+      </div>
+
+      {/* Certificate Body - ContentEditable */}
+      <div
+        ref={editorRef}
+        contentEditable={isEditable}
+        suppressContentEditableWarning
+        onInput={handleInput}
+        onBlur={handleManualSave}
+        data-placeholder="I, [NAME], Registrar of the High Court of Kenya, hereby certify that the documents annexed hereto are as follows:&#10;&#10;1. &#10;2. &#10;3. &#10;&#10;And I certify that such service so proved, and the proof thereof, are such as are required by the law and practice of the High Court of Kenya regulating the service of legal process in Kenya and the proof thereof."
+        className="min-h-[300px] text-[13px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
+        dangerouslySetInnerHTML={{ __html: doc.body || '' }}
+      />
+
+      {/* Dated Line */}
+      <div className="text-center mt-6">
+        <p className="text-[13px]">{fields.datedLine}</p>
+      </div>
+
+      {/* Signature Block */}
+      <div className="text-center mt-12">
+        {fields.signatoryLines.map((line, index) => (
+          <p key={index} className="text-[13px] font-bold uppercase">{line}</p>
+        ))}
+      </div>
+
+      {/* Drafted By Initials */}
+      <div className="text-right mt-2">
+        <p className="text-[11px] italic underline lowercase">rhc/{fields.draftedByInitials}</p>
+      </div>
+
+      <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
+        <div className="flex-1 text-[10px] leading-tight text-stone-700">
+          <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
+          <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
+          <p className="font-bold text-[#1E4620] mt-1">Justice Be Our Shield and Defender</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// (14) DocumentEditor
 type SaveState = "idle" | "saving" | "saved" | "unsaved" | "error";
 
 const SAVE_LABEL: Record<SaveState, string> = {
@@ -1208,12 +1318,14 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onDownload,
 }) => {
   const isFileBased = !!document.file_url;
-  const isComposed = (document.type === "memo" || document.type === "letter") && !isFileBased;
+  const isComposed = (document.type === "memo" || document.type === "letter" || document.type === "certificate") && !isFileBased;
   const isEditable = !!onSave && !isFileBased;
   const isLetter = document.type === "letter";
   const isMemo = document.type === "memo";
+  const isCertificate = document.type === "certificate";
   const canEditLetterFields = isSuperAdmin && isLetter && isEditable;
   const canEditMemoFields = isSuperAdmin && isMemo && isEditable;
+  const canEditCertificateFields = isSuperAdmin && isCertificate && isEditable;
   const formattedDate = document.created_at
     ? format(new Date(document.created_at), "dd MMM yyyy")
     : "—";
@@ -1223,7 +1335,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const [showResponses, setShowResponses] = useState(false);
 
   const stickyNoteText = document.active_mark?.instructions ?? "";
-  // UPDATED: Use document.bring_up_date instead of active_mark.bring_up_date
   const stickyNoteDate = document.bring_up_date ?? null;
   const noteAuthor = document.active_mark
     ? (document.created_by_name ?? currentUserName)
@@ -1254,6 +1365,24 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     signatureTitle: document.signature_title ?? "Registrar, High Court",
   }));
 
+  // ─── Certificate fields ──────────────────────────────────────────────────────
+  const [certificateFields, setCertificateFields] = useState<CertificateFields>(() => ({
+    ref: document.reference_no ?? "",
+    date: formattedDate,
+    to: document.to_recipient ?? "",
+    from: document.from_sender ?? currentUserName,
+    signatureName: document.signature_name ?? currentUserName,
+    signatureTitle: document.signature_title ?? "Registrar, High Court",
+    ruleReference: document.ref_other_description || "(Order 5 Rule 32(e) of the Civil Procedure Rules)",
+    datedLine: document.document_date 
+      ? `Dated, Signed and Sealed this ${format(new Date(document.document_date), "do MMMM, yyyy")}.`
+      : `Dated, Signed and Sealed this ${format(new Date(), "do MMMM, yyyy")}.`,
+    signatoryLines: document.signature_name 
+      ? [document.signature_name, document.signature_title || "HIGH COURT OF KENYA"]
+      : ["REGISTRAR,", "HIGH COURT OF KENYA"],
+    draftedByInitials: document.from_sender || "lnu",
+  }));
+
   const handleMemoFieldChange = (field: keyof MemoFields, value: string) => {
     setMemoFields((prev) => ({ ...prev, [field]: value }));
     setSaveState("unsaved");
@@ -1261,6 +1390,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
   const handleLetterFieldChange = (field: keyof LetterFields, value: string) => {
     setLetterFields((prev) => ({ ...prev, [field]: value }));
+    setSaveState("unsaved");
+  };
+
+  const handleCertificateFieldChange = (field: keyof CertificateFields, value: string) => {
+    setCertificateFields((prev) => ({ ...prev, [field]: value }));
     setSaveState("unsaved");
   };
 
@@ -1298,8 +1432,17 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         signature_title: letterFields.signatureTitle,
       };
     }
+    if (canEditCertificateFields) {
+      return {
+        reference_no: certificateFields.ref,
+        to_recipient: certificateFields.to,
+        from_sender: certificateFields.from,
+        signature_name: certificateFields.signatureName,
+        signature_title: certificateFields.signatureTitle,
+      };
+    }
     return undefined;
-  }, [canEditMemoFields, memoFields, canEditLetterFields, letterFields]);
+  }, [canEditMemoFields, memoFields, canEditLetterFields, letterFields, canEditCertificateFields, certificateFields]);
 
   const scheduleAutosave = useCallback(
     (html: string) => {
@@ -1376,10 +1519,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   // ─── Sticky note save handler ──────────────────────────────────────────
   const handleStickyNoteSave = (text: string, _date: string | null) => {
     if (document.active_mark && onUpdateMark) {
-      // Update mark instructions only (bring_up_date moved to document level)
       onUpdateMark(document.active_mark.id, text);
     }
-    // _date is intentionally ignored - bring_up_date is now handled at the document level
     void _date;
   };
 
@@ -1419,7 +1560,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
               {document.original_name}
             </span>
           )}
-          {(canEditLetterFields || canEditMemoFields) && (
+          {(canEditLetterFields || canEditMemoFields || canEditCertificateFields) && (
             <span className="text-[9px] font-semibold text-[#1E4620] bg-[#1E4620]/10 px-1.5 py-0.5 rounded hidden sm:inline">
               Full edit access
             </span>
@@ -1489,7 +1630,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
-          {/* ─── Mark button – always shown for SuperAdmin ─────────────── */}
           {onMark && document.status !== "filed" && (
             <button
               onClick={onMark}
@@ -1727,33 +1867,44 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           {isComposed ? (
             !isEditable && !document.body ? (
               <DocumentFallback document={document} />
+            ) : document.type === 'memo' ? (
+              <MemoDisplay
+                document={document}
+                isEditable={isEditable}
+                canEditFields={canEditMemoFields}
+                fields={memoFields}
+                onFieldChange={handleMemoFieldChange}
+                onFieldBlur={handleFieldBlur}
+                editorRef={editorRef}
+                handleInput={handleInput}
+                handleManualSave={handleManualSave}
+                currentUserName={currentUserName}
+              />
+            ) : document.type === 'letter' ? (
+              <LetterDisplay
+                document={document}
+                isEditable={isEditable}
+                canEditFields={canEditLetterFields}
+                fields={letterFields}
+                onFieldChange={handleLetterFieldChange}
+                onFieldBlur={handleFieldBlur}
+                editorRef={editorRef}
+                handleInput={handleInput}
+                handleManualSave={handleManualSave}
+              />
             ) : (
-              document.type === 'memo' ? (
-                <MemoDisplay
-                  document={document}
-                  isEditable={isEditable}
-                  canEditFields={canEditMemoFields}
-                  fields={memoFields}
-                  onFieldChange={handleMemoFieldChange}
-                  onFieldBlur={handleFieldBlur}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
-                  currentUserName={currentUserName}
-                />
-              ) : (
-                <LetterDisplay
-                  document={document}
-                  isEditable={isEditable}
-                  canEditFields={canEditLetterFields}
-                  fields={letterFields}
-                  onFieldChange={handleLetterFieldChange}
-                  onFieldBlur={handleFieldBlur}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
-                />
-              )
+              // ─── Certificate Display ──────────────────────────────────────────
+              <CertificateDisplay
+                document={document}
+                isEditable={isEditable}
+                canEditFields={canEditCertificateFields}
+                fields={certificateFields}
+                onFieldChange={handleCertificateFieldChange}
+                onFieldBlur={handleFieldBlur}
+                editorRef={editorRef}
+                handleInput={handleInput}
+                handleManualSave={handleManualSave}
+              />
             )
           ) : (
             <FilePreview document={document} />
@@ -1802,7 +1953,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   );
 };
 
-// (15) MarkModal (unchanged)
+// (15) MarkModal
 interface MarkModalProps {
   document: Document;
   onClose: () => void;
@@ -2002,7 +2153,7 @@ const AdminMemoandLetters: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showMarkModal, setShowMarkModal] = useState(false);
-  const [showComposer, setShowComposer] = useState<"memo" | "letter" | null>(null);
+  const [showComposer, setShowComposer] = useState<"memo" | "letter" | "certificate" | null>(null);
   const [isCreating] = useState(false);
 
   const canUpload = hasRole(user, "staff") || hasRole(user, "super_admin");
@@ -2010,9 +2161,9 @@ const AdminMemoandLetters: React.FC = () => {
   const isSuperAdmin = hasRole(user, "super_admin");
   const canView = !!user;
 
-  // Filter to only memos and letters
+  // Filter to memos, letters, and certificates
   const memoLetterDocs = useMemo(
-    () => documents.filter((doc) => doc.type === "memo" || doc.type === "letter"),
+    () => documents.filter((doc) => doc.type === "memo" || doc.type === "letter" || doc.type === "certificate"),
     [documents]
   );
 
@@ -2145,7 +2296,7 @@ const AdminMemoandLetters: React.FC = () => {
       <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b border-stone-200 bg-white flex-wrap">
         <div className="min-w-0">
           <h1 className="text-base sm:text-lg font-bold text-stone-900 tracking-tight truncate">
-            Memos & Letters
+            Memos, Letters & Certificates
           </h1>
           <p className="text-[11px] sm:text-xs text-stone-400 mt-0.5 hidden sm:block">
             Compose, edit, and manage your official correspondence
@@ -2168,7 +2319,15 @@ const AdminMemoandLetters: React.FC = () => {
             >
               <span>✉️</span> New Letter
             </button>
-            {/* ─── Mark button – always enabled for SuperAdmin ─────────── */}
+            {/* ─── New Certificate button ────────────────────────────────────── */}
+            <button
+              onClick={() => setShowComposer("certificate")}
+              disabled={isCreating}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-50"
+            >
+              <span>📜</span> New Certificate
+            </button>
+            {/* ─── Mark button ────────────────────────────────────────────── */}
             <button
               onClick={() => selectedDocument && setShowMarkModal(true)}
               disabled={!selectedDocument || !canAdmin}
@@ -2200,7 +2359,7 @@ const AdminMemoandLetters: React.FC = () => {
             <div className="relative">
               <input
                 type="text"
-                placeholder="Search memos & letters..."
+                placeholder="Search memos, letters & certificates..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 pl-8 text-xs placeholder:text-stone-400 focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620] focus:bg-white"
@@ -2246,9 +2405,9 @@ const AdminMemoandLetters: React.FC = () => {
               </div>
             ) : memoLetterDocs.length === 0 ? (
               <div className="px-4 py-12 text-center">
-                <p className="text-sm text-stone-400">No memos or letters found.</p>
+                <p className="text-sm text-stone-400">No memos, letters, or certificates found.</p>
                 {canUpload && (
-                  <p className="text-xs text-stone-300 mt-1">Click "New Memo" or "New Letter" to start.</p>
+                  <p className="text-xs text-stone-300 mt-1">Click "New Memo", "New Letter", or "New Certificate" to start.</p>
                 )}
               </div>
             ) : (
@@ -2329,7 +2488,6 @@ const AdminMemoandLetters: React.FC = () => {
                   ? () => handleSend(selectedDocument.id)
                   : undefined
               }
-              // ─── Always allow marking for SuperAdmin ─────────────
               onMark={
                 canAdmin && selectedDocument.status !== "filed"
                   ? () => setShowMarkModal(true)
@@ -2356,7 +2514,7 @@ const AdminMemoandLetters: React.FC = () => {
                 <svg className="mx-auto h-12 w-12 text-stone-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                <p className="mt-3 text-sm font-semibold text-stone-500">Select a memo or letter</p>
+                <p className="mt-3 text-sm font-semibold text-stone-500">Select a memo, letter, or certificate</p>
                 <p className="mt-1 text-xs text-stone-400 leading-relaxed">
                   Choose a document from the list, or create a new one to start writing.
                 </p>

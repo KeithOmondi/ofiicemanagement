@@ -1,12 +1,10 @@
 // src/features/aide/HelpdeskAides.tsx
 
-import React, { useEffect, useState, useRef, type ChangeEvent, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useRef, type ChangeEvent } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   fetchAideRequests,
   fetchAideRequestById,
-  createAideRequest,
-  updateAideRequest,
   deleteAideRequest,
   fetchAideStats,
   setFilters as setAideFilters,
@@ -27,14 +25,10 @@ import {
   selectAideAttachedCount,
   selectAideRejectedCount,
   type AideStatus,
-  type OfficerRank,
-  type UnitType,
 } from '../../store/slices/aidesSlice';
 import {
   fetchSentryRequests,
   fetchSentryRequestById,
-  createSentryRequest,
-  updateSentryRequest,
   deleteSentryRequest,
   fetchSentryStats,
   setSentryFilters,
@@ -58,22 +52,6 @@ import {
   type SentryStatus,
 } from '../../store/slices/sentrySlice';
 import {
-  fetchHelpdeskDocuments,
-  uploadHelpdeskDocument,
-  linkHelpdeskDocument,
-  submitForApproval,
-  selectAllHelpdeskDocuments,
-  selectDocumentsUploading,
-  selectDocumentActionLoading,
-  selectDocumentLinking,
-  selectUnlinkedHelpdeskDocuments,
-  type DocumentFormat,
-  type DocumentStatus,
-  type DocumentEntityType,
-} from '../../store/slices/helpdeskDocumentsSlice';
-import {
-  OFFICER_RANKS,
-  UNIT_TYPES,
   AIDE_STATUSES,
   SENTRY_STATUSES,
   getAideStatusLabel,
@@ -88,7 +66,24 @@ import {
   getUnitTypeColor,
   formatAideDate,
   formatAideDateTime,
+  type OfficerRank,
+  type UnitType,
 } from '../../types/aide.types';
+import {
+  fetchHelpdeskDocuments,
+  uploadHelpdeskDocument,
+  linkHelpdeskDocument,
+  submitForApproval as submitDocumentForApproval,
+  selectAllHelpdeskDocuments,
+  selectDocumentsFetchLoading,
+  selectDocumentsUploading,
+  selectDocumentActionLoading,
+  selectUnlinkedHelpdeskDocuments,
+  selectDocumentLinking,
+  type DocumentFormat,
+  //type DocumentEntityType,
+  type DocumentStatus,
+} from '../../store/slices/helpdeskDocumentsSlice';
 import toast, { Toaster } from 'react-hot-toast';
 import {
   Plus,
@@ -98,11 +93,6 @@ import {
   Edit,
   Trash2,
   FileText,
-  Paperclip,
-  Upload,
-  ExternalLink,
-  Send,
-  FileSpreadsheet,
   AlertCircle,
   CheckCircle,
   XCircle,
@@ -112,12 +102,23 @@ import {
   Home,
   User,
   MapPin,
+  Paperclip,
+  Upload,
+  ExternalLink,
+  Send,
+  FileSpreadsheet,
 } from 'lucide-react';
+import { SentryModal } from '../../components/modals/SentryModal';
+import { AidesModal } from '../../components/modals/AidesModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// This matches the AideFormData expected by AidesModal
+// Note: judge_location is required in AidesModal, so we make it required here too
+// and provide a default empty string when editing
 interface AideFormData {
   judge_name: string;
+  judge_location: string; // Changed from optional to required to match AidesModal
   officer_rank: OfficerRank;
   officer_name: string;
   employment_number: string;
@@ -134,17 +135,10 @@ interface SentryFormData {
   remarks: string;
 }
 
-interface ValidationError {
-  field: string;
-  message: string;
-}
-
 // ─── UI Components ───────────────────────────────────────────────────────────
 
 const inputClasses =
   'w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-800 placeholder:text-stone-400 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] transition-colors';
-
-const labelClasses = 'mb-1 block text-[11px] font-semibold uppercase tracking-wide text-stone-500';
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
@@ -343,6 +337,16 @@ const documentFormatIcon = (format: DocumentFormat) => {
   return <FileText size={16} className="text-red-600" />;
 };
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return 'An unknown error occurred';
+}
+
 // ─── Aide Detail Modal ─────────────────────────────────────────────────────
 
 interface AideDetailModalProps {
@@ -355,23 +359,22 @@ const AideDetailModal: React.FC<AideDetailModalProps> = ({ aideId, onClose, onEd
   const dispatch = useAppDispatch();
   const aide = useAppSelector(selectSelectedAide);
   const loading = useAppSelector(selectAideDetailLoading);
-  const allDocs = useAppSelector(selectAllHelpdeskDocuments);
-  const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
+
+  const allDocuments = useAppSelector(selectAllHelpdeskDocuments);
+  const documentsLoading = useAppSelector(selectDocumentsFetchLoading);
   const documentsUploading = useAppSelector(selectDocumentsUploading);
   const documentActionLoading = useAppSelector(selectDocumentActionLoading);
   const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
   const isLinking = useAppSelector(selectDocumentLinking);
-
+  const documentFileInputRef = useRef<HTMLInputElement>(null);
   const [showLinkPicker, setShowLinkPicker] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const docs = useMemo(
-    () => allDocs.filter((d) => d.entity_type === 'aide' && d.entity_id === aideId),
-    [allDocs, aideId]
-  );
+  const [uploadingDocument, setUploadingDocument] = useState(false);
 
   useEffect(() => {
     dispatch(fetchAideRequestById(aideId));
+  }, [dispatch, aideId]);
+
+  useEffect(() => {
     dispatch(fetchHelpdeskDocuments({ entity_type: 'aide', entity_id: aideId }));
   }, [dispatch, aideId]);
 
@@ -381,6 +384,10 @@ const AideDetailModal: React.FC<AideDetailModalProps> = ({ aideId, onClose, onEd
     }
   }, [dispatch, showLinkPicker]);
 
+  const linkedDocuments = allDocuments.filter(
+    (d) => d.entity_type === 'aide' && d.entity_id === aideId
+  );
+
   const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -388,12 +395,14 @@ const AideDetailModal: React.FC<AideDetailModalProps> = ({ aideId, onClose, onEd
     const ext = file.name.split('.').pop()?.toLowerCase();
     const format: DocumentFormat | null =
       ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ext === 'xlsx' ? 'xlsx' : null;
+
     if (!format) {
       toast.error('Please upload a PDF, Word (.docx), or Excel (.xlsx) file.');
       e.target.value = '';
       return;
     }
 
+    setUploadingDocument(true);
     try {
       await dispatch(
         uploadHelpdeskDocument({
@@ -401,40 +410,42 @@ const AideDetailModal: React.FC<AideDetailModalProps> = ({ aideId, onClose, onEd
           filename: file.name,
           ref: `AIDE/${aideId.slice(0, 8)}`,
           subject: `Memo for ${aide?.judge_name || 'Aide Request'}`,
-          entity_type: 'aide' as DocumentEntityType,
+          entity_type: 'aide',
           entity_id: aideId,
-          format,
+          format: format,
         })
       ).unwrap();
-      toast.success('Document attached successfully.');
-      dispatch(fetchHelpdeskDocuments({ entity_type: 'aide', entity_id: aideId }));
+      toast.success('Document attached to this request.');
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to attach document.');
+      toast.error(getErrorMessage(err));
     } finally {
+      setUploadingDocument(false);
       e.target.value = '';
     }
   };
 
-  const handleLinkExisting = async (docId: string) => {
+  const handleLinkExisting = async (documentId: string) => {
     try {
       await dispatch(
-        linkHelpdeskDocument({ id: docId, entity_type: 'aide' as DocumentEntityType, entity_id: aideId })
+        linkHelpdeskDocument({
+          id: documentId,
+          entity_type: 'aide',
+          entity_id: aideId,
+        })
       ).unwrap();
-      toast.success('Document linked successfully.');
+      toast.success('Document linked to this request.');
       setShowLinkPicker(false);
-      dispatch(fetchHelpdeskDocuments({ entity_type: 'aide', entity_id: aideId }));
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to link document.');
+      toast.error(getErrorMessage(err));
     }
   };
 
-  const handleSendForApproval = async (docId: string) => {
+  const handleSendDocumentForApproval = async (documentId: string) => {
     try {
-      await dispatch(submitForApproval({ id: docId })).unwrap();
-      toast.success('Document sent to the super admin for approval.');
-      dispatch(fetchHelpdeskDocuments({ entity_type: 'aide', entity_id: aideId }));
+      await dispatch(submitDocumentForApproval({ id: documentId })).unwrap();
+      toast.success('Document sent for approval.');
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to submit for approval.');
+      toast.error(getErrorMessage(err));
     }
   };
 
@@ -522,12 +533,13 @@ const AideDetailModal: React.FC<AideDetailModalProps> = ({ aideId, onClose, onEd
             </div>
           </div>
 
-          <div className="mt-6 border-t border-stone-200 pt-6">
+          {/* Supporting Documents - Same as Ticket Detail Modal */}
+          <div className="mt-6">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
+              <h4 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
                 <FileText size={16} className="text-[#c9a84c]" />
-                Supporting Documents ({docs.length})
-              </h3>
+                Supporting Documents ({linkedDocuments.length})
+              </h4>
               <div className="flex gap-2">
                 <GhostButton
                   onClick={() => setShowLinkPicker((v) => !v)}
@@ -536,19 +548,19 @@ const AideDetailModal: React.FC<AideDetailModalProps> = ({ aideId, onClose, onEd
                   Link Existing
                 </GhostButton>
                 <input
-                  ref={fileInputRef}
+                  ref={documentFileInputRef}
                   type="file"
                   accept=".pdf,.docx,.xlsx"
                   onChange={handleAttachDocument}
                   className="hidden"
-                  disabled={documentsUploading}
+                  disabled={documentsUploading || uploadingDocument}
                 />
                 <GhostButton
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={documentsUploading}
-                  icon={documentsUploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                  onClick={() => documentFileInputRef.current?.click()}
+                  disabled={documentsUploading || uploadingDocument}
+                  icon={documentsUploading || uploadingDocument ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
                 >
-                  {documentsUploading ? 'Uploading…' : 'Attach Document'}
+                  {documentsUploading || uploadingDocument ? 'Uploading…' : 'Attach Document'}
                 </GhostButton>
               </div>
             </div>
@@ -580,15 +592,15 @@ const AideDetailModal: React.FC<AideDetailModalProps> = ({ aideId, onClose, onEd
               </div>
             )}
 
-            {documentsLoading && docs.length === 0 ? (
-              <p className="mt-2 text-xs text-stone-400 italic">Loading documents…</p>
-            ) : docs.length === 0 ? (
+            {documentsLoading && linkedDocuments.length === 0 ? (
+              <p className="mt-2 text-xs text-stone-400 italic">Checking for attached documents…</p>
+            ) : linkedDocuments.length === 0 ? (
               <p className="mt-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-3 text-xs text-stone-400">
-                No documents attached yet. Upload a document or link an existing one above.
+                No documents attached yet. Generate one from the memo step when editing this request, link an existing one, or attach a file here.
               </p>
             ) : (
               <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
-                {docs.map((doc) => (
+                {linkedDocuments.map((doc) => (
                   <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
                     <div className="flex min-w-0 items-center gap-2">
                       {documentFormatIcon(doc.format)}
@@ -596,12 +608,19 @@ const AideDetailModal: React.FC<AideDetailModalProps> = ({ aideId, onClose, onEd
                         <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
                         <div className="mt-0.5 flex items-center gap-2">
                           <span
-                            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
+                            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(
+                              doc.status
+                            )}`}
                           >
                             {doc.status.replace('_', ' ')}
                           </span>
                           <span className="text-[11px] text-stone-400">{doc.ref}</span>
-                          <span className="text-[11px] text-stone-400 uppercase">{doc.format}</span>
+                          {doc.rank && (
+                            <span className="text-[11px] text-stone-400">Rank: {doc.rank}</span>
+                          )}
+                          {doc.reporting_date && (
+                            <span className="text-[11px] text-stone-400">Reporting: {new Date(doc.reporting_date).toLocaleDateString()}</span>
+                          )}
                         </div>
                         {doc.status === 'rejected' && doc.rejection_reason && (
                           <p className="mt-1 text-[11px] text-red-600">Reason: {doc.rejection_reason}</p>
@@ -620,7 +639,7 @@ const AideDetailModal: React.FC<AideDetailModalProps> = ({ aideId, onClose, onEd
                       </a>
                       {doc.status === 'draft' && (
                         <GhostButton
-                          onClick={() => handleSendForApproval(doc.id)}
+                          onClick={() => handleSendDocumentForApproval(doc.id)}
                           disabled={!!documentActionLoading[doc.id]?.submitting}
                           icon={
                             documentActionLoading[doc.id]?.submitting ? (
@@ -665,11 +684,96 @@ const SentryDetailModal: React.FC<SentryDetailModalProps> = ({ sentryId, onClose
   const sentry = useAppSelector(selectSelectedSentry);
   const loading = useAppSelector(selectSentryDetailLoading);
 
+  const allDocuments = useAppSelector(selectAllHelpdeskDocuments);
+  const documentsLoading = useAppSelector(selectDocumentsFetchLoading);
+  const documentsUploading = useAppSelector(selectDocumentsUploading);
+  const documentActionLoading = useAppSelector(selectDocumentActionLoading);
+  const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
+  const isLinking = useAppSelector(selectDocumentLinking);
+  const documentFileInputRef = useRef<HTMLInputElement>(null);
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+
   useEffect(() => {
     if (sentryId) {
       dispatch(fetchSentryRequestById(sentryId));
     }
   }, [dispatch, sentryId]);
+
+  useEffect(() => {
+    dispatch(fetchHelpdeskDocuments({ entity_type: 'sentry', entity_id: sentryId }));
+  }, [dispatch, sentryId]);
+
+  useEffect(() => {
+    if (showLinkPicker) {
+      dispatch(fetchHelpdeskDocuments({ unlinked: true }));
+    }
+  }, [dispatch, showLinkPicker]);
+
+  const linkedDocuments = allDocuments.filter(
+    (d) => d.entity_type === 'sentry' && d.entity_id === sentryId
+  );
+
+  const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    const format: DocumentFormat | null =
+      ext === 'pdf' ? 'pdf' : ext === 'docx' ? 'docx' : ext === 'xlsx' ? 'xlsx' : null;
+
+    if (!format) {
+      toast.error('Please upload a PDF, Word (.docx), or Excel (.xlsx) file.');
+      e.target.value = '';
+      return;
+    }
+
+    setUploadingDocument(true);
+    try {
+      await dispatch(
+        uploadHelpdeskDocument({
+          blob: file,
+          filename: file.name,
+          ref: `SENTRY/${sentryId.slice(0, 8)}`,
+          subject: `Sentry for ${sentry?.judge_name || 'Sentry Request'}`,
+          entity_type: 'sentry',
+          entity_id: sentryId,
+          format: format,
+        })
+      ).unwrap();
+      toast.success('Document attached to this request.');
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setUploadingDocument(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleLinkExisting = async (documentId: string) => {
+    try {
+      await dispatch(
+        linkHelpdeskDocument({
+          id: documentId,
+          entity_type: 'sentry',
+          entity_id: sentryId,
+        })
+      ).unwrap();
+      toast.success('Document linked to this request.');
+      setShowLinkPicker(false);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
+
+  const handleSendDocumentForApproval = async (documentId: string) => {
+    try {
+      await dispatch(submitDocumentForApproval({ id: documentId })).unwrap();
+      toast.success('Document sent for approval.');
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
 
   if (loading || !sentry) {
     return (
@@ -736,6 +840,126 @@ const SentryDetailModal: React.FC<SentryDetailModalProps> = ({ sentryId, onClose
               <p className="mt-0.5 text-sm text-stone-500">{formatAideDateTime(sentry.updated_at)}</p>
             </div>
           </div>
+
+          {/* Supporting Documents - Same as Ticket Detail Modal */}
+          <div className="mt-6">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
+                <FileText size={16} className="text-[#c9a84c]" />
+                Supporting Documents ({linkedDocuments.length})
+              </h4>
+              <div className="flex gap-2">
+                <GhostButton
+                  onClick={() => setShowLinkPicker((v) => !v)}
+                  icon={<Paperclip size={14} />}
+                >
+                  Link Existing
+                </GhostButton>
+                <input
+                  ref={documentFileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.xlsx"
+                  onChange={handleAttachDocument}
+                  className="hidden"
+                  disabled={documentsUploading || uploadingDocument}
+                />
+                <GhostButton
+                  onClick={() => documentFileInputRef.current?.click()}
+                  disabled={documentsUploading || uploadingDocument}
+                  icon={documentsUploading || uploadingDocument ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                >
+                  {documentsUploading || uploadingDocument ? 'Uploading…' : 'Attach Document'}
+                </GhostButton>
+              </div>
+            </div>
+
+            {showLinkPicker && (
+              <div className="mt-2 rounded-lg border border-stone-200 bg-white p-2 max-h-48 overflow-y-auto">
+                {unlinkedDocuments.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-stone-400 italic">No unlinked documents found.</p>
+                ) : (
+                  <ul className="divide-y divide-stone-100">
+                    {unlinkedDocuments.map((doc) => (
+                      <li key={doc.id} className="flex items-center justify-between gap-2 px-2 py-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          {documentFormatIcon(doc.format)}
+                          <span className="truncate text-sm text-stone-700">{doc.subject}</span>
+                          <span className="shrink-0 text-[11px] text-stone-400">{doc.ref}</span>
+                        </div>
+                        <GhostButton
+                          onClick={() => handleLinkExisting(doc.id)}
+                          disabled={isLinking}
+                          icon={isLinking ? <Loader2 size={12} className="animate-spin" /> : undefined}
+                        >
+                          Attach
+                        </GhostButton>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
+            {documentsLoading && linkedDocuments.length === 0 ? (
+              <p className="mt-2 text-xs text-stone-400 italic">Checking for attached documents…</p>
+            ) : linkedDocuments.length === 0 ? (
+              <p className="mt-2 rounded-lg border border-dashed border-stone-300 bg-stone-50 px-3 py-3 text-xs text-stone-400">
+                No documents attached yet. Link an existing one or attach a file here.
+              </p>
+            ) : (
+              <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
+                {linkedDocuments.map((doc) => (
+                  <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                    <div className="flex min-w-0 items-center gap-2">
+                      {documentFormatIcon(doc.format)}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
+                        <div className="mt-0.5 flex items-center gap-2">
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(
+                              doc.status
+                            )}`}
+                          >
+                            {doc.status.replace('_', ' ')}
+                          </span>
+                          <span className="text-[11px] text-stone-400">{doc.ref}</span>
+                        </div>
+                        {doc.status === 'rejected' && doc.rejection_reason && (
+                          <p className="mt-1 text-[11px] text-red-600">Reason: {doc.rejection_reason}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <a
+                        href={doc.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
+                      >
+                        <ExternalLink size={12} />
+                        View
+                      </a>
+                      {doc.status === 'draft' && (
+                        <GhostButton
+                          onClick={() => handleSendDocumentForApproval(doc.id)}
+                          disabled={!!documentActionLoading[doc.id]?.submitting}
+                          icon={
+                            documentActionLoading[doc.id]?.submitting ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <Send size={12} />
+                            )
+                          }
+                        >
+                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
+                        </GhostButton>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">
@@ -744,468 +968,6 @@ const SentryDetailModal: React.FC<SentryDetailModalProps> = ({ sentryId, onClose
             Edit Request
           </GoldButton>
         </div>
-      </div>
-    </div>
-  );
-};
-
-// ─── Aide Form Modal ──────────────────────────────────────────────────────
-interface AideFormModalProps {
-  initialData?: AideFormData | null;
-  editingId?: string | null;
-  onClose: () => void;
-  onSubmitAide: (data: AideFormData) => void;
-  onSubmitSentry: (data: SentryFormData) => void;
-  isSubmitting: boolean;
-}
-
-// NOTE: Render this component with a `key` prop from the parent so that
-// React remounts it (rather than reusing the instance) whenever the record
-// being edited changes. This replaces the old "reset form on prop change"
-// useEffect, which was flagged for calling setState synchronously inside
-// an effect (cascading renders / "you might not need an effect").
-//
-// Parent usage:
-//   {isModalOpen && (
-//     <AideFormModal
-//       key={editingId ?? 'new'}
-//       initialData={initialData}
-//       editingId={editingId}
-//       onClose={handleClose}
-//       onSubmitAide={handleSubmitAide}
-//       onSubmitSentry={handleSubmitSentry}
-//       isSubmitting={isSubmitting}
-//     />
-//   )}
-
-const AideFormModal: React.FC<AideFormModalProps> = ({
-  initialData,
-  editingId,
-  onClose,
-  onSubmitAide,
-  onSubmitSentry,
-  isSubmitting,
-}) => {
-  const isEditing = !!editingId;
-  const [requestType, setRequestType] = useState<'aide' | 'sentry'>('aide');
-
-  const [formData, setFormData] = useState<AideFormData>({
-    judge_name: initialData?.judge_name || '',
-    officer_rank: initialData?.officer_rank || 'Police Constable (PC)',
-    officer_name: initialData?.officer_name || '',
-    employment_number: initialData?.employment_number || '',
-    current_station: initialData?.current_station || '',
-    current_unit: initialData?.current_unit || 'KPS',
-    proposed_assignment: initialData?.proposed_assignment || '',
-    reporting_date: initialData?.reporting_date || '',
-    remarks: initialData?.remarks || '',
-  });
-
-  const [sentryData, setSentryData] = useState<SentryFormData>({
-    judge_name: '',
-    residence_location: '',
-    remarks: '',
-  });
-
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleSentryChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target;
-    setSentryData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!isEditing && requestType === 'sentry') {
-      onSubmitSentry(sentryData);
-    } else {
-      onSubmitAide(formData);
-    }
-  };
-
-  const showSentryForm = !isEditing && requestType === 'sentry';
-
-  const modalTitle = isEditing
-    ? 'Edit Aide Request'
-    : requestType === 'sentry'
-      ? 'New Sentry Request'
-      : 'New Aide Request';
-
-  const submitLabel = isEditing
-    ? 'Update Request'
-    : requestType === 'sentry'
-      ? 'Create Sentry Request'
-      : 'Create Request';
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
-          <h3 className="text-lg font-semibold text-[#1a3d1c]">{modalTitle}</h3>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {!isEditing && (
-          <div className="flex gap-1 border-b border-stone-100 bg-stone-50 px-6 pt-3">
-            <button
-              type="button"
-              onClick={() => setRequestType('aide')}
-              className={`flex items-center gap-1.5 rounded-t-lg border border-b-0 px-3 py-2 text-xs font-semibold transition ${
-                requestType === 'aide'
-                  ? 'border-stone-200 bg-white text-[#1a3d1c]'
-                  : 'border-transparent text-stone-500 hover:text-stone-700'
-              }`}
-            >
-              <User size={13} />
-              Aide
-            </button>
-            <button
-              type="button"
-              onClick={() => setRequestType('sentry')}
-              className={`flex items-center gap-1.5 rounded-t-lg border border-b-0 px-3 py-2 text-xs font-semibold transition ${
-                requestType === 'sentry'
-                  ? 'border-stone-200 bg-white text-[#1a3d1c]'
-                  : 'border-transparent text-stone-500 hover:text-stone-700'
-              }`}
-            >
-              <Home size={13} />
-              Sentry
-            </button>
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="max-h-[75vh] overflow-y-auto p-6">
-          {showSentryForm ? (
-            <div className="space-y-4">
-              <div>
-                <label className={labelClasses}>Judge Name *</label>
-                <div className="relative">
-                  <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-                  <input
-                    type="text"
-                    name="judge_name"
-                    value={sentryData.judge_name}
-                    onChange={handleSentryChange}
-                    placeholder="e.g., Hon. Justice John Doe"
-                    className={`${inputClasses} pl-9`}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className={labelClasses}>Location of Residence *</label>
-                <div className="relative">
-                  <Home size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-                  <input
-                    type="text"
-                    name="residence_location"
-                    value={sentryData.residence_location}
-                    onChange={handleSentryChange}
-                    placeholder="e.g., Karen, Nairobi"
-                    className={`${inputClasses} pl-9`}
-                    required
-                  />
-                </div>
-                <p className="mt-1 text-xs text-stone-400">The location where sentry services are required</p>
-              </div>
-
-              <div>
-                <label className={labelClasses}>Remarks</label>
-                <textarea
-                  name="remarks"
-                  value={sentryData.remarks}
-                  onChange={handleSentryChange}
-                  placeholder="Additional remarks..."
-                  rows={2}
-                  className={`${inputClasses} resize-none`}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div>
-                <label className={labelClasses}>Judge Name *</label>
-                <input
-                  type="text"
-                  name="judge_name"
-                  value={formData.judge_name}
-                  onChange={handleChange}
-                  placeholder="e.g., Hon. Justice John Doe"
-                  className={inputClasses}
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={labelClasses}>Officer Rank *</label>
-                  <select
-                    name="officer_rank"
-                    value={formData.officer_rank}
-                    onChange={handleChange}
-                    className={inputClasses}
-                    required
-                  >
-                    {OFFICER_RANKS.map((rank) => (
-                      <option key={rank} value={rank}>
-                        {getOfficerRankLabel(rank)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className={labelClasses}>Officer Name *</label>
-                  <input
-                    type="text"
-                    name="officer_name"
-                    value={formData.officer_name}
-                    onChange={handleChange}
-                    placeholder="e.g., John M. Doe"
-                    className={inputClasses}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={labelClasses}>Employment/Service Number *</label>
-                  <input
-                    type="text"
-                    name="employment_number"
-                    value={formData.employment_number}
-                    onChange={handleChange}
-                    placeholder="e.g., 12345"
-                    className={inputClasses}
-                    required
-                  />
-                </div>
-                <div>
-                  <label className={labelClasses}>Unit *</label>
-                  <select
-                    name="current_unit"
-                    value={formData.current_unit}
-                    onChange={handleChange}
-                    className={inputClasses}
-                    required
-                  >
-                    {UNIT_TYPES.map((unit) => (
-                      <option key={unit} value={unit}>
-                        {getUnitTypeLabel(unit)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className={labelClasses}>Current Station *</label>
-                <input
-                  type="text"
-                  name="current_station"
-                  value={formData.current_station}
-                  onChange={handleChange}
-                  placeholder="e.g., Nairobi Police Station"
-                  className={inputClasses}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className={labelClasses}>Proposed Assignment *</label>
-                <textarea
-                  name="proposed_assignment"
-                  value={formData.proposed_assignment}
-                  onChange={handleChange}
-                  placeholder="Describe the proposed assignment..."
-                  rows={2}
-                  className={`${inputClasses} resize-none`}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className={labelClasses}>Reporting Date</label>
-                <input
-                  type="date"
-                  name="reporting_date"
-                  value={formData.reporting_date || ''}
-                  onChange={handleChange}
-                  className={inputClasses}
-                />
-                <p className="mt-1 text-xs text-stone-400">Optional - leave blank if not applicable</p>
-              </div>
-
-              <div>
-                <label className={labelClasses}>Remarks</label>
-                <textarea
-                  name="remarks"
-                  value={formData.remarks}
-                  onChange={handleChange}
-                  placeholder="Additional remarks..."
-                  rows={2}
-                  className={`${inputClasses} resize-none`}
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="mt-6 flex justify-end gap-2 border-t border-stone-100 pt-4">
-            <GhostButton onClick={onClose}>Cancel</GhostButton>
-            <GoldButton type="submit" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                submitLabel
-              )}
-            </GoldButton>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-// ─── Sentry Form Modal ──────────────────────────────────────────────────────
-
-interface SentryFormModalProps {
-  initialData?: SentryFormData | null;
-  editingId?: string | null;
-  onClose: () => void;
-  onSubmit: (data: SentryFormData) => void;
-  isSubmitting: boolean;
-}
-
-// NOTE: Render this component with a `key` prop from the parent so that
-// React remounts it (rather than reusing the instance) whenever the record
-// being edited changes. This replaces the old "reset form on prop change"
-// useEffect, which was flagged for calling setState synchronously inside
-// an effect (cascading renders / "you might not need an effect").
-//
-// Parent usage:
-//   {isModalOpen && (
-//     <SentryFormModal
-//       key={editingId ?? 'new'}
-//       initialData={initialData}
-//       editingId={editingId}
-//       onClose={handleClose}
-//       onSubmit={handleSubmit}
-//       isSubmitting={isSubmitting}
-//     />
-//   )}
-
-const SentryFormModal: React.FC<SentryFormModalProps> = ({
-  initialData,
-  editingId,
-  onClose,
-  onSubmit,
-  isSubmitting,
-}) => {
-  const [formData, setFormData] = useState<SentryFormData>({
-    judge_name: initialData?.judge_name || '',
-    residence_location: initialData?.residence_location || '',
-    remarks: initialData?.remarks || '',
-  });
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit(formData);
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
-          <h3 className="text-lg font-semibold text-[#1a3d1c]">
-            {editingId ? 'Edit Sentry Request' : 'New Sentry Request'}
-          </h3>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="max-h-[75vh] overflow-y-auto p-6">
-          <div className="space-y-4">
-            <div>
-              <label className={labelClasses}>Judge Name *</label>
-              <div className="relative">
-                <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-                <input
-                  type="text"
-                  name="judge_name"
-                  value={formData.judge_name}
-                  onChange={handleChange}
-                  placeholder="e.g., Hon. Justice John Doe"
-                  className={`${inputClasses} pl-9`}
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className={labelClasses}>Residence Location *</label>
-              <div className="relative">
-                <Home size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-                <input
-                  type="text"
-                  name="residence_location"
-                  value={formData.residence_location}
-                  onChange={handleChange}
-                  placeholder="e.g., Karen, Nairobi"
-                  className={`${inputClasses} pl-9`}
-                  required
-                />
-              </div>
-              <p className="mt-1 text-xs text-stone-400">The location where sentry services are required</p>
-            </div>
-
-            <div>
-              <label className={labelClasses}>Remarks</label>
-              <textarea
-                name="remarks"
-                value={formData.remarks}
-                onChange={handleChange}
-                placeholder="Additional remarks..."
-                rows={2}
-                className={`${inputClasses} resize-none`}
-              />
-            </div>
-          </div>
-
-          <div className="mt-6 flex justify-end gap-2 border-t border-stone-100 pt-4">
-            <GhostButton onClick={onClose}>Cancel</GhostButton>
-            <GoldButton type="submit" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Saving...
-                </>
-              ) : editingId ? (
-                'Update Sentry Request'
-              ) : (
-                'Create Sentry Request'
-              )}
-            </GoldButton>
-          </div>
-        </form>
       </div>
     </div>
   );
@@ -1234,7 +996,6 @@ const SentryTab: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingData, setEditingData] = useState<SentryFormData | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     dispatch(fetchSentryRequests(filters));
@@ -1280,41 +1041,6 @@ const SentryTab: React.FC = () => {
     setEditingData(null);
     setShowCreateModal(true);
   }, []);
-
-  const handleSubmit = useCallback(async (data: SentryFormData) => {
-    if (!data.judge_name?.trim()) {
-      toast.error('Judge name is required');
-      return;
-    }
-    if (!data.residence_location?.trim()) {
-      toast.error('Residence location is required');
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const payload = {
-        judge_name: data.judge_name.trim(),
-        residence_location: data.residence_location.trim(),
-        remarks: data.remarks?.trim() || undefined,
-      };
-
-      if (editingId) {
-        await dispatch(updateSentryRequest({ id: editingId, data: payload })).unwrap();
-        toast.success('Sentry request updated successfully');
-      } else {
-        await dispatch(createSentryRequest(payload)).unwrap();
-        toast.success('Sentry request created successfully');
-      }
-      setShowCreateModal(false);
-      dispatch(fetchSentryRequests(filters));
-      dispatch(fetchSentryStats());
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to save sentry request');
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [dispatch, editingId, filters]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -1479,12 +1205,16 @@ const SentryTab: React.FC = () => {
       </div>
 
       {showCreateModal && (
-        <SentryFormModal
-          initialData={editingData}
-          editingId={editingId}
+        <SentryModal
+          key={editingId ?? 'new'}
+          isOpen={showCreateModal}
           onClose={() => { setShowCreateModal(false); setEditingId(null); setEditingData(null); }}
-          onSubmit={handleSubmit}
-          isSubmitting={isSubmitting}
+          editingId={editingId}
+          initialData={editingData}
+          onSuccess={() => {
+            dispatch(fetchSentryRequests(filters));
+            dispatch(fetchSentryStats());
+          }}
         />
       )}
 
@@ -1532,7 +1262,6 @@ const HelpdeskAides: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingData, setEditingData] = useState<AideFormData | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (activeTab === 'aide') {
@@ -1568,6 +1297,9 @@ const HelpdeskAides: React.FC = () => {
       setEditingId(id);
       setEditingData({
         judge_name: aide.judge_name,
+        // Use the existing judge_location if available, otherwise default to empty string
+        // We use a type assertion with 'as' to access the property safely
+        judge_location: (aide as { judge_location?: string }).judge_location || '',
         officer_rank: aide.officer_rank,
         officer_name: aide.officer_name,
         employment_number: aide.employment_number,
@@ -1588,87 +1320,6 @@ const HelpdeskAides: React.FC = () => {
     setEditingData(null);
     setShowCreateModal(true);
   }, []);
-
-  const handleSubmitAide = useCallback(async (data: AideFormData) => {
-    const requiredFields = ['judge_name', 'officer_rank', 'officer_name', 'employment_number', 'current_station', 'current_unit', 'proposed_assignment'] as const;
-    const missingFields = requiredFields.filter(field => !data[field] || data[field] === '');
-    
-    if (missingFields.length > 0) {
-      toast.error(`Missing required fields: ${missingFields.join(', ')}`);
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      let formattedDate = undefined;
-      if (data.reporting_date) {
-        formattedDate = new Date(data.reporting_date).toISOString().split('T')[0];
-      }
-
-      const payload = {
-        judge_name: data.judge_name.trim(),
-        officer_rank: data.officer_rank,
-        officer_name: data.officer_name.trim(),
-        employment_number: data.employment_number.trim(),
-        current_station: data.current_station.trim(),
-        current_unit: data.current_unit,
-        proposed_assignment: data.proposed_assignment.trim(),
-        reporting_date: formattedDate,
-        remarks: data.remarks?.trim() || undefined,
-      };
-
-      if (editingId) {
-        await dispatch(updateAideRequest({ id: editingId, data: payload })).unwrap();
-        toast.success('Aide request updated successfully');
-      } else {
-        await dispatch(createAideRequest(payload)).unwrap();
-        toast.success('Aide request created successfully');
-      }
-      setShowCreateModal(false);
-      dispatch(fetchAideRequests(filters));
-      dispatch(fetchAideStats());
-    } catch (err) {
-      const error = err as { response?: { data?: { message?: string; error?: string; details?: ValidationError[] } }; message?: string };
-      if (error.response?.data?.details) {
-        const errorMessages = error.response.data.details
-          .map((e: ValidationError) => `• ${e.field.replace('body.', '').replace(/_/g, ' ')}: ${e.message}`)
-          .join('\n');
-        toast.error(<div className="whitespace-pre-line"><strong>Validation failed:</strong>{'\n' + errorMessages}</div>, { duration: 8000 });
-      } else {
-        toast.error(error.response?.data?.message || error.response?.data?.error || error.message || 'Operation failed');
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [dispatch, editingId, filters]);
-
-  const handleSubmitSentry = useCallback(async (data: SentryFormData) => {
-    if (!data.judge_name?.trim()) {
-      toast.error('Judge name is required');
-      return;
-    }
-    if (!data.residence_location?.trim()) {
-      toast.error('Residence location is required');
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const payload = {
-        judge_name: data.judge_name.trim(),
-        residence_location: data.residence_location.trim(),
-        remarks: data.remarks?.trim() || undefined,
-      };
-
-      await dispatch(createSentryRequest(payload)).unwrap();
-      toast.success('Sentry request created successfully');
-      setShowCreateModal(false);
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to create sentry request');
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [dispatch]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -1860,13 +1511,16 @@ const HelpdeskAides: React.FC = () => {
       </div>
 
       {showCreateModal && (
-        <AideFormModal
-          initialData={editingData}
-          editingId={editingId}
+        <AidesModal
+          key={editingId ?? 'new'}
+          isOpen={showCreateModal}
           onClose={() => { setShowCreateModal(false); setEditingId(null); setEditingData(null); }}
-          onSubmitAide={handleSubmitAide}
-          onSubmitSentry={handleSubmitSentry}
-          isSubmitting={isSubmitting}
+          editingId={editingId}
+          initialData={editingData}
+          onSuccess={() => {
+            dispatch(fetchAideRequests(filters));
+            dispatch(fetchAideStats());
+          }}
         />
       )}
 

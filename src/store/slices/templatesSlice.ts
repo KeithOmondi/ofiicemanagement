@@ -317,4 +317,17 @@ export const selectTemplatesByDepartment = (state: { templates: TemplatesState }
   return state.templates.byDepartment;
 };
 
+// ─── Updated selector for specific template type ──────────────────────────────
+
+export const selectActiveTemplateByDepartmentAndType = (
+  state: { templates: TemplatesState },
+  departmentId: string | null,
+  type: TemplateType
+): DocumentTemplate | null => {
+  const key = departmentId ?? GLOBAL_KEY;
+  const deptMap = state.templates.byDepartment[key];
+  if (!deptMap) return null;
+  return deptMap[type] || null;
+};
+
 export default templatesSlice.reducer;

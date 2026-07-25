@@ -1,4 +1,6 @@
-export type TemplateType = 'memo' | 'letter';
+// src/types/templates.types.ts
+
+export type TemplateType = 'memo' | 'letter' | 'certificate';
 export const GLOBAL_KEY = '__global__';
 
 export interface DocumentTemplate {

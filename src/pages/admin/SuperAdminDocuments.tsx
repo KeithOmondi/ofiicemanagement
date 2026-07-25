@@ -125,6 +125,7 @@ const BringUpStatusBadge: React.FC<{ status: BringUpStatus }> = ({ status }) => 
 const DOC_ICON_COLORS: Record<DocumentType, string> = {
   memo: "text-amber-500",
   letter: "text-stone-400",
+  certificate: "text-amber-600",
   judgment: "text-amber-600",
   ruling: "text-violet-600",
   order: "text-blue-600",

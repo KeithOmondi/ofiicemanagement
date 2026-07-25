@@ -79,16 +79,20 @@ const PRIORITIES: { value: RoutePriority; label: string }[] = [
   { value: 'urgent', label: 'Urgent' },
 ];
 
+// src/components/Helpdesk/DocumentUtils.tsx
+
 const TYPE_BADGE: Record<DocumentType, string> = {
   memo: 'bg-blue-100 text-blue-700',
   letter: 'bg-indigo-100 text-indigo-700',
+  certificate: 'bg-amber-100 text-amber-700', // Added certificate
   judgment: 'bg-purple-100 text-purple-700',
   ruling: 'bg-pink-100 text-pink-700',
   order: 'bg-amber-100 text-amber-700',
   correspondence: 'bg-green-100 text-green-700',
   upload: 'bg-gray-100 text-gray-700',
-  ticket: "text-purple-500",
+  ticket: 'text-purple-500',
 };
+
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-700',

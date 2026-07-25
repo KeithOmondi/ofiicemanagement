@@ -33,6 +33,7 @@ import type {
   RespondToDocumentInput,
   ComposeMemoInput,
   ComposeLetterInput,
+  ComposeCertificateInput,
   SendToUserInput,
   // ── Follow-up types ──────────────────────────────────────────────
   FollowUp,
@@ -110,6 +111,7 @@ interface DocumentState {
     responding?: string;
     creatingMemo?: boolean;
     creatingLetter?: boolean;
+    creatingCertificate?: boolean;
     sendingToUser?: string;
     uploading?: boolean;
     updatingMark?: string;
@@ -343,6 +345,23 @@ export const createLetter = createAsyncThunk(
         success: boolean;
         data: Document;
       }>("/documents/compose-letter", data);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ─── ADDED: Create Certificate (generates PDF from HTML template) ──────────
+
+export const createCertificate = createAsyncThunk(
+  "documents/createCertificate",
+  async (data: ComposeCertificateInput, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>("/documents/compose-certificate", data);
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
@@ -1428,6 +1447,26 @@ const documentSlice = createSlice({
         state.error = action.payload as string;
       })
 
+      // ─── ADDED: createCertificate ──────────────────────────────────────────
+      .addCase(createCertificate.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.actionInProgress.creatingCertificate = true;
+      })
+      .addCase(
+        createCertificate.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.loading = false;
+          state.actionInProgress.creatingCertificate = false;
+          state.documents = [action.payload, ...state.documents];
+        },
+      )
+      .addCase(createCertificate.rejected, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.creatingCertificate = false;
+        state.error = action.payload as string;
+      })
+
       // ── sendDocumentToUser ─────────────────────────────────────────────────
       .addCase(sendDocumentToUser.pending, (state, action) => {
         state.actionInProgress.sendingToUser = action.meta.arg.id;
@@ -2408,6 +2447,11 @@ export const selectIsCreatingMemo = (state: { documents: DocumentState }) =>
 
 export const selectIsCreatingLetter = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.creatingLetter || false;
+
+// ─── ADDED: selectIsCreatingCertificate ──────────────────────────────────────
+
+export const selectIsCreatingCertificate = (state: { documents: DocumentState }) =>
+  state.documents.actionInProgress.creatingCertificate || false;
 
 export const selectIsSendingToUser = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.sendingToUser || null;

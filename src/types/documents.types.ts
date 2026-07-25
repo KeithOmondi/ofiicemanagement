@@ -3,7 +3,7 @@
 // ── Type enums ────────────────────────────────────────────────────────────────
 
 export type DocumentType =
-  | 'memo' | 'letter' | 'judgment' | 'ruling'
+  | 'memo' | 'letter' | 'certificate' | 'judgment' | 'ruling'
   | 'order' | 'correspondence' | 'upload' | 'ticket';
 
 /**
@@ -32,14 +32,14 @@ export type DocumentStatus =
 
 export type DocumentCategory =
   | 'judgments' | 'rulings' | 'correspondence'
-  | 'orders' | 'drafts' | 'general';
+  | 'orders' | 'drafts' | 'general' | 'certificates';
 
 export type RoutePriority = 'low' | 'normal' | 'urgent';
 
 export type RefType =
   | 'for_signature' | 'for_attention' | 'for_information' | 'direction' | 'other';
 
-// ── NEW: Request Types ──────────────────────────────────────────────────────
+// ─── NEW: Request Types ──────────────────────────────────────────────────────
 
 export type RequestType =
   | 'driver'
@@ -52,7 +52,7 @@ export type RequestType =
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
-// ── Request Details ──────────────────────────────────────────────────────────
+// ─── Request Details ──────────────────────────────────────────────────────────
 
 export interface DocumentRequestDetails {
   // Type of request
@@ -114,7 +114,7 @@ export interface DocumentRequestDetails {
   remarks?: string | null;
 }
 
-// ── Request-specific interfaces for better type safety ──────────────────────
+// ─── Request-specific interfaces for better type safety ──────────────────────
 
 export interface DriverRequestDetails extends DocumentRequestDetails {
   request_type: 'driver';
@@ -177,7 +177,7 @@ export type AnyRequestDetails =
   | ForceNumberRequestDetails
   | ResidenceSecurityRequestDetails;
 
-// ── Signature Placement: now auto‑detected; custom positioning uses coordinates ─
+// ─── Signature Placement: now auto‑detected; custom positioning uses coordinates ─
 // The SignaturePlacement type is removed; placement is determined by scanning
 // for the signatory block (name + title) or by absolute coordinates.
 // For custom placement, use signature_position_x/y/width/height.
@@ -442,6 +442,31 @@ export interface ComposeLetterInput {
   cc?: string;
   enclosures?: string;
   request_details?: Partial<DocumentRequestDetails>;
+}
+
+// ─── ADDED: Compose Certificate Input ────────────────────────────────────────
+
+export interface ComposeCertificateInput {
+  title: string;
+  ruleReference?: string;
+  ref?: string;
+  date?: string;
+  body: string;
+  datedLine: string;
+  signatoryLines: string[];
+  draftedByInitials?: string;
+  logoUrl?: string;
+  footerEmblemUrl?: string;
+  footerAddress?: string;
+  footerContact?: string;
+  footerTagline?: string;
+  // Document storage fields
+  from?: string;              // Maps to from_sender
+  to?: string;                // Maps to to_recipient
+  signatureName?: string;     // Maps to signature_name
+  signatureTitle?: string;    // Maps to signature_title
+  department_id?: string;
+  reference_no?: string;
 }
 
 // ── Other input types ──────────────────────────────────────────────────────────

@@ -22,7 +22,8 @@ export type DocumentEntityType =
     | 'protocol'         // Protocol event documents
     | 'club'             // Club membership documents
     | 'utility_memo'     // Utility memo documents
-    | 'aide';            // Aide request documents
+    | 'aide'             // Aide request documents
+    | 'sentry';          // Sentry request documents
 
 export type DocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
@@ -129,7 +130,11 @@ export interface HelpdeskDocument {
     current_station?: string | null;   // Current station
     current_unit?: string | null;      // Current unit (KPS, APS, GSU, etc.)
     proposed_assignment?: string | null; // Proposed assignment description
-    aide_status?: string | null;       // Aide request status (in_progress, rejected, attached)
+    aide_status?: string | null;       // Aide request status (pending, in_progress, rejected, attached)
+    
+    // ─── Sentry Request Fields ────────────────────────────────────────────────
+    residence_location?: string | null; // Residence location for sentry
+    sentry_status?: string | null;      // Sentry request status (pending, active, resolved, rejected)
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string | null;              // Officer's rank (deprecated, use officer_rank)
@@ -165,6 +170,10 @@ export interface HelpdeskDocumentFilters {
     aide_status?: string;
     reporting_date?: string;
     
+    // ─── Sentry Request Filters ──────────────────────────────────────────────
+    residence_location?: string;
+    sentry_status?: string;
+    
     // ─── Legacy filters ──────────────────────────────────────────────────────
     rank?: string;
 }
@@ -194,6 +203,10 @@ export interface UploadHelpdeskDocumentPayload {
     proposed_assignment?: string;
     reporting_date?: string;
     aide_status?: string;
+    
+    // ─── Sentry Request Fields ──────────────────────────────────────────────
+    residence_location?: string;
+    sentry_status?: string;
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
@@ -261,6 +274,10 @@ export interface LinkHelpdeskDocumentPayload {
     reporting_date?: string;
     aide_status?: string;
     
+    // ─── Sentry Request Fields ──────────────────────────────────────────────
+    residence_location?: string;
+    sentry_status?: string;
+    
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
 }
@@ -292,6 +309,10 @@ export interface BulkLinkDocumentsPayload {
     proposed_assignment?: string;
     reporting_date?: string;
     aide_status?: string;
+    
+    // ─── Sentry Request Fields ──────────────────────────────────────────────
+    residence_location?: string;
+    sentry_status?: string;
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
@@ -374,7 +395,7 @@ interface HelpdeskDocumentsState {
         bulkLink: boolean;
         bulkUpdate: boolean;
         stats: boolean;
-        hardDelete: boolean; // Added for hard delete
+        hardDelete: boolean;
     };
     error: string | null;
     deletingId: string | null;
@@ -442,6 +463,10 @@ function buildParams(filters: HelpdeskDocumentFilters): Record<string, string> {
     if (filters.current_unit) params.current_unit = filters.current_unit;
     if (filters.aide_status) params.aide_status = filters.aide_status;
     if (filters.reporting_date) params.reporting_date = filters.reporting_date;
+    
+    // ─── Sentry Request Filters ──────────────────────────────────────────────
+    if (filters.residence_location) params.residence_location = filters.residence_location;
+    if (filters.sentry_status) params.sentry_status = filters.sentry_status;
     
     // ─── Legacy filters ──────────────────────────────────────────────────────
     if (filters.rank) params.rank = filters.rank;
@@ -539,6 +564,10 @@ export const uploadHelpdeskDocument = createAsyncThunk<
             if (payload.reporting_date) formData.append('reporting_date', payload.reporting_date);
             if (payload.aide_status) formData.append('aide_status', payload.aide_status);
             
+            // ─── Sentry Request Fields ──────────────────────────────────────────
+            if (payload.residence_location) formData.append('residence_location', payload.residence_location);
+            if (payload.sentry_status) formData.append('sentry_status', payload.sentry_status);
+            
             // ─── Legacy fields ──────────────────────────────────────────────────
             if (payload.rank) formData.append('rank', payload.rank);
 
@@ -562,6 +591,8 @@ export const uploadHelpdeskDocument = createAsyncThunk<
                 hasProposedAssignment: !!payload.proposed_assignment,
                 hasReportingDate: !!payload.reporting_date,
                 hasAideStatus: !!payload.aide_status,
+                hasResidenceLocation: !!payload.residence_location,
+                hasSentryStatus: !!payload.sentry_status,
                 hasRank: !!payload.rank,
             });
 
@@ -865,6 +896,8 @@ export const linkHelpdeskDocument = createAsyncThunk<
         proposed_assignment,
         reporting_date,
         aide_status,
+        residence_location,
+        sentry_status,
         rank 
     }, { rejectWithValue }) => {
         try {
@@ -883,6 +916,8 @@ export const linkHelpdeskDocument = createAsyncThunk<
                 proposed_assignment,
                 reporting_date,
                 aide_status,
+                residence_location,
+                sentry_status,
                 rank,
             });
             return data.data as HelpdeskDocument;
@@ -1417,6 +1452,16 @@ export const selectDocumentsByCurrentUnit = (currentUnit: string) => (state: Roo
 
 export const selectDocumentsByAideStatus = (aideStatus: string) => (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.aide_status === aideStatus);
+
+// ─── Sentry Request Selectors ──────────────────────────────────────────────
+
+export const selectDocumentsByResidenceLocation = (residenceLocation: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter(
+        (d) => d.residence_location?.toLowerCase().includes(residenceLocation.toLowerCase())
+    );
+
+export const selectDocumentsBySentryStatus = (sentryStatus: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.sentry_status === sentryStatus);
 
 // ─── Legacy Selectors ──────────────────────────────────────────────────────
 

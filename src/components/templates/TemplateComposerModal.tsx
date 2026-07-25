@@ -5,7 +5,7 @@ import { useAppDispatch, useAppSelector } from '../../store/hook';
 import { fetchActiveTemplate } from '../../store/slices/templatesSlice';
 import { type TemplateType } from '../../types/templates.types';
 import { selectCurrentUser } from '../../store/slices/userSlice';
-import { createMemo, createLetter } from '../../store/slices/documentSlice';
+import { createMemo, createLetter, createCertificate } from '../../store/slices/documentSlice';
 import type { ComposeMemoInput, ComposeLetterInput, Document } from '../../types/documents.types';
 import toast from 'react-hot-toast';
 import { sanitizePastedHtml } from '../../utils/pasteSanitizer';
@@ -31,10 +31,6 @@ const Spinner: React.FC<{ size?: 'sm' | 'md' }> = ({ size = 'sm' }) => (
   </svg>
 );
 
-// Splits the CC textarea value into "Copy to:" entries for the live
-// preview, mirroring formatCC() in LetterTemplate.ts: entries separated
-// by a blank line, last line of each entry treated as the station and
-// rendered bold + uppercase (no underline).
 interface CCPreviewEntry {
   bodyLines: string[];
   location: string;
@@ -62,55 +58,47 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
   const dispatch = useAppDispatch();
   const currentUser = useAppSelector(selectCurrentUser);
 
-  // NOTE: loadingTemplate/loadError now ONLY control the small footer strip
-  // at the bottom of the document preview — they no longer gate rendering
-  // of the form, editor, or Save button. Previously the entire composer
-  // (including the Save Draft & Continue button) was hidden behind a
-  // full-screen spinner until fetchActiveTemplate resolved. If that request
-  // hung, errored ambiguously, or a department had no configured template,
-  // the user was stuck on a spinner with no way to type or save — which
-  // looked exactly like "the Save button is inactive". The footer image/
-  // text is cosmetic and non-blocking, so it should never be able to
-  // prevent someone from composing and saving a memo/letter.
   const [loadingTemplate, setLoadingTemplate] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
 
-  // Form state
+  // ─── Form state ──────────────────────────────────────────────────────────────
+
+  // Common fields
   const [title, setTitle] = useState('');
   const [toField, setToField] = useState('REGISTRAR, HIGH COURT / ORHC AIE HOLDER');
   const [fromField, setFromField] = useState('HIGH COURT SUPPORT OFFICE');
   const [refField, setRefField] = useState('');
-  // Stored as an unambiguous YYYY-MM-DD string (native <input type="date">
-  // format) rather than a free-text display string like "20 Jul 2026".
-  // The previous free-text field let the user type any format, and
-  // `new Date(dateField).toISOString()` in handleSaveDraft would silently
-  // throw RangeError: Invalid time value on unparseable input — caught by
-  // the generic catch block and surfaced only as "An error occurred while
-  // saving", with no way to trace it back to the date field. A native date
-  // input makes that class of bug impossible.
   const [dateField, setDateField] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   });
-
-  // Signatory fields - separate from the FROM field
   const [signatoryName, setSignatoryName] = useState(currentUser?.full_name ?? '');
   const [senderTitleField, setSenderTitleField] = useState('Registrar, High Court');
-
-  // Controls TO / FROM order in the memo header
   const [fromFirst, setFromFirst] = useState(false);
 
+  // Letter-specific fields
   const [ccField, setCcField] = useState('');
   const [enclosuresField, setEnclosuresField] = useState('');
+
+  // ─── Certificate-specific fields ────────────────────────────────────────────
+
+  const [ruleReference, setRuleReference] = useState('(Order 5 Rule 32(e) of the Civil Procedure Rules)');
+  const [datedLine, setDatedLine] = useState(() => {
+    const now = new Date();
+    const day = now.getDate();
+    const suffix = ['th', 'st', 'nd', 'rd'][(day % 10 > 3 || Math.floor(day % 100 / 10) === 1) ? 0 : day % 10];
+    const month = now.toLocaleString('en', { month: 'long' });
+    return `Dated, Signed and Sealed this ${day}${suffix} ${month}, ${now.getFullYear()}.`;
+  });
+  const [signatoryLines, setSignatoryLines] = useState<string[]>(['REGISTRAR,', 'HIGH COURT OF KENYA']);
+  const [draftedByInitials, setDraftedByInitials] = useState('lnu');
 
   const [footerImageUrl, setFooterImageUrl] = useState<string | null>(null);
   const [footerText, setFooterText] = useState<string>('');
 
   const editorRef = useRef<HTMLDivElement>(null);
 
-  // Load template for footer — runs in the background; never blocks the
-  // rest of the modal from rendering or being usable.
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -145,12 +133,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
     document.execCommand(command, false, value);
   };
 
-  // Intercepts paste into the body editor and strips Word/Excel clipboard
-  // bloat (empty spacer paragraphs, mso-* styles, conditional comments)
-  // before it's inserted — instead of letting the browser's default paste
-  // behavior dump the raw clipboard HTML straight into the DOM. This is
-  // what was producing the stray "." lines and extra vertical spacing
-  // around pasted tables (e.g. the AIE-holder table) in generated PDFs.
   const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
     e.preventDefault();
     const html = e.clipboardData.getData('text/html');
@@ -166,7 +148,7 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
 
   const handleSaveDraft = async () => {
     if (!title.trim()) {
-      toast.error(`Please enter a subject for this ${type === 'memo' ? 'memo' : 'letter'}`);
+      toast.error(`Please enter a subject for this ${type === 'memo' ? 'memo' : type === 'letter' ? 'letter' : 'certificate'}`);
       return;
     }
     const bodyHtml = editorRef.current?.innerHTML ?? '';
@@ -175,9 +157,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
       return;
     }
 
-    // Build the submitted ISO datetime from the (now guaranteed well-formed)
-    // YYYY-MM-DD field. Guarded defensively even though a native date input
-    // should never produce an unparseable value.
     const parsedDate = new Date(`${dateField}T00:00:00`);
     if (isNaN(parsedDate.getTime())) {
       toast.error('The date field is invalid — please reselect a date.');
@@ -202,7 +181,7 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
           fromFirst,
         };
         result = await dispatch(createMemo(payload));
-      } else {
+      } else if (type === 'letter') {
         const payload: ComposeLetterInput = {
           title: title.trim(),
           to: toField.trim(),
@@ -217,17 +196,31 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
           enclosures: enclosuresField.trim() || undefined,
         };
         result = await dispatch(createLetter(payload));
+      } else {
+        const payload = {
+          title: title.trim(),
+          to: toField.trim(),
+          from: fromField.trim(),
+          body: bodyHtml,
+          signatureName: signatoryName.trim() || currentUser?.full_name || fromField.trim(),
+          signatureTitle: senderTitleField.trim() || 'Registrar, High Court',
+          department_id: departmentId ?? undefined,
+          reference_no: refField.trim() || undefined,
+          ruleReference: ruleReference.trim() || undefined,
+          datedLine: datedLine.trim() || `Dated, Signed and Sealed this ${new Date().toLocaleDateString('en', { day: 'numeric', month: 'long', year: 'numeric' })}.`,
+          signatoryLines: signatoryLines.length > 0 ? signatoryLines : ['REGISTRAR,', 'HIGH COURT OF KENYA'],
+          draftedByInitials: draftedByInitials.trim() || undefined,
+        };
+        result = await dispatch(createCertificate(payload));
       }
 
-      if (createMemo.fulfilled.match(result) || createLetter.fulfilled.match(result)) {
-        toast.success(`${type === 'memo' ? 'Memo' : 'Letter'} saved as draft`);
+      if (createMemo.fulfilled.match(result) || createLetter.fulfilled.match(result) || createCertificate.fulfilled.match(result)) {
+        toast.success(`${type === 'memo' ? 'Memo' : type === 'letter' ? 'Letter' : 'Certificate'} saved as draft`);
         onCreated(result.payload as Document);
       } else {
         toast.error((result.payload as string) ?? 'Failed to save document');
       }
     } catch (err) {
-      // Log the real error so this is traceable next time, instead of only
-      // ever showing the generic "An error occurred while saving" toast.
       console.error('[TemplateComposerModal] Unexpected error while saving:', err);
       const message = err instanceof Error ? err.message : 'An error occurred while saving';
       toast.error(message);
@@ -247,14 +240,23 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between gap-3 bg-slate-50 shrink-0">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-1">
-              New {type === 'memo' ? 'Memo' : 'Letter'}
+              New {type === 'memo' ? 'Memo' : type === 'letter' ? 'Letter' : 'Certificate'}
             </p>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full text-sm font-semibold text-slate-900 bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:outline-none transition-colors"
-              placeholder={type === 'memo' ? 'Subject of this memo' : 'Subject of this letter'}
-            />
+            {type === 'certificate' ? (
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full text-sm font-semibold text-slate-900 bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:outline-none transition-colors text-center uppercase"
+                placeholder="CERTIFICATE OF SERVICE OF FOREIGN PROCESS"
+              />
+            ) : (
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="w-full text-sm font-semibold text-slate-900 bg-transparent border-0 border-b border-transparent hover:border-slate-200 focus:border-blue-500 focus:outline-none transition-colors"
+                placeholder={type === 'memo' ? 'Subject of this memo' : 'Subject of this letter'}
+              />
+            )}
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors flex-shrink-0">
             <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -300,6 +302,7 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
             )}
 
             {type === 'memo' ? (
+              // ─── MEMO TEMPLATE ──────────────────────────────────────────────────
               <>
                 <div className="flex justify-center mb-3">
                   <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-[78px] w-auto object-contain" />
@@ -311,7 +314,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                 </div>
                 <div className="border-t-[2.5px] border-black mb-2.5" />
 
-                {/* Memo fields with TO/FROM swap control */}
                 <div className="mt-2">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-xs text-stone-400 font-medium">Order:</span>
@@ -335,7 +337,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                     { label: 'DATE', value: dateField, set: setDateField, upper: false, type: 'date' as const },
                     { label: 'SUBJECT', value: title, set: setTitle, upper: true, placeholder: 'Subject of this memo', type: 'text' as const },
                   ]
-                    // Reorder based on fromFirst: swap TO and FROM if true
                     .sort((a, b) => {
                       if (a.label === 'TO' && b.label === 'FROM') return fromFirst ? 1 : -1;
                       if (a.label === 'FROM' && b.label === 'TO') return fromFirst ? -1 : 1;
@@ -388,8 +389,8 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                   </div>
                 </div>
               </>
-            ) : (
-              // Letter template
+            ) : type === 'letter' ? (
+              // ─── LETTER TEMPLATE ─────────────────────────────────────────────────
               <>
                 <div className="flex items-center mb-1">
                   <div className="flex-shrink-0 mr-4">
@@ -463,7 +464,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                   />
                 </div>
 
-                {/* CC block */}
                 <div className="mt-8 border-t border-stone-300 pt-4">
                   <div className="mb-2">
                     <span className="font-bold text-xs italic underline">Copy to:</span>
@@ -511,12 +511,98 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                   />
                 </div>
               </>
+            ) : (
+              // ─── CERTIFICATE TEMPLATE ─────────────────────────────────────────────
+              <>
+                // ─── CERTIFICATE TEMPLATE ─────────────────────────────────────────────
+{/* Remove Ref and Date from certificate - they are not needed */}
+
+<div className="flex justify-center mb-4">
+  <img 
+    src={JUDICIARY_CREST_SRC} 
+    alt="Judiciary of Kenya crest" 
+    className="h-[78px] w-auto object-contain" 
+  />
+</div>
+
+<div className="text-center mb-2">
+  <p className="text-[19px] font-bold uppercase leading-snug">
+    OFFICE OF THE REGISTRAR HIGH COURT
+  </p>
+</div>
+
+<div className="border-t-[2.5px] border-black mb-6" />
+
+{/* Certificate Title */}
+<div className="text-center mb-1">
+  <input
+    value={title}
+    onChange={(e) => setTitle(e.target.value)}
+    placeholder="CERTIFICATE OF SERVICE OF FOREIGN PROCESS"
+    className={`${editableLineClasses} w-full text-center text-[16px] font-bold uppercase`}
+  />
+</div>
+
+{/* Rule Reference */}
+<div className="text-center mb-6">
+  <input
+    value={ruleReference}
+    onChange={(e) => setRuleReference(e.target.value)}
+    placeholder="(Order 5 Rule 32(e) of the Civil Procedure Rules)"
+    className={`${editableLineClasses} w-full text-center text-[13px] font-bold`}
+  />
+</div>
+
+{/* Certificate Body - ContentEditable */}
+<div
+  ref={editorRef}
+  contentEditable
+  suppressContentEditableWarning
+  onPaste={handlePaste}
+  data-placeholder="I, [NAME], Registrar of the High Court of Kenya, hereby certify that the documents annexed hereto are as follows:&#10;&#10;1. &#10;2. &#10;3. &#10;&#10;And I certify that such service so proved, and the proof thereof, are such as are required by the law and practice of the High Court of Kenya regulating the service of legal process in Kenya and the proof thereof."
+  className="min-h-[300px] text-[13px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
+/>
+
+{/* Dated Line */}
+<div className="text-center mt-6">
+  <input
+    value={datedLine}
+    onChange={(e) => setDatedLine(e.target.value)}
+    placeholder="Dated, Signed and Sealed this 23rd July, 2026."
+    className={`${editableLineClasses} w-full text-center text-[13px]`}
+  />
+</div>
+
+{/* Signature Block */}
+<div className="text-center mt-12">
+  {signatoryLines.map((line, index) => (
+    <input
+      key={index}
+      value={line}
+      onChange={(e) => {
+        const newLines = [...signatoryLines];
+        newLines[index] = e.target.value;
+        setSignatoryLines(newLines);
+      }}
+      placeholder={index === 0 ? "REGISTRAR," : "HIGH COURT OF KENYA"}
+      className={`${editableLineClasses} block w-full text-center text-[13px] font-bold uppercase`}
+    />
+  ))}
+</div>
+
+{/* Drafted By Initials */}
+<div className="text-right mt-2">
+  <input
+    value={draftedByInitials}
+    onChange={(e) => setDraftedByInitials(e.target.value)}
+    placeholder="rhc/lnu"
+    className={`${editableLineClasses} text-right text-[11px] italic underline lowercase w-24 ml-auto`}
+  />
+</div>
+              </>
             )}
 
-            {/* Footer strip — the only part gated by the template fetch.
-                Shows a small inline spinner while loading, then the real
-                footer once resolved, or a graceful fallback if it never
-                loads. Never blocks the rest of the form. */}
+            {/* Footer strip */}
             <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
               {loadingTemplate ? (
                 <div className="flex items-center gap-2 text-stone-400">
