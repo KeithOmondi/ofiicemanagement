@@ -26,11 +26,13 @@ interface ToastState {
 const TYPE_LABELS: Record<TemplateType, string> = {
   memo: "Internal Memo",
   letter: "Letterhead",
+  certificate: "Certificate",
 };
 
 const TYPE_ICONS: Record<TemplateType, string> = {
   memo: "📄",
   letter: "✉️",
+  certificate: "📜",
 };
 
 // ─── Scope helpers ──────────────────────────────────────────────────────────
