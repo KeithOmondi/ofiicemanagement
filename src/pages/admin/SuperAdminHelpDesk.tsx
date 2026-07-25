@@ -78,14 +78,15 @@ import {
 import {
   fetchHelpdeskDocuments,
   uploadHelpdeskDocument,
+  updateDocumentFile, // ✅ Use updateDocumentFile instead of uploadHelpdeskDocument for approvals
   linkHelpdeskDocument,
-  submitForApproval,
-  approveDocument,
+  //submitForApproval,
+  //approveDocument,
   returnDocument,
   rejectDocument,
   selectAllHelpdeskDocuments,
   selectDocumentsUploading,
-  selectDocumentActionLoading,
+  //selectDocumentActionLoading,
   selectDocumentLinking,
   selectUnlinkedHelpdeskDocuments,
   type DocumentFormat,
@@ -145,7 +146,7 @@ import { stampPdfFromUrl } from '../../utils/pdfStamp';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type EntityType = 'circuit' | 'bench' | 'partHeard' | 'serviceWeek' | 'otherPayment' | 'utility_memo' | 'protocol' | 'visa' | 'generalRequest' | 'medicalClaim';
+type EntityType = 'circuit' | 'bench' | 'partHeard' | 'serviceWeek' | 'otherPayment' | 'utility_memo' | 'protocol' | 'visa' | 'generalRequest' | 'medicalClaim' | 'ticket' | 'aide' | 'sentry';
 
 interface TabDef {
   key: HelpDeskTab | 'overview';
@@ -631,8 +632,8 @@ interface DocumentViewerModalProps {
 
 const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   document,
-  entityId,
-  entityType,
+  //entityId,
+  //entityType,
   onClose,
   onActionComplete,
 }) => {
@@ -644,7 +645,8 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   const [showReturnForm, setShowReturnForm] = useState(false);
   const [returnReason, setReturnReason] = useState('');
 
-  const canDecide = document.status === 'pending_approval';
+  // ✅ Super Admin can decide on both draft and pending_approval documents
+  const canDecide = document.status === 'pending_approval' || document.status === 'draft';
   const canSendToRequester = document.status === 'approved';
 
   useEffect(() => {
@@ -676,19 +678,18 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
 
       const safeRef = document.ref.replace(/[\\/:*?"<>|]/g, '-');
 
+      // ✅ UPDATE the existing document instead of creating a new one
       await dispatch(
-        uploadHelpdeskDocument({
+        updateDocumentFile({
+          id: document.id,
           blob: stampedBlob,
           filename: `stamped-${safeRef}.pdf`,
-          ref: document.ref,
-          subject: document.subject,
-          entity_type: entityType,
-          entity_id: entityId,
-          format: 'pdf',
+          status: 'approved',
+          e_stamp_status: 'stamped',
+          comments: 'Document approved and stamped.',
+          approved_by: currentUser?.id,
         })
       ).unwrap();
-
-      await dispatch(approveDocument({ id: document.id, comments: 'Document reviewed, stamped, and approved.' })).unwrap();
 
       toast.success('Document stamped and approved.');
       onActionComplete();
@@ -723,7 +724,11 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
       return;
     }
     try {
-      await dispatch(returnDocument({ id: document.id, comments: returnReason.trim() })).unwrap();
+      await dispatch(returnDocument({ 
+        id: document.id, 
+        comments: returnReason.trim(),
+        instructions: returnReason.trim(),
+      })).unwrap();
       toast.success('Document returned to the requester.');
       onActionComplete();
     } catch (err) {
@@ -885,16 +890,18 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
             </div>
           )}
 
-          {/* Approve / Return actions */}
+          {/* Approve / Return actions - Super Admin can decide on draft and pending_approval */}
           {canDecide && (
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
               <h4 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
                 <Clock size={16} />
-                Pending Your Decision
+                {document.status === 'draft' ? 'Ready for Review' : 'Pending Your Decision'}
               </h4>
               <p className="mt-1 text-xs text-amber-700">
-                Approving will burn a blue registrar stamp into the PDF, upload the stamped version,
-                and mark the document approved. Returning sends the document back to the requester unstamped.
+                {document.status === 'draft'
+                  ? 'This document is in draft state. Review and approve it with a registrar stamp, or return it for changes.'
+                  : 'Approving will burn a blue registrar stamp into the PDF, upload the stamped version, and mark the document approved. Returning sends the document back to the requester unstamped.'
+                }
               </p>
 
               <div className="mt-3 flex flex-wrap gap-2">
@@ -1063,13 +1070,14 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
   renderContent,
 }: EntityDetailModalProps<T>) {
   const dispatch = useAppDispatch();
+  const currentUser = useAppSelector(selectCurrentUser);
   const allDocs = useAppSelector(selectAllHelpdeskDocuments);
   const docs = allDocs.filter(
     (d) => d.entity_type === entityType && d.entity_id === item.id
   );
   const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
   const documentsUploading = useAppSelector(selectDocumentsUploading);
-  const documentActionLoading = useAppSelector(selectDocumentActionLoading);
+  //const documentActionLoading = useAppSelector(selectDocumentActionLoading);
   const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
   const isLinking = useAppSelector(selectDocumentLinking);
 
@@ -1077,6 +1085,12 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
   const [selectedDocForView, setSelectedDocForView] = useState<HelpdeskDocument | null>(null);
   const [showDocViewer, setShowDocViewer] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!currentUser) {
+      dispatch(fetchCurrentUser());
+    }
+  }, [dispatch, currentUser]);
 
   useEffect(() => {
     dispatch(fetchHelpdeskDocuments({ entity_type: entityType, entity_id: item.id }));
@@ -1133,15 +1147,7 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
     }
   };
 
-  const handleSendForApproval = async (docId: string) => {
-    try {
-      await dispatch(submitForApproval({ id: docId })).unwrap();
-      toast.success('Document sent to the super admin for approval.');
-      dispatch(fetchHelpdeskDocuments({ entity_type: entityType, entity_id: item.id }));
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to submit for approval.');
-    }
-  };
+  
 
   const handleViewDocument = (doc: HelpdeskDocument) => {
     setSelectedDocForView(doc);
@@ -1283,19 +1289,21 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                         <ExternalLink size={12} />
                         Open
                       </a>
+                      {/* Super Admin can review draft documents too */}
                       {doc.status === 'draft' && (
                         <GhostButton
-                          onClick={() => handleSendForApproval(doc.id)}
-                          disabled={!!documentActionLoading[doc.id]?.submitting}
-                          icon={
-                            documentActionLoading[doc.id]?.submitting ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Send size={12} />
-                            )
-                          }
+                          onClick={() => handleViewDocument(doc)}
+                          icon={<Eye size={12} />}
                         >
-                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
+                          Review & Decide
+                        </GhostButton>
+                      )}
+                      {doc.status === 'pending_approval' && (
+                        <GhostButton
+                          onClick={() => handleViewDocument(doc)}
+                          icon={<Eye size={12} />}
+                        >
+                          Review & Decide
                         </GhostButton>
                       )}
                       {doc.status === 'approved' && doc.e_stamp_url && (
@@ -2898,10 +2906,6 @@ function ClubTab() {
 
 // ─── Utilities Tab ───────────────────────────────────────────────────────────
 
-// ─── Utilities Tab ───────────────────────────────────────────────────────────
-
-// ─── Utilities Tab ───────────────────────────────────────────────────────────
-
 function UtilitiesTab({
   onViewJudge,
 }: {
@@ -2956,12 +2960,10 @@ function UtilitiesTab({
     }
   };
 
-  // Fixed: onMemoGenerated expects (docId: string) => void
   const handleMemoGenerated = (docId: string) => {
     console.log('Memo generated with ID:', docId);
     toast.success('Memo generated successfully');
     setShowMemoModal(false);
-    // Optionally refresh the utilities list
     dispatch(fetchUtilities({}));
   };
 

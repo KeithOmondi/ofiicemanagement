@@ -76,7 +76,6 @@ import {
 import {
   fetchHelpdeskDocuments,
   uploadHelpdeskDocument,
-  updateDocumentFile,
   linkHelpdeskDocument,
   submitForApproval as submitDocumentForApproval,
   rejectDocument,
@@ -89,9 +88,9 @@ import {
   selectDocumentLinking,
   clearDocumentError,
   type DocumentFormat,
-  //type DocumentEntityType,
   type HelpdeskDocument,
   type DocumentStatus,
+  updateDocumentFile,
 } from '../../store/slices/helpdeskDocumentsSlice';
 import {
   selectCurrentUser,
@@ -346,6 +345,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   const [showReturnForm, setShowReturnForm] = useState(false);
   const [returnReason, setReturnReason] = useState('');
 
+  // Super Admin can decide on both draft and pending_approval documents
   const canDecide = document.status === 'pending_approval' || document.status === 'draft';
   const canSendToRequester = document.status === 'approved';
 
@@ -383,60 +383,62 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
     }
   };
 
-  const handleApproveAndStamp = async () => {
-    if (!currentUser?.signature_url) {
-      toast.error('Please upload your signature first before approving documents.');
+  // In DocumentViewerModal, replace the handleApproveAndStamp function with this:
+
+const handleApproveAndStamp = async () => {
+  if (!currentUser?.signature_url) {
+    toast.error('Please upload your signature first before approving documents.');
+    return;
+  }
+
+  setIsStamping(true);
+  try {
+    const signatureImageBytes = await fetchSignatureBytes();
+    
+    if (!signatureImageBytes) {
       return;
     }
 
-    setIsStamping(true);
-    try {
-      const signatureImageBytes = await fetchSignatureBytes();
-      
-      if (!signatureImageBytes) {
-        return;
-      }
+    console.log('Stamping PDF with signature...');
+    const stampedBlob = await stampPdfFromUrl(document.file_url, {
+      issuer: 'REGISTRAR HIGH COURT',
+      approverName: currentUser?.full_name || 'Super Admin',
+      signatureImageBytes,
+    });
 
-      console.log('Stamping PDF with signature...');
-      const stampedBlob = await stampPdfFromUrl(document.file_url, {
-        issuer: 'REGISTRAR HIGH COURT',
-        approverName: currentUser?.full_name || 'Super Admin',
-        signatureImageBytes,
-      });
+    const safeRef = document.ref.replace(/[\\/:*?"<>|]/g, '-');
 
-      const safeRef = document.ref.replace(/[\\/:*?"<>|]/g, '-');
+    console.log('Updating existing document with stamped version...');
+    // ✅ UPDATE the existing document instead of creating a new one
+    await dispatch(
+      updateDocumentFile({
+        id: document.id,
+        blob: stampedBlob,
+        filename: `stamped-${safeRef}.pdf`,
+        status: 'approved',
+        e_stamp_status: 'stamped',
+        comments: 'Document approved and stamped.',
+        approved_by: currentUser?.id,
+        approved_by_name: currentUser?.full_name,
+      })
+    ).unwrap();
 
-      console.log('Updating existing document with stamped version...');
-      // ✅ UPDATE the existing document instead of creating a new one
-      await dispatch(
-        updateDocumentFile({
-          id: document.id,
-          blob: stampedBlob,
-          filename: `stamped-${safeRef}.pdf`,
-          status: 'approved',
-          e_stamp_status: 'stamped',
-          comments: 'Document approved and stamped.',
-          approved_by: currentUser?.id,
-          approved_by_name: currentUser?.full_name,
-        })
-      ).unwrap();
-
-      console.log(`Approving ${entityType}...`);
-      if (entityType === 'aide') {
-        await dispatch(approveAideRequest({ id: entityId, comments: 'Document reviewed, stamped, and approved.' })).unwrap();
-      } else {
-        await dispatch(approveSentryRequest({ id: entityId, comments: 'Document reviewed, stamped, and approved.' })).unwrap();
-      }
-
-      toast.success('Document stamped and request approved.');
-      onActionComplete();
-    } catch (err) {
-      console.error('Approve & stamp failed:', err);
-      toast.error(typeof err === 'string' ? err : 'Failed to approve and stamp the document.');
-    } finally {
-      setIsStamping(false);
+    console.log(`Approving ${entityType}...`);
+    if (entityType === 'aide') {
+      await dispatch(approveAideRequest({ id: entityId, comments: 'Document reviewed, stamped, and approved.' })).unwrap();
+    } else {
+      await dispatch(approveSentryRequest({ id: entityId, comments: 'Document reviewed, stamped, and approved.' })).unwrap();
     }
-  };
+
+    toast.success('Document stamped and request approved.');
+    onActionComplete();
+  } catch (err) {
+    console.error('Approve & stamp failed:', err);
+    toast.error(typeof err === 'string' ? err : 'Failed to approve and stamp the document.');
+  } finally {
+    setIsStamping(false);
+  }
+};
 
   const handleRejectDocument = async () => {
     const reason = prompt('Please provide a reason for rejecting this document:');
@@ -462,30 +464,33 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
     }
   };
 
-  const handleReturn = async () => {
-    if (!returnReason.trim()) {
-      toast.error('Please provide a reason for returning this document.');
-      return;
+  // In DocumentViewerModal, update the handleReturn function:
+
+const handleReturn = async () => {
+  if (!returnReason.trim()) {
+    toast.error('Please provide a reason for returning this document.');
+    return;
+  }
+  try {
+    // Try with both comments and reason to cover both possibilities
+    await dispatch(returnHelpdeskDocument({ 
+      id: document.id, 
+      comments: returnReason.trim(),
+      instructions: returnReason.trim(),
+    })).unwrap();
+    
+    if (entityType === 'aide') {
+      await dispatch(returnAideRequest({ id: entityId, reason: returnReason.trim() })).unwrap();
+    } else {
+      await dispatch(returnSentryRequest({ id: entityId, reason: returnReason.trim() })).unwrap();
     }
-    try {
-      await dispatch(returnHelpdeskDocument({ 
-        id: document.id, 
-        comments: returnReason.trim(),
-        instructions: returnReason.trim(),
-      })).unwrap();
-      
-      if (entityType === 'aide') {
-        await dispatch(returnAideRequest({ id: entityId, reason: returnReason.trim() })).unwrap();
-      } else {
-        await dispatch(returnSentryRequest({ id: entityId, reason: returnReason.trim() })).unwrap();
-      }
-      
-      toast.success('Document returned to the requester.');
-      onActionComplete();
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to return the document.');
-    }
-  };
+    
+    toast.success('Document returned to the requester.');
+    onActionComplete();
+  } catch (err) {
+    toast.error(typeof err === 'string' ? err : 'Failed to return the document.');
+  }
+};
 
   const handleDeliverToRequester = async () => {
     try {
@@ -649,7 +654,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
             </div>
           )}
 
-          {/* Decision Actions */}
+          {/* Decision Actions - Super Admin can decide on draft and pending_approval */}
           {canDecide && (
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
               <h4 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
@@ -1086,7 +1091,7 @@ const AideDetailModal: React.FC<AideDetailModalProps> = ({ aideId, onClose, onEd
             </div>
           </div>
 
-          {/* Supporting Documents - with approval actions based on role */}
+          {/* Supporting Documents - with approval actions for Super Admin */}
           <div className="mt-6">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
@@ -1473,7 +1478,7 @@ const SentryDetailModal: React.FC<SentryDetailModalProps> = ({ sentryId, onClose
             </div>
           </div>
 
-          {/* Supporting Documents - with approval actions based on role */}
+          {/* Supporting Documents - with approval actions for Super Admin */}
           <div className="mt-6">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
@@ -1933,7 +1938,7 @@ const SentryTab: React.FC = () => {
 
 // ─── Main Component ─────────────────────────────────────────────────────────
 
-const HelpdeskAides: React.FC = () => {
+const SuperAdminAides: React.FC = () => {
   const dispatch = useAppDispatch();
   const currentUser = useAppSelector(selectCurrentUser);
   const isSuperAdmin = currentUser?.role === 'super_admin';
@@ -2255,4 +2260,4 @@ const HelpdeskAides: React.FC = () => {
   );
 };
 
-export default HelpdeskAides;
+export default SuperAdminAides;

@@ -212,6 +212,22 @@ export interface UploadHelpdeskDocumentPayload {
     rank?: string;
 }
 
+export interface UpdateDocumentFilePayload {
+    id: string;
+    blob: Blob;
+    filename: string;
+    status?: DocumentStatus;
+    e_stamp_url?: string;
+    e_stamp_public_id?: string;
+    e_stamp_status?: EStampStatus;
+    comments?: string;
+    approved_by?: string;
+    approved_by_name?: string;
+    rejection_reason?: string;
+    returned_by?: string;
+    returned_by_name?: string;
+}
+
 export interface SubmitForApprovalPayload {
     id: string;
     comments?: string;
@@ -396,6 +412,7 @@ interface HelpdeskDocumentsState {
         bulkUpdate: boolean;
         stats: boolean;
         hardDelete: boolean;
+        updateFile: boolean;
     };
     error: string | null;
     deletingId: string | null;
@@ -424,6 +441,7 @@ const initialState: HelpdeskDocumentsState = {
         bulkUpdate: false,
         stats: false,
         hardDelete: false,
+        updateFile: false,
     },
     error: null,
     deletingId: null,
@@ -634,6 +652,73 @@ export const uploadHelpdeskDocument = createAsyncThunk<
                     } else if (typeof errors === 'object') {
                         message = Object.values(errors).flat().join(', ');
                     }
+                }
+            }
+            
+            return rejectWithValue(message);
+        }
+    }
+);
+
+// ─── UPDATE DOCUMENT FILE ────────────────────────────────────────────────────
+
+export const updateDocumentFile = createAsyncThunk<
+    HelpdeskDocument,
+    UpdateDocumentFilePayload,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/updateFile',
+    async (payload, { rejectWithValue }) => {
+        try {
+            const formData = new FormData();
+            
+            // The file field
+            formData.append('file', payload.blob, payload.filename);
+            
+            // Optional fields
+            if (payload.status) formData.append('status', payload.status);
+            if (payload.e_stamp_url) formData.append('e_stamp_url', payload.e_stamp_url);
+            if (payload.e_stamp_public_id) formData.append('e_stamp_public_id', payload.e_stamp_public_id);
+            if (payload.e_stamp_status) formData.append('e_stamp_status', payload.e_stamp_status);
+            if (payload.comments) formData.append('comments', payload.comments);
+            if (payload.approved_by) formData.append('approved_by', payload.approved_by);
+            if (payload.approved_by_name) formData.append('approved_by_name', payload.approved_by_name);
+            if (payload.rejection_reason) formData.append('rejection_reason', payload.rejection_reason);
+            if (payload.returned_by) formData.append('returned_by', payload.returned_by);
+            if (payload.returned_by_name) formData.append('returned_by_name', payload.returned_by_name);
+
+            console.log('📤 Updating document file:', {
+                id: payload.id,
+                filename: payload.filename,
+                size: payload.blob.size,
+                status: payload.status,
+                hasEStamp: !!payload.e_stamp_url,
+                hasComments: !!payload.comments,
+            });
+
+            const { data } = await axiosClient.patch(`/helpdesk/documents/${payload.id}/file`, formData, {
+                headers: { 
+                    'Content-Type': 'multipart/form-data',
+                },
+            });
+
+            console.log('✅ Document file updated successfully:', data);
+            return data.data as HelpdeskDocument;
+        } catch (err) {
+            const error = err as AxiosError<{ message?: string; errors?: unknown }>;
+            
+            console.error('❌ Update document file failed:', {
+                status: error.response?.status,
+                statusText: error.response?.statusText,
+                data: error.response?.data,
+            });
+            
+            let message = 'Failed to update document file';
+            if (error.response?.data) {
+                if (typeof error.response.data === 'string') {
+                    message = error.response.data;
+                } else if (error.response.data.message) {
+                    message = error.response.data.message;
                 }
             }
             
@@ -1043,6 +1128,27 @@ const helpdeskDocumentsSlice = createSlice({
                 state.error = action.payload as string;
             });
 
+        // ── updateDocumentFile ──────────────────────────────────────────────
+        builder
+            .addCase(updateDocumentFile.pending, (state) => {
+                state.loading.updateFile = true;
+                state.error = null;
+            })
+            .addCase(updateDocumentFile.fulfilled, (state, action: PayloadAction<HelpdeskDocument>) => {
+                state.loading.updateFile = false;
+                const index = state.items.findIndex(d => d.id === action.payload.id);
+                if (index !== -1) {
+                    state.items[index] = action.payload;
+                }
+                if (state.selectedDocument?.id === action.payload.id) {
+                    state.selectedDocument = action.payload;
+                }
+            })
+            .addCase(updateDocumentFile.rejected, (state, action) => {
+                state.loading.updateFile = false;
+                state.error = action.payload as string;
+            });
+
         // ── batchUploadDocuments ─────────────────────────────────────────────
         builder
             .addCase(batchUploadDocuments.pending, (state) => {
@@ -1388,6 +1494,7 @@ export const selectIsRejecting = (state: RootState, id: string) =>
     state.helpdeskDocuments.actionLoading[id]?.rejecting || false;
 export const selectIsReturning = (state: RootState, id: string) =>
     state.helpdeskDocuments.actionLoading[id]?.returning || false;
+export const selectDocumentUpdatingFile = (state: RootState) => state.helpdeskDocuments.loading.updateFile;
 
 export const selectDocumentsByEntity = (
     entityType: DocumentEntityType,

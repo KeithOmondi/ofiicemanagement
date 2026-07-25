@@ -2,12 +2,11 @@
 
 /**
  * Aide Request Status
- * - `pending`: Request is pending review
  * - `in_progress`: Request is being processed
  * - `rejected`: Request was rejected
  * - `attached`: Officer has been attached
  */
-export type AideStatus = 'pending' | 'in_progress' | 'rejected' | 'attached';
+export type AideStatus = 'in_progress' | 'rejected' | 'attached';
 
 /**
  * Sentry Request Status
@@ -195,7 +194,6 @@ export interface SentryRequestPaginationResponse {
  */
 export interface AideRequestStats {
   total: number;
-  pending: number;
   in_progress: number;
   rejected: number;
   attached: number;
@@ -236,7 +234,7 @@ export const OFFICER_RANKS: OfficerRank[] = [
 
 export const UNIT_TYPES: UnitType[] = ['KPS', 'APS', 'GSU', 'DCI', 'VIPPU', 'Other'];
 
-export const AIDE_STATUSES: AideStatus[] = ['pending', 'in_progress', 'rejected', 'attached'];
+export const AIDE_STATUSES: AideStatus[] = ['in_progress', 'rejected', 'attached'];
 
 export const SENTRY_STATUSES: SentryStatus[] = ['pending', 'active', 'resolved', 'rejected'];
 
@@ -263,7 +261,6 @@ export const getUnitTypeLabel = (unit: UnitType): string => unit;
  */
 export const getAideStatusLabel = (status: AideStatus): string => {
   const labels: Record<AideStatus, string> = {
-    pending: 'Pending',
     in_progress: 'In Progress',
     rejected: 'Rejected',
     attached: 'Attached',
@@ -289,7 +286,6 @@ export const getSentryStatusLabel = (status: SentryStatus): string => {
  */
 export const getAideStatusColor = (status: AideStatus): string => {
   const colors: Record<AideStatus, string> = {
-    pending: 'bg-amber-50 text-amber-700 ring-amber-200',
     in_progress: 'bg-blue-50 text-blue-700 ring-blue-200',
     rejected: 'bg-red-50 text-red-700 ring-red-200',
     attached: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
@@ -315,7 +311,6 @@ export const getSentryStatusColor = (status: SentryStatus): string => {
  */
 export const getAideStatusDotColor = (status: AideStatus): string => {
   const colors: Record<AideStatus, string> = {
-    pending: 'bg-amber-500',
     in_progress: 'bg-blue-500',
     rejected: 'bg-red-500',
     attached: 'bg-emerald-500',
@@ -341,7 +336,6 @@ export const getSentryStatusDotColor = (status: SentryStatus): string => {
  */
 export const getAideStatusTextColor = (status: AideStatus): string => {
   const colors: Record<AideStatus, string> = {
-    pending: 'text-amber-700',
     in_progress: 'text-blue-700',
     rejected: 'text-red-700',
     attached: 'text-emerald-700',
@@ -435,7 +429,7 @@ export const formatSentryDateTime = (date: string | null | undefined): string =>
  */
 export const getOfficerRankColor = (rank: OfficerRank): string => {
   const order = getOfficerRankOrder(rank);
-  if (order <= 3) return 'bg-gray-100 text-gray-700 ring-gray-200';
+  if (order <= 3) return 'bg-stone-100 text-stone-700 ring-stone-200';
   if (order <= 6) return 'bg-blue-100 text-blue-700 ring-blue-200';
   if (order <= 9) return 'bg-purple-100 text-purple-700 ring-purple-200';
   return 'bg-amber-100 text-amber-700 ring-amber-200';
@@ -451,9 +445,9 @@ export const getUnitTypeColor = (unit: UnitType): string => {
     GSU: 'bg-red-100 text-red-700 ring-red-200',
     DCI: 'bg-purple-100 text-purple-700 ring-purple-200',
     VIPPU: 'bg-amber-100 text-amber-700 ring-amber-200',
-    Other: 'bg-gray-100 text-gray-700 ring-gray-200',
+    Other: 'bg-stone-100 text-stone-700 ring-stone-200',
   };
-  return colors[unit] || 'bg-gray-100 text-gray-700 ring-gray-200';
+  return colors[unit] || 'bg-stone-100 text-stone-700 ring-stone-200';
 };
 
 /**

@@ -32,6 +32,7 @@ import SuperAdminTickets from '../pages/admin/SuperAdminTickets';
 import SuperAdminConference from '../pages/admin/SuperAdminConference';
 import SuperAdminBringUp from '../pages/admin/SuperAdminBringUp';
 import SuperAdminFolders from '../pages/admin/SuperAdminFolders';
+import SuperAdminAides from '../pages/admin/SuperAdminAides';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -84,6 +85,7 @@ const AppRoutes: React.FC = () => {
           <Route path="/super-admin/documents"     element={<SuperAdminDocuments />} />
           <Route path="/super-admin/helpdesk"     element={<SuperAdminHelpDesk />} />
           <Route path="/super-admin/helpdesk/tickets"     element={<SuperAdminTickets />} />
+          <Route path="/super-admin/helpdesk/aides"     element={<SuperAdminAides />} />
           <Route path="/super-admin/helpdesk/conference"     element={<SuperAdminConference />} />
           <Route path="/super-admin/dsa-tracker"   element={<SuperAdminDsa />} />
           <Route path="/super-admin/tasks"         element={<SuperAdminTaskM />} />

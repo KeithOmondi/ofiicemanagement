@@ -40,6 +40,8 @@ export interface AideState {
     update: boolean;
     delete: boolean;
     stats: boolean;
+    approve: boolean;
+    return: boolean;
   };
   error: string | null;
   success: boolean;
@@ -86,6 +88,8 @@ const initialState: AideState = {
     update: false,
     delete: false,
     stats: false,
+    approve: false,
+    return: false,
   },
   error: null,
   success: false,
@@ -332,6 +336,48 @@ export const updateAideRequest = createAsyncThunk<
 );
 
 /**
+ * Approve an aide request (Super Admin only)
+ * Transitions status from 'in_progress' to 'attached'
+ */
+export const approveAideRequest = createAsyncThunk<
+  AideRequest,
+  { id: string; comments?: string },
+  { rejectValue: string }
+>(
+  'aides/approve',
+  async ({ id, comments }, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.put(`/aide/${id}/approve`, { comments });
+      return data.data || data;
+    } catch (err) {
+      console.error('❌ Approve aide request error:', err);
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+/**
+ * Return an aide request to requester (Super Admin only)
+ * Transitions status from 'in_progress' to 'rejected'
+ */
+export const returnAideRequest = createAsyncThunk<
+  AideRequest,
+  { id: string; reason: string },
+  { rejectValue: string }
+>(
+  'aides/return',
+  async ({ id, reason }, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.put(`/aide/${id}/return`, { reason });
+      return data.data || data;
+    } catch (err) {
+      console.error('❌ Return aide request error:', err);
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+/**
  * Delete an aide request (soft delete)
  */
 export const deleteAideRequest = createAsyncThunk<
@@ -494,6 +540,54 @@ const aidesSlice = createSlice({
         state.success = false;
       });
 
+    // ── approveAideRequest ──────────────────────────────────────────────────
+    builder
+      .addCase(approveAideRequest.pending, (state) => {
+        state.loading.approve = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(approveAideRequest.fulfilled, (state, action: PayloadAction<AideRequest>) => {
+        state.loading.approve = false;
+        state.success = true;
+        const index = state.items.findIndex((item) => item.id === action.payload.id);
+        if (index !== -1) {
+          state.items[index] = action.payload;
+        }
+        if (state.selectedItem?.id === action.payload.id) {
+          state.selectedItem = action.payload;
+        }
+      })
+      .addCase(approveAideRequest.rejected, (state, action) => {
+        state.loading.approve = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    // ── returnAideRequest ───────────────────────────────────────────────────
+    builder
+      .addCase(returnAideRequest.pending, (state) => {
+        state.loading.return = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(returnAideRequest.fulfilled, (state, action: PayloadAction<AideRequest>) => {
+        state.loading.return = false;
+        state.success = true;
+        const index = state.items.findIndex((item) => item.id === action.payload.id);
+        if (index !== -1) {
+          state.items[index] = action.payload;
+        }
+        if (state.selectedItem?.id === action.payload.id) {
+          state.selectedItem = action.payload;
+        }
+      })
+      .addCase(returnAideRequest.rejected, (state, action) => {
+        state.loading.return = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
     builder
       .addCase(deleteAideRequest.pending, (state) => {
         state.loading.delete = true;
@@ -572,14 +666,10 @@ export const selectAttachedAides = (state: RootState) =>
 export const selectRejectedAides = (state: RootState) =>
   state.aides.items.filter((item) => item.status === 'rejected');
 
-export const selectPendingAides = (state: RootState) =>
-  state.aides.items.filter((item) => item.status === 'pending');
-
 export const selectAideTotalCount = (state: RootState) => state.aides.stats?.total || 0;
 export const selectAideInProgressCount = (state: RootState) => state.aides.stats?.in_progress || 0;
 export const selectAideAttachedCount = (state: RootState) => state.aides.stats?.attached || 0;
 export const selectAideRejectedCount = (state: RootState) => state.aides.stats?.rejected || 0;
-export const selectAidePendingCount = (state: RootState) => state.aides.stats?.pending || 0;
 
 export const selectAidesByJudgeName = (judgeName: string) => (state: RootState) =>
   state.aides.items.filter((item) =>

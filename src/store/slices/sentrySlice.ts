@@ -38,6 +38,8 @@ export interface SentryState {
     update: boolean;
     delete: boolean;
     stats: boolean;
+    approve: boolean;
+    return: boolean;
   };
   error: string | null;
   success: boolean;
@@ -84,6 +86,8 @@ const initialState: SentryState = {
     update: false,
     delete: false,
     stats: false,
+    approve: false,
+    return: false,
   },
   error: null,
   success: false,
@@ -289,6 +293,48 @@ export const updateSentryRequest = createAsyncThunk<
 );
 
 /**
+ * Approve a sentry request (Super Admin only)
+ * Transitions status from 'pending' to 'active'
+ */
+export const approveSentryRequest = createAsyncThunk<
+  SentryRequest,
+  { id: string; comments?: string },
+  { rejectValue: string }
+>(
+  'sentry/approve',
+  async ({ id, comments }, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.put(`/sentry/${id}/approve`, { comments });
+      return data.data || data;
+    } catch (err) {
+      console.error('❌ Approve sentry request error:', err);
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+/**
+ * Return a sentry request to requester (Super Admin only)
+ * Transitions status from 'pending' to 'rejected'
+ */
+export const returnSentryRequest = createAsyncThunk<
+  SentryRequest,
+  { id: string; reason: string },
+  { rejectValue: string }
+>(
+  'sentry/return',
+  async ({ id, reason }, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.put(`/sentry/${id}/return`, { reason });
+      return data.data || data;
+    } catch (err) {
+      console.error('❌ Return sentry request error:', err);
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+/**
  * Delete a sentry request (soft delete)
  * DELETE /api/v1/sentry/:id
  */
@@ -449,6 +495,54 @@ const sentrySlice = createSlice({
       })
       .addCase(updateSentryRequest.rejected, (state, action) => {
         state.loading.update = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    // ── approveSentryRequest ──────────────────────────────────────────────────
+    builder
+      .addCase(approveSentryRequest.pending, (state) => {
+        state.loading.approve = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(approveSentryRequest.fulfilled, (state, action: PayloadAction<SentryRequest>) => {
+        state.loading.approve = false;
+        state.success = true;
+        const index = state.items.findIndex((item) => item.id === action.payload.id);
+        if (index !== -1) {
+          state.items[index] = action.payload;
+        }
+        if (state.selectedItem?.id === action.payload.id) {
+          state.selectedItem = action.payload;
+        }
+      })
+      .addCase(approveSentryRequest.rejected, (state, action) => {
+        state.loading.approve = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    // ── returnSentryRequest ───────────────────────────────────────────────────
+    builder
+      .addCase(returnSentryRequest.pending, (state) => {
+        state.loading.return = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(returnSentryRequest.fulfilled, (state, action: PayloadAction<SentryRequest>) => {
+        state.loading.return = false;
+        state.success = true;
+        const index = state.items.findIndex((item) => item.id === action.payload.id);
+        if (index !== -1) {
+          state.items[index] = action.payload;
+        }
+        if (state.selectedItem?.id === action.payload.id) {
+          state.selectedItem = action.payload;
+        }
+      })
+      .addCase(returnSentryRequest.rejected, (state, action) => {
+        state.loading.return = false;
         state.error = action.payload as string;
         state.success = false;
       });

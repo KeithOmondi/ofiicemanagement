@@ -123,6 +123,7 @@ import {
   Upload,
   ExternalLink,
   Send,
+  ArrowLeft,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
 import UtilitiesModal from '../../components/modals/UtilitiesModal';
@@ -1238,7 +1239,7 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                           <span
                             className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
                           >
-                            {doc.status.replace('_', ' ')}
+                            {doc.status === 'pending_approval' ? 'Pending Approval' : doc.status.replace('_', ' ')}
                           </span>
                           <span className="text-[11px] text-stone-400">{doc.ref}</span>
                           <span className="text-[11px] text-stone-400 uppercase">{doc.format}</span>
@@ -1258,6 +1259,7 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                         <ExternalLink size={12} />
                         View
                       </a>
+                      {/* ✅ Helpdesk/Requester sees "Send for Approval" on draft documents */}
                       {doc.status === 'draft' && (
                         <GhostButton
                           onClick={() => handleSendForApproval(doc.id)}
@@ -1272,6 +1274,27 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                         >
                           {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
                         </GhostButton>
+                      )}
+                      {/* ✅ Show "Pending Approval" status for documents that have been submitted */}
+                      {doc.status === 'pending_approval' && (
+                        <span className="inline-flex items-center gap-1 text-xs text-amber-600">
+                          <ClockIcon size={12} />
+                          Pending Approval
+                        </span>
+                      )}
+                      {/* ✅ Show "Approved" status for approved documents */}
+                      {doc.status === 'approved' && (
+                        <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+                          <CheckCircle size={12} />
+                          Approved
+                        </span>
+                      )}
+                      {/* ✅ Show "Returned" status for returned documents */}
+                      {doc.status === 'returned' && (
+                        <span className="inline-flex items-center gap-1 text-xs text-blue-600">
+                          <ArrowLeft size={12} />
+                          Returned
+                        </span>
                       )}
                     </div>
                   </li>
@@ -2654,8 +2677,6 @@ function VisaTab() {
 
 // ─── Protocol Tab ─────────────────────────────────────────────────────────────
 
-// ─── Protocol Tab ─────────────────────────────────────────────────────────────
-
 function ProtocolTab() {
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllProtocolEvents);
@@ -3301,7 +3322,7 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                           <span
                             className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
                           >
-                            {doc.status.replace('_', ' ')}
+                            {doc.status === 'pending_approval' ? 'Pending Approval' : doc.status.replace('_', ' ')}
                           </span>
                           <span className="text-[11px] text-stone-400">{doc.ref}</span>
                           <span className="text-[11px] text-stone-400 uppercase">{doc.format}</span>
@@ -3335,6 +3356,18 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                         >
                           {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
                         </GhostButton>
+                      )}
+                      {doc.status === 'pending_approval' && (
+                        <span className="inline-flex items-center gap-1 text-xs text-amber-600">
+                          <ClockIcon size={12} />
+                          Pending Approval
+                        </span>
+                      )}
+                      {doc.status === 'approved' && (
+                        <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+                          <CheckCircle size={12} />
+                          Approved
+                        </span>
                       )}
                     </div>
                   </li>

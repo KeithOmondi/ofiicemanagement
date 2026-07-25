@@ -16,8 +16,7 @@ export type HelpdeskEntityType =
     | 'protocol'         // Protocol event documents
     | 'club'             // Club membership documents
     | 'utility_memo'     // Utility memo documents
-    | 'aide'             // Aide request documents
-    | 'sentry';          // Sentry request documents
+    | 'aide';            // Aide request documents
 
 export type HelpdeskDocumentFormat = 'pdf' | 'docx' | 'xlsx';
 
@@ -137,11 +136,7 @@ export interface HelpdeskDocument {
     current_unit?: string | null;      // Current unit (KPS, APS, GSU, etc.)
     proposed_assignment?: string | null; // Proposed assignment description
     reporting_date?: string | null;    // Expected reporting date
-    aide_status?: string | null;       // Aide request status (pending, in_progress, rejected, attached)
-    
-    // ─── Sentry Request Fields ────────────────────────────────────────────────
-    residence_location?: string | null; // Residence location for sentry
-    sentry_status?: string | null;      // Sentry request status (pending, active, resolved, rejected)
+    aide_status?: string | null;       // Aide request status (in_progress, rejected, attached)
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string | null;              // Officer's rank (deprecated, use officer_rank)
@@ -178,10 +173,6 @@ export interface HelpdeskDocumentFilters {
     aide_status?: string;
     reporting_date?: string;
     
-    // ─── Sentry Request Filters ──────────────────────────────────────────────
-    residence_location?: string;
-    sentry_status?: string;
-    
     // ─── Legacy filters ──────────────────────────────────────────────────────
     rank?: string;
 }
@@ -214,12 +205,26 @@ export interface UploadHelpdeskDocumentPayload {
     reporting_date?: string;
     aide_status?: string;
     
-    // ─── Sentry Request Fields ──────────────────────────────────────────────
-    residence_location?: string;
-    sentry_status?: string;
-    
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
+}
+
+// ─── Update Document File Payload ─────────────────────────────────────────────
+
+export interface UpdateDocumentFilePayload {
+    id: string;
+    blob: Blob;
+    filename: string;
+    status?: HelpdeskDocumentStatus;
+    e_stamp_url?: string;
+    e_stamp_public_id?: string;
+    e_stamp_status?: EStampStatus;
+    comments?: string;
+    approved_by?: string;
+    approved_by_name?: string;
+    rejection_reason?: string;
+    returned_by?: string;
+    returned_by_name?: string;
 }
 
 export interface SubmitForApprovalPayload {
@@ -284,10 +289,6 @@ export interface LinkHelpdeskDocumentPayload {
     reporting_date?: string;
     aide_status?: string;
     
-    // ─── Sentry Request Fields ──────────────────────────────────────────────
-    residence_location?: string;
-    sentry_status?: string;
-    
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
 }
@@ -319,10 +320,6 @@ export interface BulkLinkDocumentsPayload {
     proposed_assignment?: string;
     reporting_date?: string;
     aide_status?: string;
-    
-    // ─── Sentry Request Fields ──────────────────────────────────────────────
-    residence_location?: string;
-    sentry_status?: string;
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
@@ -451,7 +448,6 @@ export const HELPEDSK_ENTITY_LABELS: Record<HelpdeskEntityType, string> = {
     club: 'Club Membership',
     utility_memo: 'Utility Memo',
     aide: 'Aide Request',
-    sentry: 'Sentry Request',
 };
 
 export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
@@ -469,7 +465,6 @@ export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
     club: 'Users',
     utility_memo: 'FileText',
     aide: 'Shield',
-    sentry: 'Home',
 };
 
 export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
@@ -487,7 +482,6 @@ export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
     club: 'text-purple-600 bg-purple-50',
     utility_memo: 'text-amber-600 bg-amber-50',
     aide: 'text-blue-600 bg-blue-50',
-    sentry: 'text-emerald-600 bg-emerald-50',
 };
 
 export const DOCUMENT_STATUS_LABELS: Record<HelpdeskDocumentStatus, string> = {
@@ -646,8 +640,7 @@ export function isHelpdeskEntityType(value: string): value is HelpdeskEntityType
         'protocol',
         'club',
         'utility_memo',
-        'aide',
-        'sentry'
+        'aide'
     ].includes(value);
 }
 

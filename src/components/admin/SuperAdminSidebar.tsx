@@ -183,6 +183,7 @@ const navigationConfig: NavSection[] = [
         children: [
           { to: '/super-admin/helpdesk/tickets',    label: 'Tickets' },
           { to: '/super-admin/helpdesk/conference', label: 'Conference' },
+          { to: '/super-admin/helpdesk/aides', label: 'Aides & Sentry' },
         ],
       },
       { to: '/super-admin/team-members',  label: 'Team Members',     icon: Icon.team     },

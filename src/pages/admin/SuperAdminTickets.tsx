@@ -28,10 +28,8 @@ import {
   selectDocumentsUploading,
   selectDocumentLinking,
   clearDocumentError,
-  type DocumentFormat,
-  type DocumentEntityType,
   type HelpdeskDocument,
-  uploadHelpdeskDocument,
+  updateDocumentFile, // ✅ Use updateDocumentFile instead of uploadHelpdeskDocument
 } from '../../store/slices/helpdeskDocumentsSlice';
 import {
   selectCurrentUser,
@@ -219,11 +217,11 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   const [showReturnForm, setShowReturnForm] = useState(false);
   const [returnReason, setReturnReason] = useState('');
 
-  const canDecide = document.status === 'pending_approval';
+  // ✅ Super Admin can decide on both draft and pending_approval documents
+  const canDecide = document.status === 'pending_approval' || document.status === 'draft';
   const canSendToRequester = document.status === 'approved';
 
   const fetchSignatureBytes = async (): Promise<ArrayBuffer | undefined> => {
-    // Check if currentUser has a signature_url
     if (!currentUser?.signature_url) {
       console.warn('No signature URL found for current user');
       toast.error('No signature uploaded. Please upload your signature first.');
@@ -242,7 +240,6 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
       
       const arrayBuffer = await sigRes.arrayBuffer();
       
-      // Check if the array buffer has content
       if (!arrayBuffer || arrayBuffer.byteLength === 0) {
         console.warn('Signature array buffer is empty');
         toast.error('Signature image is empty. Please re-upload your signature.');
@@ -259,7 +256,6 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   };
 
   const handleApproveAndStamp = async () => {
-    // Check if user has a signature before proceeding
     if (!currentUser?.signature_url) {
       toast.error('Please upload your signature first before approving documents.');
       return;
@@ -269,9 +265,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
     try {
       const signatureImageBytes = await fetchSignatureBytes();
       
-      // If signature fetch failed, don't proceed with stamping
       if (!signatureImageBytes) {
-        // The toast error is already shown in fetchSignatureBytes
         return;
       }
 
@@ -284,16 +278,17 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
 
       const safeRef = document.ref.replace(/[\\/:*?"<>|]/g, '-');
 
-      console.log('Uploading stamped document...');
+      console.log('Updating existing document with stamped version...');
+      // ✅ UPDATE the existing document instead of creating a new one
       await dispatch(
-        uploadHelpdeskDocument({
+        updateDocumentFile({
+          id: document.id,
           blob: stampedBlob,
           filename: `stamped-${safeRef}.pdf`,
-          ref: document.ref,
-          subject: document.subject,
-          entity_type: 'ticket' as DocumentEntityType,
-          entity_id: ticketId,
-          format: 'pdf' as DocumentFormat,
+          status: 'approved',
+          e_stamp_status: 'stamped',
+          comments: 'Document approved and stamped.',
+          approved_by: currentUser?.id,
         })
       ).unwrap();
 
@@ -334,7 +329,11 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
       return;
     }
     try {
-      await dispatch(returnHelpdeskDocument({ id: document.id, comments: returnReason.trim() })).unwrap();
+      await dispatch(returnHelpdeskDocument({ 
+        id: document.id, 
+        comments: returnReason.trim(),
+        instructions: returnReason.trim(),
+      })).unwrap();
       await dispatch(returnTicket({ id: ticketId, reason: returnReason.trim() })).unwrap();
       toast.success('Document returned to the requester.');
       onActionComplete();
@@ -504,12 +503,13 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
               <h4 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
                 <Clock size={16} />
-                Pending Your Decision
+                {document.status === 'draft' ? 'Ready for Review' : 'Pending Your Decision'}
               </h4>
               <p className="mt-1 text-xs text-amber-700">
-                Approving will burn a blue registrar stamp into the PDF with your signature,
-                upload the stamped version, and mark the ticket approved. 
-                Returning sends the ticket back to the requester unstamped.
+                {document.status === 'draft' 
+                  ? 'This document is in draft state. Review and approve it with a registrar stamp, or return it for changes.'
+                  : 'Approving will burn a blue registrar stamp into the PDF with your signature, upload the stamped version, and mark the ticket approved. Returning sends the ticket back to the requester unstamped.'
+                }
               </p>
 
               <div className="mt-3 flex flex-wrap gap-2">
@@ -827,7 +827,7 @@ const SuperAdminTickets: React.FC = () => {
           </div>
         </div>
 
-        {/* Filter Bar - Matching HelpdeskTickets style */}
+        {/* Filter Bar */}
         <div className="mb-4 rounded-xl border border-stone-200 bg-white p-4 shadow-sm">
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-6">
             <input
@@ -896,7 +896,7 @@ const SuperAdminTickets: React.FC = () => {
           </div>
         </div>
 
-        {/* Ticket Table - Matching HelpdeskTickets style exactly */}
+        {/* Ticket Table */}
         <div className="overflow-hidden rounded-xl border border-stone-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1600px] border-collapse border border-stone-200 text-sm">
@@ -1018,7 +1018,7 @@ const SuperAdminTickets: React.FC = () => {
             </table>
           </div>
 
-          {/* Pagination - Matching HelpdeskTickets style */}
+          {/* Pagination */}
           <div className="flex flex-col gap-3 border-t border-stone-200 bg-stone-50/80 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <span className="text-xs text-stone-500">
               Showing {(pagination.page - 1) * pagination.limit + 1} to{' '}
@@ -1186,8 +1186,8 @@ const SuperAdminTickets: React.FC = () => {
                         </GhostButton>
                       )}
 
-                      {/* If document is pending_approval, show "Review & Decide" button */}
-                      {doc.status === 'pending_approval' && (
+                      {/* Super Admin can review draft documents too */}
+                      {doc.status === 'draft' && (
                         <GhostButton
                           onClick={() => handleViewDocument(doc)}
                           icon={<Eye size={12} />}
@@ -1196,9 +1196,14 @@ const SuperAdminTickets: React.FC = () => {
                         </GhostButton>
                       )}
 
-                      {/* If document is draft, Super Admin can only view/download */}
-                      {doc.status === 'draft' && (
-                        <span className="text-xs text-stone-400">Draft</span>
+                      {/* If document is pending_approval, show "Review & Decide" button */}
+                      {doc.status === 'pending_approval' && (
+                        <GhostButton
+                          onClick={() => handleViewDocument(doc)}
+                          icon={<Eye size={12} />}
+                        >
+                          Review & Decide
+                        </GhostButton>
                       )}
 
                       {/* E-Stamp indicator */}

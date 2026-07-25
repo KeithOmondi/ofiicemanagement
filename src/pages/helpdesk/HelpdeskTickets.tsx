@@ -9,9 +9,6 @@ import {
   updateTicket,
   deleteTicket,
   submitTicketForApproval,
-  approveTicket,
-  rejectTicket,
-  returnTicket,
   bookTicket,
   cancelTicket,
   completeTicket,
@@ -107,6 +104,8 @@ import {
   ExternalLink,
   Paperclip,
   Plane,
+  CheckCircle,
+  Clock as ClockIcon,
 } from 'lucide-react';
 import { generateAirTicketMemoDocx } from '../../utils/generateAirTicketMemoDocx';
 import { generateAirTicketMemoPdf } from '../../utils/generateAirTicketMemoPdf';
@@ -547,8 +546,6 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
     const d = new Date(dateStr);
     return d.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
   };
-
-  //const timeSlots = getTimeSlots();
 
   // ── Build schedule rows with both outbound and return trips ────────────────
   const scheduleRows: ScheduleRow[] = [];
@@ -1461,15 +1458,14 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
 
 // ── Ticket Detail Modal ─────────────────────────────────────────────────────
 
+// ── Ticket Detail Modal ─────────────────────────────────────────────────────
+
 interface TicketDetailModalProps {
   ticket: TicketWithHistory;
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onSubmitForApproval: () => void;
-  onApprove: (comments?: string) => void;
-  onReject: (reason: string) => void;
-  onReturn: (reason: string, instructions?: string) => void;
   onBook: (bookingRef: string, comments?: string) => void;
   onCancel: () => void;
   onComplete: () => void;
@@ -1483,9 +1479,6 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
   onEdit,
   onDelete,
   onSubmitForApproval,
-  onApprove,
-  onReject,
-  onReturn,
   onBook,
   onCancel,
   onComplete,
@@ -1587,6 +1580,19 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
     }
   };
 
+  // ✅ Only draft tickets can be edited
+  const canEdit = ticket.status === 'draft';
+  // Determine if the ticket can be deleted (draft only)
+  const canDelete = ticket.status === 'draft';
+  // Determine if the ticket can be submitted for approval (draft only)
+  const canSubmit = ticket.status === 'draft';
+  // Determine if the ticket can be booked (approved only)
+  const canBook = ticket.status === 'approved';
+  // Determine if the ticket can be completed (booked only)
+  const canComplete = ticket.status === 'booked';
+  // Determine if the ticket can be cancelled (draft, approved, or booked)
+  const canCancel = ticket.status === 'draft' || ticket.status === 'approved' || ticket.status === 'booked';
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
       <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
@@ -1631,35 +1637,31 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
             {ticket.rejected_reason && <DetailRow label="Rejection Reason" value={ticket.rejected_reason} />}
           </div>
 
+          {/* Actions - Helpdesk/Requester only (no Approve/Reject/Return) */}
           <div className="mt-5 flex flex-wrap gap-2">
-            {ticket.status === 'draft' && (
+            {canSubmit && (
               <ActionPill tone="warning" onClick={onSubmitForApproval}>Submit for Approval</ActionPill>
             )}
-            {ticket.status === 'pending_approval' && (
-              <>
-                <ActionPill tone="success" onClick={() => onApprove()}>Approve</ActionPill>
-                <ActionPill tone="danger" onClick={() => onReject(prompt('Rejection reason?') || '')}>Reject</ActionPill>
-                <ActionPill tone="warning" onClick={() => onReturn(prompt('Return reason?') || '', prompt('Instructions?') || undefined)}>
-                  Return
-                </ActionPill>
-              </>
-            )}
-            {ticket.status === 'approved' && (
+            {canBook && (
               <ActionPill tone="info" onClick={() => onBook(prompt('Booking reference?') || '', prompt('Comments?') || undefined)}>
                 Book
               </ActionPill>
             )}
-            {ticket.status === 'booked' && (
+            {canComplete && (
               <ActionPill tone="info" onClick={onComplete}>Complete</ActionPill>
             )}
-            {(ticket.status === 'draft' || ticket.status === 'approved' || ticket.status === 'booked') && (
+            {canCancel && (
               <ActionPill tone="muted" onClick={onCancel}>Cancel</ActionPill>
             )}
-            <ActionPill tone="default" onClick={onEdit}>Edit</ActionPill>
-            <ActionPill tone="danger" onClick={onDelete}>Delete</ActionPill>
+            {canEdit && (
+              <ActionPill tone="default" onClick={onEdit}>Edit</ActionPill>
+            )}
+            {canDelete && (
+              <ActionPill tone="danger" onClick={onDelete}>Delete</ActionPill>
+            )}
           </div>
 
-          {/* Supporting Documents */}
+          {/* Supporting Documents - Helpdesk/Requester view */}
           <div className="mt-6">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-stone-800">Supporting Documents</h3>
@@ -1735,7 +1737,7 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                               doc.status
                             )}`}
                           >
-                            {doc.status.replace('_', ' ')}
+                            {doc.status === 'pending_approval' ? 'Pending Approval' : doc.status.replace('_', ' ')}
                           </span>
                           <span className="text-[11px] text-stone-400">{doc.ref}</span>
                           {doc.rank && (
@@ -1760,6 +1762,7 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                         <ExternalLink size={12} />
                         View
                       </a>
+                      {/* Helpdesk/Requester sees "Send for Approval" on draft documents */}
                       {doc.status === 'draft' && (
                         <GhostButton
                           onClick={() => handleSendDocumentForApproval(doc.id)}
@@ -1774,6 +1777,27 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                         >
                           {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
                         </GhostButton>
+                      )}
+                      {/* Show "Pending Approval" status for documents that have been submitted */}
+                      {doc.status === 'pending_approval' && (
+                        <span className="inline-flex items-center gap-1 text-xs text-amber-600">
+                          <ClockIcon size={12} />
+                          Pending Approval
+                        </span>
+                      )}
+                      {/* Show "Approved" status for approved documents */}
+                      {doc.status === 'approved' && (
+                        <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+                          <CheckCircle size={12} />
+                          Approved
+                        </span>
+                      )}
+                      {/* Show "Returned" status for returned documents */}
+                      {doc.status === 'returned' && (
+                        <span className="inline-flex items-center gap-1 text-xs text-blue-600">
+                          <ArrowLeft size={12} />
+                          Returned
+                        </span>
                       )}
                     </div>
                   </li>
@@ -1974,49 +1998,11 @@ const HelpdeskTickets: React.FC = () => {
       });
   };
 
-  const handleApprove = (id: string, comments?: string) => {
-    dispatch(approveTicket({ id, comments }))
-      .unwrap()
-      .then(() => {
-        if (selectedId === id) dispatch(fetchTicketById(id));
-        toast.success('Ticket approved successfully.');
-      })
-      .catch((err) => {
-        toast.error(`Failed to approve ticket: ${getErrorMessage(err)}`);
-      });
-  };
+ 
 
-  const handleReject = (id: string, reason: string) => {
-    if (!reason) {
-      toast.error('Rejection reason is required.');
-      return;
-    }
-    dispatch(rejectTicket({ id, reason }))
-      .unwrap()
-      .then(() => {
-        if (selectedId === id) dispatch(fetchTicketById(id));
-        toast.success('Ticket rejected.');
-      })
-      .catch((err) => {
-        toast.error(`Failed to reject ticket: ${getErrorMessage(err)}`);
-      });
-  };
+ 
 
-  const handleReturn = (id: string, reason: string, instructions?: string) => {
-    if (!reason) {
-      toast.error('Return reason is required.');
-      return;
-    }
-    dispatch(returnTicket({ id, reason, instructions }))
-      .unwrap()
-      .then(() => {
-        if (selectedId === id) dispatch(fetchTicketById(id));
-        toast.success('Ticket returned for revision.');
-      })
-      .catch((err) => {
-        toast.error(`Failed to return ticket: ${getErrorMessage(err)}`);
-      });
-  };
+ 
 
   const handleBook = (id: string, booking_reference: string, comments?: string) => {
     if (!booking_reference) {
@@ -2409,29 +2395,26 @@ const HelpdeskTickets: React.FC = () => {
         />
       )}
 
-      {/* Detail Modal */}
-      {showDetailModal && selectedTicket && (
-        <TicketDetailModal
-          ticket={selectedTicket}
-          onClose={handleCloseDetail}
-          onEdit={() => {
-            handleCloseDetail();
-            handleOpenEdit(selectedTicket);
-          }}
-          onDelete={() => handleDelete(selectedTicket.id)}
-          onSubmitForApproval={() => handleSubmitForApproval(selectedTicket.id)}
-          onApprove={(comments) => handleApprove(selectedTicket.id, comments)}
-          onReject={(reason) => handleReject(selectedTicket.id, reason)}
-          onReturn={(reason, instructions) => handleReturn(selectedTicket.id, reason, instructions)}
-          onBook={(ref, comments) => handleBook(selectedTicket.id, ref, comments)}
-          onCancel={() => handleCancel(selectedTicket.id)}
-          onComplete={() => handleComplete(selectedTicket.id)}
-          onAddComment={(comment, isInternal) =>
-            handleAddComment(selectedTicket.id, comment, isInternal)
-          }
-          onDeleteComment={(commentId) => handleDeleteComment(selectedTicket.id, commentId)}
-        />
-      )}
+     {/* Detail Modal */}
+{showDetailModal && selectedTicket && (
+  <TicketDetailModal
+    ticket={selectedTicket}
+    onClose={handleCloseDetail}
+    onEdit={() => {
+      handleCloseDetail();
+      handleOpenEdit(selectedTicket);
+    }}
+    onDelete={() => handleDelete(selectedTicket.id)}
+    onSubmitForApproval={() => handleSubmitForApproval(selectedTicket.id)}
+    onBook={(ref, comments) => handleBook(selectedTicket.id, ref, comments)}
+    onCancel={() => handleCancel(selectedTicket.id)}
+    onComplete={() => handleComplete(selectedTicket.id)}
+    onAddComment={(comment, isInternal) =>
+      handleAddComment(selectedTicket.id, comment, isInternal)
+    }
+    onDeleteComment={(commentId) => handleDeleteComment(selectedTicket.id, commentId)}
+  />
+)}
     </div>
   );
 };
