@@ -1,57 +1,23 @@
 // src/pages/SuperAdminDashboard.tsx
-
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
-  fetchUserStats,
+  fetchDashboardStats,
+  selectDashboardLoading,
+  selectDashboardError,
+  selectDocumentStats,
   selectUserStats,
-  selectUsersError,
-  selectUsersListLoading,
-} from '../../store/slices/userSlice';
-// ── REMOVED tasksSlice imports ─────────────────────────────
-// import { fetchTaskStats, selectTaskStats, selectProjectStats, selectStatsLoading, selectTasksError } from '../../store/slices/tasksSlice';
-import {
-  fetchStationCounts,
-  selectStationCounts,
-  selectStationCountsLoading,
-  selectRegistryError,
-} from '../../store/slices/registrySlice';
-import {
-  fetchNoticesStats,
-  selectNoticesStats,
-  selectStatsLoading as selectNoticesStatsLoading,
-  selectNoticesError,
-} from '../../store/slices/noticesSlice';
-import {
-  fetchUnreadCount as fetchMessagesUnread,
-  selectUnreadCount as selectMessagesUnread,
-  selectMessagesError,
-} from '../../store/slices/messagesSlice';
-import {
-  fetchInventoryStats,
+  selectRegistryStats,
+  selectNoticeStats,
   selectInventoryStats,
-  selectInventoryStatsLoading,
-  selectInventoryError,
-} from '../../store/slices/inventorySlice';
-import {
-  fetchFinancialStats,
   selectFinancialStats,
-  selectStatsLoading as selectFinancialStatsLoading,
-  selectFinancialError,
-} from '../../store/slices/financialSlice';
-import {
-  fetchDsaStats,
-  selectDsaStats,
-  selectDsaStatsLoading,
-  selectDsaError,
-} from '../../store/slices/dsaSlice';
-import {
-  fetchDocuments,
-  selectDocuments,
-  selectLoading as selectDocumentsLoading,
-  selectError as selectDocumentsError,
-  selectPagination as selectDocumentPagination,
-} from '../../store/slices/documentSlice';
+  selectDSAStats,
+  selectMessageStats,
+  selectActiveDocuments,
+  selectAssignedDocuments,
+  selectActiveUsers,
+  selectTotalUsers,
+} from '../../store/slices/dashboardSlice';
 
 // ── Chart.js — register every component we use ────────────────────────────
 import {
@@ -90,8 +56,6 @@ Chart.register(
 
 type Range = '7d' | '30d' | '3m';
 
-
-
 interface FinPoint {
   label: string;
   allocated: number;
@@ -118,8 +82,13 @@ const fmtKes = (value: number | undefined | null, loading: boolean): string => {
   return `KES ${value.toLocaleString()}`;
 };
 
+const fmtNumber = (value: number | undefined | null): string => {
+  if (value === undefined || value === null) return '—';
+  return value.toLocaleString();
+};
+
 // ── Mock trend data ────────────────────────────────────────────────────────
-// Replace with real thunks (fetchFinancialTrend, fetchDsaTrend, etc.) when available.
+// Replace with real thunks when available.
 
 const MOCK_TRENDS: Record<
   Range,
@@ -326,7 +295,7 @@ const StationBar: React.FC<StationBarProps> = ({ name, count, max }) => (
   </div>
 );
 
-const Badge: React.FC<{ children: React.ReactNode; variant: 'warn' | 'danger' | 'ok' }> = ({
+const Badge: React.FC<{ children: React.ReactNode; variant: 'warn' | 'danger' | 'ok' | 'info' }> = ({
   children,
   variant,
 }) => {
@@ -334,11 +303,118 @@ const Badge: React.FC<{ children: React.ReactNode; variant: 'warn' | 'danger' | 
     warn:   'bg-amber-50 text-amber-700',
     danger: 'bg-red-50   text-red-700',
     ok:     'bg-green-50  text-green-700',
+    info:   'bg-blue-50   text-blue-700',
   }[variant];
   return (
     <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${cls}`}>
       {children}
     </span>
+  );
+};
+
+// ── Document Distribution Component ────────────────────────────────────────
+
+interface DocumentDistributionProps {
+  stats: {
+    total: number;
+    active: number;
+    inactive: number;
+    byStatus: {
+      draft: number;
+      uploaded: number;
+      pending_review: number;
+      marked: number;
+      dept_assigned: number;
+      user_assigned: number;
+      in_progress: number;
+      completed: number;
+      filed: number;
+      ready_to_release: number;
+      released: number;
+    };
+    assigned: {
+      total: number;
+      marked: number;
+      dept_assigned: number;
+    };
+  };
+  loading: boolean;
+  error: string | null;
+  onViewDocuments: () => void;
+}
+
+const DocumentDistribution: React.FC<DocumentDistributionProps> = ({
+  stats,
+  loading,
+  error,
+  onViewDocuments,
+}) => {
+  if (error) {
+    return (
+      <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-center">
+        <p className="text-xs text-red-600">⚠️ Failed to load document data</p>
+        <p className="text-xs text-red-400 mt-1">{error}</p>
+      </div>
+    );
+  }
+
+  const { byStatus } = stats;
+
+  return (
+    <div className="space-y-3">
+      {/* Status breakdown grid */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-blue-50 rounded-lg p-3 text-center">
+          <p className="text-xs text-blue-600 font-medium">📄 Total</p>
+          <p className="text-xl font-bold text-blue-700 tabular-nums">
+            {loading ? '…' : stats.total}
+          </p>
+          <p className="text-[10px] text-blue-400 mt-0.5">all documents</p>
+        </div>
+        <div className="bg-green-50 rounded-lg p-3 text-center">
+          <p className="text-xs text-green-600 font-medium">✅ Active</p>
+          <p className="text-xl font-bold text-green-700 tabular-nums">
+            {loading ? '…' : stats.active}
+          </p>
+          <p className="text-[10px] text-green-400 mt-0.5">active documents</p>
+        </div>
+        <div className="bg-gray-50 rounded-lg p-3 text-center">
+          <p className="text-xs text-gray-600 font-medium">📦 Inactive</p>
+          <p className="text-xl font-bold text-gray-700 tabular-nums">
+            {loading ? '…' : stats.inactive}
+          </p>
+          <p className="text-[10px] text-gray-400 mt-0.5">archived/filed</p>
+        </div>
+      </div>
+
+      {/* Status flow */}
+      <div className="border-t border-gray-100 pt-3">
+        <p className="text-xs font-medium text-gray-500 mb-2">Status breakdown</p>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+          <DetailRow label="Draft" value={fmt(byStatus.draft, loading)} color="text-gray-400" />
+          <DetailRow label="Uploaded" value={fmt(byStatus.uploaded, loading)} color="text-blue-500" />
+          <DetailRow label="Pending Review" value={fmt(byStatus.pending_review, loading)} color="text-amber-600" />
+          <DetailRow label="Marked (SA→Dept)" value={fmt(byStatus.marked, loading)} color="text-indigo-600" />
+          <DetailRow label="Dept Assigned" value={fmt(byStatus.dept_assigned, loading)} color="text-purple-600" />
+          <DetailRow label="User Assigned" value={fmt(byStatus.user_assigned, loading)} color="text-cyan-600" />
+          <DetailRow label="In Progress" value={fmt(byStatus.in_progress, loading)} color="text-teal-600" />
+          <DetailRow label="Completed" value={fmt(byStatus.completed, loading)} color="text-green-600" />
+          <DetailRow label="Ready to Release" value={fmt(byStatus.ready_to_release, loading)} color="text-emerald-600" />
+          <DetailRow label="Released" value={fmt(byStatus.released, loading)} color="text-green-700" />
+          <DetailRow label="Filed" value={fmt(byStatus.filed, loading)} color="text-gray-500" />
+        </div>
+      </div>
+
+      {/* Quick actions */}
+      <div className="border-t border-gray-100 pt-3 flex gap-2">
+        <button
+          onClick={onViewDocuments}
+          className="flex-1 text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium px-3 py-1.5 rounded transition-colors text-center"
+        >
+          📄 View All Documents
+        </button>
+      </div>
+    </div>
   );
 };
 
@@ -498,88 +574,75 @@ const SuperAdminDashboard: React.FC = () => {
   const dispatch = useAppDispatch();
   const [range, setRange] = useState<Range>('7d');
 
-  // ── Selectors ──────────────────────────────────────────────────────────
-  const userStats       = useAppSelector(selectUserStats);
-  const usersLoading    = useAppSelector(selectUsersListLoading);
-  const usersError      = useAppSelector(selectUsersError);
+  // ── Dashboard Selectors (single source of truth) ──────────────────────
+  const dashboardLoading = useAppSelector(selectDashboardLoading);
+  const dashboardError = useAppSelector(selectDashboardError);
 
-  // ── REMOVED tasks selectors ──────────────────────────────────────────
+  // ── Individual stats for convenience ────────────────────────────────────
+  const documentStats = useAppSelector(selectDocumentStats);
+  const userStats = useAppSelector(selectUserStats);
+  const registryStats = useAppSelector(selectRegistryStats);
+  const noticeStats = useAppSelector(selectNoticeStats);
+  const inventoryStats = useAppSelector(selectInventoryStats);
+  const financialStats = useAppSelector(selectFinancialStats);
+  const dsaStats = useAppSelector(selectDSAStats);
+  const messageStats = useAppSelector(selectMessageStats);
 
-  const stationCounts   = useAppSelector(selectStationCounts);
-  const registryLoading = useAppSelector(selectStationCountsLoading);
-  const registryError   = useAppSelector(selectRegistryError);
+  // ── Derived values from dashboard stats ────────────────────────────────
+  const activeDocuments = useAppSelector(selectActiveDocuments);
+  const totalAssigned = useAppSelector(selectAssignedDocuments);
+  const totalUsers = useAppSelector(selectTotalUsers);
+  const activeUsers = useAppSelector(selectActiveUsers);
 
-  const noticesStats    = useAppSelector(selectNoticesStats);
-  const noticesLoading  = useAppSelector(selectNoticesStatsLoading);
-  const noticesError    = useAppSelector(selectNoticesError);
+  // ── Loading & Error states ──────────────────────────────────────────────
+  const loading = dashboardLoading;
+  const error = dashboardError;
 
-  const messagesUnread  = useAppSelector(selectMessagesUnread);
-  const messagesError   = useAppSelector(selectMessagesError);
-
-  const inventoryStats   = useAppSelector(selectInventoryStats);
-  const inventoryLoading = useAppSelector(selectInventoryStatsLoading);
-  const inventoryError   = useAppSelector(selectInventoryError);
-
-  const financialStats   = useAppSelector(selectFinancialStats);
-  const financialLoading = useAppSelector(selectFinancialStatsLoading);
-  const financialError   = useAppSelector(selectFinancialError);
-
-  const dsaStats    = useAppSelector(selectDsaStats);
-  const dsaLoading  = useAppSelector(selectDsaStatsLoading);
-  const dsaError    = useAppSelector(selectDsaError);
-
-  const documents   = useAppSelector(selectDocuments);
-  const docPagination = useAppSelector(selectDocumentPagination);
-  const docsLoading = useAppSelector(selectDocumentsLoading);
-  const docsError   = useAppSelector(selectDocumentsError);
-
-  // ── Derived document stats ──────────────────────────────────────────────
-  const totalDocuments = docPagination?.total ?? documents.length;
-  const pendingReview = documents.filter(d => d.status === 'pending_review').length;
-  const marked = documents.filter(d => d.status === 'marked').length;
-  const inProgress = documents.filter(d => d.status === 'in_progress').length;
-  const completed = documents.filter(d => d.status === 'completed').length;
-  const filed = documents.filter(d => d.status === 'filed').length;
-  const draft = documents.filter(d => d.status === 'draft').length;
-  const uploaded = documents.filter(d => d.status === 'uploaded').length;
-
-  // ── Derived notice stats ──────────────────────────────────────────────
-  const totalNotices =
-    (noticesStats?.total_broadcasts ?? 0) + (noticesStats?.total_notices ?? 0);
-  const totalUnreadNotices =
-    (noticesStats?.unread_broadcasts ?? 0) + (noticesStats?.unread_notices ?? 0);
+  // ── Document stats from dashboard ──────────────────────────────────────
+  const docStats = documentStats || {
+    total: 0,
+    active: 0,
+    inactive: 0,
+    byStatus: {
+      draft: 0,
+      uploaded: 0,
+      pending_review: 0,
+      marked: 0,
+      dept_assigned: 0,
+      user_assigned: 0,
+      in_progress: 0,
+      completed: 0,
+      filed: 0,
+      ready_to_release: 0,
+      released: 0,
+    },
+    assigned: {
+      total: 0,
+      marked: 0,
+      dept_assigned: 0,
+    },
+  };
 
   // ── Fetch ──────────────────────────────────────────────────────────────
   const fetchAll = useCallback(() => {
-    dispatch(fetchUserStats());
-    // ── REMOVED dispatch(fetchTaskStats()) ─────────────────────────────
-    dispatch(fetchStationCounts());
-    dispatch(fetchNoticesStats());
-    dispatch(fetchMessagesUnread());
-    dispatch(fetchInventoryStats());
-    dispatch(fetchFinancialStats());
-    dispatch(fetchDsaStats());
-    dispatch(fetchDocuments({ limit: 100, page: 1 }));
+    dispatch(fetchDashboardStats());
   }, [dispatch]);
 
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
+
+  // ── Navigation helpers ──────────────────────────────────────────────────
+  const navigateToDocuments = useCallback(() => {
+    window.location.href = '/documents';
+  }, []);
 
   // ── Derived values ─────────────────────────────────────────────────────
-  const anyError =
-    usersError || registryError || noticesError ||
-    messagesError || inventoryError || financialError || dsaError || docsError;
-
-  const totalRegistryFiles =
-    stationCounts?.reduce((acc, s) => acc + s.file_count, 0) ?? 0;
-
-  const topStations = stationCounts
-    ? [...stationCounts].sort((a, b) => b.file_count - a.file_count).slice(0, 6)
-    : [];
-
+  const totalRegistryFiles = registryStats?.totalFiles ?? 0;
+  const topStations = registryStats?.topStations ?? [];
   const maxStationCount = topStations[0]?.file_count ?? 1;
-
-  const inStock    = inventoryStats?.in_stock    ?? 0;
-  const lowStock   = inventoryStats?.low_stock   ?? 0;
+  const inStock = inventoryStats?.in_stock ?? 0;
+  const lowStock = inventoryStats?.low_stock ?? 0;
   const outOfStock = inventoryStats?.out_of_stock ?? 0;
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -622,64 +685,77 @@ const SuperAdminDashboard: React.FC = () => {
 
       <div className="px-6 py-5 space-y-6">
 
-        {/* Error banner */}
-        {anyError && (
+        {/* Error banner - shows specific error */}
+        {error && (
           <div className="flex items-start gap-2.5 p-3.5 bg-red-50 border border-red-100 text-red-700 rounded-xl text-xs">
             <svg className="w-4 h-4 mt-0.5 shrink-0" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
             </svg>
-            Some modules failed to load. Check your connection and try refreshing.
+            <div>
+              <p className="font-medium">Failed to load dashboard data.</p>
+              <p className="text-red-600 mt-0.5">{error}</p>
+              <button
+                onClick={fetchAll}
+                className="mt-1.5 text-red-700 font-medium underline hover:text-red-900"
+              >
+                Retry
+              </button>
+            </div>
           </div>
         )}
 
         {/* ── Key metrics ── */}
         <section>
           <p className="text-xs font-medium uppercase tracking-widest text-gray-400 mb-3">Key metrics</p>
-          {/* First row: Documents, Users, Stations (3 tiles) */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <StatTile
               icon="ti-file"
               label="Documents"
-              value={fmt(totalDocuments, docsLoading)}
+              value={fmt(activeDocuments, loading)}
               sub={
-                pendingReview > 0 || marked > 0 ? (
-                  <span className="flex items-center gap-2 flex-wrap">
-                    {pendingReview > 0 && <Badge variant="warn">{pendingReview} pending</Badge>}
-                    {marked > 0 && <Badge variant="danger">{marked} marked</Badge>}
-                    {inProgress > 0 && <Badge variant="ok">{inProgress} in progress</Badge>}
-                  </span>
-                ) : (
-                  '0 pending · 0 marked'
-                )
+                <span className="flex items-center gap-2 flex-wrap">
+                  <Badge variant="info">{totalAssigned} assigned</Badge>
+                  {docStats.byStatus.marked > 0 && (
+                    <Badge variant="info">({docStats.byStatus.marked} marked)</Badge>
+                  )}
+                  {docStats.byStatus.pending_review > 0 && (
+                    <Badge variant="warn">{docStats.byStatus.pending_review} pending</Badge>
+                  )}
+                  {docStats.byStatus.in_progress > 0 && (
+                    <Badge variant="ok">{docStats.byStatus.in_progress} in progress</Badge>
+                  )}
+                  {docStats.byStatus.released > 0 && (
+                    <Badge variant="info">{docStats.byStatus.released} released</Badge>
+                  )}
+                </span>
               }
             />
             <StatTile
               icon="ti-users"
               label="Users"
-              value={fmt(userStats?.totalUsers, usersLoading)}
-              sub={`${fmt(userStats?.activeUsers, usersLoading)} active · ${userStats?.byRole?.length ?? 0} roles`}
+              value={fmt(totalUsers, loading)}
+              sub={`${fmt(activeUsers, loading)} active · ${userStats?.byRole?.length ?? 0} roles`}
             />
             <StatTile
               icon="ti-building-bank"
               label="Court Stations"
-              value={fmt(stationCounts?.length, registryLoading)}
-              sub={`${fmt(totalRegistryFiles, registryLoading)} files`}
+              value={fmt(registryStats?.stations?.active ?? 0, loading)}
+              sub={`${fmt(totalRegistryFiles, loading)} files`}
             />
           </div>
-          {/* Second row: Notices, Inventory, Allocated, DSA payable, Messages (5 tiles) */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mt-3">
             <StatTile
               icon="ti-speakerphone"
               label="Notices"
-              value={fmt(totalNotices, noticesLoading)}
-              sub={totalUnreadNotices > 0
-                ? <Badge variant="warn">{totalUnreadNotices} unread</Badge>
+              value={fmt(noticeStats?.total, loading)}
+              sub={(noticeStats?.unread ?? 0) > 0
+                ? <Badge variant="warn">{noticeStats?.unread} unread</Badge>
                 : '0 unread'}
             />
             <StatTile
               icon="ti-package"
               label="Inventory"
-              value={fmt(inventoryStats?.total_items, inventoryLoading)}
+              value={fmt(inventoryStats?.total, loading)}
               sub={lowStock > 0
                 ? <Badge variant="warn">{lowStock} low stock</Badge>
                 : 'all stocked'}
@@ -687,19 +763,19 @@ const SuperAdminDashboard: React.FC = () => {
             <StatTile
               icon="ti-cash"
               label="Allocated"
-              value={fmtKes(financialStats?.total_allocated, financialLoading)}
-              sub={`${fmtKes(financialStats?.total_paid, financialLoading)} paid`}
+              value={fmtKes(financialStats?.total_allocated, loading)}
+              sub={`${fmtKes(financialStats?.total_paid, loading)} paid`}
             />
             <StatTile
               icon="ti-map-pin"
               label="DSA payable"
-              value={fmtKes(dsaStats?.total_kes_payable, dsaLoading)}
-              sub={`${fmt(dsaStats?.total_activities, dsaLoading)} activities`}
+              value={fmtKes(dsaStats?.total_kes_payable, loading)}
+              sub={`${fmt(dsaStats?.total_activities, loading)} activities`}
             />
             <StatTile
               icon="ti-message-2"
               label="Messages"
-              value={fmt(messagesUnread?.total, false)}
+              value={fmt(messageStats?.unread_total, false)}
               sub="unread"
             />
           </div>
@@ -711,8 +787,6 @@ const SuperAdminDashboard: React.FC = () => {
             Trends · {RANGE_LABELS[range]}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* ── REMOVED TasksChart ────────────────────────────────────── */}
-
             <ChartCard
               title="Financial flow"
               sub={`Allocated vs paid · ${RANGE_LABELS[range]}`}
@@ -754,58 +828,51 @@ const SuperAdminDashboard: React.FC = () => {
           <p className="text-xs font-medium uppercase tracking-widest text-gray-400 mb-3">Module detail</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
 
-            {/* ── NEW: Documents and notices card ────────────────────────── */}
-            <ModuleCard icon="ti-file" title="Documents and notices">
-              <div className="divide-y divide-gray-50">
-                <DetailRow label="Total documents"  value={fmt(totalDocuments, docsLoading)} color="text-blue-600" />
-                <DetailRow label="Pending review"   value={fmt(pendingReview, docsLoading)} color="text-amber-600" />
-                <DetailRow label="Marked"           value={fmt(marked, docsLoading)} color="text-red-600" />
-                <DetailRow label="In progress"      value={fmt(inProgress, docsLoading)} color="text-indigo-600" />
-                <DetailRow label="Completed"        value={fmt(completed, docsLoading)} color="text-green-600" />
-                <DetailRow label="Filed"            value={fmt(filed, docsLoading)} color="text-gray-500" />
-                <DetailRow label="Draft"            value={fmt(draft, docsLoading)} color="text-gray-400" />
-                <DetailRow label="Uploaded"         value={fmt(uploaded, docsLoading)} color="text-blue-400" />
-              </div>
-              <div className="my-2 border-t border-gray-100" />
-              <div className="divide-y divide-gray-50">
-                <DetailRow label="Notices and broadcasts" value={fmt(totalNotices,           noticesLoading)} />
-                <DetailRow label="Unread notices"         value={fmt(totalUnreadNotices,     noticesLoading)} color="text-amber-600" />
-              </div>
+            {/* ── Document Distribution Card ───────────────────────────── */}
+            <ModuleCard icon="ti-file" title="Document Distribution">
+              <DocumentDistribution
+                stats={docStats}
+                loading={loading}
+                error={error}
+                onViewDocuments={navigateToDocuments}
+              />
             </ModuleCard>
 
-            {/* ── Financial and DSA card (unchanged) ────────────────────── */}
+            {/* ── Financial and DSA card ────────────────────────────────── */}
             <ModuleCard icon="ti-cash" title="Financial and DSA">
               <div className="divide-y divide-gray-50">
-                <DetailRow label="Total allocated"   value={fmtKes(financialStats?.total_allocated,  financialLoading)} />
-                <DetailRow label="Paid"              value={fmtKes(financialStats?.total_paid,        financialLoading)} color="text-green-600" />
-                <DetailRow label="Committed unpaid"  value={fmtKes(financialStats?.committed_unpaid,  financialLoading)} color="text-amber-600" />
-                <DetailRow label="Pro bono approved" value={fmt(financialStats?.pro_bono_approved,    financialLoading)} color="text-blue-600" />
+                <DetailRow label="Total allocated"   value={fmtKes(financialStats?.total_allocated,  loading)} />
+                <DetailRow label="Paid"              value={fmtKes(financialStats?.total_paid,        loading)} color="text-green-600" />
+                <DetailRow label="Committed unpaid"  value={fmtKes(financialStats?.committed_unpaid,  loading)} color="text-amber-600" />
+                <DetailRow label="Pro bono approved" value={fmt(financialStats?.pro_bono_approved,    loading)} color="text-blue-600" />
               </div>
               <div className="my-2 border-t border-gray-100" />
               <p className="text-xs font-medium text-gray-500 mb-1">DSA breakdown</p>
               <div className="divide-y divide-gray-50">
-                <DetailRow label="Activities"     value={fmt(dsaStats?.total_activities, dsaLoading)} />
-                <DetailRow label="Night outs"     value={fmt(dsaStats?.total_night_outs, dsaLoading)} />
-                <DetailRow label="Staff involved" value={fmt(dsaStats?.staff_involved,   dsaLoading)} />
-                <DetailRow label="Total payable"  value={fmtKes(dsaStats?.total_kes_payable, dsaLoading)} color="text-blue-600" />
+                <DetailRow label="Activities"     value={fmt(dsaStats?.total_activities, loading)} />
+                <DetailRow label="Night outs"     value={fmt(dsaStats?.total_night_outs, loading)} />
+                <DetailRow label="Staff involved" value={fmt(dsaStats?.staff_involved,   loading)} />
+                <DetailRow label="Total payable"  value={fmtKes(dsaStats?.total_kes_payable, loading)} color="text-blue-600" />
               </div>
               <div className="my-2 border-t border-gray-100" />
               <p className="text-xs font-medium text-gray-500 mb-1">Inventory</p>
               <div className="divide-y divide-gray-50">
-                <DetailRow label="Total items"  value={fmt(inventoryStats?.total_items,  inventoryLoading)} />
-                <DetailRow label="In stock"     value={fmt(inventoryStats?.in_stock,     inventoryLoading)} color="text-green-600" />
-                <DetailRow label="Low stock"    value={fmt(inventoryStats?.low_stock,    inventoryLoading)} color="text-amber-600" />
-                <DetailRow label="Out of stock" value={fmt(inventoryStats?.out_of_stock, inventoryLoading)} color="text-red-600" />
+                <DetailRow label="Total items"  value={fmt(inventoryStats?.total,  loading)} />
+                <DetailRow label="In stock"     value={fmt(inventoryStats?.in_stock,     loading)} color="text-green-600" />
+                <DetailRow label="Low stock"    value={fmt(inventoryStats?.low_stock,    loading)} color="text-amber-600" />
+                <DetailRow label="Out of stock" value={fmt(inventoryStats?.out_of_stock, loading)} color="text-red-600" />
               </div>
             </ModuleCard>
 
-            {/* ── Registry stations card (unchanged) ────────────────────── */}
+            {/* ── Registry stations card ────────────────────────────────── */}
             <ModuleCard icon="ti-building-bank" title="Registry stations">
               <div className="divide-y divide-gray-50 mb-3">
-                <DetailRow label="Total stations"   value={fmt(stationCounts?.length, registryLoading)} />
-                <DetailRow label="Files in transit" value={fmt(totalRegistryFiles,    registryLoading)} />
+                <DetailRow label="Total stations"   value={fmt(registryStats?.stations?.total, loading)} />
+                <DetailRow label="Active stations"  value={fmt(registryStats?.stations?.active, loading)} color="text-green-600" />
+                <DetailRow label="Inactive stations" value={fmt(registryStats?.stations?.inactive, loading)} color="text-gray-500" />
+                <DetailRow label="Files in transit" value={fmt(totalRegistryFiles, loading)} />
               </div>
-              {registryLoading ? (
+              {loading ? (
                 <p className="text-xs text-gray-400">Loading stations…</p>
               ) : topStations.length > 0 ? (
                 <>
@@ -820,10 +887,10 @@ const SuperAdminDashboard: React.FC = () => {
               <div className="my-2 border-t border-gray-100" />
               <p className="text-xs font-medium text-gray-500 mb-1">Messages</p>
               <div className="divide-y divide-gray-50">
-                <DetailRow label="Unread messages"    value={fmt(messagesUnread?.total, false)} />
+                <DetailRow label="Unread messages" value={fmt(messageStats?.unread_total, false)} />
                 <DetailRow
                   label="Groups with unread"
-                  value={messagesUnread?.by_group ? String(messagesUnread.by_group.length) : '—'}
+                  value={fmtNumber(messageStats?.groups_with_unread)}
                 />
               </div>
             </ModuleCard>

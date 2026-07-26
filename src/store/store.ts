@@ -28,6 +28,7 @@ import eStampReducer from "./slices/eStampSlice"
 import aiReportsReducer from './slices/aiReportsSlice';
 import aidesReducer from './slices/aidesSlice';
 import sentryReducer from './slices/sentrySlice';
+import dashboardReducer from './slices/dashboardSlice';
 
 export const store = configureStore({
   reducer: {
@@ -58,6 +59,7 @@ export const store = configureStore({
     aiReports: aiReportsReducer,
     aides: aidesReducer,
     sentry: sentryReducer,
+    dashboard: dashboardReducer
   },
 });
 
