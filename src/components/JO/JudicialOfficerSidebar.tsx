@@ -84,20 +84,21 @@ const navigationConfig: NavSection[] = [
   {
     title: 'Overview',
     items: [
-      { to: (id) => `/judicial/${id}/dashboard`, label: 'Dashboard', icon: Icon.dashboard },
+      { to: (id) => `/dept/${id}/dashboard`, label: 'Dashboard', icon: Icon.dashboard },
+      { to: (id) => `/dept/${id}/documents`, label: 'Documents', icon: Icon.dashboard },
     ],
   },
   {
     title: 'Case Management',
     items: [
-      { to: (id) => `/judicial/${id}/my-causes`, label: 'Cause List & Hearings', icon: Icon.calendar },
+      { to: (id) => `/dept/${id}/my-causes`, label: 'Cause List & Hearings', icon: Icon.calendar },
       {
-        to: (id) => `/judicial/${id}/cases`,
+        to: (id) => `/dept/${id}/cases`,
         label: 'Case Files',
         icon: Icon.cases,
         children: [
-          { to: (id) => `/judicial/${id}/cases/active`, label: 'Active Trials' },
-          { to: (id) => `/judicial/${id}/cases/judgments`, label: 'Pending Judgments' },
+          { to: (id) => `/dept/${id}/cases/active`, label: 'Active Trials' },
+          { to: (id) => `/dept/${id}/cases/judgments`, label: 'Pending Judgments' },
         ],
       },
     ],
@@ -105,8 +106,8 @@ const navigationConfig: NavSection[] = [
   {
     title: 'Chamber Activities',
     items: [
-      { to: (id) => `/judicial/${id}/messages`, label: 'Inter-Chamber Mail', icon: Icon.messages },
-      { to: (id) => `/judicial/${id}/tasks`, label: 'Chamber Tasks', icon: Icon.tasks },
+      { to: (id) => `/dept/${id}/messages`, label: 'Inter-Chamber Mail', icon: Icon.messages },
+      { to: (id) => `/dept/${id}/tasks`, label: 'Chamber Tasks', icon: Icon.tasks },
     ],
   },
 ];

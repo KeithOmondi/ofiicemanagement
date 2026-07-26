@@ -74,6 +74,7 @@ import StoreDashboard from "../pages/store/StoreDashboard"
 import StoreDocuments from '../pages/store/StoreDocuments';
 import StoreStock from '../pages/store/StoreStock';
 import HelpdeskAides from '../pages/helpdesk/HelpdeskAides';
+import JODocuments from '../pages/JO/JODocuments';
 
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
@@ -232,6 +233,7 @@ const DeptDeskGateway: React.FC = () => {
       <Route element={<JudicialOfficerLayout />}>
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<JODashboard />} />
+        <Route path="documents" element={<JODocuments />} />
       </Route>
       <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
     </Routes>
