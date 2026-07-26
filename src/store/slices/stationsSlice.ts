@@ -16,6 +16,7 @@ export type StationType =
 
 export interface Station {
   id:         string;
+  ref_no:     string | null;  // e.g., "RHC/MSB/22" for courts, null for sub-registries
   name:       string;
   type:       StationType;
   location:   string | null;
@@ -25,15 +26,17 @@ export interface Station {
 }
 
 export interface CreateStationInput {
+  ref_no?:   string;   // Required for courts, optional for sub-registries
   name:      string;
   type:      StationType;
   location?: string;
 }
 
 export interface UpdateStationInput {
+  ref_no?:    string;
   name?:      string;
   type?:      StationType;
-  location?:  string;
+  location?:  string | null;
   is_active?: boolean;
 }
 
@@ -41,9 +44,10 @@ export interface StationFilters {
   search?:     string;
   type?:       StationType;
   is_active?:  boolean;
+  has_ref?:    boolean;  // Filter stations with/without reference numbers
   page?:       number;
   limit?:      number;
-  sort_by?:    'name' | 'type' | 'created_at';
+  sort_by?:    'name' | 'type' | 'created_at' | 'ref_no';
   sort_order?: 'ASC' | 'DESC';
 }
 
@@ -145,6 +149,54 @@ export const fetchStationById = createAsyncThunk(
   }
 );
 
+export const fetchStationByRefNo = createAsyncThunk(
+  'stations/fetchByRefNo',
+  async (refNo: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get(`/stations/ref/${encodeURIComponent(refNo)}`);
+      return response.data.data as Station;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+export const fetchActiveStations = createAsyncThunk(
+  'stations/fetchActive',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get('/stations/active');
+      return response.data.data as Station[];
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+export const fetchCourtStations = createAsyncThunk(
+  'stations/fetchCourt',
+  async (_, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get('/stations/courts');
+      return response.data.data as Station[];
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+export const fetchStationsByType = createAsyncThunk(
+  'stations/fetchByType',
+  async (type: StationType, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get(`/stations/type/${type}`);
+      return response.data.data as Station[];
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
 export const createStation = createAsyncThunk(
   'stations/create',
   async (data: CreateStationInput, { rejectWithValue }) => {
@@ -161,7 +213,7 @@ export const updateStation = createAsyncThunk(
   'stations/update',
   async ({ id, data }: { id: string; data: UpdateStationInput }, { rejectWithValue }) => {
     try {
-      const response = await axiosClient.put(`/stations/${id}`, data);
+      const response = await axiosClient.patch(`/stations/${id}`, data);
       return response.data.data as Station;
     } catch (err) {
       return rejectWithValue(extractErrorMessage(err));
@@ -224,8 +276,53 @@ const stationsSlice = createSlice({
     /* ---------- FETCH BY ID ---------- */
     builder
       .addCase(fetchStationById.pending,   (state) => { state.loading.detail = true;  state.error = null; })
-      .addCase(fetchStationById.fulfilled, (state, action: PayloadAction<Station>) => { state.loading.detail = false; state.selectedStation = action.payload; })
+      .addCase(fetchStationById.fulfilled, (state, action: PayloadAction<Station>) => { 
+        state.loading.detail = false; 
+        state.selectedStation = action.payload; 
+      })
       .addCase(fetchStationById.rejected,  (state, action) => { state.loading.detail = false; state.error = action.payload as string; });
+
+    /* ---------- FETCH BY REF NO ---------- */
+    builder
+      .addCase(fetchStationByRefNo.pending,   (state) => { state.loading.detail = true;  state.error = null; })
+      .addCase(fetchStationByRefNo.fulfilled, (state, action: PayloadAction<Station>) => { 
+        state.loading.detail = false; 
+        state.selectedStation = action.payload; 
+      })
+      .addCase(fetchStationByRefNo.rejected,  (state, action) => { state.loading.detail = false; state.error = action.payload as string; });
+
+    /* ---------- FETCH ACTIVE ---------- */
+    builder
+      .addCase(fetchActiveStations.pending,   (state) => { state.loading.list = true;  state.error = null; })
+      .addCase(fetchActiveStations.fulfilled, (state, action: PayloadAction<Station[]>) => {
+        state.loading.list = false;
+        state.stations = action.payload;
+        state.pagination.total = action.payload.length;
+        state.pagination.totalPages = 1;
+      })
+      .addCase(fetchActiveStations.rejected,  (state, action) => { state.loading.list = false; state.error = action.payload as string; });
+
+    /* ---------- FETCH COURT ---------- */
+    builder
+      .addCase(fetchCourtStations.pending,   (state) => { state.loading.list = true;  state.error = null; })
+      .addCase(fetchCourtStations.fulfilled, (state, action: PayloadAction<Station[]>) => {
+        state.loading.list = false;
+        state.stations = action.payload;
+        state.pagination.total = action.payload.length;
+        state.pagination.totalPages = 1;
+      })
+      .addCase(fetchCourtStations.rejected,  (state, action) => { state.loading.list = false; state.error = action.payload as string; });
+
+    /* ---------- FETCH BY TYPE ---------- */
+    builder
+      .addCase(fetchStationsByType.pending,   (state) => { state.loading.list = true;  state.error = null; })
+      .addCase(fetchStationsByType.fulfilled, (state, action: PayloadAction<Station[]>) => {
+        state.loading.list = false;
+        state.stations = action.payload;
+        state.pagination.total = action.payload.length;
+        state.pagination.totalPages = 1;
+      })
+      .addCase(fetchStationsByType.rejected,  (state, action) => { state.loading.list = false; state.error = action.payload as string; });
 
     /* ---------- CREATE ---------- */
     builder
@@ -290,11 +387,27 @@ export const selectStationsError        = (state: { stations: StationState }) =>
 export const selectStationsSuccess      = (state: { stations: StationState }) => state.stations.success;
 export const selectTotalStations        = (state: { stations: StationState }) => state.stations.pagination.total;
 
-// Derived selectors
+// ── Derived selectors ─────────────────────────────────────────────────────────
+
 export const selectActiveStations = (state: { stations: StationState }) =>
   state.stations.stations.filter((s) => s.is_active);
 
 export const selectStationsByType = (type: StationType) => (state: { stations: StationState }) =>
   state.stations.stations.filter((s) => s.type === type);
+
+export const selectStationsWithRef = (state: { stations: StationState }) =>
+  state.stations.stations.filter((s) => s.ref_no !== null);
+
+export const selectStationsWithoutRef = (state: { stations: StationState }) =>
+  state.stations.stations.filter((s) => s.ref_no === null);
+
+export const selectCourtStations = (state: { stations: StationState }) =>
+  state.stations.stations.filter((s) => s.type !== 'sub_registry');
+
+export const selectStationByRefNo = (refNo: string) => (state: { stations: StationState }) =>
+  state.stations.stations.find((s) => s.ref_no === refNo);
+
+export const selectStationsByTypeWithRef = (type: StationType) => (state: { stations: StationState }) =>
+  state.stations.stations.filter((s) => s.type === type && s.ref_no !== null);
 
 export default stationsSlice.reducer;

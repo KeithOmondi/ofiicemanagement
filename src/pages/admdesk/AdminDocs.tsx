@@ -123,16 +123,12 @@ const PRIORITY_LABEL: Record<RoutePriority, string> = {
 };
 
 const REGISTRY_STATUS_BADGE: Record<RegistryStatus, string> = {
-  in_transit: 'bg-amber-100 text-amber-700',
-  received: 'bg-cyan-100 text-cyan-700',
-  filed: 'bg-emerald-100 text-emerald-700',
+  active: 'bg-emerald-100 text-emerald-700',
   returned: 'bg-slate-100 text-slate-700',
 };
 
 const REGISTRY_STATUS_LABEL: Record<RegistryStatus, string> = {
-  in_transit: 'In Transit',
-  received: 'Received',
-  filed: 'Filed',
+  active: 'Active',
   returned: 'Returned',
 };
 

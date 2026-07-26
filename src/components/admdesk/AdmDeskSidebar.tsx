@@ -122,12 +122,7 @@ const navigationConfig: NavSection[] = [
         icon:     Icon.settings,
       },
 
-      {
-        to:       (id) => `/dept/${id}/orhc-folders`,
-        label:    'Folders',
-        minRole:  'dept_head',
-        icon:     Icon.settings,
-      },
+      
     ],
   },
 ];

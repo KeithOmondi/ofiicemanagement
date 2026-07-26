@@ -13,11 +13,21 @@ import {
   clearError as clearRegistryError,
 } from '../../store/slices/registrySlice';
 import { fetchDocuments, clearError as clearDocumentError } from '../../store/slices/documentSlice';
-import { deleteStation } from '../../store/slices/stationsSlice';
+import {
+  createStation,
+  updateStation,
+  deleteStation,
+} from '../../store/slices/stationsSlice';
 import type { RootState } from '../../store/store';
-import type { RegistryPriority, RegistryEntry } from '../../types/registry.types';
-import type { StationType } from '../../store/slices/stationsSlice';
+import type { RegistryPriority, RegistryEntry, RegistryStatus } from '../../types/registry.types';
+import type { StationType, CreateStationInput, UpdateStationInput } from '../../store/slices/stationsSlice';
 import type { Document as DocType } from '../../types/documents.types';
+
+// Import the AdminFolders component
+import AdminFolders from './AdminFolders';
+
+// ─── Icons ──────────────────────────────────────────────────────────────────
+import { Plus, X, Loader2, Edit, Trash2 } from 'lucide-react';
 
 // ─── Selectors ────────────────────────────────────────────────────────────────
 const selectAllDocuments = (state: RootState): DocType[] => state.documents.documents;
@@ -26,11 +36,11 @@ const selectDocumentError = (state: RootState): string | null => state.documents
 
 // ─── Display maps ─────────────────────────────────────────────────────────────
 const STATION_TYPE_LABELS: Record<StationType, string> = {
-  high_court: 'High Court Station',
+  high_court: 'High Court',
   magistrate_court: 'Magistrate Court',
   environment_court: 'Environment & Land Court',
   kadhis_court: "Kadhi's Court",
-  sub_registry: 'Sub-Registry Station',
+  sub_registry: 'Sub-Registry',
 };
 
 const STATION_TYPE_ICONS: Record<StationType, string> = {
@@ -41,6 +51,25 @@ const STATION_TYPE_ICONS: Record<StationType, string> = {
   sub_registry: '📁',
 };
 
+const STATION_TYPE_OPTIONS: { value: StationType; label: string }[] = [
+  { value: 'high_court', label: 'High Court' },
+  { value: 'magistrate_court', label: 'Magistrate Court' },
+  { value: 'environment_court', label: 'Environment & Land Court' },
+  { value: 'kadhis_court', label: "Kadhi's Court" },
+  { value: 'sub_registry', label: 'Sub-Registry' },
+];
+
+// ─── Registry Status Constants ──────────────────────────────────────────────
+const REGISTRY_STATUS_LABEL: Record<RegistryStatus, string> = {
+  active: 'Active',
+  returned: 'Returned',
+};
+
+const REGISTRY_STATUS_BADGE: Record<RegistryStatus, string> = {
+  active: 'bg-emerald-100 text-emerald-700',
+  returned: 'bg-slate-100 text-slate-700',
+};
+
 const PRIORITY_OPTIONS: { value: RegistryPriority; label: string }[] = [
   { value: 'normal', label: 'Normal' },
   { value: 'urgent', label: 'Urgent' },
@@ -48,8 +77,14 @@ const PRIORITY_OPTIONS: { value: RegistryPriority; label: string }[] = [
   { value: 'for_information_only', label: 'For Information Only' },
 ];
 
+// ─── Tab Configuration ──────────────────────────────────────────────────────
+type TabType = 'registry' | 'folders';
+
 const AdminRegistry = () => {
   const dispatch = useAppDispatch();
+
+  // ── Tab State ──────────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<TabType>('registry');
 
   // ── Registry ─────────────────────────────────────────────────────────────────
   const stations = useAppSelector(selectStationCounts);
@@ -62,7 +97,7 @@ const AdminRegistry = () => {
   const docsLoading = useAppSelector(selectDocLoading);
   const docError = useAppSelector(selectDocumentError);
 
-  // ── Form state ───────────────────────────────────────────────────────────────
+  // ── Registry Form state ─────────────────────────────────────────────────────
   const [selectedDoc, setSelectedDoc] = useState('');
   const [routeTo, setRouteTo] = useState('');
   const [priority, setPriority] = useState<RegistryPriority>('normal');
@@ -70,7 +105,7 @@ const AdminRegistry = () => {
   const [activeStation, setActiveStation] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
-  // ── Modal state ─────────────────────────────────────────────────────────────
+  // ── Registry Modal state ───────────────────────────────────────────────────
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedStationForModal, setSelectedStationForModal] = useState<string | null>(null);
   const [stationEntries, setStationEntries] = useState<RegistryEntry[]>([]);
@@ -87,14 +122,37 @@ const AdminRegistry = () => {
   const [documentLoading, setDocumentLoading] = useState(false);
   const [documentError, setDocumentError] = useState<string | null>(null);
 
+  // ── Station Modal State ────────────────────────────────────────────────────
+  const [isCreateStationModalOpen, setIsCreateStationModalOpen] = useState(false);
+  const [isEditStationModalOpen, setIsEditStationModalOpen] = useState(false);
+  const [selectedStation, setSelectedStation] = useState<{
+    id: string;
+    ref_no: string | null;
+    name: string;
+    type: StationType;
+    location: string | null;
+    is_active: boolean;
+    created_at: string;
+    updated_at: string;
+  } | null>(null);
+  const [stationFormData, setStationFormData] = useState<CreateStationInput & { ref_no?: string }>({
+    ref_no: '',
+    name: '',
+    type: 'high_court',
+    location: '',
+  });
+  const [submittingStation, setSubmittingStation] = useState(false);
+
   // ── Initial data load ────────────────────────────────────────────────────────
   useEffect(() => {
     dispatch(fetchStationCounts());
     dispatch(fetchDocuments({ page: 1, limit: 100, sort_by: 'created_at', sort_order: 'DESC' }));
+    dispatch(fetchRegistryEntries({ page: 1, limit: 100, sort_by: 'routed_at', sort_order: 'DESC' }));
   }, [dispatch]);
 
   const refreshCounts = useCallback(() => {
     dispatch(fetchStationCounts());
+    dispatch(fetchRegistryEntries({ page: 1, limit: 100, sort_by: 'routed_at', sort_order: 'DESC' }));
   }, [dispatch]);
 
   // ── Error toasts ──────────────────────────────────────────────────────────────
@@ -112,7 +170,8 @@ const AdminRegistry = () => {
     }
   }, [docError, dispatch]);
 
-  // ── Submit: route the document to the chosen station ─────────────────────────
+  // ── Registry Handlers ───────────────────────────────────────────────────────
+
   const handleRoute = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoc || !routeTo) {
@@ -141,6 +200,90 @@ const AdminRegistry = () => {
     }
   };
 
+  // ── Station Handlers ──────────────────────────────────────────────────────
+
+  const resetStationForm = () => {
+    setStationFormData({
+      ref_no: '',
+      name: '',
+      type: 'high_court',
+      location: '',
+    });
+    setSelectedStation(null);
+  };
+
+  const handleCreateStation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stationFormData.name) {
+      toast.error('Station name is required');
+      return;
+    }
+
+    setSubmittingStation(true);
+    try {
+      await dispatch(createStation(stationFormData)).unwrap();
+      toast.success('Station created successfully');
+      setIsCreateStationModalOpen(false);
+      resetStationForm();
+      refreshCounts();
+    } catch {
+      // Error handled by the effect above
+    } finally {
+      setSubmittingStation(false);
+    }
+  };
+
+  const handleEditStation = (station: typeof stations[0]) => {
+    // Create a Station-like object from the StationWithFileCount
+    const stationForEdit = {
+      id: station.id,
+      ref_no: station.ref_no || null,
+      name: station.name,
+      type: station.type,
+      location: station.location || null,
+      is_active: station.is_active,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    setSelectedStation(stationForEdit);
+    setStationFormData({
+      ref_no: station.ref_no || '',
+      name: station.name,
+      type: station.type,
+      location: station.location || '',
+    });
+    setIsEditStationModalOpen(true);
+  };
+
+  const handleUpdateStation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStation || !stationFormData.name) {
+      toast.error('Station name is required');
+      return;
+    }
+
+    setSubmittingStation(true);
+    try {
+      const updateData: UpdateStationInput = {
+        name: stationFormData.name,
+        type: stationFormData.type,
+        location: stationFormData.location || undefined,
+      };
+      if (stationFormData.ref_no && stationFormData.ref_no !== selectedStation.ref_no) {
+        updateData.ref_no = stationFormData.ref_no;
+      }
+      await dispatch(updateStation({ id: selectedStation.id, data: updateData })).unwrap();
+      toast.success('Station updated successfully');
+      setIsEditStationModalOpen(false);
+      resetStationForm();
+      refreshCounts();
+    } catch {
+      // Error handled by the effect above
+    } finally {
+      setSubmittingStation(false);
+    }
+  };
+
   // ── Station click: open modal with entries ──────────────────────────────────
   const handleStationClick = async (stationId: string) => {
     setActiveStation(stationId);
@@ -158,7 +301,6 @@ const AdminRegistry = () => {
         sort_order: 'DESC'
       })).unwrap();
 
-      // Ensure unique entries by using a Map with document_id as key
       const uniqueEntries = Array.from(
         new Map(result.data.map(entry => [entry.document_id, entry])).values()
       );
@@ -171,7 +313,6 @@ const AdminRegistry = () => {
     }
   };
 
-  // ── Close modal ──────────────────────────────────────────────────────────────
   const closeModal = () => {
     setIsModalOpen(false);
     setSelectedStationForModal(null);
@@ -212,6 +353,7 @@ const AdminRegistry = () => {
   };
 
   // ── Document view handlers ─────────────────────────────────────────────────
+
   const handleViewDocument = async (entry: RegistryEntry) => {
     setSelectedDocument(entry);
     setIsDocViewModalOpen(true);
@@ -220,29 +362,19 @@ const AdminRegistry = () => {
     setDocumentError(null);
 
     try {
-      // Since you don't have a dedicated content endpoint, 
-      // use the document ID to fetch the document from your documents list
       const doc = documents.find(d => d.id === entry.document_id);
       
       if (!doc) {
         throw new Error('Document not found in the system');
       }
 
-      // If the document has a file_url, use it
       if (doc.file_url) {
         setDocumentUrl(doc.file_url);
-      } 
-      // If it has a file_public_id, construct the URL
-      else if (doc.file_public_id) {
-        // This depends on your file storage setup (Cloudinary, S3, etc.)
+      } else if (doc.file_public_id) {
         setDocumentUrl(`/api/documents/${entry.document_id}/file`);
-      } 
-      // If it's a composed document with body text, display the body
-      else if (doc.body) {
+      } else if (doc.body) {
         setDocumentUrl(doc.body);
-      } 
-      else {
-        // Try to fetch from the documents endpoint
+      } else {
         const token = localStorage.getItem('token');
         const response = await fetch(`/api/documents/${entry.document_id}`, {
           headers: {
@@ -283,7 +415,6 @@ const AdminRegistry = () => {
     setDocumentError(null);
   };
 
-  // ── Document Download Handler ──────────────────────────────────────────────
   const handleDownloadDocument = async () => {
     if (!selectedDocument) return;
     
@@ -292,7 +423,6 @@ const AdminRegistry = () => {
       
       const token = localStorage.getItem('token');
       
-      // Try to download the file
       const response = await fetch(`/api/documents/${selectedDocument.document_id}/download`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -300,7 +430,6 @@ const AdminRegistry = () => {
       });
 
       if (!response.ok) {
-        // If download endpoint doesn't exist, try to use the file URL
         if (documentUrl && documentUrl.startsWith('http')) {
           window.open(documentUrl, '_blank');
           toast.success('Document opened in new tab');
@@ -331,7 +460,6 @@ const AdminRegistry = () => {
       
       toast.success('Document downloaded successfully');
     } catch (error) {
-      // If download fails but we have a URL, try to open it
       if (documentUrl && documentUrl.startsWith('http')) {
         window.open(documentUrl, '_blank');
         toast.success('Document opened in new tab');
@@ -342,12 +470,20 @@ const AdminRegistry = () => {
     }
   };
 
+  // ── Helper functions ──────────────────────────────────────────────────────
+
   const routableDocuments = documents.filter((d) => d.status !== 'filed');
 
   const getStationName = (stationId: string | null) => {
     if (!stationId) return '';
     const station = stations.find(s => s.id === stationId);
     return station?.name || 'Unknown Station';
+  };
+
+  const getStationRef = (stationId: string | null) => {
+    if (!stationId) return null;
+    const station = stations.find(s => s.id === stationId);
+    return station?.ref_no || null;
   };
 
   const formatDate = (date: Date | string): string => {
@@ -361,11 +497,9 @@ const AdminRegistry = () => {
     });
   };
 
-  // Helper to render the document based on content type
   const renderDocument = () => {
     if (!documentUrl) return null;
 
-    // Check if it's a base64 image
     if (documentUrl.startsWith('data:image/')) {
       return (
         <div className="flex justify-center p-4">
@@ -374,22 +508,18 @@ const AdminRegistry = () => {
       );
     }
     
-    // Check if it's a base64 PDF
     if (documentUrl.startsWith('data:application/pdf')) {
       return (
         <iframe src={documentUrl} className="w-full h-[600px] border-0 rounded-lg" title="PDF Document" />
       );
     }
     
-    // Check if it's a URL
     if (documentUrl.startsWith('http://') || documentUrl.startsWith('https://')) {
-      // For PDF URLs
       if (documentUrl.toLowerCase().includes('.pdf')) {
         return (
           <iframe src={documentUrl} className="w-full h-[600px] border-0 rounded-lg" title="PDF Document" />
         );
       }
-      // For image URLs
       if (documentUrl.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i)) {
         return (
           <div className="flex justify-center p-4">
@@ -397,27 +527,23 @@ const AdminRegistry = () => {
           </div>
         );
       }
-      // For other URLs (Google Docs, etc.)
       return (
         <iframe src={documentUrl} className="w-full h-[600px] border-0 rounded-lg" title="Document" />
       );
     }
     
-    // If it's a blob URL
     if (documentUrl.startsWith('blob:')) {
       return (
         <iframe src={documentUrl} className="w-full h-[600px] border-0 rounded-lg" title="Document" />
       );
     }
 
-    // If it looks like HTML content
     if (documentUrl.includes('<html') || documentUrl.includes('<!DOCTYPE')) {
       return (
         <iframe srcDoc={documentUrl} className="w-full h-[600px] border-0 rounded-lg" title="Document" />
       );
     }
 
-    // Default: show as text
     return (
       <div className="bg-white rounded-lg p-6">
         <pre className="whitespace-pre-wrap font-sans text-sm text-slate-700">
@@ -427,16 +553,26 @@ const AdminRegistry = () => {
     );
   };
 
-  return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <Toaster position="top-right" />
-
+  // ── Render: Registry Tab ────────────────────────────────────────────────────
+  const renderRegistryTab = () => (
+    <>
       {/* Route Document form */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm">
-        <h2 className="text-sm font-medium text-slate-900 mb-4">Route Document</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-medium text-slate-900">Route Document</h2>
+          <button
+            onClick={() => {
+              resetStationForm();
+              setIsCreateStationModalOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-[#8B6914] hover:bg-[#7A5E12] transition"
+          >
+            <Plus size={14} />
+            New Station
+          </button>
+        </div>
         <form onSubmit={handleRoute}>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-            {/* Select Document */}
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Select Document</label>
               <select
@@ -460,7 +596,6 @@ const AdminRegistry = () => {
               </select>
             </div>
 
-            {/* Route To */}
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Route To</label>
               <select
@@ -473,12 +608,13 @@ const AdminRegistry = () => {
                   {countsLoading ? 'Loading stations…' : 'Select Station'}
                 </option>
                 {stations.filter((s) => s.is_active).map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.ref_no ? `${s.ref_no} — ` : ''}{s.name}
+                  </option>
                 ))}
               </select>
             </div>
 
-            {/* Priority */}
             <div className="flex flex-col gap-1">
               <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Priority</label>
               <select
@@ -548,7 +684,7 @@ const AdminRegistry = () => {
           </div>
         ) : stations.length === 0 ? (
           <div className="py-16 text-center text-sm text-slate-400">
-            No stations found. Add stations under Station Management first.
+            No stations found. Click "New Station" above to add one.
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
@@ -567,11 +703,14 @@ const AdminRegistry = () => {
                     className="text-3xl mb-2"
                     style={{ color: station.type === 'sub_registry' ? '#c9a84c' : '#94a3b8' }}
                   >
-                    {STATION_TYPE_ICONS[station.type]}
+                    {STATION_TYPE_ICONS[station.type as StationType]}
                   </span>
-                  <span className="text-xs font-medium" style={{ color: '#8B6914' }}>{station.name}</span>
+                  <span className="text-xs font-medium" style={{ color: '#8B6914' }}>
+                    {station.ref_no ? `${station.ref_no}` : ''}
+                  </span>
+                  <span className="text-sm font-medium text-slate-800">{station.name}</span>
                   <span className="text-[11px] text-slate-400 mb-3">
-                    {STATION_TYPE_LABELS[station.type]}
+                    {STATION_TYPE_LABELS[station.type as StationType]}
                     {!station.is_active && ' · Inactive'}
                   </span>
                   <span className="text-xl font-medium text-slate-800">{station.file_count}</span>
@@ -579,47 +718,224 @@ const AdminRegistry = () => {
                   <span className="text-[10px] text-amber-600 mt-2">Click to view files</span>
                 </button>
 
-                {/* Delete button */}
-                <button
-                  onClick={(e) => handleDeleteClick(e, station.id)}
-                  className="absolute top-2 right-2 p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
-                  title="Delete station"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
+                {/* Action Buttons */}
+                <div className="absolute top-2 right-2 flex gap-1">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEditStation(station);
+                    }}
+                    className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
+                    title="Edit station"
+                  >
+                    <Edit size={14} />
+                  </button>
+                  <button
+                    onClick={(e) => handleDeleteClick(e, station.id)}
+                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
+                    title="Delete station"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
         )
       )}
 
+      {/* ── Create Station Modal ───────────────────────────────────────────── */}
+      {isCreateStationModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+              <h3 className="text-lg font-semibold text-slate-900">Create New Station</h3>
+              <button
+                onClick={() => { setIsCreateStationModalOpen(false); resetStationForm(); }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleCreateStation} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Reference Number <span className="text-slate-400 text-xs">(optional for sub-registries)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g., RHC/MSB/22"
+                  value={stationFormData.ref_no}
+                  onChange={(e) => setStationFormData({ ...stationFormData, ref_no: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                />
+                <p className="text-xs text-slate-400 mt-1">Format: RHC/[CODE]/[NUMBER]</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g., Bomet High Court"
+                  value={stationFormData.name}
+                  onChange={(e) => setStationFormData({ ...stationFormData, name: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Type *</label>
+                <select
+                  value={stationFormData.type}
+                  onChange={(e) => setStationFormData({ ...stationFormData, type: e.target.value as StationType })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                >
+                  {STATION_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Location</label>
+                <input
+                  type="text"
+                  placeholder="e.g., Bomet Town"
+                  value={stationFormData.location || ''}
+                  onChange={(e) => setStationFormData({ ...stationFormData, location: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => { setIsCreateStationModalOpen(false); resetStationForm(); }}
+                  className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingStation || !stationFormData.name}
+                  className="px-4 py-2 text-sm font-medium text-white rounded-lg bg-[#8B6914] hover:bg-[#7A5E12] transition disabled:opacity-50"
+                >
+                  {submittingStation ? <Loader2 size={16} className="animate-spin inline" /> : 'Create Station'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Station Modal ─────────────────────────────────────────────── */}
+      {isEditStationModalOpen && selectedStation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+              <h3 className="text-lg font-semibold text-slate-900">Edit Station</h3>
+              <button
+                onClick={() => { setIsEditStationModalOpen(false); resetStationForm(); }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleUpdateStation} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Reference Number <span className="text-slate-400 text-xs">(optional for sub-registries)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g., RHC/MSB/22"
+                  value={stationFormData.ref_no || ''}
+                  onChange={(e) => setStationFormData({ ...stationFormData, ref_no: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                />
+                <p className="text-xs text-slate-400 mt-1">Format: RHC/[CODE]/[NUMBER]</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g., Bomet High Court"
+                  value={stationFormData.name}
+                  onChange={(e) => setStationFormData({ ...stationFormData, name: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Type *</label>
+                <select
+                  value={stationFormData.type}
+                  onChange={(e) => setStationFormData({ ...stationFormData, type: e.target.value as StationType })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                >
+                  {STATION_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Location</label>
+                <input
+                  type="text"
+                  placeholder="e.g., Bomet Town"
+                  value={stationFormData.location || ''}
+                  onChange={(e) => setStationFormData({ ...stationFormData, location: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => { setIsEditStationModalOpen(false); resetStationForm(); }}
+                  className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingStation || !stationFormData.name}
+                  className="px-4 py-2 text-sm font-medium text-white rounded-lg bg-[#8B6914] hover:bg-[#7A5E12] transition disabled:opacity-50"
+                >
+                  {submittingStation ? <Loader2 size={16} className="animate-spin inline" /> : 'Update Station'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* ── Modal: View Station Files ─────────────────────────────────────────── */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] flex flex-col">
-            {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <div>
                 <h3 className="text-lg font-medium text-slate-900">
                   {getStationName(selectedStationForModal)}
                 </h3>
-                <p className="text-sm text-slate-500">
-                  Routed Documents
-                </p>
+                {getStationRef(selectedStationForModal) && (
+                  <p className="text-sm text-slate-500 font-mono">
+                    {getStationRef(selectedStationForModal)}
+                  </p>
+                )}
+                <p className="text-sm text-slate-500">Routed Documents</p>
               </div>
-              <button
-                onClick={closeModal}
-                className="text-slate-400 hover:text-slate-600 transition"
-              >
+              <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 transition">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-
-            {/* Modal Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {modalLoading ? (
                 <div className="flex justify-center py-16">
@@ -635,41 +951,27 @@ const AdminRegistry = () => {
               ) : (
                 <div className="space-y-3">
                   {stationEntries.map((entry) => (
-                    <div
-                      key={entry.id}
-                      className="p-4 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition flex items-center justify-between"
-                    >
+                    <div key={entry.id} className="p-4 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition flex items-center justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-3 mb-1">
-                          <span className="text-sm font-medium text-slate-900 truncate">
-                            {entry.document_title}
-                          </span>
+                          <span className="text-sm font-medium text-slate-900 truncate">{entry.document_title}</span>
                           {entry.document_ref_no && (
                             <span className="text-xs text-slate-500 font-mono bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
                               #{entry.document_ref_no}
                             </span>
                           )}
-                          {entry.priority === 'urgent' && (
-                            <span className="text-xs text-red-500 font-medium">🔴 Urgent</span>
-                          )}
-                          {entry.priority === 'confidential' && (
-                            <span className="text-xs text-amber-500 font-medium">🔒 Confidential</span>
-                          )}
-                        </div>
-                        
-                        <div className="flex items-center gap-4 text-xs text-slate-500">
-                          <span>
-                            Routed: {formatDate(entry.routed_at)}
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${REGISTRY_STATUS_BADGE[entry.status]}`}>
+                            {REGISTRY_STATUS_LABEL[entry.status]}
                           </span>
-                          {entry.routed_by_name && (
-                            <span>
-                              By: {entry.routed_by_name}
-                            </span>
-                          )}
+                          {entry.priority === 'urgent' && <span className="text-xs text-red-500 font-medium">🔴 Urgent</span>}
+                          {entry.priority === 'confidential' && <span className="text-xs text-amber-500 font-medium">🔒 Confidential</span>}
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-slate-500">
+                          <span>Routed: {formatDate(entry.routed_at)}</span>
+                          {entry.routed_by_name && <span>By: {entry.routed_by_name}</span>}
+                          {entry.received_at && <span>Received: {formatDate(entry.received_at)}</span>}
                         </div>
                       </div>
-
-                      {/* View Document Button */}
                       <button
                         onClick={() => handleViewDocument(entry)}
                         className="ml-4 px-3 py-1.5 text-xs font-medium text-white rounded-md transition hover:opacity-80"
@@ -682,17 +984,12 @@ const AdminRegistry = () => {
                 </div>
               )}
             </div>
-
-            {/* Modal Footer */}
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-500">
                   {stationEntries.length} document{stationEntries.length !== 1 ? 's' : ''} routed
                 </span>
-                <button
-                  onClick={closeModal}
-                  className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
-                >
+                <button onClick={closeModal} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition">
                   Close
                 </button>
               </div>
@@ -705,39 +1002,26 @@ const AdminRegistry = () => {
       {isDocViewModalOpen && selectedDocument && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-            {/* Document View Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <div>
-                <h3 className="text-lg font-medium text-slate-900">
-                  {selectedDocument.document_title}
-                </h3>
+                <h3 className="text-lg font-medium text-slate-900">{selectedDocument.document_title}</h3>
                 <div className="flex items-center gap-3 mt-1">
-                  {selectedDocument.document_ref_no && (
-                    <span className="text-sm text-slate-500">
-                      Ref: #{selectedDocument.document_ref_no}
-                    </span>
-                  )}
-                  <span className="text-sm text-slate-500">
-                    Routed: {formatDate(selectedDocument.routed_at)}
-                  </span>
-                  {selectedDocument.routed_by_name && (
-                    <span className="text-sm text-slate-500">
-                      By: {selectedDocument.routed_by_name}
+                  {selectedDocument.document_ref_no && <span className="text-sm text-slate-500">Ref: #{selectedDocument.document_ref_no}</span>}
+                  <span className="text-sm text-slate-500">Routed: {formatDate(selectedDocument.routed_at)}</span>
+                  {selectedDocument.routed_by_name && <span className="text-sm text-slate-500">By: {selectedDocument.routed_by_name}</span>}
+                  {selectedDocument.status && (
+                    <span className={`text-sm px-2 py-0.5 rounded-full ${REGISTRY_STATUS_BADGE[selectedDocument.status]}`}>
+                      {REGISTRY_STATUS_LABEL[selectedDocument.status]}
                     </span>
                   )}
                 </div>
               </div>
-              <button
-                onClick={closeDocViewModal}
-                className="text-slate-400 hover:text-slate-600 transition"
-              >
+              <button onClick={closeDocViewModal} className="text-slate-400 hover:text-slate-600 transition">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-
-            {/* Document View Body */}
             <div className="flex-1 overflow-y-auto px-6 py-4 bg-slate-50">
               {documentLoading ? (
                 <div className="flex justify-center items-center h-[500px]">
@@ -754,19 +1038,13 @@ const AdminRegistry = () => {
                   <div className="text-center">
                     <div className="text-6xl mb-4">⚠️</div>
                     <p className="text-red-500 mb-4">{documentError}</p>
-                    <button
-                      onClick={() => handleViewDocument(selectedDocument)}
-                      className="px-4 py-2 text-sm text-white rounded-md hover:opacity-80"
-                      style={{ background: '#8B6914' }}
-                    >
+                    <button onClick={() => handleViewDocument(selectedDocument)} className="px-4 py-2 text-sm text-white rounded-md hover:opacity-80" style={{ background: '#8B6914' }}>
                       Retry
                     </button>
                   </div>
                 </div>
               ) : documentUrl ? (
-                <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                  {renderDocument()}
-                </div>
+                <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">{renderDocument()}</div>
               ) : (
                 <div className="flex justify-center items-center h-[500px]">
                   <div className="text-center">
@@ -776,14 +1054,9 @@ const AdminRegistry = () => {
                 </div>
               )}
             </div>
-
-            {/* Document View Footer */}
             <div className="px-6 py-4 border-t border-slate-200 bg-white rounded-b-xl">
               <div className="flex items-center justify-end gap-3">
-                <button
-                  onClick={closeDocViewModal}
-                  className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
-                >
+                <button onClick={closeDocViewModal} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition">
                   Close
                 </button>
                 <button
@@ -810,9 +1083,7 @@ const AdminRegistry = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>
-              <h3 className="text-lg font-medium text-center text-slate-900 mb-2">
-                Delete Station
-              </h3>
+              <h3 className="text-lg font-medium text-center text-slate-900 mb-2">Delete Station</h3>
               <p className="text-sm text-center text-slate-500 mb-6">
                 Are you sure you want to delete this station? This action cannot be undone.
                 {stationToDelete && stations.find(s => s.id === stationToDelete)?.file_count === 0 && 
@@ -820,16 +1091,10 @@ const AdminRegistry = () => {
                 }
               </p>
               <div className="flex items-center justify-center gap-3">
-                <button
-                  onClick={handleCancelDelete}
-                  className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
-                >
+                <button onClick={handleCancelDelete} className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition">
                   Cancel
                 </button>
-                <button
-                  onClick={handleConfirmDelete}
-                  className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition"
-                >
+                <button onClick={handleConfirmDelete} className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition">
                   Delete Station
                 </button>
               </div>
@@ -837,6 +1102,42 @@ const AdminRegistry = () => {
           </div>
         </div>
       )}
+    </>
+  );
+
+  // ─── Main Render ──────────────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-slate-50 p-6">
+      <Toaster position="top-right" />
+
+      {/* ── Tab Navigation ────────────────────────────────────────────────── */}
+      <div className="mb-6 border-b border-slate-200">
+        <div className="flex space-x-1">
+          <button
+            onClick={() => setActiveTab('registry')}
+            className={`px-6 py-3 text-sm font-medium rounded-t-lg transition ${
+              activeTab === 'registry'
+                ? 'text-white bg-[#8B6914]'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            📋 Registry
+          </button>
+          <button
+            onClick={() => setActiveTab('folders')}
+            className={`px-6 py-3 text-sm font-medium rounded-t-lg transition ${
+              activeTab === 'folders'
+                ? 'text-white bg-[#8B6914]'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            📁 Folders
+          </button>
+        </div>
+      </div>
+
+      {/* ── Tab Content ────────────────────────────────────────────────────── */}
+      {activeTab === 'registry' ? renderRegistryTab() : <AdminFolders />}
     </div>
   );
 };

@@ -1,5 +1,4 @@
 // src/pages/admin/AdminFolders.tsx
-
 import React, { useState, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -36,7 +35,7 @@ import {
     STATUS_LABELS,
     STATUS_COLORS,
 } from '../../store/slices/rhcFoldersSlice';
-import { Toaster, toast } from 'react-hot-toast';
+import { toast } from 'react-hot-toast';
 import {
     Plus,
     Search,
@@ -46,20 +45,12 @@ import {
     Folder,
     Edit,
     Trash2,
-    ChevronRight,
-    ChevronDown,
-    Check,
-    AlertCircle,
-    FileText,
-    //Eye,
-    Grid,
-    List,
     ArrowLeft,
     Home,
-    File,
+    FileText,
+    RefreshCw,
     Download,
     ExternalLink,
-    RefreshCw,
 } from 'lucide-react';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -73,169 +64,107 @@ interface FolderFormData {
     parent_folder_id: string;
 }
 
-// ─── Folder Card Component ─────────────────────────────────────────────────
+// ─── Folder Card Component (Simplified like Registry station cards) ─────
 
 const FolderCard: React.FC<{
     folder: RHCFolder;
     onEdit: (folder: RHCFolder) => void;
     onDelete: (id: string) => void;
     onView: (id: string) => void;
-    onToggleChildren: (id: string) => void;
-    isExpanded: boolean;
-    level?: number;
-    isClickable?: boolean;
-}> = ({ 
-    folder, 
-    onEdit, 
-    onDelete, 
-    onView, 
-    onToggleChildren, 
-    isExpanded, 
-    level = 0,
-    isClickable = true 
-}) => {
-    const categoryColor = CATEGORY_COLORS[folder.category] || 'bg-stone-50 text-stone-700';
-    const statusColor = STATUS_COLORS[folder.status] || 'bg-stone-50 text-stone-700';
-    const hasChildren = (folder.sub_folder_count || 0) > 0;
-
-    const handleClick = () => {
-        if (isClickable) {
-            onView(folder.id);
-        }
-    };
+}> = ({ folder, onEdit, onDelete, onView }) => {
+    const categoryColor = CATEGORY_COLORS[folder.category] || 'bg-slate-50 text-slate-700';
 
     return (
-        <div 
-            className="group" 
-            style={{ paddingLeft: level * 24 }}
-            onClick={handleClick}
+        <div
+            onClick={() => onView(folder.id)}
+            className="relative flex flex-col items-center py-6 px-4 text-center bg-white transition cursor-pointer hover:shadow-md hover:border-slate-300 border border-slate-200 rounded-xl"
         >
-            <div className={`flex items-center justify-between rounded-lg border border-stone-200 bg-white p-3 transition ${
-                isClickable ? 'cursor-pointer hover:shadow-md hover:border-stone-300' : ''
-            }`}>
-                {/* Left Section */}
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                    {/* Expand/Collapse */}
-                    {hasChildren && (
-                        <button
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onToggleChildren(folder.id);
-                            }}
-                            className="p-0.5 rounded hover:bg-stone-100 transition"
-                        >
-                            {isExpanded ? (
-                                <ChevronDown size={16} className="text-stone-400" />
-                            ) : (
-                                <ChevronRight size={16} className="text-stone-400" />
-                            )}
-                        </button>
-                    )}
-                    {!hasChildren && <div className="w-5" />}
+            {/* Icon */}
+            <span className="text-3xl mb-2">
+                {folder.status === 'active' ? '📁' : '📂'}
+            </span>
+            
+            {/* Reference Number */}
+            <span className="text-xs font-medium text-[#8B6914]">{folder.ref_no}</span>
+            
+            {/* Name */}
+            <span className="text-sm font-medium text-slate-800">{folder.name}</span>
+            
+            {/* Type Badge */}
+            <span className={`text-[11px] text-slate-400 mb-3 inline-flex items-center rounded-full px-2 py-0.5 ${categoryColor}`}>
+                {CATEGORY_LABELS[folder.category]}
+            </span>
+            
+            {/* Document Count */}
+            <span className="text-xl font-medium text-slate-800">{folder.document_count || 0}</span>
+            <span className="text-[11px] text-slate-400">documents on record</span>
+            
+            <span className="text-[10px] text-amber-600 mt-2">Click to view files</span>
 
-                    {/* Icon */}
-                    <div className="flex-shrink-0">
-                        {folder.status === 'active' ? (
-                            <FolderOpen size={18} className="text-[#c9a84c]" />
-                        ) : (
-                            <Folder size={18} className="text-stone-400" />
-                        )}
-                    </div>
-
-                    {/* Info */}
-                    <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono text-xs text-stone-400">{folder.ref_no}</span>
-                            <span className="font-medium text-stone-800 truncate">{folder.name}</span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${categoryColor}`}>
-                                {CATEGORY_LABELS[folder.category]}
-                            </span>
-                            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${statusColor}`}>
-                                {STATUS_LABELS[folder.status]}
-                            </span>
-                            {folder.document_count !== undefined && folder.document_count > 0 && (
-                                <span className="inline-flex items-center gap-1 text-[10px] text-stone-400">
-                                    <FileText size={10} />
-                                    {folder.document_count} doc{folder.document_count !== 1 ? 's' : ''}
-                                </span>
-                            )}
-                            {folder.sub_folder_count !== undefined && folder.sub_folder_count > 0 && (
-                                <span className="inline-flex items-center gap-1 text-[10px] text-stone-400">
-                                    <Folder size={10} />
-                                    {folder.sub_folder_count} sub-folder{folder.sub_folder_count !== 1 ? 's' : ''}
-                                </span>
-                            )}
-                        </div>
-                    </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                    <button
-                        onClick={() => onView(folder.id)}
-                        className="rounded-lg p-1.5 text-amber-600 transition hover:bg-amber-50 hover:text-amber-800"
-                        title="Open Folder"
-                    >
-                        <FolderOpen size={16} />
-                    </button>
-                    <button
-                        onClick={() => onEdit(folder)}
-                        className="rounded-lg p-1.5 text-blue-400 transition hover:bg-blue-50 hover:text-blue-600"
-                        title="Edit Folder"
-                    >
-                        <Edit size={16} />
-                    </button>
-                    <button
-                        onClick={() => onDelete(folder.id)}
-                        className="rounded-lg p-1.5 text-red-400 transition hover:bg-red-50 hover:text-red-600"
-                        title="Delete Folder"
-                    >
-                        <Trash2 size={16} />
-                    </button>
-                </div>
+            {/* Action Buttons (hidden on hover like Registry) */}
+            <div className="absolute top-2 right-2 flex gap-1 opacity-0 hover:opacity-100 transition-opacity">
+                <button
+                    onClick={(e) => { e.stopPropagation(); onEdit(folder); }}
+                    className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
+                    title="Edit"
+                >
+                    <Edit size={14} />
+                </button>
+                <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(folder.id); }}
+                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
+                    title="Delete"
+                >
+                    <Trash2 size={14} />
+                </button>
             </div>
         </div>
     );
 };
 
-// ─── Document Item Component ──────────────────────────────────────────────
+// ─── Document Card Component (Like Registry station cards) ──────────────
 
-const DocumentItem: React.FC<{ document: FolderDocument }> = ({ document }) => {
+const DocumentCard: React.FC<{ document: FolderDocument }> = ({ document }) => {
     return (
-        <div className="flex items-center justify-between rounded-lg border border-stone-100 bg-white p-3 transition hover:shadow-sm">
-            <div className="flex items-center gap-3 min-w-0 flex-1">
-                <div className="flex-shrink-0">
-                    <File size={16} className="text-stone-400" />
-                </div>
-                <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-stone-800 truncate">{document.subject}</p>
-                    <div className="flex items-center gap-2 text-xs text-stone-500">
-                        <span className="font-mono">{document.ref}</span>
-                        <span className="uppercase">{document.format}</span>
-                        <span>{new Date(document.created_at).toLocaleDateString()}</span>
-                    </div>
-                </div>
-            </div>
-            <div className="flex items-center gap-1 flex-shrink-0">
-                <a
-                    href={document.file_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-600"
-                    title="View Document"
-                >
-                    <ExternalLink size={16} />
-                </a>
-                <a
-                    href={document.file_url}
-                    download
-                    className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-100 hover:text-stone-600"
-                    title="Download Document"
-                >
-                    <Download size={16} />
-                </a>
+        <div className="relative flex flex-col items-center py-6 px-4 text-center bg-white transition hover:shadow-md border border-slate-200 rounded-xl">
+            {/* Icon */}
+            <span className="text-3xl mb-2">📄</span>
+            
+            {/* Document Reference */}
+            <span className="text-xs font-medium text-[#8B6914]">{document.ref || 'No ref'}</span>
+            
+            {/* Document Title */}
+            <span className="text-sm font-medium text-slate-800 truncate w-full">{document.subject}</span>
+            
+            {/* Format */}
+            <span className="text-[11px] text-slate-400 mb-3 uppercase">{document.format || 'Document'}</span>
+            
+            {/* Date */}
+            <span className="text-xs text-slate-400">{new Date(document.created_at).toLocaleDateString()}</span>
+
+            {/* Action Buttons */}
+            <div className="absolute top-2 right-2 flex gap-1">
+                {document.file_url && (
+                    <>
+                        <a
+                            href={document.file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
+                            title="View"
+                        >
+                            <ExternalLink size={14} />
+                        </a>
+                        <a
+                            href={document.file_url}
+                            download
+                            className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-md transition"
+                            title="Download"
+                        >
+                            <Download size={14} />
+                        </a>
+                    </>
+                )}
             </div>
         </div>
     );
@@ -264,8 +193,8 @@ const FolderDetailView: React.FC<{
     onViewFolder,
     onRefresh 
 }) => {
-    const categoryColor = CATEGORY_COLORS[folder.category] || 'bg-stone-50 text-stone-700';
-    const statusColor = STATUS_COLORS[folder.status] || 'bg-stone-50 text-stone-700';
+    const categoryColor = CATEGORY_COLORS[folder.category] || 'bg-slate-50 text-slate-700';
+    const statusColor = STATUS_COLORS[folder.status] || 'bg-slate-50 text-slate-700';
 
     return (
         <div className="space-y-4">
@@ -273,42 +202,46 @@ const FolderDetailView: React.FC<{
             <div className="flex items-center gap-2">
                 <button
                     onClick={onBack}
-                    className="inline-flex items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50 transition"
+                    className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
                 >
                     <ArrowLeft size={16} />
                     Back
                 </button>
-                <span className="text-stone-300">/</span>
-                <Home size={16} className="text-stone-400" />
-                <span className="text-stone-300">/</span>
-                <span className="text-sm font-medium text-stone-800">{folder.name}</span>
+                <span className="text-slate-300">/</span>
+                <Home size={16} className="text-slate-400" />
+                <span className="text-slate-300">/</span>
+                <span className="text-sm font-medium text-slate-800">{folder.name}</span>
             </div>
 
             {/* Folder Header */}
-            <div className="rounded-lg border border-stone-200 bg-white p-4">
+            <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="flex items-start justify-between">
                     <div>
                         <div className="flex items-center gap-2">
-                            <FolderOpen size={24} className="text-[#c9a84c]" />
-                            <h2 className="text-xl font-bold text-stone-800">{folder.name}</h2>
+                            <FolderOpen size={24} className="text-[#8B6914]" />
+                            <h2 className="text-xl font-bold text-slate-800">{folder.name}</h2>
                         </div>
                         <div className="mt-2 flex flex-wrap items-center gap-3">
-                            <span className="font-mono text-sm text-stone-400">{folder.ref_no}</span>
+                            <span className="font-mono text-sm text-slate-400">{folder.ref_no}</span>
                             <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${categoryColor}`}>
                                 {CATEGORY_LABELS[folder.category]}
                             </span>
                             <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColor}`}>
                                 {STATUS_LABELS[folder.status]}
                             </span>
+                            <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                                <FileText size={14} />
+                                {folder.document_count || 0} documents
+                            </span>
                         </div>
                         {folder.description && (
-                            <p className="mt-2 text-sm text-stone-600">{folder.description}</p>
+                            <p className="mt-2 text-sm text-slate-600">{folder.description}</p>
                         )}
                     </div>
                     <div className="flex gap-2">
                         <button
                             onClick={() => onEdit(folder)}
-                            className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-50 transition"
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
                         >
                             <Edit size={16} className="inline mr-1" />
                             Edit
@@ -322,7 +255,7 @@ const FolderDetailView: React.FC<{
                         </button>
                         <button
                             onClick={onRefresh}
-                            className="rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-50 transition"
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
                         >
                             <RefreshCw size={16} className="inline mr-1" />
                             Refresh
@@ -334,50 +267,47 @@ const FolderDetailView: React.FC<{
             {/* Content */}
             {loading ? (
                 <div className="flex items-center justify-center py-12">
-                    <Loader2 size={32} className="animate-spin text-[#c9a84c]" />
-                    <span className="ml-3 text-sm text-stone-600">Loading contents...</span>
+                    <Loader2 size={32} className="animate-spin text-[#8B6914]" />
+                    <span className="ml-3 text-sm text-slate-600">Loading contents...</span>
                 </div>
             ) : (
                 <>
-                    {/* Sub-folders */}
-                    <div>
-                        <h3 className="text-sm font-semibold text-stone-700 mb-3 flex items-center gap-2">
-                            <Folder size={16} />
-                            Sub-folders ({children.length})
-                        </h3>
-                        {children.length === 0 ? (
-                            <p className="text-sm text-stone-400 italic">No sub-folders</p>
-                        ) : (
-                            <div className="space-y-2">
+                    {/* Sub-folders grid */}
+                    {children.length > 0 && (
+                        <div>
+                            <h3 className="text-sm font-medium text-slate-700 mb-3">Sub-folders</h3>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
                                 {children.map(child => (
-                                    <FolderCard
+                                    <div
                                         key={child.id}
-                                        folder={child}
-                                        onEdit={onEdit}
-                                        onDelete={onDelete}
-                                        onView={onViewFolder}
-                                        onToggleChildren={() => {}}
-                                        isExpanded={false}
-                                        level={0}
-                                        isClickable={true}
-                                    />
+                                        onClick={() => onViewFolder(child.id)}
+                                        className="relative flex flex-col items-center py-6 px-4 text-center bg-white transition cursor-pointer hover:shadow-md"
+                                    >
+                                        <span className="text-3xl mb-2">📁</span>
+                                        <span className="text-xs font-medium text-[#8B6914]">{child.ref_no}</span>
+                                        <span className="text-sm font-medium text-slate-800">{child.name}</span>
+                                        <span className="text-[11px] text-slate-400">{child.document_count || 0} documents</span>
+                                    </div>
                                 ))}
                             </div>
-                        )}
-                    </div>
+                        </div>
+                    )}
 
-                    {/* Documents */}
+                    {/* Documents grid - Same layout as Registry stations */}
                     <div>
-                        <h3 className="text-sm font-semibold text-stone-700 mb-3 flex items-center gap-2">
+                        <h3 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
                             <FileText size={16} />
                             Documents ({documents.length})
                         </h3>
                         {documents.length === 0 ? (
-                            <p className="text-sm text-stone-400 italic">No documents</p>
+                            <div className="py-16 text-center text-sm text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                                <FileText size={48} className="mx-auto text-slate-300 mb-3" />
+                                <p>No documents in this folder</p>
+                            </div>
                         ) : (
-                            <div className="space-y-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
                                 {documents.map(doc => (
-                                    <DocumentItem key={doc.id} document={doc} />
+                                    <DocumentCard key={doc.id} document={doc} />
                                 ))}
                             </div>
                         )}
@@ -409,11 +339,9 @@ const AdminFolders: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<FolderCategory | 'all'>('all');
     const [selectedStatus, setSelectedStatus] = useState<FolderStatus | 'all'>('all');
-    const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [selectedFolderForEdit, setSelectedFolderForEdit] = useState<RHCFolder | null>(null);
-    const [viewMode, setViewMode] = useState<'list' | 'grid'>('list');
     const [isDetailView, setIsDetailView] = useState(false);
     const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
     const [formData, setFormData] = useState<FolderFormData>({
@@ -433,18 +361,6 @@ const AdminFolders: React.FC = () => {
     }, [dispatch]);
 
     // ── Handlers ────────────────────────────────────────────────────────────
-
-    const handleToggleExpand = (folderId: string) => {
-        setExpandedFolders(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(folderId)) {
-                newSet.delete(folderId);
-            } else {
-                newSet.add(folderId);
-            }
-            return newSet;
-        });
-    };
 
     const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
         const query = e.target.value;
@@ -583,31 +499,9 @@ const AdminFolders: React.FC = () => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    // ── Render Helpers ──────────────────────────────────────────────────────
+    // ── Render Category Filters (like Registry tabs) ──────────────────────
 
-    const renderFolders = (folderList: RHCFolder[], level: number = 0) => {
-        return folderList.map(folder => (
-            <React.Fragment key={folder.id}>
-                <FolderCard
-                    folder={folder}
-                    onEdit={handleEditClick}
-                    onDelete={handleDeleteFolder}
-                    onView={handleViewFolder}
-                    onToggleChildren={handleToggleExpand}
-                    isExpanded={expandedFolders.has(folder.id)}
-                    level={level}
-                    isClickable={true}
-                />
-                {expandedFolders.has(folder.id) && folder.sub_folder_count && folder.sub_folder_count > 0 && (
-                    <div className="ml-4 border-l-2 border-stone-100 pl-2">
-                        <p className="text-xs text-stone-400 py-2 pl-8">Loading children...</p>
-                    </div>
-                )}
-            </React.Fragment>
-        ));
-    };
-
-    const renderCategoryStats = () => {
+    const renderCategoryFilters = () => {
         if (categories.length === 0) return null;
         return (
             <div className="flex flex-wrap gap-2 mb-4">
@@ -617,12 +511,12 @@ const AdminFolders: React.FC = () => {
                         onClick={() => handleFilterChange(category, selectedStatus)}
                         className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition ${
                             selectedCategory === category
-                                ? `${CATEGORY_COLORS[category]} ring-2 ring-[#c9a84c]`
-                                : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+                                ? `${CATEGORY_COLORS[category]} ring-2 ring-[#8B6914]`
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                         }`}
                     >
                         {CATEGORY_LABELS[category]}
-                        <span className="rounded-full bg-stone-200 px-1.5 py-0.5 text-[10px]">
+                        <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px]">
                             {count}
                         </span>
                     </button>
@@ -630,7 +524,7 @@ const AdminFolders: React.FC = () => {
                 {selectedCategory !== 'all' && (
                     <button
                         onClick={() => handleFilterChange('all', selectedStatus)}
-                        className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium bg-stone-100 text-stone-600 hover:bg-stone-200"
+                        className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200"
                     >
                         <X size={12} />
                         Clear Filter
@@ -645,22 +539,7 @@ const AdminFolders: React.FC = () => {
     // ── Render ──────────────────────────────────────────────────────────────
 
     return (
-        <div className="min-h-screen bg-stone-50 p-6">
-            <Toaster
-                position="bottom-right"
-                toastOptions={{
-                    style: {
-                        borderRadius: '10px',
-                        fontSize: '13px',
-                        background: '#fff',
-                        color: '#1c1917',
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                    },
-                    success: { iconTheme: { primary: '#1a3d1c', secondary: '#fff' } },
-                    error: { iconTheme: { primary: '#dc2626', secondary: '#fff' } },
-                }}
-            />
-
+        <>
             {isDetailView && selectedFolder ? (
                 // ── Detail View ──────────────────────────────────────────
                 <FolderDetailView
@@ -680,36 +559,36 @@ const AdminFolders: React.FC = () => {
                     {/* ── Header ────────────────────────────────────────── */}
                     <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
-                            <h1 className="text-2xl font-bold text-[#1a3d1c] flex items-center gap-2">
-                                <FolderOpen size={28} className="text-[#c9a84c]" />
+                            <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+                                <FolderOpen size={28} className="text-[#8B6914]" />
                                 RHC Folders
                             </h1>
-                            <p className="mt-1 text-sm text-stone-500">
+                            <p className="mt-1 text-sm text-slate-500">
                                 {activeFolders.length} active folders · {folders.length} total
                             </p>
                         </div>
                         <button
                             onClick={() => setShowCreateModal(true)}
-                            className="inline-flex items-center gap-2 rounded-lg bg-[#c9a84c] px-4 py-2 text-sm font-semibold text-[#1a3d1c] transition hover:bg-[#b8973f]"
+                            className="inline-flex items-center gap-2 rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#7A5E12]"
                         >
                             <Plus size={18} />
                             New Folder
                         </button>
                     </div>
 
-                    {/* ── Category Stats ────────────────────────────────── */}
-                    {renderCategoryStats()}
+                    {/* ── Category Filters ──────────────────────────────── */}
+                    {renderCategoryFilters()}
 
-                    {/* ── Search & Filters ──────────────────────────────── */}
+                    {/* ── Search ──────────────────────────────────────────── */}
                     <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center">
                         <div className="relative flex-1">
-                            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                             <input
                                 type="text"
                                 placeholder="Search folders by reference or name..."
                                 value={searchQuery}
                                 onChange={handleSearch}
-                                className="w-full rounded-lg border border-stone-200 bg-white pl-10 pr-4 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                                className="w-full rounded-lg border border-slate-200 bg-white pl-10 pr-4 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
                             />
                             {searchQuery && (
                                 <button
@@ -717,67 +596,25 @@ const AdminFolders: React.FC = () => {
                                         setSearchQuery('');
                                         dispatch(clearSearchResults());
                                     }}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600"
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                                 >
                                     <X size={16} />
                                 </button>
                             )}
                         </div>
-
-                        <div className="flex gap-2">
-                            <select
-                                value={selectedStatus}
-                                onChange={(e) => handleFilterChange(
-                                    selectedCategory,
-                                    e.target.value as FolderStatus | 'all'
-                                )}
-                                className="rounded-lg border border-stone-200 bg-white px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
-                            >
-                                <option value="all">All Status</option>
-                                {Object.entries(STATUS_LABELS).map(([key, label]) => (
-                                    <option key={key} value={key}>{label}</option>
-                                ))}
-                            </select>
-
-                            {/* View Mode Toggle */}
-                            <div className="flex rounded-lg border border-stone-200 bg-white overflow-hidden">
-                                <button
-                                    onClick={() => setViewMode('list')}
-                                    className={`px-3 py-2 transition ${
-                                        viewMode === 'list'
-                                            ? 'bg-[#c9a84c] text-[#1a3d1c]'
-                                            : 'text-stone-500 hover:bg-stone-50'
-                                    }`}
-                                    title="List View"
-                                >
-                                    <List size={16} />
-                                </button>
-                                <button
-                                    onClick={() => setViewMode('grid')}
-                                    className={`px-3 py-2 transition ${
-                                        viewMode === 'grid'
-                                            ? 'bg-[#c9a84c] text-[#1a3d1c]'
-                                            : 'text-stone-500 hover:bg-stone-50'
-                                    }`}
-                                    title="Grid View"
-                                >
-                                    <Grid size={16} />
-                                </button>
-                            </div>
-                        </div>
                     </div>
 
-                    {/* ── Folder List ──────────────────────────────────────── */}
+                    {/* ── Folder Grid (like Registry station grid) ────── */}
                     {loading.fetch ? (
                         <div className="flex items-center justify-center py-12">
-                            <Loader2 size={32} className="animate-spin text-[#c9a84c]" />
-                            <span className="ml-3 text-sm text-stone-600">Loading folders...</span>
+                            <Loader2 size={32} className="animate-spin text-[#8B6914]" />
+                            <span className="ml-3 text-sm text-slate-600">Loading folders...</span>
                         </div>
                     ) : error ? (
                         <div className="rounded-lg border border-red-200 bg-red-50 p-4">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
-                                    <AlertCircle size={18} className="text-red-600" />
+                                    <span className="text-red-600">⚠️</span>
                                     <p className="text-sm text-red-700">{error}</p>
                                 </div>
                                 <button
@@ -789,79 +626,24 @@ const AdminFolders: React.FC = () => {
                             </div>
                         </div>
                     ) : displayFolders.length === 0 ? (
-                        <div className="rounded-lg border-2 border-dashed border-stone-200 bg-white p-12 text-center">
-                            <Folder size={48} className="mx-auto text-stone-300" />
-                            <p className="mt-3 text-sm text-stone-500">No folders found</p>
-                            <p className="text-xs text-stone-400">
-                                {searchQuery ? 'Try adjusting your search or filters' : 'Create your first folder using the button above'}
+                        <div className="py-16 text-center text-sm text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                            <Folder size={48} className="mx-auto text-slate-300 mb-3" />
+                            <p>No folders found</p>
+                            <p className="text-xs mt-1">
+                                {searchQuery ? 'Try adjusting your search' : 'Create your first folder using the button above'}
                             </p>
                         </div>
-                    ) : viewMode === 'grid' ? (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {displayFolders.map(folder => (
-                                <div
-                                    key={folder.id}
-                                    onClick={() => handleViewFolder(folder.id)}
-                                    className="rounded-lg border border-stone-200 bg-white p-4 transition hover:shadow-md hover:border-stone-300 cursor-pointer"
-                                >
-                                    <div className="flex items-start justify-between">
-                                        <div className="flex items-center gap-2">
-                                            {folder.status === 'active' ? (
-                                                <FolderOpen size={20} className="text-[#c9a84c]" />
-                                            ) : (
-                                                <Folder size={20} className="text-stone-400" />
-                                            )}
-                                            <div>
-                                                <p className="font-mono text-xs text-stone-400">{folder.ref_no}</p>
-                                                <p className="font-medium text-stone-800">{folder.name}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                                            <button
-                                                onClick={() => handleEditClick(folder)}
-                                                className="p-1 text-blue-400 hover:text-blue-600"
-                                            >
-                                                <Edit size={14} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDeleteFolder(folder.id)}
-                                                className="p-1 text-red-400 hover:text-red-600"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${CATEGORY_COLORS[folder.category]}`}>
-                                            {CATEGORY_LABELS[folder.category]}
-                                        </span>
-                                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLORS[folder.status]}`}>
-                                            {STATUS_LABELS[folder.status]}
-                                        </span>
-                                    </div>
-                                    {folder.description && (
-                                        <p className="mt-2 text-xs text-stone-500 line-clamp-2">{folder.description}</p>
-                                    )}
-                                    <div className="mt-3 flex gap-3 text-xs text-stone-400">
-                                        {folder.document_count !== undefined && folder.document_count > 0 && (
-                                            <span className="inline-flex items-center gap-1">
-                                                <FileText size={12} />
-                                                {folder.document_count}
-                                            </span>
-                                        )}
-                                        {folder.sub_folder_count !== undefined && folder.sub_folder_count > 0 && (
-                                            <span className="inline-flex items-center gap-1">
-                                                <Folder size={12} />
-                                                {folder.sub_folder_count}
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
                     ) : (
-                        <div className="space-y-2">
-                            {renderFolders(displayFolders)}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+                            {displayFolders.map(folder => (
+                                <FolderCard
+                                    key={folder.id}
+                                    folder={folder}
+                                    onEdit={handleEditClick}
+                                    onDelete={handleDeleteFolder}
+                                    onView={handleViewFolder}
+                                />
+                            ))}
                         </div>
                     )}
                 </>
@@ -871,11 +653,11 @@ const AdminFolders: React.FC = () => {
             {showCreateModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
                     <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
-                        <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
-                            <h2 className="text-lg font-semibold text-[#1a3d1c]">Create New Folder</h2>
+                        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                            <h2 className="text-lg font-semibold text-slate-900">Create New Folder</h2>
                             <button
                                 onClick={() => setShowCreateModal(false)}
-                                className="text-stone-400 hover:text-stone-600"
+                                className="text-slate-400 hover:text-slate-600"
                             >
                                 <X size={20} />
                             </button>
@@ -890,7 +672,7 @@ const AdminFolders: React.FC = () => {
                                 </div>
                             )}
                             <div>
-                                <label className="mb-1 block text-sm font-medium text-stone-700">
+                                <label className="mb-1 block text-sm font-medium text-slate-700">
                                     Reference Number *
                                 </label>
                                 <input
@@ -899,13 +681,13 @@ const AdminFolders: React.FC = () => {
                                     value={formData.ref_no}
                                     onChange={handleInputChange}
                                     placeholder="e.g. RHC/NEW/001"
-                                    className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
                                     required
                                 />
                             </div>
 
                             <div>
-                                <label className="mb-1 block text-sm font-medium text-stone-700">
+                                <label className="mb-1 block text-sm font-medium text-slate-700">
                                     Folder Name *
                                 </label>
                                 <input
@@ -914,20 +696,20 @@ const AdminFolders: React.FC = () => {
                                     value={formData.name}
                                     onChange={handleInputChange}
                                     placeholder="e.g. New Folder Name"
-                                    className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
                                     required
                                 />
                             </div>
 
                             <div>
-                                <label className="mb-1 block text-sm font-medium text-stone-700">
+                                <label className="mb-1 block text-sm font-medium text-slate-700">
                                     Category *
                                 </label>
                                 <select
                                     name="category"
                                     value={formData.category}
                                     onChange={handleInputChange}
-                                    className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
                                     required
                                 >
                                     {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
@@ -937,7 +719,7 @@ const AdminFolders: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="mb-1 block text-sm font-medium text-stone-700">
+                                <label className="mb-1 block text-sm font-medium text-slate-700">
                                     Description
                                 </label>
                                 <textarea
@@ -946,19 +728,19 @@ const AdminFolders: React.FC = () => {
                                     onChange={handleInputChange}
                                     rows={3}
                                     placeholder="Folder description..."
-                                    className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] resize-none"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914] resize-none"
                                 />
                             </div>
 
                             <div>
-                                <label className="mb-1 block text-sm font-medium text-stone-700">
+                                <label className="mb-1 block text-sm font-medium text-slate-700">
                                     Status
                                 </label>
                                 <select
                                     name="status"
                                     value={formData.status}
                                     onChange={handleInputChange}
-                                    className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
                                 >
                                     {Object.entries(STATUS_LABELS).map(([key, label]) => (
                                         <option key={key} value={key}>{label}</option>
@@ -970,14 +752,14 @@ const AdminFolders: React.FC = () => {
                                 <button
                                     type="button"
                                     onClick={() => setShowCreateModal(false)}
-                                    className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50"
+                                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={loading.create}
-                                    className="inline-flex items-center gap-2 rounded-lg bg-[#c9a84c] px-4 py-2 text-sm font-semibold text-[#1a3d1c] transition hover:bg-[#b8973f] disabled:opacity-50"
+                                    className="inline-flex items-center gap-2 rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#7A5E12] disabled:opacity-50"
                                 >
                                     {loading.create ? (
                                         <Loader2 size={16} className="animate-spin" />
@@ -996,15 +778,15 @@ const AdminFolders: React.FC = () => {
             {showEditModal && selectedFolderForEdit && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
                     <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
-                        <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
-                            <h2 className="text-lg font-semibold text-[#1a3d1c]">Edit Folder</h2>
+                        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                            <h2 className="text-lg font-semibold text-slate-900">Edit Folder</h2>
                             <button
                                 onClick={() => {
                                     setShowEditModal(false);
                                     setSelectedFolderForEdit(null);
                                     resetForm();
                                 }}
-                                className="text-stone-400 hover:text-stone-600"
+                                className="text-slate-400 hover:text-slate-600"
                             >
                                 <X size={20} />
                             </button>
@@ -1012,19 +794,19 @@ const AdminFolders: React.FC = () => {
 
                         <form onSubmit={handleUpdateFolder} className="p-6 space-y-4">
                             <div>
-                                <label className="mb-1 block text-sm font-medium text-stone-700">
+                                <label className="mb-1 block text-sm font-medium text-slate-700">
                                     Reference Number
                                 </label>
                                 <input
                                     type="text"
                                     value={formData.ref_no}
-                                    className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-500"
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500"
                                     disabled
                                 />
                             </div>
 
                             <div>
-                                <label className="mb-1 block text-sm font-medium text-stone-700">
+                                <label className="mb-1 block text-sm font-medium text-slate-700">
                                     Folder Name *
                                 </label>
                                 <input
@@ -1032,20 +814,20 @@ const AdminFolders: React.FC = () => {
                                     name="name"
                                     value={formData.name}
                                     onChange={handleInputChange}
-                                    className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
                                     required
                                 />
                             </div>
 
                             <div>
-                                <label className="mb-1 block text-sm font-medium text-stone-700">
+                                <label className="mb-1 block text-sm font-medium text-slate-700">
                                     Category
                                 </label>
                                 <select
                                     name="category"
                                     value={formData.category}
                                     onChange={handleInputChange}
-                                    className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-500"
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500"
                                     disabled
                                 >
                                     <option value={formData.category}>
@@ -1055,7 +837,7 @@ const AdminFolders: React.FC = () => {
                             </div>
 
                             <div>
-                                <label className="mb-1 block text-sm font-medium text-stone-700">
+                                <label className="mb-1 block text-sm font-medium text-slate-700">
                                     Description
                                 </label>
                                 <textarea
@@ -1064,19 +846,19 @@ const AdminFolders: React.FC = () => {
                                     onChange={handleInputChange}
                                     rows={3}
                                     placeholder="Folder description..."
-                                    className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] resize-none"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914] resize-none"
                                 />
                             </div>
 
                             <div>
-                                <label className="mb-1 block text-sm font-medium text-stone-700">
+                                <label className="mb-1 block text-sm font-medium text-slate-700">
                                     Status
                                 </label>
                                 <select
                                     name="status"
                                     value={formData.status}
                                     onChange={handleInputChange}
-                                    className="w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
                                 >
                                     {Object.entries(STATUS_LABELS).map(([key, label]) => (
                                         <option key={key} value={key}>{label}</option>
@@ -1092,28 +874,27 @@ const AdminFolders: React.FC = () => {
                                         setSelectedFolderForEdit(null);
                                         resetForm();
                                     }}
-                                    className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50"
+                                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                                 >
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={loading.update}
-                                    className="inline-flex items-center gap-2 rounded-lg bg-[#c9a84c] px-4 py-2 text-sm font-semibold text-[#1a3d1c] transition hover:bg-[#b8973f] disabled:opacity-50"
+                                    className="inline-flex items-center gap-2 rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#7A5E12] disabled:opacity-50"
                                 >
                                     {loading.update ? (
                                         <Loader2 size={16} className="animate-spin" />
                                     ) : (
-                                        <Check size={16} />
+                                        <span>Update Folder</span>
                                     )}
-                                    Update Folder
                                 </button>
                             </div>
                         </form>
                     </div>
                 </div>
             )}
-        </div>
+        </>
     );
 };
 
