@@ -1,5 +1,4 @@
 // src/pages/dept-head/AdminDocs.tsx
-
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { toast, Toaster } from 'react-hot-toast';
@@ -18,8 +17,8 @@ import {
 import { selectCurrentUser, fetchCurrentUser } from '../../store/slices/userSlice';
 import {
   fetchUsers,
-  selectAllUsers,
-  selectUsersListLoading,
+  //selectAllUsers,
+  //selectUsersListLoading,
 } from '../../store/slices/userSlice';
 import {
   fetchRegistryEntries,
@@ -84,7 +83,7 @@ const PRIORITIES: { value: RoutePriority; label: string }[] = [
 const TYPE_BADGE: Record<DocumentType, string> = {
   memo: 'bg-blue-100 text-blue-700',
   letter: 'bg-indigo-100 text-indigo-700',
-  certificate: 'bg-amber-100 text-amber-700', // Added certificate
+  certificate: 'bg-amber-100 text-amber-700',
   judgment: 'bg-purple-100 text-purple-700',
   ruling: 'bg-pink-100 text-pink-700',
   order: 'bg-amber-100 text-amber-700',
@@ -1110,7 +1109,6 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ document, o
             <StickyNote
               key={document.id}
               authorName={document.active_mark.marked_by_name ?? 'Registrar'}
-              // UPDATED: Use document.bring_up_date instead of active_mark.bring_up_date
               text={document.active_mark.instructions}
               bringUpDate={document.bring_up_date}
             />
@@ -1362,32 +1360,39 @@ const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({
 }) => {
   const dispatch = useAppDispatch();
   const currentUser = useAppSelector(selectCurrentUser);
-  const teamMembers = useAppSelector(selectAllUsers);
-  const usersLoading = useAppSelector(selectUsersListLoading);
+  //const teamMembers = useAppSelector(selectAllUsers);
+  //const usersLoading = useAppSelector(selectUsersListLoading);
 
-  const [mode, setMode] = useState<FinalizeMode>('user');
-  const [userId, setUserId] = useState('');
+  const [mode] = useState<FinalizeMode>('admin'); // Default to admin (Super Admin) as per workflow
+  //const [userId, setUserId] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!currentUser?.department_id) return;
-    dispatch(fetchUsers({
-      is_active: true,
-      department_id: currentUser.department_id,
-      limit: 100,
-      sort_by: 'full_name',
-      sort_order: 'ASC',
-    }));
-  }, [dispatch, currentUser?.department_id]);
+    // Only load team members if user selects 'user' mode
+    if (mode === 'user' && currentUser?.department_id) {
+      dispatch(fetchUsers({
+        is_active: true,
+        department_id: currentUser.department_id,
+        limit: 100,
+        sort_by: 'full_name',
+        sort_order: 'ASC',
+      }));
+    }
+  }, [dispatch, currentUser?.department_id, mode]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Updated workflow: Department Head can only send to Super Admin
+    // They cannot directly assign to other users
     if (mode === 'user') {
-      if (!userId) { setError('Please select a user to mark this document to'); return; }
-      onSubmit({ assigned_to: userId });
-    } else {
-      onSubmit({ send_to_super_admin: true });
+      // Department Heads cannot mark directly to users - must go through Super Admin
+      setError('Department Heads must send documents to Super Admin for review before they can be assigned to users.');
+      return;
     }
+
+    // Only Super Admin can assign to users (mode === 'admin' sends to Super Admin)
+    onSubmit({ send_to_super_admin: true });
   };
 
   return (
@@ -1395,7 +1400,7 @@ const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({
       <div className="w-full max-w-md rounded-xl bg-white shadow-2xl border border-slate-100">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div>
-            <h2 className="text-base font-semibold text-slate-900">Mark Document</h2>
+            <h2 className="text-base font-semibold text-slate-900">Submit Document</h2>
             <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[260px]">{document.title}</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
@@ -1407,51 +1412,43 @@ const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({
 
         <form onSubmit={handleSubmit}>
           <div className="px-6 py-5 space-y-4">
-            <div className="grid grid-cols-2 gap-2">
-              {(['user', 'admin'] as FinalizeMode[]).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => { setMode(m); setError(null); }}
-                  className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
-                    mode === m
-                      ? 'border-blue-500 bg-blue-50 text-blue-700'
-                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {m === 'user' ? 'Mark to a User' : 'Send to Super Admin'}
-                </button>
-              ))}
+            {/* Updated workflow info */}
+            <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2.5">
+              <p className="text-xs text-blue-700 flex items-start gap-1.5">
+                <span className="text-sm">ℹ️</span>
+                <span>
+                  <strong>Workflow:</strong> Department Heads upload documents and send to 
+                  <strong> Super Admin</strong> for review. The Super Admin will then assign 
+                  to the appropriate department/user after review.
+                </span>
+              </p>
             </div>
 
-            {mode === 'user' && (
-              <div>
-                <label className="text-xs font-medium text-slate-600 uppercase tracking-wide">Assign to *</label>
-                <select
-                  value={userId}
-                  onChange={(e) => { setUserId(e.target.value); setError(null); }}
-                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-slate-50 disabled:text-slate-400"
-                  disabled={usersLoading}
-                >
-                  <option value="">
-                    {usersLoading
-                      ? 'Loading team members…'
-                      : teamMembers.length === 0
-                        ? 'No active users in your department'
-                        : '— Select a user —'}
-                  </option>
-                  {teamMembers.map((u) => (
-                    <option key={u.id} value={u.id}>{u.full_name} — {u.pj_number}</option>
-                  ))}
-                </select>
-                {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+            {/* Only show the send to Super Admin option */}
+            <div className="rounded-lg border border-blue-200 bg-blue-50/50 px-4 py-3">
+              <div className="flex items-start gap-2">
+                <div className="mt-0.5">
+                  <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-blue-800">Send to Super Admin</p>
+                  <p className="text-xs text-blue-600 mt-0.5">
+                    The document will be sent to the Super Admin for review, approval, and assignment.
+                  </p>
+                </div>
               </div>
-            )}
+            </div>
 
-            {mode === 'admin' && (
-              <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
-                This document will be sent directly to the Super Admin for review and e-signature.
-              </p>
+            {/* Removed the user selection UI since Department Heads can't assign directly */}
+            {/* The old mode toggle and user dropdown are removed */}
+
+            {error && (
+              <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2">
+                <p className="text-xs text-red-700">{error}</p>
+              </div>
             )}
           </div>
 
@@ -1469,7 +1466,7 @@ const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({
               className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 transition"
             >
               {loading && <Spinner />}
-              {mode === 'user' ? 'Mark to User' : 'Send to Super Admin'}
+              Send to Super Admin
             </button>
           </div>
         </form>
@@ -1703,7 +1700,7 @@ const AdminDocs = () => {
     console.log('[AdminDocs] Finalizing draft:', finalizeTarget.id);
     try {
       await dispatch(finalizeDraft({ id: finalizeTarget.id, input })).unwrap();
-      toast.success(input.send_to_super_admin ? 'Document sent to Super Admin' : 'Document marked to user');
+      toast.success('Document sent to Super Admin for review');
       setFinalizeTarget(null);
       await triggerFetch(page);
     } catch (err) {
@@ -1976,7 +1973,7 @@ const AdminDocs = () => {
                               onClick={() => setFinalizeTarget(doc)}
                               className="text-xs text-amber-600 font-medium underline decoration-dotted hover:text-amber-700 transition"
                             >
-                              Not marked yet — click to mark
+                              Not marked yet — click to send to Super Admin
                             </button>
                           ) : doc.assigned_to_name ? (
                             <span className="text-xs font-medium text-slate-700">{doc.assigned_to_name}</span>
@@ -2034,7 +2031,7 @@ const AdminDocs = () => {
                             {doc.is_draft && (
                               <button
                                 onClick={() => setFinalizeTarget(doc)}
-                                title="Mark document"
+                                title="Send to Super Admin"
                                 className="p-1.5 text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 rounded-md transition"
                               >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
