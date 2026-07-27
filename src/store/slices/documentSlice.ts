@@ -57,6 +57,7 @@ import type {
   UpdateBringUpInput,
   CompleteBringUpInput,
   BringUpStatus,
+  DocumentStatus,
 } from "../../types/documents.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -410,6 +411,40 @@ export const createUploadDocument = createAsyncThunk(
         success: boolean;
         data: Document;
       }>("/documents/upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  },
+);
+
+
+// ── Update document file (replace file with stamped version) ─────────────────
+
+export const updateDocumentFile = createAsyncThunk(
+  "documents/updateDocumentFile",
+  async (
+    { id, blob, filename, status, comments }: { 
+      id: string; 
+      blob: Blob; 
+      filename: string; 
+      status?: DocumentStatus;
+      comments?: string;
+    },
+    { rejectWithValue }
+  ) => {
+    const formData = new FormData();
+    formData.append("file", blob, filename);
+    if (status) formData.append("status", status);
+    if (comments) formData.append("comments", comments);
+
+    try {
+      const response = await axiosClient.put<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/file`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       return response.data.data;

@@ -15,16 +15,18 @@ import {
   requestSignOtp,
   fetchResponses,
   updateMark,
-  // ── Bring Up thunks ──────────────────────────────────────────────────
   setBringUp,
   updateBringUp,
   completeBringUp,
   fetchDocumentById,
+  updateDocumentFile,
 } from "../../store/slices/documentSlice";
 import { hasRole } from "../../store/slices/authSlice";
 import {
+  fetchCurrentUser,
   fetchUsers,
   selectAllUsers,
+  selectCurrentUser,
   selectUsersListLoading,
 } from "../../store/slices/userSlice";
 import {
@@ -39,13 +41,13 @@ import type {
   DocumentFilters,
   CreateUploadDocumentInput,
   RefType,
-  // ── Bring Up types ──────────────────────────────────────────────────
   SetBringUpInput,
   UpdateBringUpInput,
   CompleteBringUpInput,
 } from "../../types/documents.types";
 import { format } from "date-fns";
 import toast from "react-hot-toast";
+import { stampPdfFromUrl } from "../../utils/pdfStamp";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -174,6 +176,28 @@ const formatDateDisplay = (dateStr: string | Date): string => {
   if (!d) return 'Invalid date';
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 };
+
+// ─── Spinner ──────────────────────────────────────────────────────────────────
+
+const Spinner: React.FC<{ className?: string }> = ({
+  className = "h-3.5 w-3.5",
+}) => (
+  <svg className={`animate-spin ${className}`} fill="none" viewBox="0 0 24 24">
+    <circle
+      className="opacity-25"
+      cx="12"
+      cy="12"
+      r="10"
+      stroke="currentColor"
+      strokeWidth="4"
+    />
+    <path
+      className="opacity-75"
+      fill="currentColor"
+      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+    />
+  </svg>
+);
 
 // ─── Sticky Note ─────────────────────────────────────────────────────────────
 
@@ -527,7 +551,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({
 
 // ─── Bring Up Modal ───────────────────────────────────────────────────────────
 
-
 interface BringUpModalProps {
   document: Document;
   onClose: () => void;
@@ -557,7 +580,6 @@ const BringUpModal: React.FC<BringUpModalProps> = ({
   const isEditing = !!document.bring_up_date;
   const isCompleted = !!document.bring_up_completed_at;
 
-  // If bring up is already completed, just show a message and close
   if (isCompleted) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
@@ -645,7 +667,6 @@ const BringUpModal: React.FC<BringUpModalProps> = ({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Document Name */}
           <div>
             <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
               Document
@@ -655,14 +676,12 @@ const BringUpModal: React.FC<BringUpModalProps> = ({
             </div>
           </div>
 
-          {/* Current Bring Up Date (only when editing) */}
           {isEditing && (
             <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
               <p><strong>Current Bring Up Date:</strong> {new Date(document.bring_up_date!).toLocaleDateString()}</p>
             </div>
           )}
 
-          {/* Bring Up Date Input */}
           <div>
             <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
               Bring Up Date *
@@ -683,7 +702,6 @@ const BringUpModal: React.FC<BringUpModalProps> = ({
             </div>
           )}
 
-          {/* Buttons */}
           <div className="flex gap-2 pt-2">
             <button
               type="button"
@@ -772,7 +790,6 @@ const ListItem: React.FC<{
   const mark = document.active_mark;
   const showMarkInfo = mark && (document.status === "marked" || document.status === "dept_assigned" || document.status === "user_assigned");
 
-  // Determine bring up status
   let bringUpStatus: BringUpStatus | null = null;
   if (document.bring_up_date) {
     if (document.bring_up_completed_at) {
@@ -1120,28 +1137,6 @@ const FilePreview: React.FC<{ document: Document }> = ({ document: doc }) => {
   );
 };
 
-// ─── Spinner ──────────────────────────────────────────────────────────────────
-
-const Spinner: React.FC<{ className?: string }> = ({
-  className = "h-3.5 w-3.5",
-}) => (
-  <svg className={`animate-spin ${className}`} fill="none" viewBox="0 0 24 24">
-    <circle
-      className="opacity-25"
-      cx="12"
-      cy="12"
-      r="10"
-      stroke="currentColor"
-      strokeWidth="4"
-    />
-    <path
-      className="opacity-75"
-      fill="currentColor"
-      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-    />
-  </svg>
-);
-
 // ─── Responses Panel ──────────────────────────────────────────────────────────
 
 const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
@@ -1247,11 +1242,13 @@ interface DocumentEditorProps {
   onComplete?: () => void;
   onUpdateMark?: (markId: string, text: string) => void;
   onDownload?: () => void;
-  // ── Bring Up handlers ──────────────────────────────────────────────────────
   onOpenBringUp?: () => void;
   isSettingBringUp?: boolean;
   isUpdatingBringUp?: boolean;
   isCompletingBringUp?: boolean;
+  // ── Stamp ──────────────────────────────────────────────────────────────
+  onStamp?: () => void;
+  isStamping?: boolean;
 }
 
 const SAVE_LABEL: Record<SaveState, string> = {
@@ -1281,6 +1278,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   isSettingBringUp = false,
   isUpdatingBringUp = false,
   isCompletingBringUp = false,
+  onStamp,
+  isStamping = false,
 }) => {
   const isComposed = document.type === "memo" || document.type === "letter";
   const isEditable = !!onSave;
@@ -1298,7 +1297,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     ? (document.created_by_name ?? currentUserName)
     : currentUserName;
 
-  // ── Editing state ───────────────────────────────────────────────────────
   const editorRef = useRef<HTMLDivElement>(null);
   const lastSavedHtml = useRef(document.body ?? "");
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1333,53 +1331,56 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     [persist],
   );
 
-  const handleInput = () => {
+  const handleInput = useCallback(() => {
     if (!editorRef.current) return;
     const html = editorRef.current.innerHTML;
     const text = editorRef.current.innerText ?? "";
     setWordCount(text.split(/\s+/).filter(Boolean).length);
     scheduleAutosave(html);
-  };
+  }, [scheduleAutosave]);
 
-  const handleManualSave = () => {
+  const handleManualSave = useCallback(() => {
     if (!editorRef.current) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     persist(editorRef.current.innerHTML);
-  };
+  }, [persist]);
 
+  // Cleanup debounce timer on unmount
   useEffect(() => {
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
   }, []);
 
+  // Keyboard shortcut: Ctrl+S / Cmd+S
   useEffect(() => {
     if (!isEditable) return;
+    
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
         handleManualSave();
       }
     };
+    
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEditable]);
+  }, [isEditable, handleManualSave]);
 
-  const exec = (command: string, value?: string) => {
+  const exec = useCallback((command: string, value?: string) => {
     if (!isEditable) return;
     editorRef.current?.focus();
     window.document.execCommand(command, false, value);
     handleInput();
-  };
+  }, [isEditable, handleInput]);
 
-  const insertDate = () => exec("insertHTML", format(new Date(), "dd MMM yyyy"));
-  const insertRef = () =>
+  const insertDate = useCallback(() => exec("insertHTML", format(new Date(), "dd MMM yyyy")), [exec]);
+  const insertRef = useCallback(() =>
     exec(
       "insertHTML",
       `<strong>Ref: ${document.reference_no ?? "________"}</strong>`,
-    );
-  const insertSigBlock = () =>
+    ), [exec, document.reference_no]);
+  const insertSigBlock = useCallback(() =>
     exec(
       "insertHTML",
       `<div style="margin-top:48px;">
@@ -1387,20 +1388,16 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         <p><strong>${currentUserName}</strong></p>
         <p>REGISTRAR, HIGH COURT</p>
       </div>`,
-    );
+    ), [exec, currentUserName]);
 
-  // ─── Sticky note save handler ──────────────────────────────────────────
-  const handleStickyNoteSave = (text: string, _date: string | null) => {
+  const handleStickyNoteSave = useCallback((text: string, _date: string | null) => {
     if (document.active_mark && onUpdateMark) {
       onUpdateMark(document.active_mark.id, text);
     }
-    // _date is intentionally ignored - bring_up_date is now handled at the document level
-    // via the Bring Up modal
     void _date;
-  };
+  }, [document.active_mark, onUpdateMark]);
 
-  // ─── Download handler ────────────────────────────────────────────────────
-  const handleDownload = () => {
+  const handleDownload = useCallback(() => {
     if (onDownload) {
       onDownload();
     } else if (document.file_url) {
@@ -1408,11 +1405,13 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     } else {
       toast.error('No file available to download');
     }
-  };
+  }, [onDownload, document.file_url]);
 
   const hasBringUp = !!document.bring_up_date;
   const isBringUpCompleted = !!document.bring_up_completed_at;
   const isBringUpOverdue = hasBringUp && !isBringUpCompleted && new Date(document.bring_up_date!) < new Date();
+
+  const canStamp = isSuperAdmin && document.file_url && !document.is_signed && onStamp;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -1468,6 +1467,28 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
+          {/* ─── Stamp Button ──────────────────────────────────────────── */}
+          {canStamp && (
+            <button
+              onClick={onStamp}
+              disabled={isStamping}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                document.is_signed
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {isStamping ? (
+                <Spinner className="h-3 w-3" />
+              ) : (
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                </svg>
+              )}
+              {document.is_signed ? 'Stamped ✓' : 'Stamp & Approve'}
+            </button>
+          )}
+
           {/* ─── Bring Up button ──────────────────────────────────────────── */}
           {isSuperAdmin && onOpenBringUp && (
             <button
@@ -1979,6 +2000,21 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
               className="rounded bg-[#1E4620] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap"
             >
               Convert to PDF & Send
+            </button>
+          )}
+          {/* ─── Stamp button in footer ──────────────────────────────────── */}
+          {canStamp && (
+            <button
+              onClick={onStamp}
+              disabled={isStamping}
+              className={`inline-flex items-center gap-1 rounded px-2.5 py-1 text-[10px] font-semibold text-white transition-colors whitespace-nowrap ${
+                document.is_signed
+                  ? 'bg-emerald-600 hover:bg-emerald-700'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {isStamping ? <Spinner className="h-2.5 w-2.5" /> : null}
+              {isStamping ? 'Stamping…' : document.is_signed ? 'Stamped ✓' : 'Stamp & Approve'}
             </button>
           )}
         </div>
@@ -2510,6 +2546,8 @@ const OtpModal: React.FC<OtpModalProps> = ({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
+// ─── Main Component ───────────────────────────────────────────────────────────
+
 const TABS = ["all", "my_action", "judgments", "rulings"] as const;
 type Tab = (typeof TABS)[number];
 
@@ -2525,6 +2563,8 @@ const CHIPS = ["Correspondence", "Orders", "Drafts"] as const;
 const SuperAdminDocuments: React.FC = () => {
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
+  // Get the full user from userSlice which has signature_url
+  const fullUser = useAppSelector(selectCurrentUser);
   const { documents, loading, error, pagination, actionInProgress } =
     useAppSelector((state) => state.documents);
 
@@ -2548,17 +2588,27 @@ const SuperAdminDocuments: React.FC = () => {
   // ─── Bring Up state ──────────────────────────────────────────────────────────
   const [showBringUpModal, setShowBringUpModal] = useState(false);
 
+  // ─── Stamp state ─────────────────────────────────────────────────────────────
+  const [isStamping, setIsStamping] = useState(false);
+
   const canUpload = hasRole(user, "staff");
   const canAdmin = hasRole(user, "dept_head");
   const isSuperAdmin = hasRole(user, "super_admin");
   const canView = !!user;
+
+  // ─── Fetch current user if not available ────────────────────────────────────
+  useEffect(() => {
+    if (!fullUser && user) {
+      dispatch(fetchCurrentUser());
+    }
+  }, [dispatch, fullUser, user]);
 
   // ─── Filter out memos, letters, AND documents with bring_up_date ──────────
   const visibleDocuments = useMemo(
     () => documents.filter((doc) => 
       doc.type !== "memo" && 
       doc.type !== "letter" && 
-      !doc.bring_up_date // HIDE documents with bring_up_date
+      !doc.bring_up_date
     ),
     [documents]
   );
@@ -2571,8 +2621,6 @@ const SuperAdminDocuments: React.FC = () => {
     else if (activeTab === "judgments") params.type = "judgment";
     else if (activeTab === "rulings") params.type = "ruling";
     if (searchQuery) params.search = searchQuery;
-    // Optionally add has_bring_up_date: false to exclude bring ups from fetch
-    // params.has_bring_up_date = false;
     dispatch(fetchDocuments(params));
   }, [dispatch, activeTab, searchQuery, canView]);
 
@@ -2689,7 +2737,6 @@ const SuperAdminDocuments: React.FC = () => {
     }
   };
 
-  // ─── Handler for updating mark (instructions only) ──────────────────────────
   const handleUpdateMark = (markId: string, text: string) => {
     dispatch(updateMark({ markId, instructions: text }));
     if (selectedDocument && selectedDocument.active_mark) {
@@ -2745,6 +2792,104 @@ const SuperAdminDocuments: React.FC = () => {
     if (searchQuery) params.search = searchQuery;
     dispatch(fetchDocuments(params));
   }, [dispatch, activeTab, searchQuery]);
+
+  // ─── Stamp Handler ──────────────────────────────────────────────────────────
+
+// ─── Stamp Handler ──────────────────────────────────────────────────────────
+
+const handleStamp = async () => {
+  if (!selectedDocument) return;
+  if (!selectedDocument.file_url) {
+    toast.error('No file attached to stamp.');
+    return;
+  }
+
+  // Try to get signature URL from fullUser first
+  let signatureUrl: string | null = null;
+  let approverName = 'Registrar';
+  let userId = '';
+
+  if (fullUser?.signature_url) {
+    signatureUrl = fullUser.signature_url;
+    approverName = fullUser.full_name || 'Registrar';
+    userId = fullUser.id;
+  } else if (user) {
+    // If fullUser is not available but user is, fetch the current user
+    try {
+      const result = await dispatch(fetchCurrentUser()).unwrap();
+      signatureUrl = result.signature_url;
+      approverName = result.full_name || 'Registrar';
+      userId = result.id;
+    } catch {
+      toast.error('Failed to fetch user profile. Please try again.');
+      return;
+    }
+  }
+
+  if (!signatureUrl) {
+    toast.error('Please upload your signature first before stamping documents.');
+    return;
+  }
+
+  if (!userId) {
+    toast.error('User ID not found.');
+    return;
+  }
+
+  setIsStamping(true);
+  try {
+    // 1. Fetch signature
+    const sigRes = await fetch(signatureUrl);
+    if (!sigRes.ok) {
+      toast.error('Failed to fetch signature image. Please check your signature upload.');
+      return;
+    }
+    const signatureImageBytes = await sigRes.arrayBuffer();
+
+    if (!signatureImageBytes || signatureImageBytes.byteLength === 0) {
+      toast.error('Signature image is empty. Please re-upload your signature.');
+      return;
+    }
+
+    // 2. Stamp the PDF
+    const stampedBlob = await stampPdfFromUrl(selectedDocument.file_url, {
+      issuer: 'REGISTRAR HIGH COURT',
+      approverName: approverName,
+      signatureImageBytes,
+      label: 'APPROVED',
+    });
+
+    // 3. Generate filename
+    const safeRef = selectedDocument.reference_no 
+      ? selectedDocument.reference_no.replace(/[\\/:*?"<>|]/g, '-')
+      : selectedDocument.id;
+    const filename = `stamped-${safeRef}.pdf`;
+
+    // 4. Update the document with the stamped file
+    // Use type assertion to satisfy TypeScript
+    await dispatch(
+      updateDocumentFile({
+        id: selectedDocument.id,
+        blob: stampedBlob,
+        filename: filename,
+        status: 'released' as DocumentStatus,
+        comments: 'Document stamped and approved by Registrar.',
+      })
+    ).unwrap();
+
+    // 5. Refresh the document
+    const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+    setSelectedDocument(refreshed);
+    refreshDocuments();
+
+    toast.success('Document stamped and approved successfully.');
+  } catch (err) {
+    console.error('Stamp failed:', err);
+    toast.error(typeof err === 'string' ? err : 'Failed to stamp document.');
+  } finally {
+    setIsStamping(false);
+  }
+};
 
   if (!canView) {
     return (
@@ -2830,7 +2975,6 @@ const SuperAdminDocuments: React.FC = () => {
               <span className="hidden sm:inline">Upload</span>
             </button>
 
-            {/* Assign button – enabled for any selected document */}
             <button
               onClick={() => selectedDocument && setShowMarkModal(true)}
               disabled={!selectedDocument}
@@ -3134,6 +3278,9 @@ const SuperAdminDocuments: React.FC = () => {
               isSettingBringUp={isSettingBringUp}
               isUpdatingBringUp={isUpdatingBringUp}
               isCompletingBringUp={isCompletingBringUp}
+              // ── Stamp ────────────────────────────────────────────────────
+              onStamp={isSuperAdmin && selectedDocument && !selectedDocument.is_signed ? handleStamp : undefined}
+              isStamping={isStamping}
             />
           ) : (
             <EmptyState
