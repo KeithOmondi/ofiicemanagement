@@ -1,1650 +1,1047 @@
 // src/store/slices/tasksSlice.ts
-
 import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
+import axiosClient from '../../api/api';
+import type { AxiosError } from 'axios';
 import type {
-  Project,
   Task,
-  Subtask,
-  TaskNote,
-  Reminder,
-  CreateProjectInput,
-  UpdateProjectInput,
+  TaskList,
+  TaskListMember,
+  TaskSummary,
+  TaskPaginationResponse,
   CreateTaskInput,
   UpdateTaskInput,
   CreateSubtaskInput,
   UpdateSubtaskInput,
-  CreateTaskNoteInput,
-  CreateReminderInput,
+  CreateTaskListInput,
+  UpdateTaskListInput,
   TaskFilters,
-  TaskSearchResult,
-  TaskDashboardStats,
-  UserTaskStats,
-  TaskExportOptions,
-  ProjectStatus,
-  Priority,
   TaskStatus,
-  TaskType,
-  TaskVisibility,
-  ReminderRepeat,
-  TaskActivity,
-  TaskTimeEntry,
-  TaskTemplate,
-  CreateTaskTemplateInput,
-  ProjectAttachment,
-  TaskAttachment,
-  TaskExportResult,
-  TaskDependency,
-  TaskTimeSummary,
-  Member,
+  TaskPriority,
+  TaskDay,
+  Subtask,
+  TaskAttachment,  // ← renamed from Attachment
 } from '../../types/tasks.types';
-import axiosClient from '../../api/api';
-import axios from 'axios';
 
-// ─── State type ──────────────────────────────────────────────
-interface TasksState {
-  projects: Project[];
-  standaloneTasks: Task[];
-  selectedTask: Task | null;
-  selectedTaskDetails: {
-    subtasks: Subtask[];
-    notes: TaskNote[];
-    reminders: Reminder[];
-    activities: TaskActivity[];
-    timeEntries: TaskTimeEntry[];
-    timeSummary: TaskTimeSummary | null;
-    dependencies: TaskDependency[];
-  } | null;
-  templates: TaskTemplate[];
-  dashboardStats: TaskDashboardStats | null;
-  userStats: UserTaskStats | null;
-  members: Member[];
-  loading: boolean;
-  error: string | null;
-  filters: TaskFilters;
+/* ============================================================
+   TYPES
+============================================================ */
+
+export type { TaskStatus, TaskPriority, TaskDay };
+
+export interface TasksState {
+  // Tasks
+  tasks: Task[];
+  currentTask: Task | null;
   pagination: {
+    total: number;
     page: number;
     limit: number;
-    total: number;
     totalPages: number;
   };
-  exportResult: TaskExportResult | null;
-  searchResults: TaskSearchResult | null;
+
+  // Task Lists
+  taskLists: TaskList[];
+  currentTaskList: TaskList | null;
+  taskListMembers: TaskListMember[];
+
+  // Subtasks
+  subtasks: Record<string, Subtask[]>;
+
+  // Attachments
+  attachments: Record<string, TaskAttachment[]>;  // ← use TaskAttachment
+
+  // Summary
+  summary: TaskSummary | null;
+
+  // UI State
+  loading: {
+    list: boolean;
+    detail: boolean;
+    mutating: boolean;
+  };
+  error: string | null;
+  success: boolean;
+
+  // Filters
+  filters: TaskFilters;
+
+  // Selected items
+  selectedTaskIds: string[];
+  selectedListId: string | null;
 }
+
+/* ============================================================
+   INITIAL STATE
+============================================================ */
 
 const initialState: TasksState = {
-  projects: [],
-  standaloneTasks: [],
-  selectedTask: null,
-  selectedTaskDetails: null,
-  templates: [],
-  dashboardStats: null,
-  userStats: null,
-  members: [],
-  loading: false,
-  error: null,
-  filters: {},
+  tasks: [],
+  currentTask: null,
   pagination: {
+    total: 0,
     page: 1,
     limit: 20,
-    total: 0,
     totalPages: 0,
   },
-  exportResult: null,
-  searchResults: null,
+  taskLists: [],
+  currentTaskList: null,
+  taskListMembers: [],
+  subtasks: {},
+  attachments: {},
+  summary: null,
+  loading: {
+    list: false,
+    detail: false,
+    mutating: false,
+  },
+  error: null,
+  success: false,
+  filters: {
+    page: 1,
+    limit: 20,
+    sort_by: 'created_at',
+    sort_order: 'DESC',
+  },
+  selectedTaskIds: [],
+  selectedListId: null,
 };
 
-// ─── Helper to parse date ────────────────────────────────────
-const parseDate = (value: string | Date | null | undefined): Date => {
-  if (!value) return new Date();
-  if (value instanceof Date) return value;
-  if (typeof value === 'string') {
-    const parsed = new Date(value);
-    return isNaN(parsed.getTime()) ? new Date() : parsed;
-  }
-  return new Date();
-};
+/* ============================================================
+   HELPERS
+============================================================ */
 
-// ─── Helper to extract error message ───────────────────────
 const extractErrorMessage = (error: unknown): string => {
-  if (axios.isAxiosError(error)) {
-    const status = error.response?.status;
-    const responseData = error.response?.data;
-
-    if (responseData) {
-      if (typeof responseData === 'string') {
-        return responseData;
-      }
-      if (typeof responseData === 'object' && responseData !== null) {
-        if ('message' in responseData && typeof responseData.message === 'string') {
-          return responseData.message;
-        }
-        if ('error' in responseData && typeof responseData.error === 'string') {
-          return responseData.error;
-        }
-        if ('detail' in responseData && typeof responseData.detail === 'string') {
-          return responseData.detail;
-        }
-        if ('errors' in responseData) {
-          const errors = responseData.errors;
-          if (Array.isArray(errors)) {
-            return errors.map((e: unknown) => typeof e === 'string' ? e : JSON.stringify(e)).join(', ');
-          }
-          if (typeof errors === 'object' && errors !== null) {
-            return JSON.stringify(errors);
-          }
-        }
-        try {
-          return JSON.stringify(responseData);
-        } catch {
-          return 'Unknown server error';
-        }
-      }
-    }
-    return error.message || `Request failed with status ${status || 'unknown'}`;
-  }
-
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  if (typeof error === 'string') {
-    return error;
-  }
-
-  return 'An unexpected error occurred';
+  const axiosError = error as AxiosError<{ message?: string }>;
+  return axiosError.response?.data?.message ?? axiosError.message ?? 'An unexpected error occurred';
 };
 
-// ─── Type guards for raw data ──────────────────────────────
-interface RawProjectAttachment {
-  id: string;
-  project_id?: string;
-  file_name: string;
-  file_url: string;
-  file_size: number;
-  mime_type: string;
-  uploaded_by: string;
-  uploaded_by_name: string;
-  uploaded_at: string | Date;
-}
+/* ============================================================
+   ASYNC THUNKS - TASKS
+============================================================ */
 
-interface RawTaskAttachment {
-  id: string;
-  task_id?: string;
-  file_name: string;
-  file_url: string;
-  file_size: number;
-  mime_type: string;
-  uploaded_by: string;
-  uploaded_by_name: string;
-  uploaded_at: string | Date;
-}
-
-interface RawTask {
-  id?: string;
-  _id?: string;
-  project_id?: string | null;
-  projectId?: string | null;
-  title?: string;
-  name?: string;
-  label?: string;
-  description?: string | null;
-  desc?: string;
-  notes?: string;
-  assignee?: string | null;
-  assigned_to?: string;
-  assignedTo?: string;
-  priority?: string;
-  deadline?: string;
-  due_date?: string;
-  dueDate?: string;
-  status?: string;
-  progress?: number;
-  completion?: number;
-  start_date?: string | null;
-  startDate?: string | null;
-  type?: string;
-  visibility?: string;
-  estimated_hours?: number | null;
-  actual_hours?: number | null;
-  completed_at?: string | null;
-  started_at?: string | null;
-  blocked_by?: string[];
-  blocking?: string[];
-  tags?: string[];
-  attachments?: RawTaskAttachment[];
-  watchers?: string[];
-  parent_task_id?: string | null;
-  child_task_ids?: string[];
-  priority_score?: number;
-  created_by?: string;
-  created_by_name?: string;
-  assigned_by?: string | null;
-  assigned_by_name?: string | null;
-  updated_by?: string | null;
-  updated_by_name?: string | null;
-  created_at?: string | Date;
-  createdAt?: string | Date;
-  updated_at?: string | Date;
-  updatedAt?: string | Date;
-}
-
-interface RawProject {
-  id?: string;
-  _id?: string;
-  title?: string;
-  name?: string;
-  description?: string | null;
-  desc?: string;
-  deadline?: string;
-  due_date?: string;
-  dueDate?: string;
-  priority?: string;
-  status?: string;
-  members?: string[];
-  tasks?: RawTask[];
-  collapsed?: boolean;
-  owner_id?: string;
-  owner_name?: string;
-  department_id?: string;
-  department_name?: string;
-  tags?: string[];
-  attachments?: RawProjectAttachment[];
-  progress?: number;
-  start_date?: string | null;
-  completed_at?: string | null;
-  archived_at?: string | null;
-  created_by?: string;
-  created_by_name?: string;
-  created_at?: string | Date;
-  createdAt?: string | Date;
-  updated_at?: string | Date;
-  updatedAt?: string | Date;
-}
-
-interface RawMember {
-  id?: string;
-  _id?: string;
-  name?: string;
-  full_name?: string;
-  email?: string;
-  role?: string;
-  color?: string;
-  avatar_url?: string;
-  department?: string;
-  is_active?: boolean;
-  joined_at?: string | Date;
-}
-
-// ─── Normalization functions ──────────────────────────────
-const normalizeTask = (task: RawTask): Task => {
-  const normalizedAttachments: TaskAttachment[] = (task.attachments || []).map(att => ({
-    id: att.id,
-    task_id: att.task_id || task.id || '',
-    file_name: att.file_name,
-    file_url: att.file_url,
-    file_size: att.file_size,
-    mime_type: att.mime_type,
-    uploaded_by: att.uploaded_by,
-    uploaded_by_name: att.uploaded_by_name,
-    uploaded_at: parseDate(att.uploaded_at),
-  }));
-
-  return {
-    id: task.id || task._id || '',
-    project_id: task.project_id || task.projectId || null,
-    title: task.title || task.name || task.label || task.id || 'Untitled Task',
-    description: task.description || task.desc || task.notes || null,
-    assignee: task.assignee || task.assigned_to || task.assignedTo || null,
-    priority: (task.priority as Priority) || 'normal',
-    deadline: task.deadline || task.due_date || task.dueDate || new Date().toISOString(),
-    status: (task.status as TaskStatus) || 'todo',
-    progress: task.progress ?? task.completion ?? 0,
-    start_date: task.start_date || task.startDate || null,
-    type: (task.type as TaskType) || 'task',
-    visibility: (task.visibility as TaskVisibility) || 'team',
-    estimated_hours: task.estimated_hours ?? null,
-    actual_hours: task.actual_hours ?? null,
-    due_date: task.deadline || task.due_date || task.dueDate || new Date().toISOString(),
-    completed_at: task.completed_at || null,
-    started_at: task.started_at || null,
-    blocked_by: task.blocked_by || [],
-    blocking: task.blocking || [],
-    tags: task.tags || [],
-    attachments: normalizedAttachments,
-    watchers: task.watchers || [],
-    parent_task_id: task.parent_task_id || null,
-    child_task_ids: task.child_task_ids || [],
-    priority_score: task.priority_score,
-    created_by: task.created_by || '',
-    created_by_name: task.created_by_name || '',
-    assigned_by: task.assigned_by || null,
-    assigned_by_name: task.assigned_by_name || null,
-    updated_by: task.updated_by || null,
-    updated_by_name: task.updated_by_name || null,
-    created_at: parseDate(task.created_at || task.createdAt),
-    updated_at: parseDate(task.updated_at || task.updatedAt),
-  };
-};
-
-const normalizeProject = (project: RawProject): Project => {
-  const normalizedAttachments: ProjectAttachment[] = (project.attachments || []).map(att => ({
-    id: att.id,
-    project_id: att.project_id || project.id || '',
-    file_name: att.file_name,
-    file_url: att.file_url,
-    file_size: att.file_size,
-    mime_type: att.mime_type,
-    uploaded_by: att.uploaded_by,
-    uploaded_by_name: att.uploaded_by_name,
-    uploaded_at: parseDate(att.uploaded_at),
-  }));
-
-  return {
-    id: project.id || project._id || '',
-    title: project.title || project.name || 'Untitled Project',
-    description: project.description || project.desc || null,
-    deadline: project.deadline || project.due_date || project.dueDate || new Date().toISOString(),
-    priority: (project.priority as Priority) || 'normal',
-    status: (project.status as ProjectStatus) || 'active',
-    members: project.members || [],
-    tasks: Array.isArray(project.tasks) ? project.tasks.map(normalizeTask) : [],
-    collapsed: project.collapsed || false,
-    owner_id: project.owner_id || '',
-    owner_name: project.owner_name || '',
-    department_id: project.department_id,
-    department_name: project.department_name,
-    tags: project.tags || [],
-    attachments: normalizedAttachments,
-    progress: project.progress ?? 0,
-    start_date: project.start_date || null,
-    completed_at: project.completed_at || null,
-    archived_at: project.archived_at || null,
-    created_by: project.created_by || '',
-    created_by_name: project.created_by_name || '',
-    created_at: parseDate(project.created_at || project.createdAt),
-    updated_at: parseDate(project.updated_at || project.updatedAt),
-  };
-};
-
-const normalizeMember = (member: RawMember): Member => {
-  return {
-    id: member.id || member._id || '',
-    name: member.name || member.full_name || '',
-    email: member.email || '',
-    role: member.role || 'member',
-    color: member.color || '#000000',
-    avatar_url: member.avatar_url,
-    department: member.department,
-    is_active: member.is_active ?? true,
-    joined_at: parseDate(member.joined_at),
-  };
-};
-
-// ─── API Response type ──────────────────────────────────────
-interface ApiResponse<T> {
-  data: T;
-  message?: string;
-  status?: number;
-}
-
-// ─── Thunks ──────────────────────────────────────────────────
-
-// ── Members ──
-export const fetchMembers = createAsyncThunk(
-  'tasks/fetchMembers',
-  async (_, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.get<ApiResponse<Member[]>>('/tasks/members');
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-// ── Projects ──
-export const fetchProjects = createAsyncThunk(
-  'tasks/fetchProjects',
-  async (_, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.get<ApiResponse<RawProject[]>>('/tasks/projects');
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const createProject = createAsyncThunk(
-  'tasks/createProject',
-  async (data: CreateProjectInput, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.post<ApiResponse<RawProject>>('/tasks/projects', data);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const updateProject = createAsyncThunk(
-  'tasks/updateProject',
-  async ({ id, data }: { id: string; data: UpdateProjectInput }, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.put<ApiResponse<RawProject>>(`/tasks/projects/${id}`, data);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const deleteProject = createAsyncThunk(
-  'tasks/deleteProject',
-  async (id: string, { rejectWithValue }) => {
-    try {
-      await axiosClient.delete(`/tasks/projects/${id}`);
-      return id;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const getProject = createAsyncThunk(
-  'tasks/getProject',
-  async (id: string, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.get<ApiResponse<RawProject>>(`/tasks/projects/${id}`);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-// ── Tasks ──
 export const fetchTasks = createAsyncThunk(
-  'tasks/fetchTasks',
+  'tasks/fetchAll',
   async (filters: TaskFilters = {}, { rejectWithValue }) => {
     try {
-      const response = await axiosClient.get<ApiResponse<TaskSearchResult>>('/tasks/tasks', { 
-        params: filters 
+      const params = new URLSearchParams();
+      Object.entries(filters).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          if (Array.isArray(value)) {
+            params.append(key, value.join(','));
+          } else {
+            params.append(key, String(value));
+          }
+        }
       });
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+      const response = await axiosClient.get(`/tasks?${params.toString()}`);
+      return response.data.data as TaskPaginationResponse;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+export const fetchTaskById = createAsyncThunk(
+  'tasks/fetchById',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get(`/tasks/${id}`);
+      return response.data.data as Task;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
 export const createTask = createAsyncThunk(
-  'tasks/createTask',
+  'tasks/create',
   async (data: CreateTaskInput, { rejectWithValue }) => {
     try {
-      const payload = {
-        ...data,
-        deadline: data.deadline ? new Date(data.deadline).toISOString() : new Date().toISOString(),
-        start_date: data.start_date ? new Date(data.start_date).toISOString() : null,
-      };
-      const response = await axiosClient.post<ApiResponse<RawTask>>('/tasks/tasks', payload);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+      const response = await axiosClient.post('/tasks', data);
+      return response.data.data as Task;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
 export const updateTask = createAsyncThunk(
-  'tasks/updateTask',
+  'tasks/update',
   async ({ id, data }: { id: string; data: UpdateTaskInput }, { rejectWithValue }) => {
     try {
-      const response = await axiosClient.put<ApiResponse<RawTask>>(`/tasks/tasks/${id}`, data);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+      const response = await axiosClient.patch(`/tasks/${id}`, data);
+      return response.data.data as Task;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+export const toggleTaskStatus = createAsyncThunk(
+  'tasks/toggleStatus',
+  async ({ id, status }: { id: string; status: TaskStatus }, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.patch(`/tasks/${id}/status`, { status });
+      return response.data.data as Task;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
 export const deleteTask = createAsyncThunk(
-  'tasks/deleteTask',
+  'tasks/delete',
   async (id: string, { rejectWithValue }) => {
     try {
-      await axiosClient.delete(`/tasks/tasks/${id}`);
+      await axiosClient.delete(`/tasks/${id}`);
       return id;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
-export const fetchFullTask = createAsyncThunk(
-  'tasks/fetchFullTask',
-  async (id: string, { rejectWithValue }) => {
+export const fetchTaskSummary = createAsyncThunk(
+  'tasks/fetchSummary',
+  async (_, { rejectWithValue }) => {
     try {
-      const response = await axiosClient.get<ApiResponse<{
-        task: RawTask;
-        subtasks: Subtask[];
-        notes: TaskNote[];
-        reminders: Reminder[];
-        activities: TaskActivity[];
-        timeEntries: TaskTimeEntry[];
-        timeSummary: TaskTimeSummary;
-        dependencies: TaskDependency[];
-      }>>(`/tasks/tasks/${id}`);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+      const response = await axiosClient.get('/tasks/summary');
+      return response.data.data as TaskSummary;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
-// ── Subtasks ──
+/* ============================================================
+   ASYNC THUNKS - SUBTASKS
+============================================================ */
+
 export const createSubtask = createAsyncThunk(
   'tasks/createSubtask',
-  async (data: CreateSubtaskInput, { rejectWithValue }) => {
+  async ({ taskId, data }: { taskId: string; data: CreateSubtaskInput }, { rejectWithValue }) => {
     try {
-      const response = await axiosClient.post<ApiResponse<Subtask>>('/tasks/subtasks', data);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const listSubtasks = createAsyncThunk(
-  'tasks/listSubtasks',
-  async (taskId: string, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.get<ApiResponse<Subtask[]>>(`/tasks/subtasks/task/${taskId}`);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+      const response = await axiosClient.post(`/tasks/${taskId}/subtasks`, data);
+      return { taskId, subtask: response.data.data as Subtask };
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
 export const updateSubtask = createAsyncThunk(
   'tasks/updateSubtask',
-  async ({ id, data }: { id: string; data: UpdateSubtaskInput }, { rejectWithValue }) => {
+  async (
+    { taskId, subtaskId, data }: { taskId: string; subtaskId: string; data: UpdateSubtaskInput },
+    { rejectWithValue }
+  ) => {
     try {
-      const response = await axiosClient.put<ApiResponse<Subtask>>(`/tasks/subtasks/${id}`, data);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+      const response = await axiosClient.patch(`/tasks/${taskId}/subtasks/${subtaskId}`, data);
+      return { taskId, subtask: response.data.data as Subtask };
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
 export const deleteSubtask = createAsyncThunk(
   'tasks/deleteSubtask',
-  async (id: string, { rejectWithValue }) => {
+  async ({ taskId, subtaskId }: { taskId: string; subtaskId: string }, { rejectWithValue }) => {
     try {
-      await axiosClient.delete(`/tasks/subtasks/${id}`);
-      return id;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+      await axiosClient.delete(`/tasks/${taskId}/subtasks/${subtaskId}`);
+      return { taskId, subtaskId };
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
-// ── Task Notes ──
-export const createTaskNote = createAsyncThunk(
-  'tasks/createTaskNote',
-  async (data: CreateTaskNoteInput, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.post<ApiResponse<TaskNote>>('/tasks/task-notes', data);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
+/* ============================================================
+   ASYNC THUNKS - TASK LISTS (with /tasks prefix)
+============================================================ */
 
-export const listTaskNotes = createAsyncThunk(
-  'tasks/listTaskNotes',
-  async ({ taskId, includeInternal }: { taskId: string; includeInternal?: boolean }, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.get<ApiResponse<TaskNote[]>>(`/tasks/task-notes/task/${taskId}`, {
-        params: { includeInternal }
-      });
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const updateTaskNote = createAsyncThunk(
-  'tasks/updateTaskNote',
-  async ({ id, data }: { id: string; data: { content?: string; is_internal?: boolean } }, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.put<ApiResponse<TaskNote>>(`/tasks/task-notes/${id}`, data);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const deleteTaskNote = createAsyncThunk(
-  'tasks/deleteTaskNote',
-  async (id: string, { rejectWithValue }) => {
-    try {
-      await axiosClient.delete(`/tasks/task-notes/${id}`);
-      return id;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-// ── Reminders ──
-export const createReminder = createAsyncThunk(
-  'tasks/createReminder',
-  async (data: CreateReminderInput, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.post<ApiResponse<Reminder>>('/tasks/reminders', data);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const listReminders = createAsyncThunk(
-  'tasks/listReminders',
-  async (taskId: string, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.get<ApiResponse<Reminder[]>>(`/tasks/reminders/task/${taskId}`);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const updateReminder = createAsyncThunk(
-  'tasks/updateReminder',
-  async ({ id, data }: { id: string; data: { remind_at?: string; repeat?: ReminderRepeat; message?: string | null } }, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.put<ApiResponse<Reminder>>(`/tasks/reminders/${id}`, data);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const deleteReminder = createAsyncThunk(
-  'tasks/deleteReminder',
-  async (id: string, { rejectWithValue }) => {
-    try {
-      await axiosClient.delete(`/tasks/reminders/${id}`);
-      return id;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-// ── Task Activities ──
-export const fetchTaskActivities = createAsyncThunk(
-  'tasks/fetchTaskActivities',
-  async ({ taskId, page = 1, limit = 20 }: { taskId: string; page?: number; limit?: number }, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.get<ApiResponse<{
-        activities: TaskActivity[];
-        total: number;
-        page: number;
-        limit: number;
-        totalPages: number;
-      }>>(`/tasks/tasks/${taskId}/activities`, {
-        params: { page, limit }
-      });
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-// ── Task Dependencies ──
-export const fetchTaskDependencies = createAsyncThunk(
-  'tasks/fetchTaskDependencies',
-  async (taskId: string, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.get<ApiResponse<TaskDependency[]>>(`/tasks/tasks/${taskId}/dependencies`);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const createTaskDependency = createAsyncThunk(
-  'tasks/createTaskDependency',
-  async ({ taskId, dependsOn, dependencyType }: { taskId: string; dependsOn: string; dependencyType: 'blocks' | 'blocked_by' | 'relates_to' }, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.post<ApiResponse<TaskDependency>>(`/tasks/tasks/${taskId}/dependencies`, {
-        depends_on: dependsOn,
-        dependency_type: dependencyType
-      });
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const deleteTaskDependency = createAsyncThunk(
-  'tasks/deleteTaskDependency',
-  async ({ taskId, dependsOn }: { taskId: string; dependsOn: string }, { rejectWithValue }) => {
-    try {
-      await axiosClient.delete(`/tasks/tasks/${taskId}/dependencies/${dependsOn}`);
-      return { taskId, dependsOn };
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-// ── Task Time Tracking ──
-export const startTimeEntry = createAsyncThunk(
-  'tasks/startTimeEntry',
-  async (taskId: string, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.post<ApiResponse<TaskTimeEntry>>(`/tasks/time-entries/${taskId}/start`);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const stopTimeEntry = createAsyncThunk(
-  'tasks/stopTimeEntry',
-  async (entryId: string, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.post<ApiResponse<TaskTimeEntry>>(`/tasks/time-entries/${entryId}/stop`);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const fetchTimeEntries = createAsyncThunk(
-  'tasks/fetchTimeEntries',
-  async (taskId: string, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.get<ApiResponse<TaskTimeEntry[]>>(`/tasks/time-entries/task/${taskId}`);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const fetchTimeSummary = createAsyncThunk(
-  'tasks/fetchTimeSummary',
-  async (taskId: string, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.get<ApiResponse<TaskTimeSummary>>(`/tasks/time-entries/task/${taskId}/summary`);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const deleteTimeEntry = createAsyncThunk(
-  'tasks/deleteTimeEntry',
-  async (entryId: string, { rejectWithValue }) => {
-    try {
-      await axiosClient.delete(`/tasks/time-entries/${entryId}`);
-      return entryId;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-// ── Task Templates ──
-export const createTemplate = createAsyncThunk(
-  'tasks/createTemplate',
-  async (data: CreateTaskTemplateInput, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.post<ApiResponse<TaskTemplate>>('/tasks/templates', data);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
-
-export const fetchTemplates = createAsyncThunk(
-  'tasks/fetchTemplates',
+export const fetchTaskLists = createAsyncThunk(
+  'tasks/fetchLists',
   async (_, { rejectWithValue }) => {
     try {
-      const response = await axiosClient.get<ApiResponse<TaskTemplate[]>>('/tasks/templates');
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+      const response = await axiosClient.get('/tasks/lists');
+      return response.data.data as TaskList[];
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
-export const getTemplate = createAsyncThunk(
-  'tasks/getTemplate',
+export const fetchTaskListById = createAsyncThunk(
+  'tasks/fetchListById',
   async (id: string, { rejectWithValue }) => {
     try {
-      const response = await axiosClient.get<ApiResponse<TaskTemplate>>(`/tasks/templates/${id}`);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+      const response = await axiosClient.get(`/tasks/lists/${id}`);
+      return response.data.data as TaskList;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
-export const updateTemplate = createAsyncThunk(
-  'tasks/updateTemplate',
-  async ({ id, data }: { id: string; data: Partial<CreateTaskTemplateInput> }, { rejectWithValue }) => {
+export const createTaskList = createAsyncThunk(
+  'tasks/createList',
+  async (data: CreateTaskListInput, { rejectWithValue }) => {
     try {
-      const response = await axiosClient.put<ApiResponse<TaskTemplate>>(`/tasks/templates/${id}`, data);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+      const response = await axiosClient.post('/tasks/lists', data);
+      return response.data.data as TaskList;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
-export const deleteTemplate = createAsyncThunk(
-  'tasks/deleteTemplate',
+export const updateTaskList = createAsyncThunk(
+  'tasks/updateList',
+  async ({ id, data }: { id: string; data: UpdateTaskListInput }, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.patch(`/tasks/lists/${id}`, data);
+      return response.data.data as TaskList;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+export const deleteTaskList = createAsyncThunk(
+  'tasks/deleteList',
   async (id: string, { rejectWithValue }) => {
     try {
-      await axiosClient.delete(`/tasks/templates/${id}`);
+      await axiosClient.delete(`/tasks/lists/${id}`);
       return id;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
-export const applyTemplate = createAsyncThunk(
-  'tasks/applyTemplate',
-  async ({ templateId, projectId }: { templateId: string; projectId?: string | null }, { rejectWithValue }) => {
+export const fetchListMembers = createAsyncThunk(
+  'tasks/fetchListMembers',
+  async (listId: string, { rejectWithValue }) => {
     try {
-      const response = await axiosClient.post<ApiResponse<RawTask>>(`/tasks/templates/${templateId}/apply`, { 
-        project_id: projectId 
+      const response = await axiosClient.get(`/tasks/lists/${listId}/members`);
+      return { listId, members: response.data.data as TaskListMember[] };
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+export const addMemberToList = createAsyncThunk(
+  'tasks/addMemberToList',
+  async ({ listId, userId }: { listId: string; userId: string }, { rejectWithValue }) => {
+    try {
+      await axiosClient.post(`/tasks/lists/${listId}/members`, { userId });
+      return { listId, userId };
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+export const removeMemberFromList = createAsyncThunk(
+  'tasks/removeMemberFromList',
+  async ({ listId, userId }: { listId: string; userId: string }, { rejectWithValue }) => {
+    try {
+      await axiosClient.delete(`/tasks/lists/${listId}/members/${userId}`);
+      return { listId, userId };
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+/* ============================================================
+   ASYNC THUNKS - ATTACHMENTS
+============================================================ */
+
+/**
+ * Upload one or more files as attachments for a task.
+ * Expects FormData with field name 'documents' (matching multer field).
+ */
+export const uploadTaskAttachments = createAsyncThunk(
+  'tasks/uploadAttachments',
+  async ({ taskId, formData }: { taskId: string; formData: FormData }, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.post(`/tasks/${taskId}/attachments`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+      return { taskId, attachments: response.data.data as TaskAttachment[] };
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
-// ── Dashboard / Stats ──
-export const fetchDashboardStats = createAsyncThunk(
-  'tasks/fetchDashboardStats',
-  async (_, { rejectWithValue }) => {
+/**
+ * Delete a single attachment by its ID.
+ */
+export const deleteTaskAttachment = createAsyncThunk(
+  'tasks/deleteAttachment',
+  async ({ taskId, attachmentId }: { taskId: string; attachmentId: string }, { rejectWithValue }) => {
     try {
-      const response = await axiosClient.get<ApiResponse<TaskDashboardStats>>('/tasks/dashboard/stats');
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+      await axiosClient.delete(`/tasks/${taskId}/attachments/${attachmentId}`);
+      return { taskId, attachmentId };
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
-export const fetchUserStats = createAsyncThunk(
-  'tasks/fetchUserStats',
-  async (_, { rejectWithValue }) => {
+/**
+ * Fetch all attachments for a task.
+ */
+export const fetchTaskAttachments = createAsyncThunk(
+  'tasks/fetchAttachments',
+  async (taskId: string, { rejectWithValue }) => {
     try {
-      const response = await axiosClient.get<ApiResponse<UserTaskStats>>('/tasks/dashboard/user-stats');
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
+      const response = await axiosClient.get(`/tasks/${taskId}/attachments`);
+      return { taskId, attachments: response.data.data as TaskAttachment[] };
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
     }
   }
 );
 
-// ── Task Export ──
-export const exportTasks = createAsyncThunk(
-  'tasks/exportTasks',
-  async (options: TaskExportOptions, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.get<ApiResponse<TaskExportResult>>('/tasks/export', { 
-        params: options 
-      });
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(extractErrorMessage(error));
-    }
-  }
-);
+/* ============================================================
+   SLICE
+============================================================ */
 
-// ─── Slice ──────────────────────────────────────────────────
 const tasksSlice = createSlice({
   name: 'tasks',
   initialState,
   reducers: {
-    setFilters: (state, action: PayloadAction<TaskFilters>) => {
-      state.filters = action.payload;
+    // ── Filters ────────────────────────────────────────────────────────────
+    setFilters(state, action: PayloadAction<Partial<TaskFilters>>) {
+      state.filters = { ...state.filters, ...action.payload };
     },
-    clearFilters: (state) => {
-      state.filters = {};
-      state.pagination = {
+    resetFilters(state) {
+      state.filters = {
         page: 1,
         limit: 20,
-        total: 0,
-        totalPages: 0,
+        sort_by: 'created_at',
+        sort_order: 'DESC',
       };
     },
-    clearSelectedTask: (state) => {
-      state.selectedTask = null;
-      state.selectedTaskDetails = null;
+    setPage(state, action: PayloadAction<number>) {
+      state.filters.page = action.payload;
     },
-    clearError: (state) => {
-      state.error = null;
+    setSort(state, action: PayloadAction<{ sort_by: TaskFilters['sort_by']; sort_order: TaskFilters['sort_order'] }>) {
+      state.filters.sort_by = action.payload.sort_by;
+      state.filters.sort_order = action.payload.sort_order;
     },
-    toggleTaskDone: (state, action: PayloadAction<{ taskId: string; projectId: string | null }>) => {
-      const { taskId, projectId } = action.payload;
-      const findAndToggle = (tasks: Task[]) => {
-        const task = tasks.find(t => t.id === taskId);
-        if (task) {
-          task.status = task.status === 'done' ? 'todo' : 'done';
-          task.progress = task.status === 'done' ? 100 : 0;
-          return true;
-        }
-        return false;
-      };
-      
-      if (projectId) {
-        const project = state.projects.find(p => p.id === projectId);
-        if (project) {
-          findAndToggle(project.tasks);
-        }
+
+    // ── Selection ──────────────────────────────────────────────────────────
+    selectSingleTask(state, action: PayloadAction<string>) {
+      if (!state.selectedTaskIds.includes(action.payload)) {
+        state.selectedTaskIds.push(action.payload);
+      }
+    },
+    deselectSingleTask(state, action: PayloadAction<string>) {
+      state.selectedTaskIds = state.selectedTaskIds.filter(id => id !== action.payload);
+    },
+    toggleSelectSingleTask(state, action: PayloadAction<string>) {
+      const index = state.selectedTaskIds.indexOf(action.payload);
+      if (index === -1) {
+        state.selectedTaskIds.push(action.payload);
       } else {
-        findAndToggle(state.standaloneTasks);
-      }
-      
-      if (state.selectedTask?.id === taskId) {
-        state.selectedTask.status = state.selectedTask.status === 'done' ? 'todo' : 'done';
-        state.selectedTask.progress = state.selectedTask.status === 'done' ? 100 : 0;
+        state.selectedTaskIds.splice(index, 1);
       }
     },
-    setTaskDetails: (state, action: PayloadAction<{
-      subtasks?: Subtask[];
-      notes?: TaskNote[];
-      reminders?: Reminder[];
-      activities?: TaskActivity[];
-      timeEntries?: TaskTimeEntry[];
-      timeSummary?: TaskTimeSummary;
-      dependencies?: TaskDependency[];
-    }>) => {
-      if (state.selectedTaskDetails) {
-        if (action.payload.subtasks) {
-          state.selectedTaskDetails.subtasks = action.payload.subtasks;
-        }
-        if (action.payload.notes) {
-          state.selectedTaskDetails.notes = action.payload.notes;
-        }
-        if (action.payload.reminders) {
-          state.selectedTaskDetails.reminders = action.payload.reminders;
-        }
-        if (action.payload.activities) {
-          state.selectedTaskDetails.activities = action.payload.activities;
-        }
-        if (action.payload.timeEntries) {
-          state.selectedTaskDetails.timeEntries = action.payload.timeEntries;
-        }
-        if (action.payload.timeSummary) {
-          state.selectedTaskDetails.timeSummary = action.payload.timeSummary;
-        }
-        if (action.payload.dependencies) {
-          state.selectedTaskDetails.dependencies = action.payload.dependencies;
-        }
+    selectAllTasksAction(state) {
+      state.selectedTaskIds = state.tasks.map(task => task.id);
+    },
+    deselectAllTasksAction(state) {
+      state.selectedTaskIds = [];
+    },
+    selectList(state, action: PayloadAction<string | null>) {
+      state.selectedListId = action.payload;
+    },
+
+    // ── Clear State ────────────────────────────────────────────────────────
+    clearCurrentTask(state) { state.currentTask = null; },
+    clearError(state) { state.error = null; },
+    clearSuccess(state) { state.success = false; },
+    resetTasksState: () => initialState,
+
+    // ── Local Updates ──────────────────────────────────────────────────────
+    updateTaskLocally(state, action: PayloadAction<{ id: string; updates: Partial<Task> }>) {
+      const index = state.tasks.findIndex(task => task.id === action.payload.id);
+      if (index !== -1) {
+        state.tasks[index] = { ...state.tasks[index], ...action.payload.updates };
+      }
+      if (state.currentTask?.id === action.payload.id) {
+        state.currentTask = { ...state.currentTask, ...action.payload.updates };
       }
     },
-    addSubtaskLocally: (state, action: PayloadAction<Subtask>) => {
-      if (state.selectedTaskDetails) {
-        state.selectedTaskDetails.subtasks.push(action.payload);
+    removeTaskLocally(state, action: PayloadAction<string>) {
+      state.tasks = state.tasks.filter(task => task.id !== action.payload);
+      if (state.currentTask?.id === action.payload) {
+        state.currentTask = null;
       }
     },
-    updateSubtaskLocally: (state, action: PayloadAction<Subtask>) => {
-      if (state.selectedTaskDetails) {
-        const idx = state.selectedTaskDetails.subtasks.findIndex(s => s.id === action.payload.id);
-        if (idx !== -1) {
-          state.selectedTaskDetails.subtasks[idx] = action.payload;
+    addTaskLocally(state, action: PayloadAction<Task>) {
+      state.tasks.unshift(action.payload);
+    },
+    updateSubtaskLocally(state, action: PayloadAction<{ taskId: string; subtaskId: string; updates: Partial<Subtask> }>) {
+      const subtasks = state.subtasks[action.payload.taskId];
+      if (subtasks) {
+        const index = subtasks.findIndex(s => s.id === action.payload.subtaskId);
+        if (index !== -1) {
+          subtasks[index] = { ...subtasks[index], ...action.payload.updates };
         }
       }
     },
-    removeSubtaskLocally: (state, action: PayloadAction<string>) => {
-      if (state.selectedTaskDetails) {
-        state.selectedTaskDetails.subtasks = state.selectedTaskDetails.subtasks.filter(
-          s => s.id !== action.payload
-        );
+    removeSubtaskLocally(state, action: PayloadAction<{ taskId: string; subtaskId: string }>) {
+      const subtasks = state.subtasks[action.payload.taskId];
+      if (subtasks) {
+        state.subtasks[action.payload.taskId] = subtasks.filter(s => s.id !== action.payload.subtaskId);
       }
     },
-    addNoteLocally: (state, action: PayloadAction<TaskNote>) => {
-      if (state.selectedTaskDetails) {
-        state.selectedTaskDetails.notes.push(action.payload);
+    updateListLocally(state, action: PayloadAction<{ id: string; updates: Partial<TaskList> }>) {
+      const index = state.taskLists.findIndex(list => list.id === action.payload.id);
+      if (index !== -1) {
+        state.taskLists[index] = { ...state.taskLists[index], ...action.payload.updates };
+      }
+      if (state.currentTaskList?.id === action.payload.id) {
+        state.currentTaskList = { ...state.currentTaskList, ...action.payload.updates };
       }
     },
-    updateNoteLocally: (state, action: PayloadAction<TaskNote>) => {
-      if (state.selectedTaskDetails) {
-        const idx = state.selectedTaskDetails.notes.findIndex(n => n.id === action.payload.id);
-        if (idx !== -1) {
-          state.selectedTaskDetails.notes[idx] = action.payload;
-        }
+    removeListLocally(state, action: PayloadAction<string>) {
+      state.taskLists = state.taskLists.filter(list => list.id !== action.payload);
+      if (state.currentTaskList?.id === action.payload) {
+        state.currentTaskList = null;
       }
     },
-    removeNoteLocally: (state, action: PayloadAction<string>) => {
-      if (state.selectedTaskDetails) {
-        state.selectedTaskDetails.notes = state.selectedTaskDetails.notes.filter(
-          n => n.id !== action.payload
-        );
+
+    // ── Local Attachment Updates ──────────────────────────────────────────
+    addAttachmentsLocally(state, action: PayloadAction<{ taskId: string; attachments: TaskAttachment[] }>) {
+      const { taskId, attachments } = action.payload;
+      if (!state.attachments[taskId]) {
+        state.attachments[taskId] = [];
+      }
+      state.attachments[taskId] = [...state.attachments[taskId], ...attachments];
+      // Also update the task object if it's in the list or current
+      const taskToUpdate = state.tasks.find(t => t.id === taskId);
+      if (taskToUpdate) {
+        taskToUpdate.attachments = [...(taskToUpdate.attachments || []), ...attachments];
+      }
+      if (state.currentTask?.id === taskId) {
+        state.currentTask.attachments = [...(state.currentTask.attachments || []), ...attachments];
       }
     },
-    addReminderLocally: (state, action: PayloadAction<Reminder>) => {
-      if (state.selectedTaskDetails) {
-        state.selectedTaskDetails.reminders.push(action.payload);
+    removeAttachmentLocally(state, action: PayloadAction<{ taskId: string; attachmentId: string }>) {
+      const { taskId, attachmentId } = action.payload;
+      const atts = state.attachments[taskId];
+      if (atts) {
+        state.attachments[taskId] = atts.filter(a => a.id !== attachmentId);
+      }
+      // Also remove from task objects
+      const taskToUpdate = state.tasks.find(t => t.id === taskId);
+      if (taskToUpdate && taskToUpdate.attachments) {
+        taskToUpdate.attachments = taskToUpdate.attachments.filter(a => a.id !== attachmentId);
+      }
+      if (state.currentTask?.id === taskId && state.currentTask.attachments) {
+        state.currentTask.attachments = state.currentTask.attachments.filter(a => a.id !== attachmentId);
       }
     },
-    updateReminderLocally: (state, action: PayloadAction<Reminder>) => {
-      if (state.selectedTaskDetails) {
-        const idx = state.selectedTaskDetails.reminders.findIndex(r => r.id === action.payload.id);
-        if (idx !== -1) {
-          state.selectedTaskDetails.reminders[idx] = action.payload;
-        }
+    setAttachmentsLocally(state, action: PayloadAction<{ taskId: string; attachments: TaskAttachment[] }>) {
+      const { taskId, attachments } = action.payload;
+      state.attachments[taskId] = attachments;
+      // Also update the task objects
+      const taskToUpdate = state.tasks.find(t => t.id === taskId);
+      if (taskToUpdate) {
+        taskToUpdate.attachments = attachments;
       }
-    },
-    removeReminderLocally: (state, action: PayloadAction<string>) => {
-      if (state.selectedTaskDetails) {
-        state.selectedTaskDetails.reminders = state.selectedTaskDetails.reminders.filter(
-          r => r.id !== action.payload
-        );
+      if (state.currentTask?.id === taskId) {
+        state.currentTask.attachments = attachments;
       }
-    },
-    addTimeEntryLocally: (state, action: PayloadAction<TaskTimeEntry>) => {
-      if (state.selectedTaskDetails) {
-        state.selectedTaskDetails.timeEntries.push(action.payload);
-      }
-    },
-    updateTimeEntryLocally: (state, action: PayloadAction<TaskTimeEntry>) => {
-      if (state.selectedTaskDetails) {
-        const idx = state.selectedTaskDetails.timeEntries.findIndex(e => e.id === action.payload.id);
-        if (idx !== -1) {
-          state.selectedTaskDetails.timeEntries[idx] = action.payload;
-        }
-      }
-    },
-    removeTimeEntryLocally: (state, action: PayloadAction<string>) => {
-      if (state.selectedTaskDetails) {
-        state.selectedTaskDetails.timeEntries = state.selectedTaskDetails.timeEntries.filter(
-          e => e.id !== action.payload
-        );
-      }
-    },
-    addDependencyLocally: (state, action: PayloadAction<TaskDependency>) => {
-      if (state.selectedTaskDetails) {
-        state.selectedTaskDetails.dependencies.push(action.payload);
-      }
-    },
-    removeDependencyLocally: (state, action: PayloadAction<{ taskId: string; dependsOn: string }>) => {
-      if (state.selectedTaskDetails) {
-        state.selectedTaskDetails.dependencies = state.selectedTaskDetails.dependencies.filter(
-          d => !(d.task_id === action.payload.taskId && d.depends_on === action.payload.dependsOn)
-        );
-      }
-    },
-    clearSearchResults: (state) => {
-      state.searchResults = null;
-    },
-    clearExportResult: (state) => {
-      state.exportResult = null;
     },
   },
   extraReducers: (builder) => {
+    /* ---------- FETCH TASKS ---------- */
     builder
-      // ── Members ──
-      .addCase(fetchMembers.fulfilled, (state, action) => {
-        state.members = action.payload.map(normalizeMember);
+      .addCase(fetchTasks.pending, (state) => { state.loading.list = true; state.error = null; })
+      .addCase(fetchTasks.fulfilled, (state, action: PayloadAction<TaskPaginationResponse>) => {
+        state.loading.list = false;
+        state.tasks = action.payload.data;
+        state.pagination = {
+          total: action.payload.total,
+          page: action.payload.page,
+          limit: action.payload.limit,
+          totalPages: action.payload.totalPages,
+        };
+      })
+      .addCase(fetchTasks.rejected, (state, action) => { state.loading.list = false; state.error = action.payload as string; });
+
+    /* ---------- FETCH TASK BY ID ---------- */
+    builder
+      .addCase(fetchTaskById.pending, (state) => { state.loading.detail = true; state.error = null; })
+      .addCase(fetchTaskById.fulfilled, (state, action: PayloadAction<Task>) => {
+        state.loading.detail = false;
+        state.currentTask = action.payload;
+        if (action.payload.subtasks) {
+          state.subtasks[action.payload.id] = action.payload.subtasks;
+        }
+        if (action.payload.attachments) {
+          state.attachments[action.payload.id] = action.payload.attachments;
+        }
+      })
+      .addCase(fetchTaskById.rejected, (state, action) => { state.loading.detail = false; state.error = action.payload as string; });
+
+    /* ---------- CREATE TASK ---------- */
+    builder
+      .addCase(createTask.pending, (state) => { state.loading.mutating = true; state.error = null; state.success = false; })
+      .addCase(createTask.fulfilled, (state, action: PayloadAction<Task>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.tasks = [action.payload, ...state.tasks];
+        state.pagination.total += 1;
+        state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
+        if (action.payload.subtasks) {
+          state.subtasks[action.payload.id] = action.payload.subtasks;
+        }
+        if (action.payload.attachments) {
+          state.attachments[action.payload.id] = action.payload.attachments;
+        }
+      })
+      .addCase(createTask.rejected, (state, action) => { state.loading.mutating = false; state.error = action.payload as string; state.success = false; });
+
+    /* ---------- UPDATE TASK ---------- */
+    builder
+      .addCase(updateTask.pending, (state) => { state.loading.mutating = true; state.error = null; state.success = false; })
+      .addCase(updateTask.fulfilled, (state, action: PayloadAction<Task>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.tasks.findIndex(t => t.id === action.payload.id);
+        if (index !== -1) state.tasks[index] = action.payload;
+        if (state.currentTask?.id === action.payload.id) state.currentTask = action.payload;
+        if (action.payload.subtasks) {
+          state.subtasks[action.payload.id] = action.payload.subtasks;
+        }
+        if (action.payload.attachments) {
+          state.attachments[action.payload.id] = action.payload.attachments;
+        }
+      })
+      .addCase(updateTask.rejected, (state, action) => { state.loading.mutating = false; state.error = action.payload as string; state.success = false; });
+
+    /* ---------- TOGGLE TASK STATUS ---------- */
+    builder
+      .addCase(toggleTaskStatus.pending, (state) => { state.loading.mutating = true; state.error = null; state.success = false; })
+      .addCase(toggleTaskStatus.fulfilled, (state, action: PayloadAction<Task>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.tasks.findIndex(t => t.id === action.payload.id);
+        if (index !== -1) state.tasks[index] = action.payload;
+        if (state.currentTask?.id === action.payload.id) state.currentTask = action.payload;
+      })
+      .addCase(toggleTaskStatus.rejected, (state, action) => { state.loading.mutating = false; state.error = action.payload as string; state.success = false; });
+
+    /* ---------- DELETE TASK ---------- */
+    builder
+      .addCase(deleteTask.pending, (state) => { state.loading.mutating = true; state.error = null; state.success = false; })
+      .addCase(deleteTask.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.tasks = state.tasks.filter(t => t.id !== action.payload);
+        state.pagination.total -= 1;
+        state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
+        if (state.currentTask?.id === action.payload) state.currentTask = null;
+        state.selectedTaskIds = state.selectedTaskIds.filter(id => id !== action.payload);
+        delete state.subtasks[action.payload];
+        delete state.attachments[action.payload];
+      })
+      .addCase(deleteTask.rejected, (state, action) => { state.loading.mutating = false; state.error = action.payload as string; state.success = false; });
+
+    /* ---------- FETCH TASK SUMMARY ---------- */
+    builder
+      .addCase(fetchTaskSummary.pending, (state) => { state.loading.detail = true; state.error = null; })
+      .addCase(fetchTaskSummary.fulfilled, (state, action: PayloadAction<TaskSummary>) => {
+        state.loading.detail = false;
+        state.summary = action.payload;
+      })
+      .addCase(fetchTaskSummary.rejected, (state, action) => { state.loading.detail = false; state.error = action.payload as string; });
+
+    /* ---------- CREATE SUBTASK ---------- */
+    // NOTE: previously registered twice (once here, once further down as a
+    // separate `builder.addCase(...)` call) — RTK throws on a duplicate
+    // handler for the same action type. Keeping the more complete version,
+    // which also appends the new subtask into `currentTask.subtasks`.
+    builder.addCase(createSubtask.fulfilled, (state, action: PayloadAction<{ taskId: string; subtask: Subtask }>) => {
+      const { taskId, subtask } = action.payload;
+      // Update subtasks map
+      if (!state.subtasks[taskId]) state.subtasks[taskId] = [];
+      state.subtasks[taskId].push(subtask);
+
+      // Update task in the list
+      const taskIndex = state.tasks.findIndex(t => t.id === taskId);
+      if (taskIndex !== -1) {
+        state.tasks[taskIndex].subtask_count = (state.tasks[taskIndex].subtask_count || 0) + 1;
+      }
+      // Update currentTask if it's the same task
+      if (state.currentTask?.id === taskId) {
+        state.currentTask.subtask_count = (state.currentTask.subtask_count || 0) + 1;
+        state.currentTask.subtasks = [...(state.currentTask.subtasks || []), subtask];
+      }
+    });
+
+    /* ---------- UPDATE SUBTASK ---------- */
+    // NOTE: previously registered twice — keeping the version that also
+    // syncs `currentTask.subtasks[idx]` with the updated subtask.
+    builder.addCase(updateSubtask.fulfilled, (state, action: PayloadAction<{ taskId: string; subtask: Subtask }>) => {
+      const { taskId, subtask } = action.payload;
+      const subtasks = state.subtasks[taskId];
+      if (subtasks) {
+        const index = subtasks.findIndex(s => s.id === subtask.id);
+        if (index !== -1) {
+          const wasCompleted = subtasks[index].completed;
+          subtasks[index] = subtask;
+
+          // Update counts
+          if (subtask.completed !== wasCompleted) {
+            const taskIdx = state.tasks.findIndex(t => t.id === taskId);
+            if (taskIdx !== -1) {
+              state.tasks[taskIdx].completed_subtask_count =
+                (state.tasks[taskIdx].completed_subtask_count || 0) + (subtask.completed ? 1 : -1);
+            }
+            if (state.currentTask?.id === taskId) {
+              state.currentTask.completed_subtask_count =
+                (state.currentTask.completed_subtask_count || 0) + (subtask.completed ? 1 : -1);
+            }
+          }
+          // Update currentTask subtask list
+          if (state.currentTask?.id === taskId && state.currentTask.subtasks) {
+            const idx = state.currentTask.subtasks.findIndex(s => s.id === subtask.id);
+            if (idx !== -1) state.currentTask.subtasks[idx] = subtask;
+          }
+        }
+      }
+    });
+
+    /* ---------- DELETE SUBTASK ---------- */
+    // NOTE: previously registered twice — keeping the version that also
+    // filters `currentTask.subtasks`.
+    builder.addCase(deleteSubtask.fulfilled, (state, action: PayloadAction<{ taskId: string; subtaskId: string }>) => {
+      const { taskId, subtaskId } = action.payload;
+      const subtasks = state.subtasks[taskId];
+      if (subtasks) {
+        const removed = subtasks.find(s => s.id === subtaskId);
+        state.subtasks[taskId] = subtasks.filter(s => s.id !== subtaskId);
+
+        const taskIdx = state.tasks.findIndex(t => t.id === taskId);
+        if (taskIdx !== -1) {
+          state.tasks[taskIdx].subtask_count = (state.tasks[taskIdx].subtask_count || 1) - 1;
+          if (removed?.completed) {
+            state.tasks[taskIdx].completed_subtask_count =
+              (state.tasks[taskIdx].completed_subtask_count || 1) - 1;
+          }
+        }
+        if (state.currentTask?.id === taskId) {
+          state.currentTask.subtask_count = (state.currentTask.subtask_count || 1) - 1;
+          if (removed?.completed) {
+            state.currentTask.completed_subtask_count =
+              (state.currentTask.completed_subtask_count || 1) - 1;
+          }
+          state.currentTask.subtasks = state.currentTask.subtasks?.filter(s => s.id !== subtaskId) || [];
+        }
+      }
+    });
+
+    /* ---------- FETCH TASK LISTS ---------- */
+    builder
+      .addCase(fetchTaskLists.pending, (state) => { state.loading.list = true; state.error = null; })
+      .addCase(fetchTaskLists.fulfilled, (state, action: PayloadAction<TaskList[]>) => {
+        state.loading.list = false;
+        state.taskLists = action.payload;
+      })
+      .addCase(fetchTaskLists.rejected, (state, action) => { state.loading.list = false; state.error = action.payload as string; });
+
+    /* ---------- FETCH TASK LIST BY ID ---------- */
+    builder
+      .addCase(fetchTaskListById.pending, (state) => { state.loading.detail = true; state.error = null; })
+      .addCase(fetchTaskListById.fulfilled, (state, action: PayloadAction<TaskList>) => {
+        state.loading.detail = false;
+        state.currentTaskList = action.payload;
+      })
+      .addCase(fetchTaskListById.rejected, (state, action) => { state.loading.detail = false; state.error = action.payload as string; });
+
+    /* ---------- CREATE TASK LIST ---------- */
+    builder.addCase(createTaskList.fulfilled, (state, action: PayloadAction<TaskList>) => {
+      state.taskLists = [action.payload, ...state.taskLists];
+    });
+
+    /* ---------- UPDATE TASK LIST ---------- */
+    builder.addCase(updateTaskList.fulfilled, (state, action: PayloadAction<TaskList>) => {
+      const index = state.taskLists.findIndex(list => list.id === action.payload.id);
+      if (index !== -1) state.taskLists[index] = action.payload;
+      if (state.currentTaskList?.id === action.payload.id) state.currentTaskList = action.payload;
+    });
+
+    /* ---------- DELETE TASK LIST ---------- */
+    builder.addCase(deleteTaskList.fulfilled, (state, action: PayloadAction<string>) => {
+      state.taskLists = state.taskLists.filter(list => list.id !== action.payload);
+      if (state.currentTaskList?.id === action.payload) state.currentTaskList = null;
+      if (state.selectedListId === action.payload) state.selectedListId = null;
+    });
+
+    /* ---------- FETCH LIST MEMBERS ---------- */
+    builder.addCase(fetchListMembers.fulfilled, (state, action: PayloadAction<{ listId: string; members: TaskListMember[] }>) => {
+      state.taskListMembers = action.payload.members;
+    });
+
+    /* ---------- ADD MEMBER TO LIST ---------- */
+    builder.addCase(addMemberToList.fulfilled, (state, action: PayloadAction<{ listId: string; userId: string }>) => {
+      const list = state.taskLists.find(l => l.id === action.payload.listId);
+      if (list) list.member_count += 1;
+      if (state.currentTaskList?.id === action.payload.listId) {
+        state.currentTaskList.member_count += 1;
+      }
+    });
+
+    /* ---------- REMOVE MEMBER FROM LIST ---------- */
+    builder.addCase(removeMemberFromList.fulfilled, (state, action: PayloadAction<{ listId: string; userId: string }>) => {
+      state.taskListMembers = state.taskListMembers.filter(
+        member => member.user_id !== action.payload.userId
+      );
+      const list = state.taskLists.find(l => l.id === action.payload.listId);
+      if (list) list.member_count = Math.max(0, list.member_count - 1);
+      if (state.currentTaskList?.id === action.payload.listId) {
+        state.currentTaskList.member_count = Math.max(0, state.currentTaskList.member_count - 1);
+      }
+    });
+
+    /* ---------- ATTACHMENT THUNKS ---------- */
+    builder
+      .addCase(uploadTaskAttachments.fulfilled, (state, action: PayloadAction<{ taskId: string; attachments: TaskAttachment[] }>) => {
+        const { taskId, attachments } = action.payload;
+        if (!state.attachments[taskId]) {
+          state.attachments[taskId] = [];
+        }
+        state.attachments[taskId] = [...state.attachments[taskId], ...attachments];
+        // Update task objects
+        const task = state.tasks.find(t => t.id === taskId);
+        if (task) {
+          task.attachments = [...(task.attachments || []), ...attachments];
+        }
+        if (state.currentTask?.id === taskId) {
+          state.currentTask.attachments = [...(state.currentTask.attachments || []), ...attachments];
+        }
+      })
+      .addCase(uploadTaskAttachments.rejected, (state, action) => {
+        state.error = action.payload as string;
+        state.success = false;
       })
 
-      // ── Projects ──
-      .addCase(fetchProjects.pending, (state) => {
-        state.loading = true;
-        state.error = null;
+      .addCase(deleteTaskAttachment.fulfilled, (state, action: PayloadAction<{ taskId: string; attachmentId: string }>) => {
+        const { taskId, attachmentId } = action.payload;
+        const atts = state.attachments[taskId];
+        if (atts) {
+          state.attachments[taskId] = atts.filter(a => a.id !== attachmentId);
+        }
+        // Update task objects
+        const task = state.tasks.find(t => t.id === taskId);
+        if (task && task.attachments) {
+          task.attachments = task.attachments.filter(a => a.id !== attachmentId);
+        }
+        if (state.currentTask?.id === taskId && state.currentTask.attachments) {
+          state.currentTask.attachments = state.currentTask.attachments.filter(a => a.id !== attachmentId);
+        }
       })
-      .addCase(fetchProjects.fulfilled, (state, action) => {
-        state.loading = false;
-        const projects = Array.isArray(action.payload) ? action.payload : [];
-        state.projects = projects.map((project: RawProject) => normalizeProject(project));
-        state.standaloneTasks = state.projects.flatMap((p: Project) =>
-          p.tasks.filter((t: Task) => t.project_id === null)
-        );
-      })
-      .addCase(fetchProjects.rejected, (state, action) => {
-        state.loading = false;
+      .addCase(deleteTaskAttachment.rejected, (state, action) => {
         state.error = action.payload as string;
+        state.success = false;
       })
-      .addCase(getProject.fulfilled, (state, action) => {
-        const project = normalizeProject(action.payload);
-        const index = state.projects.findIndex(p => p.id === project.id);
-        if (index !== -1) {
-          state.projects[index] = project;
-        } else {
-          state.projects.push(project);
+
+      .addCase(fetchTaskAttachments.fulfilled, (state, action: PayloadAction<{ taskId: string; attachments: TaskAttachment[] }>) => {
+        const { taskId, attachments } = action.payload;
+        state.attachments[taskId] = attachments;
+        // Also update task objects
+        const task = state.tasks.find(t => t.id === taskId);
+        if (task) {
+          task.attachments = attachments;
+        }
+        if (state.currentTask?.id === taskId) {
+          state.currentTask.attachments = attachments;
         }
       })
-      .addCase(createProject.fulfilled, (state, action) => {
-        const project = normalizeProject(action.payload);
-        state.projects.push(project);
-      })
-      .addCase(updateProject.fulfilled, (state, action) => {
-        const project = normalizeProject(action.payload);
-        const index = state.projects.findIndex(p => p.id === project.id);
-        if (index !== -1) {
-          state.projects[index] = project;
-        }
-      })
-      .addCase(deleteProject.fulfilled, (state, action) => {
-        state.projects = state.projects.filter(p => p.id !== action.payload);
-      })
-      
-      // ── Tasks ──
-      .addCase(fetchTasks.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-      })
-      .addCase(fetchTasks.fulfilled, (state, action) => {
-        state.loading = false;
-        const result = action.payload;
-        
-        state.searchResults = result;
-        state.pagination = {
-          page: result.page || 1,
-          limit: result.limit || 20,
-          total: result.total || 0,
-          totalPages: result.totalPages || 0,
-        };
-        
-        const tasks = result.tasks || [];
-        const mappedTasks = tasks.map((task: RawTask) => normalizeTask(task));
-        
-        const projectTasks = mappedTasks.filter((t: Task) => t.project_id !== null);
-        const standalone = mappedTasks.filter((t: Task) => t.project_id === null);
-        state.standaloneTasks = standalone;
-        
-        projectTasks.forEach((task: Task) => {
-          const project = state.projects.find(p => p.id === task.project_id);
-          if (project) {
-            const existing = project.tasks.find(t => t.id === task.id);
-            if (existing) {
-              Object.assign(existing, task);
-            } else {
-              project.tasks.push(task);
-            }
-          }
-        });
-      })
-      .addCase(fetchTasks.rejected, (state, action) => {
-        state.loading = false;
+      .addCase(fetchTaskAttachments.rejected, (state, action) => {
         state.error = action.payload as string;
-      })
-      .addCase(createTask.fulfilled, (state, action) => {
-        const task = normalizeTask(action.payload);
-        if (task.project_id) {
-          const project = state.projects.find(p => p.id === task.project_id);
-          if (project) {
-            project.tasks.push(task);
-          }
-        } else {
-          state.standaloneTasks.push(task);
-        }
-        // Add to search results if they exist
-        if (state.searchResults) {
-          state.searchResults.tasks.push(task);
-          state.searchResults.total += 1;
-        }
-      })
-      .addCase(updateTask.fulfilled, (state, action) => {
-        const task = normalizeTask(action.payload);
-        
-        // Update in projects
-        state.projects.forEach(p => {
-          const idx = p.tasks.findIndex(t => t.id === task.id);
-          if (idx !== -1) p.tasks[idx] = task;
-        });
-        
-        // Update in standalone tasks
-        const idx = state.standaloneTasks.findIndex(t => t.id === task.id);
-        if (idx !== -1) state.standaloneTasks[idx] = task;
-        
-        // Update in search results
-        if (state.searchResults) {
-          const searchIdx = state.searchResults.tasks.findIndex(t => t.id === task.id);
-          if (searchIdx !== -1) {
-            state.searchResults.tasks[searchIdx] = task;
-          }
-        }
-        
-        // Update selected task
-        if (state.selectedTask?.id === task.id) {
-          state.selectedTask = task;
-        }
-      })
-      .addCase(deleteTask.fulfilled, (state, action) => {
-        const id = action.payload;
-        
-        // Remove from projects
-        state.projects.forEach(p => {
-          p.tasks = p.tasks.filter(t => t.id !== id);
-        });
-        
-        // Remove from standalone tasks
-        state.standaloneTasks = state.standaloneTasks.filter(t => t.id !== id);
-        
-        // Remove from search results
-        if (state.searchResults) {
-          state.searchResults.tasks = state.searchResults.tasks.filter(t => t.id !== id);
-          state.searchResults.total -= 1;
-        }
-        
-        // Clear selected task if deleted
-        if (state.selectedTask?.id === id) {
-          state.selectedTask = null;
-          state.selectedTaskDetails = null;
-        }
-      })
-      .addCase(fetchFullTask.fulfilled, (state, action) => {
-        const data = action.payload;
-        state.selectedTask = normalizeTask(data.task);
-        state.selectedTaskDetails = { 
-          subtasks: data.subtasks || [], 
-          notes: data.notes || [], 
-          reminders: data.reminders || [],
-          activities: data.activities || [],
-          timeEntries: data.timeEntries || [],
-          timeSummary: data.timeSummary || null,
-          dependencies: data.dependencies || [],
-        };
-      })
-      
-      // ── Subtasks ──
-      .addCase(listSubtasks.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.subtasks = action.payload;
-        }
-      })
-      .addCase(createSubtask.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.subtasks.push(action.payload);
-        }
-      })
-      .addCase(updateSubtask.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          const idx = state.selectedTaskDetails.subtasks.findIndex(s => s.id === action.payload.id);
-          if (idx !== -1) state.selectedTaskDetails.subtasks[idx] = action.payload;
-        }
-      })
-      .addCase(deleteSubtask.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.subtasks = state.selectedTaskDetails.subtasks.filter(
-            s => s.id !== action.payload
-          );
-        }
-      })
-      
-      // ── Task Notes ──
-      .addCase(listTaskNotes.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.notes = action.payload;
-        }
-      })
-      .addCase(createTaskNote.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.notes.push(action.payload);
-        }
-      })
-      .addCase(updateTaskNote.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          const idx = state.selectedTaskDetails.notes.findIndex(n => n.id === action.payload.id);
-          if (idx !== -1) state.selectedTaskDetails.notes[idx] = action.payload;
-        }
-      })
-      .addCase(deleteTaskNote.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.notes = state.selectedTaskDetails.notes.filter(
-            n => n.id !== action.payload
-          );
-        }
-      })
-      
-      // ── Reminders ──
-      .addCase(listReminders.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.reminders = action.payload;
-        }
-      })
-      .addCase(createReminder.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.reminders.push(action.payload);
-        }
-      })
-      .addCase(updateReminder.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          const idx = state.selectedTaskDetails.reminders.findIndex(r => r.id === action.payload.id);
-          if (idx !== -1) state.selectedTaskDetails.reminders[idx] = action.payload;
-        }
-      })
-      .addCase(deleteReminder.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.reminders = state.selectedTaskDetails.reminders.filter(
-            r => r.id !== action.payload
-          );
-        }
-      })
-      
-      // ── Task Activities ──
-      .addCase(fetchTaskActivities.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.activities = action.payload.activities || [];
-        }
-      })
-      
-      // ── Task Dependencies ──
-      .addCase(fetchTaskDependencies.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.dependencies = action.payload;
-        }
-      })
-      .addCase(createTaskDependency.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.dependencies.push(action.payload);
-        }
-      })
-      .addCase(deleteTaskDependency.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.dependencies = state.selectedTaskDetails.dependencies.filter(
-            d => !(d.task_id === action.payload.taskId && d.depends_on === action.payload.dependsOn)
-          );
-        }
-      })
-      
-      // ── Time Entries ──
-      .addCase(fetchTimeEntries.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.timeEntries = action.payload;
-        }
-      })
-      .addCase(fetchTimeSummary.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.timeSummary = action.payload;
-        }
-      })
-      .addCase(startTimeEntry.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.timeEntries.push(action.payload);
-          // Update time summary if it exists
-          if (state.selectedTaskDetails.timeSummary) {
-            state.selectedTaskDetails.timeSummary.entries = state.selectedTaskDetails.timeEntries;
-            state.selectedTaskDetails.timeSummary.last_entry = action.payload;
-          }
-        }
-      })
-      .addCase(stopTimeEntry.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          const idx = state.selectedTaskDetails.timeEntries.findIndex(e => e.id === action.payload.id);
-          if (idx !== -1) {
-            state.selectedTaskDetails.timeEntries[idx] = action.payload;
-            // Update time summary
-            if (state.selectedTaskDetails.timeSummary) {
-              state.selectedTaskDetails.timeSummary.entries = state.selectedTaskDetails.timeEntries;
-              state.selectedTaskDetails.timeSummary.last_entry = action.payload;
-              // Recalculate total duration
-              state.selectedTaskDetails.timeSummary.total_duration = state.selectedTaskDetails.timeEntries
-                .filter(e => e.duration !== null)
-                .reduce((sum, e) => sum + (e.duration || 0), 0);
-            }
-          }
-        }
-      })
-      .addCase(deleteTimeEntry.fulfilled, (state, action) => {
-        if (state.selectedTaskDetails) {
-          state.selectedTaskDetails.timeEntries = state.selectedTaskDetails.timeEntries.filter(
-            e => e.id !== action.payload
-          );
-          // Update time summary
-          if (state.selectedTaskDetails.timeSummary) {
-            state.selectedTaskDetails.timeSummary.entries = state.selectedTaskDetails.timeEntries;
-            state.selectedTaskDetails.timeSummary.total_duration = state.selectedTaskDetails.timeEntries
-              .filter(e => e.duration !== null)
-              .reduce((sum, e) => sum + (e.duration || 0), 0);
-            state.selectedTaskDetails.timeSummary.last_entry = state.selectedTaskDetails.timeEntries.length > 0 
-              ? state.selectedTaskDetails.timeEntries[state.selectedTaskDetails.timeEntries.length - 1] 
-              : null;
-          }
-        }
-      })
-      
-      // ── Templates ──
-      .addCase(fetchTemplates.fulfilled, (state, action) => {
-        state.templates = action.payload;
-      })
-      .addCase(createTemplate.fulfilled, (state, action) => {
-        state.templates.push(action.payload);
-      })
-      .addCase(updateTemplate.fulfilled, (state, action) => {
-        const idx = state.templates.findIndex(t => t.id === action.payload.id);
-        if (idx !== -1) {
-          state.templates[idx] = action.payload;
-        }
-      })
-      .addCase(deleteTemplate.fulfilled, (state, action) => {
-        state.templates = state.templates.filter(t => t.id !== action.payload);
-      })
-      .addCase(applyTemplate.fulfilled, (state, action) => {
-        const task = normalizeTask(action.payload);
-        if (task.project_id) {
-          const project = state.projects.find(p => p.id === task.project_id);
-          if (project) {
-            project.tasks.push(task);
-          }
-        } else {
-          state.standaloneTasks.push(task);
-        }
-        if (state.searchResults) {
-          state.searchResults.tasks.push(task);
-          state.searchResults.total += 1;
-        }
-      })
-      
-      // ── Dashboard Stats ──
-      .addCase(fetchDashboardStats.fulfilled, (state, action) => {
-        state.dashboardStats = action.payload;
-      })
-      .addCase(fetchUserStats.fulfilled, (state, action) => {
-        state.userStats = action.payload;
-      })
-      
-      // ── Export ──
-      .addCase(exportTasks.fulfilled, (state, action) => {
-        state.exportResult = action.payload;
       });
   },
 });
 
-// ─── Actions ─────────────────────────────────────────────────
-export const { 
+/* ============================================================
+   ACTIONS
+============================================================ */
+
+export const {
   setFilters,
-  clearFilters,
-  clearSelectedTask,
+  resetFilters,
+  setPage,
+  setSort,
+  selectSingleTask,
+  deselectSingleTask,
+  toggleSelectSingleTask,
+  selectAllTasksAction,
+  deselectAllTasksAction,
+  selectList,
+  clearCurrentTask,
   clearError,
-  toggleTaskDone,
-  setTaskDetails,
-  addSubtaskLocally,
+  clearSuccess,
+  resetTasksState,
+  updateTaskLocally,
+  removeTaskLocally,
+  addTaskLocally,
   updateSubtaskLocally,
   removeSubtaskLocally,
-  addNoteLocally,
-  updateNoteLocally,
-  removeNoteLocally,
-  addReminderLocally,
-  updateReminderLocally,
-  removeReminderLocally,
-  addTimeEntryLocally,
-  updateTimeEntryLocally,
-  removeTimeEntryLocally,
-  addDependencyLocally,
-  removeDependencyLocally,
-  clearSearchResults,
-  clearExportResult,
+  updateListLocally,
+  removeListLocally,
+  addAttachmentsLocally,
+  removeAttachmentLocally,
+  setAttachmentsLocally,
 } = tasksSlice.actions;
 
-// ─── Selectors ──────────────────────────────────────────────
-export const selectAllProjects = (state: { tasks: TasksState }) => state.tasks.projects;
-export const selectStandaloneTasks = (state: { tasks: TasksState }) => state.tasks.standaloneTasks;
-export const selectSelectedTask = (state: { tasks: TasksState }) => state.tasks.selectedTask;
-export const selectSelectedTaskDetails = (state: { tasks: TasksState }) => state.tasks.selectedTaskDetails;
-export const selectTasksLoading = (state: { tasks: TasksState }) => state.tasks.loading;
-export const selectTasksError = (state: { tasks: TasksState }) => state.tasks.error;
-export const selectFilters = (state: { tasks: TasksState }) => state.tasks.filters;
-export const selectPagination = (state: { tasks: TasksState }) => state.tasks.pagination;
-export const selectTemplates = (state: { tasks: TasksState }) => state.tasks.templates;
-export const selectDashboardStats = (state: { tasks: TasksState }) => state.tasks.dashboardStats;
-export const selectUserStats = (state: { tasks: TasksState }) => state.tasks.userStats;
-export const selectMembers = (state: { tasks: TasksState }) => state.tasks.members;
-export const selectSearchResults = (state: { tasks: TasksState }) => state.tasks.searchResults;
-export const selectExportResult = (state: { tasks: TasksState }) => state.tasks.exportResult;
-export const selectSelectedTaskSubtasks = (state: { tasks: TasksState }) => 
-  state.tasks.selectedTaskDetails?.subtasks || [];
-export const selectSelectedTaskNotes = (state: { tasks: TasksState }) => 
-  state.tasks.selectedTaskDetails?.notes || [];
-export const selectSelectedTaskReminders = (state: { tasks: TasksState }) => 
-  state.tasks.selectedTaskDetails?.reminders || [];
-export const selectSelectedTaskActivities = (state: { tasks: TasksState }) => 
-  state.tasks.selectedTaskDetails?.activities || [];
-export const selectSelectedTaskTimeEntries = (state: { tasks: TasksState }) => 
-  state.tasks.selectedTaskDetails?.timeEntries || [];
-export const selectSelectedTaskTimeSummary = (state: { tasks: TasksState }) => 
-  state.tasks.selectedTaskDetails?.timeSummary || null;
-export const selectSelectedTaskDependencies = (state: { tasks: TasksState }) => 
-  state.tasks.selectedTaskDetails?.dependencies || [];
+/* ============================================================
+   SELECTORS
+============================================================ */
 
-export const selectStats = (state: { tasks: TasksState }) => {
-  const allTasks = [
-    ...state.tasks.projects.flatMap(p => p.tasks),
-    ...state.tasks.standaloneTasks,
-  ];
-  
-  const stats = {
-    todo: 0,
-    inprogress: 0,
-    overdue: 0,
-    done: 0,
-    total: allTasks.length,
-  };
-  
-  allTasks.forEach(t => {
-    if (t.status === 'done') stats.done++;
-    else if (t.status === 'overdue') stats.overdue++;
-    else if (t.status === 'inprogress' || t.status === 'in_progress') stats.inprogress++;
-    else stats.todo++;
+// ── Base Selectors ──────────────────────────────────────────────────────────
+
+export const selectAllTasks = (state: { tasks: TasksState }) => state.tasks.tasks;
+export const selectCurrentTask = (state: { tasks: TasksState }) => state.tasks.currentTask;
+export const selectTasksPagination = (state: { tasks: TasksState }) => state.tasks.pagination;
+export const selectTaskLists = (state: { tasks: TasksState }) => state.tasks.taskLists;
+export const selectCurrentTaskList = (state: { tasks: TasksState }) => state.tasks.currentTaskList;
+export const selectTaskListMembers = (state: { tasks: TasksState }) => state.tasks.taskListMembers;
+export const selectSubtasks = (state: { tasks: TasksState }) => state.tasks.subtasks;
+export const selectAttachments = (state: { tasks: TasksState }) => state.tasks.attachments;
+export const selectTasksSummary = (state: { tasks: TasksState }) => state.tasks.summary;
+export const selectTasksListLoading = (state: { tasks: TasksState }) => state.tasks.loading.list;
+export const selectTasksDetailLoading = (state: { tasks: TasksState }) => state.tasks.loading.detail;
+export const selectTasksMutating = (state: { tasks: TasksState }) => state.tasks.loading.mutating;
+export const selectTasksError = (state: { tasks: TasksState }) => state.tasks.error;
+export const selectTasksSuccess = (state: { tasks: TasksState }) => state.tasks.success;
+export const selectTasksFilters = (state: { tasks: TasksState }) => state.tasks.filters;
+export const selectSelectedTaskIds = (state: { tasks: TasksState }) => state.tasks.selectedTaskIds;
+export const selectSelectedListId = (state: { tasks: TasksState }) => state.tasks.selectedListId;
+export const selectTotalTasks = (state: { tasks: TasksState }) => state.tasks.pagination.total;
+
+// ── Derived Selectors ──────────────────────────────────────────────────────
+
+export const selectTaskById = (taskId: string) => (state: { tasks: TasksState }) =>
+  state.tasks.tasks.find(task => task.id === taskId);
+
+export const selectSubtasksByTaskId = (taskId: string) => (state: { tasks: TasksState }) =>
+  state.tasks.subtasks[taskId] || [];
+
+export const selectAttachmentsByTaskId = (taskId: string) => (state: { tasks: TasksState }) =>
+  state.tasks.attachments[taskId] || [];
+
+export const selectTasksByListId = (listId: string | null) => (state: { tasks: TasksState }) =>
+  listId ? state.tasks.tasks.filter(task => task.list_id === listId) : state.tasks.tasks;
+
+export const selectTasksByStatus = (status: TaskStatus) => (state: { tasks: TasksState }) =>
+  state.tasks.tasks.filter(task => task.status === status);
+
+export const selectTasksByDay = (day: TaskDay) => (state: { tasks: TasksState }) =>
+  state.tasks.tasks.filter(task => task.day === day);
+
+export const selectTasksByPriority = (priority: TaskPriority) => (state: { tasks: TasksState }) =>
+  state.tasks.tasks.filter(task => task.priority === priority);
+
+export const selectPendingTasks = (state: { tasks: TasksState }) =>
+  state.tasks.tasks.filter(task => task.status === 'pending');
+
+export const selectCompletedTasks = (state: { tasks: TasksState }) =>
+  state.tasks.tasks.filter(task => task.status === 'completed');
+
+export const selectArchivedTasks = (state: { tasks: TasksState }) =>
+  state.tasks.tasks.filter(task => task.status === 'archived');
+
+export const selectTodayTasks = (state: { tasks: TasksState }) =>
+  state.tasks.tasks.filter(task => task.day === 'Today');
+
+export const selectMyDayTasks = (state: { tasks: TasksState }) =>
+  state.tasks.tasks.filter(task => task.in_my_day);
+
+export const selectOverdueTasks = (state: { tasks: TasksState }) =>
+  state.tasks.tasks.filter(task => {
+    if (!task.due_date || task.status === 'completed') return false;
+    return new Date(task.due_date) < new Date();
   });
-  
-  return stats;
+
+export const selectUrgentTasks = (state: { tasks: TasksState }) =>
+  state.tasks.tasks.filter(task => task.priority === 'urgent');
+
+export const selectHighPriorityTasks = (state: { tasks: TasksState }) =>
+  state.tasks.tasks.filter(task => task.priority === 'high');
+
+export const selectSelectedTasks = (state: { tasks: TasksState }) =>
+  state.tasks.tasks.filter(task => state.tasks.selectedTaskIds.includes(task.id));
+
+export const selectTaskCompletionRate = (state: { tasks: TasksState }) => {
+  const summary = state.tasks.summary;
+  if (!summary || summary.total === 0) return 0;
+  return Math.round((summary.completed / summary.total) * 100);
+};
+
+export const selectTaskCountsByList = (state: { tasks: TasksState }) => {
+  const { tasks, taskLists } = state.tasks;
+  const counts: Record<string, { total: number; completed: number }> = {};
+  taskLists.forEach(list => {
+    const listTasks = tasks.filter(task => task.list_id === list.id);
+    counts[list.id] = {
+      total: listTasks.length,
+      completed: listTasks.filter(task => task.status === 'completed').length,
+    };
+  });
+  const unassigned = tasks.filter(task => !task.list_id);
+  counts['unassigned'] = {
+    total: unassigned.length,
+    completed: unassigned.filter(task => task.status === 'completed').length,
+  };
+  return counts;
 };
 
 export const selectFilteredTasks = (state: { tasks: TasksState }) => {
-  const { filters, projects, standaloneTasks } = state.tasks;
-  const allTasks = [
-    ...projects.flatMap(p => p.tasks.map(t => ({ 
-      ...t, 
-      projectTitle: p.title, 
-      projectId: p.id 
-    }))),
-    ...standaloneTasks.map(t => ({ 
-      ...t, 
-      projectTitle: 'Standalone', 
-      projectId: null 
-    })),
-  ];
-  
-  return allTasks.filter(t => {
-    // Assignee filter
-    if (filters.assignee && t.assignee !== filters.assignee) return false;
-    
-    // Status filter
-    if (filters.status) {
-      const statuses = Array.isArray(filters.status) ? filters.status : [filters.status];
-      if (!statuses.includes(t.status)) return false;
-    }
-    
-    // Project ID filter - FIX: handle null case properly
-    if (filters.project_id) {
-      const projectIds = Array.isArray(filters.project_id) ? filters.project_id : [filters.project_id];
-      // If t.projectId is null, it won't match any string filter
-      // Only check if t.projectId is not null
-      if (t.projectId === null) return false;
-      if (!projectIds.includes(t.projectId)) return false;
-    }
-    
-    // Search filter
-    if (filters.search && !t.title.toLowerCase().includes(filters.search.toLowerCase())) return false;
-    
-    // Priority filter
-    if (filters.priority) {
-      const priorities = Array.isArray(filters.priority) ? filters.priority : [filters.priority];
-      if (!priorities.includes(t.priority)) return false;
-    }
-    
-    // Type filter
-    if (filters.type) {
-      const types = Array.isArray(filters.type) ? filters.type : [filters.type];
-      if (!types.includes(t.type)) return false;
-    }
-    
-    // Tags filter
-    if (filters.tags && filters.tags.length > 0) {
-      if (!filters.tags.some(tag => t.tags?.includes(tag))) return false;
-    }
-    
-    // Date filters
-    if (filters.due_from && t.deadline < filters.due_from) return false;
-    if (filters.due_to && t.deadline > filters.due_to) return false;
-    if (filters.created_from && t.created_at < new Date(filters.created_from)) return false;
-    if (filters.created_to && t.created_at > new Date(filters.created_to)) return false;
-    
-    // Attachments filter
-    if (filters.has_attachments !== undefined) {
-      if (filters.has_attachments && (!t.attachments || t.attachments.length === 0)) return false;
-      if (!filters.has_attachments && t.attachments && t.attachments.length > 0) return false;
-    }
-    
-    // Notes filter - placeholder
-    if (filters.has_notes !== undefined) {
-      // This would need to check notes separately
-    }
-    
-    // Blocked/Blocking filters
-    if (filters.is_blocked && (!t.blocked_by || t.blocked_by.length === 0)) return false;
-    if (filters.is_blocking && (!t.blocking || t.blocking.length === 0)) return false;
-    
-    // Parent task filter
-    if (filters.parent_task_id !== undefined) {
-      if (filters.parent_task_id === null && t.parent_task_id !== null) return false;
-      if (filters.parent_task_id !== null && t.parent_task_id !== filters.parent_task_id) return false;
-    }
-    
-    // Archived filter
-    if (!filters.include_archived && t.status === 'archived') return false;
-    
-    return true;
-  });
+  const { tasks, filters } = state.tasks;
+  let result = [...tasks];
+
+  if (filters.list_id) {
+    result = result.filter(task => task.list_id === filters.list_id);
+  }
+  if (filters.status) {
+    result = result.filter(task => task.status === filters.status);
+  }
+  if (filters.day) {
+    result = result.filter(task => task.day === filters.day);
+  }
+  if (filters.in_my_day !== undefined) {
+    result = result.filter(task => task.in_my_day === filters.in_my_day);
+  }
+  if (filters.assigned_to) {
+    result = result.filter(task => task.assigned_to === filters.assigned_to);
+  }
+  if (filters.tags && filters.tags.length > 0) {
+    const tags = Array.isArray(filters.tags) ? filters.tags : [filters.tags];
+    result = result.filter(task =>
+      task.tags.some(tag => tags.includes(tag))
+    );
+  }
+  if (filters.search) {
+    const search = filters.search.toLowerCase();
+    result = result.filter(task =>
+      task.title.toLowerCase().includes(search) ||
+      (task.notes && task.notes.toLowerCase().includes(search))
+    );
+  }
+
+  return result;
 };
 
 export default tasksSlice.reducer;

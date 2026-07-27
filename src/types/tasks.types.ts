@@ -1,119 +1,17 @@
 // src/types/tasks.types.ts
 
-// ─── Open-Domain Fields ─────────────────────────────────────────────────────
-// Task status/type/visibility are NOT a fixed enum — see KNOWN_TASK_STATUSES
-// etc. in tasks.validator.ts for the reference list used by the frontend.
-// Stored and typed as plain strings so custom workflows/categories don't
-// require a schema or type change.
+export type TaskDay = 'Today' | 'Tomorrow' | 'Upcoming' | 'Someday';
+export type TaskStatus = 'pending' | 'completed' | 'archived';
+export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 
-export type TaskStatus = string; // 'todo' | 'inprogress' | 'done' | 'overdue' | 'pending_approval' | 'blocked' | 'review' | custom
-export type TaskType = string; // 'task' | 'bug' | 'feature' | 'improvement' | 'support' | 'maintenance' | custom
-export type TaskVisibility = string; // 'public' | 'private' | 'team' | custom
+// ─── Base Types ──────────────────────────────────────────────────────────────
 
-export type MemberCode = string; // e.g., "RHC", "AO", "IT", "HR", etc.
-
-// ─── Fixed-Domain Enums ─────────────────────────────────────────────────────
-export type Priority = 'low' | 'normal' | 'high' | 'urgent' | 'critical';
-export type ProjectStatus = 'active' | 'archived' | 'completed' | 'on_hold' | 'planning';
-export type ReminderRepeat = 'none' | 'daily' | 'weekly' | 'monthly' | 'custom';
-export type DependencyType = 'blocks' | 'blocked_by' | 'relates_to';
-
-// ─── Member ─────────────────────────────────────────────────────────────────────
-
-export interface Member {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
-  color: string;
-  avatar_url?: string;
-  department?: string;
-  is_active: boolean;
-  joined_at: Date;
-}
-
-// ─── Project ────────────────────────────────────────────────────────────────────
-
-export interface Project {
+export interface Subtask {
   id: string;
   title: string;
-  description: string | null;
-  status: ProjectStatus;
-  deadline: string; // ISO date string
-  priority: Priority;
-  members: MemberCode[];
-  tasks: Task[];
-  collapsed?: boolean; // client-only
-
-  // Additional real-world fields
-  owner_id: string;
-  owner_name: string;
-  department_id?: string;
-  department_name?: string;
-  tags: string[];
-  attachments: ProjectAttachment[];
-  progress: number; // 0-100 calculated from tasks
-  start_date: string | null;
-  completed_at: string | null;
-  archived_at: string | null;
-  created_by: string;
-  created_by_name: string;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface ProjectAttachment {
-  id: string;
-  project_id: string;
-  file_name: string;
-  file_url: string;
-  file_size: number;
-  mime_type: string;
-  uploaded_by: string;
-  uploaded_by_name: string;
-  uploaded_at: Date;
-}
-
-// ─── Task ──────────────────────────────────────────────────────────────────────
-
-export interface Task {
-  id: string;
-  project_id: string | null;
-  title: string;
-  description: string | null;
-  assignee: MemberCode | 'GROUP' | null;
-  priority: Priority;
-  deadline: string;
-  status: TaskStatus;
-  progress: number; // 0-100
-  start_date: string | null;
-
-  // Additional real-world fields
-  type: TaskType;
-  visibility: TaskVisibility;
-  estimated_hours: number | null;
-  actual_hours: number | null;
-  due_date: string; // Alias for deadline for compatibility
-  completed_at: string | null;
-  started_at: string | null;
-  blocked_by: string[]; // Task IDs that block this task
-  blocking: string[]; // Task IDs this task blocks
-  tags: string[];
-  attachments: TaskAttachment[];
-  watchers: string[]; // User IDs watching this task
-  parent_task_id: string | null;
-  child_task_ids: string[];
-  // Calculated by the service layer for sorting — not set on insert, and
-  // not guaranteed present unless something has explicitly computed it.
-  priority_score?: number;
-  created_by: string;
-  created_by_name: string;
-  assigned_by: string | null;
-  assigned_by_name: string | null;
-  updated_by: string | null;
-  updated_by_name: string | null;
-  created_at: Date;
-  updated_at: Date;
+  completed: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TaskAttachment {
@@ -121,381 +19,476 @@ export interface TaskAttachment {
   task_id: string;
   file_name: string;
   file_url: string;
-  file_size: number;
-  mime_type: string;
-  uploaded_by: string;
-  uploaded_by_name: string;
-  uploaded_at: Date;
+  file_size: number | null;
+  mime_type: string | null;
+  uploaded_by: string | null;
+  uploaded_by_name: string | null;
+  created_at: string;
 }
 
-// ─── Subtask ────────────────────────────────────────────────────────────────────
-
-export interface Subtask {
+export interface TaskComment {
   id: string;
   task_id: string;
-  title: string;
-  description: string | null;
-  completed: boolean;
-  completed_at: string | null;
-  assigned_to: MemberCode | null;
-  assigned_to_name: string | null;
-  due_date: string | null;
-  priority: Priority;
-  order: number; // For sorting subtasks
-  created_by: string;
-  created_by_name: string;
-  created_at: Date;
-  updated_at: Date;
-}
-
-// ─── Task Note ─────────────────────────────────────────────────────────────────
-
-export interface TaskNote {
-  id: string;
-  task_id: string;
+  user_id: string;
+  user_name: string;
   content: string;
-  is_internal: boolean; // Internal notes not visible to external users
-  author_id: string;
-  author_name: string;
-  attachments: TaskNoteAttachment[];
-  parent_note_id: string | null; // For threaded comments
-  created_at: Date;
-  updated_at: Date;
+  attachments?: TaskAttachment[];
+  created_at: string;
+  updated_at: string;
 }
 
-export interface TaskNoteAttachment {
-  id: string;
-  note_id: string;
-  file_name: string;
-  file_url: string;
-  file_size: number;
-  mime_type: string;
-  uploaded_at: Date;
-}
-
-// ─── Reminder ──────────────────────────────────────────────────────────────────
-
-export interface Reminder {
-  id: string;
-  task_id: string;
-  remind_at: string; // ISO datetime string
-  sent: boolean;
-  sent_at: Date | null;
-  repeat: ReminderRepeat;
-  message: string | null;
-  created_by: string;
-  created_by_name: string;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface ReminderCustomRepeat {
-  interval: number;
-  unit: 'minutes' | 'hours' | 'days' | 'weeks' | 'months';
-  end_date: Date | null;
-  occurrences: number | null;
-}
-
-// ─── Task History / Activity Log ──────────────────────────────────────────────
-
-export interface TaskActivity {
-  id: string;
-  task_id: string;
-  user_id: string;
-  user_name: string;
-  action: TaskActivityAction;
-  changes: TaskActivityChange[];
-  metadata: Record<string, unknown>;
-  created_at: Date;
-}
-
-export type TaskActivityAction =
-  | 'created'
-  | 'updated'
-  | 'assigned'
-  | 'status_changed'
-  | 'priority_changed'
-  | 'deadline_changed'
-  | 'comment_added'
-  | 'attachment_added'
-  | 'subtask_added'
-  | 'subtask_completed'
-  | 'subtask_deleted'
-  | 'reminder_set'
-  | 'reminder_sent'
-  | 'watcher_added'
-  | 'watcher_removed'
-  | 'blocked_by'
-  | 'unblocked'
-  | 'completed'
-  | 'reopened'
-  | 'archived';
-
-export interface TaskActivityChange {
-  field: string;
-  from: unknown;
-  to: unknown;
-}
-
-// ─── Task Dashboard / Statistics ──────────────────────────────────────────────
-export interface TaskDashboardStats {
-  total: number;
-  by_status: Record<string, number>;
-  by_priority: Record<Priority, number>;
-  by_type: Record<string, number>;
-  overdue: number;
-  due_today: number;
-  due_this_week: number;
-  completed_today: number;
-  completed_this_week: number;
-  average_completion_time: number; // in hours
-  tasks_with_attachments: number;
-  tasks_with_notes: number;
-}
-
-export interface UserTaskStats {
-  user_id: string;
-  user_name: string;
-  assigned: number;
-  in_progress: number;
-  done: number;
-  overdue: number;
-  completion_rate: number; // 0-100
-  average_response_time: number; // in hours
-  tasks_completed: number;
-}
-
-// ─── Task Templates ────────────────────────────────────────────────────────────
-
-export interface TaskTemplate {
+export interface Task {
   id: string;
   title: string;
-  description: string | null;
-  type: TaskType;
-  priority: Priority;
-  estimated_hours: number | null;
+  list_id: string | null;
+  list_name: string | null;
+  status: TaskStatus;
+  day: TaskDay;
+  in_my_day: boolean;
+  notes: string | null;
+  subtasks: Subtask[];
+  attachments?: TaskAttachment[];
+  comments?: TaskComment[];
+  reminder_date: string | null;
+  reminder_time: string | null;
   tags: string[];
-  subtasks: TaskTemplateSubtask[];
+  priority: TaskPriority;
+  due_date: string | null;
+  completed_at: string | null;
   created_by: string;
   created_by_name: string;
-  created_at: Date;
-  updated_at: Date;
+  assigned_to: string | null;
+  assigned_to_name: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  subtask_count?: number;
+  completed_subtask_count?: number;
+  comment_count?: number;
+  attachment_count?: number;
 }
 
-export interface TaskTemplateSubtask {
+export interface TaskList {
   id: string;
-  title: string;
-  description: string | null;
-  priority: Priority;
-  estimated_hours: number | null;
+  name: string;
+  color: string | null;
+  icon: string | null;
+  is_shared: boolean;
+  created_by: string;
+  created_by_name: string;
+  member_count: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  task_count?: number;
+  completed_task_count?: number;
 }
 
-// ─── Task Time Tracking ───────────────────────────────────────────────────────
-
-export interface TaskTimeEntry {
+export interface TaskListMember {
   id: string;
-  task_id: string;
+  list_id: string;
   user_id: string;
-  user_name: string;
-  start_time: Date;
-  end_time: Date | null;
-  duration: number | null; // in seconds
-  description: string | null;
-  billable: boolean;
-  created_at: Date;
-  updated_at: Date;
-}
-
-export interface TaskTimeSummary {
-  task_id: string;
-  total_duration: number; // in seconds
-  billable_duration: number; // in seconds
-  entries: TaskTimeEntry[];
-  last_entry: TaskTimeEntry | null;
-}
-
-// ─── Task Dependency Graph ────────────────────────────────────────────────────
-
-export interface TaskDependency {
-  task_id: string;
-  depends_on: string; // Task ID
-  dependency_type: DependencyType;
-  created_at: Date;
-}
-
-// ─── Task Search ──────────────────────────────────────────────────────────────
-
-export interface TaskSearchResult {
-  tasks: Task[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-  aggregations: TaskSearchAggregations;
-}
-
-export interface TaskSearchAggregations {
-  by_status: Record<string, number>;
-  by_priority: Record<Priority, number>;
-  by_type: Record<string, number>;
-  by_assignee: Record<string, number>;
+  full_name: string;
+  email: string;
 }
 
 // ─── Input Types ─────────────────────────────────────────────────────────────
 
-export interface CreateProjectInput {
-  title: string;
-  description?: string | null;
-  deadline: string;
-  priority?: Priority;
-  members: string[];
-  owner_id?: string;
-  department_id?: string;
-  tags?: string[];
-  start_date?: string | null;
-  status?: ProjectStatus;
-}
-
-export interface UpdateProjectInput {
-  id: string;
-  title?: string;
-  description?: string | null;
-  deadline?: string;
-  priority?: Priority;
-  members?: string[];
-  owner_id?: string;
-  department_id?: string;
-  tags?: string[];
-  start_date?: string | null;
-  status?: ProjectStatus;
-}
-
 export interface CreateTaskInput {
-  project_id?: string | null;
   title: string;
-  description?: string | null;
-  assignee?: string | 'GROUP' | null;
-  priority?: Priority;
-  deadline: string;
-  start_date?: string | null;
-  type?: TaskType;
-  visibility?: TaskVisibility;
+  list_id?: string;
+  day?: TaskDay;
+  in_my_day?: boolean;
+  notes?: string;
+  priority?: TaskPriority;
+  due_date?: string | null;
+  assigned_to?: string;
   tags?: string[];
-  estimated_hours?: number | null;
-  parent_task_id?: string | null;
 }
 
 export interface UpdateTaskInput {
-  project_id?: string | null;
   title?: string;
-  description?: string | null;
-  assignee?: string | 'GROUP' | null;
-  priority?: Priority;
-  deadline?: string;
-  start_date?: string | null;
+  list_id?: string | null;
   status?: TaskStatus;
-  progress?: number;
-  type?: TaskType;
-  visibility?: TaskVisibility;
+  day?: TaskDay;
+  in_my_day?: boolean;
+  notes?: string | null;
+  priority?: TaskPriority;
+  due_date?: string | null;
+  assigned_to?: string | null;
   tags?: string[];
-  estimated_hours?: number | null;
-  actual_hours?: number | null;
-  parent_task_id?: string | null;
-  blocked_by?: string[];
+  reminder_date?: string | null;
+  reminder_time?: string | null;
 }
 
 export interface CreateSubtaskInput {
   task_id: string;
   title: string;
-  description?: string | null;
-  assigned_to?: string | null;
-  due_date?: string | null;
-  priority?: Priority;
 }
 
 export interface UpdateSubtaskInput {
   title?: string;
-  description?: string | null;
   completed?: boolean;
-  assigned_to?: string | null;
-  due_date?: string | null;
-  priority?: Priority;
 }
 
-export interface CreateTaskNoteInput {
-  task_id: string;
+export interface CreateTaskListInput {
+  name: string;
+  color?: string;
+  icon?: string;
+  is_shared?: boolean;
+  member_ids?: string[];
+}
+
+export interface UpdateTaskListInput {
+  name?: string;
+  color?: string | null;
+  icon?: string | null;
+  is_shared?: boolean;
+}
+
+// ─── Comment Types ──────────────────────────────────────────────────────────
+
+export interface CreateTaskCommentInput {
   content: string;
-  is_internal?: boolean;
-  parent_note_id?: string | null;
 }
 
-export interface CreateReminderInput {
-  task_id: string;
-  remind_at: string;
-  repeat?: ReminderRepeat;
-  message?: string | null;
+export interface UpdateTaskCommentInput {
+  content: string;
 }
 
-export interface CreateTaskTemplateInput {
-  title: string;
-  description?: string | null;
-  type?: TaskType;
-  priority?: Priority;
-  estimated_hours?: number | null;
-  tags?: string[];
-  subtasks?: Array<{
-    title: string;
-    description?: string | null;
-    priority?: Priority;
-    estimated_hours?: number | null;
-  }>;
+// ─── Attachment Types ──────────────────────────────────────────────────────
+
+export interface UploadTaskAttachmentInput {
+  file: File;
 }
 
-// ─── Task Export ──────────────────────────────────────────────────────────────
-
-export interface TaskExportOptions {
-  format: 'csv' | 'json' | 'pdf' | 'excel';
-  fields: string[];
-  include_subtasks?: boolean;
-  include_notes?: boolean;
-  include_attachments?: boolean;
-  date_from?: string | null;
-  date_to?: string | null;
+export interface DeleteTaskAttachmentInput {
+  attachment_id: string;
 }
 
-export interface TaskExportResult {
-  url: string;
-  filename: string;
-  size: number;
-  expires_at: Date;
-}
-
-// ─── Task Filters ────────────────────────────────────────────────────────────
+// ─── Query Types ──────────────────────────────────────────────────────────────
 
 export interface TaskFilters {
-  assignee?: string;
-  status?: string | string[];
-  project_id?: string | string[];
-  priority?: Priority | Priority[];
-  type?: string | string[];
+  list_id?: string;
+  status?: TaskStatus;
+  day?: TaskDay;
+  in_my_day?: boolean;
+  assigned_to?: string;
+  tags?: string[] | string;
   search?: string;
-  tags?: string[];
-  due_from?: string | null;
-  due_to?: string | null;
-  created_from?: string | null;
-  created_to?: string | null;
-  updated_from?: string | null;
-  updated_to?: string | null;
-  assigned_by?: string;
-  created_by?: string;
-  has_attachments?: boolean;
-  has_notes?: boolean;
-  is_blocked?: boolean;
-  is_blocking?: boolean;
-  parent_task_id?: string | null;
-  include_archived?: boolean;
-  sort_by?: 'created_at' | 'updated_at' | 'deadline' | 'priority' | 'status' | 'title' | 'progress';
-  sort_order?: 'ASC' | 'DESC';
+  due_from?: string;
+  due_to?: string;
   page?: number;
   limit?: number;
+  sort_by?: 'created_at' | 'updated_at' | 'due_date' | 'priority' | 'title';
+  sort_order?: 'ASC' | 'DESC';
 }
+
+// ─── Response Types ──────────────────────────────────────────────────────────
+
+export interface TaskPaginationResponse {
+  data: Task[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface TaskSummary {
+  total: number;
+  completed: number;
+  pending: number;
+  archived: number;
+  in_my_day: number;
+  by_day: {
+    Today: number;
+    Tomorrow: number;
+    Upcoming: number;
+    Someday: number;
+  };
+  by_priority: {
+    low: number;
+    medium: number;
+    high: number;
+    urgent: number;
+  };
+}
+
+// ─── Display Labels & Colors ─────────────────────────────────────────────────
+
+export const TASK_PRIORITY_LABELS: Record<TaskPriority, string> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  urgent: 'Urgent',
+};
+
+export const TASK_PRIORITY_COLORS: Record<TaskPriority, string> = {
+  low: 'bg-slate-100 text-slate-600',
+  medium: 'bg-blue-100 text-blue-700',
+  high: 'bg-amber-100 text-amber-700',
+  urgent: 'bg-red-100 text-red-700',
+};
+
+export const TASK_PRIORITY_DOTS: Record<TaskPriority, string> = {
+  low: 'bg-slate-400',
+  medium: 'bg-blue-500',
+  high: 'bg-amber-500',
+  urgent: 'bg-red-500',
+};
+
+export const TASK_DAY_LABELS: Record<TaskDay, string> = {
+  Today: 'Today',
+  Tomorrow: 'Tomorrow',
+  Upcoming: 'Upcoming',
+  Someday: 'Someday',
+};
+
+export const TASK_DAY_ICONS: Record<TaskDay, string> = {
+  Today: '📅',
+  Tomorrow: '📆',
+  Upcoming: '📋',
+  Someday: '✨',
+};
+
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+  pending: 'Pending',
+  completed: 'Completed',
+  archived: 'Archived',
+};
+
+export const TASK_STATUS_COLORS: Record<TaskStatus, string> = {
+  pending: 'bg-amber-50 text-amber-700',
+  completed: 'bg-emerald-50 text-emerald-700',
+  archived: 'bg-slate-50 text-slate-700',
+};
+
+export const TASK_STATUS_ICONS: Record<TaskStatus, string> = {
+  pending: '⏳',
+  completed: '✅',
+  archived: '📦',
+};
+
+// ─── Helper Functions ─────────────────────────────────────────────────────────
+
+/**
+ * Get color class for a task priority
+ */
+export const getPriorityColor = (priority: TaskPriority): string => {
+  return TASK_PRIORITY_COLORS[priority] || TASK_PRIORITY_COLORS.medium;
+};
+
+/**
+ * Get label for a task priority
+ */
+export const getPriorityLabel = (priority: TaskPriority): string => {
+  return TASK_PRIORITY_LABELS[priority] || TASK_PRIORITY_LABELS.medium;
+};
+
+/**
+ * Get color class for a task status
+ */
+export const getStatusColor = (status: TaskStatus): string => {
+  return TASK_STATUS_COLORS[status] || TASK_STATUS_COLORS.pending;
+};
+
+/**
+ * Get label for a task status
+ */
+export const getStatusLabel = (status: TaskStatus): string => {
+  return TASK_STATUS_LABELS[status] || TASK_STATUS_LABELS.pending;
+};
+
+/**
+ * Get label for a task day
+ */
+export const getDayLabel = (day: TaskDay): string => {
+  return TASK_DAY_LABELS[day] || day;
+};
+
+/**
+ * Format a date string to a readable format
+ */
+export const formatTaskDate = (date: string | null): string | null => {
+  if (!date) return null;
+  try {
+    return new Date(date).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Format a datetime string to a readable format
+ */
+export const formatTaskDateTime = (date: string | null): string | null => {
+  if (!date) return null;
+  try {
+    return new Date(date).toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Format file size to human readable format
+ */
+export const formatFileSize = (bytes: number | null): string => {
+  if (!bytes) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex++;
+  }
+  return `${size.toFixed(1)} ${units[unitIndex]}`;
+};
+
+/**
+ * Check if a task is overdue
+ */
+export const isTaskOverdue = (task: Task): boolean => {
+  if (!task.due_date) return false;
+  if (task.status === 'completed') return false;
+  return new Date(task.due_date) < new Date();
+};
+
+/**
+ * Check if a task is due today
+ */
+export const isTaskDueToday = (task: Task): boolean => {
+  if (!task.due_date) return false;
+  const today = new Date();
+  const dueDate = new Date(task.due_date);
+  return (
+    dueDate.getDate() === today.getDate() &&
+    dueDate.getMonth() === today.getMonth() &&
+    dueDate.getFullYear() === today.getFullYear()
+  );
+};
+
+/**
+ * Check if a task is due tomorrow
+ */
+export const isTaskDueTomorrow = (task: Task): boolean => {
+  if (!task.due_date) return false;
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const dueDate = new Date(task.due_date);
+  return (
+    dueDate.getDate() === tomorrow.getDate() &&
+    dueDate.getMonth() === tomorrow.getMonth() &&
+    dueDate.getFullYear() === tomorrow.getFullYear()
+  );
+};
+
+/**
+ * Get task completion percentage
+ */
+export const getTaskCompletionPercentage = (task: Task): number => {
+  if (!task.subtask_count || task.subtask_count === 0) return 0;
+  const completed = task.completed_subtask_count || 0;
+  return Math.round((completed / task.subtask_count) * 100);
+};
+
+/**
+ * Sort tasks by priority (urgent > high > medium > low)
+ */
+export const sortTasksByPriority = (tasks: Task[]): Task[] => {
+  const priorityOrder: Record<TaskPriority, number> = {
+    urgent: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+  };
+  return [...tasks].sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
+};
+
+/**
+ * Filter tasks by day
+ */
+export const filterTasksByDay = (tasks: Task[], day: TaskDay): Task[] => {
+  return tasks.filter(task => task.day === day);
+};
+
+/**
+ * Filter tasks by status
+ */
+export const filterTasksByStatus = (tasks: Task[], status: TaskStatus): Task[] => {
+  return tasks.filter(task => task.status === status);
+};
+
+/**
+ * Filter tasks by search query
+ */
+export const filterTasksBySearch = (tasks: Task[], query: string): Task[] => {
+  if (!query.trim()) return tasks;
+  const search = query.toLowerCase().trim();
+  return tasks.filter(task =>
+    task.title.toLowerCase().includes(search) ||
+    (task.notes && task.notes.toLowerCase().includes(search)) ||
+    task.tags.some(tag => tag.toLowerCase().includes(search))
+  );
+};
+
+// ─── Type Guards ─────────────────────────────────────────────────────────────
+
+/**
+ * Type guard to check if a value is a TaskDay
+ */
+export const isTaskDay = (value: unknown): value is TaskDay => {
+  return typeof value === 'string' && ['Today', 'Tomorrow', 'Upcoming', 'Someday'].includes(value);
+};
+
+/**
+ * Type guard to check if a value is a TaskStatus
+ */
+export const isTaskStatus = (value: unknown): value is TaskStatus => {
+  return typeof value === 'string' && ['pending', 'completed', 'archived'].includes(value);
+};
+
+/**
+ * Type guard to check if a value is a TaskPriority
+ */
+export const isTaskPriority = (value: unknown): value is TaskPriority => {
+  return typeof value === 'string' && ['low', 'medium', 'high', 'urgent'].includes(value);
+};
+
+/**
+ * Type guard to check if an object is a Task
+ */
+export const isTask = (value: unknown): value is Task => {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'id' in value &&
+    'title' in value &&
+    'status' in value &&
+    'day' in value &&
+    'priority' in value
+  );
+};
+
+/**
+ * Type guard to check if an object is a TaskList
+ */
+export const isTaskList = (value: unknown): value is TaskList => {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'id' in value &&
+    'name' in value &&
+    'is_shared' in value
+  );
+};

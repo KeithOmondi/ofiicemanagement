@@ -1,44 +1,36 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+// src/components/SuperAdminTaskM.tsx
+import React, { useState, useEffect } from "react";
 import { useAppDispatch, useAppSelector } from "../../store/hook";
 import {
   fetchProjects,
   fetchTasks,
-  selectAllProjects,
-  selectStandaloneTasks,
-  selectSelectedTask,
-  selectStats,
-  toggleTaskDone as toggleTaskDoneAction,
+  fetchTaskStats,
   createTask,
-  fetchDashboardStats,
-  fetchUserStats,
-  selectDashboardStats,
-  selectTasksLoading,
-  selectTasksError,
-  clearError,
-  fetchMembers,
-} from "../../store/slices/tasksSlice";
-import {
-  selectAllUsers,
-  selectCurrentUser,
-  fetchUsers,
-  fetchCurrentUser,
-} from "../../store/slices/userSlice";
-import type { Task, Project, TaskStatus, Priority, TaskType } from "../../types/tasks.types";
-import type { User } from "../../store/slices/userSlice";
+  updateTask,
+  createProject,
+  // selectors
+  selectAllProjects,
+  selectAllTasks,
+  selectProjectStats,
+  selectFilteredTasks,
+  selectProjectsLoading,
+  selectProjectsError,
+  selectIsCreatingProject,
+  setTaskFilters,
+} from "../../store/slices/projectsSlice";
+import SuperAdminToDo from "./SuperAdminToDo";
+import { X } from "lucide-react";
+import type {
+  CreateProjectInput,
+  ProjectPriority,
+} from "../../types/projects.types";
 
-// ─── Modal imports ──────────────────────────────────────────
-import AddProjectModal from "./taskmodals/AddProjectModal";
-import AddTaskModal from "./taskmodals/AddTaskModal";
-import AddStandaloneModal from "./taskmodals/AddStandaloneModal";
-import ToDoModal from "./taskmodals/ToDoModal";
-import AddPersonalTaskModal from "./taskmodals/AddPersonalTaskModal";
+// ─── Types (re-export from slice) ────────────────────────────────────────────
+type TaskStatus = import("../../types/projects.types").ProjectTaskStatus;
+type Priority = import("../../types/projects.types").ProjectPriority;
+type TaskType = import("../../types/projects.types").ProjectTaskType;
 
-// ─── Constants ──────────────────────────────────────────────
-const TASK_TYPES: TaskType[] = ['task', 'bug', 'feature', 'improvement', 'support', 'maintenance'];
-const PRIORITIES: Priority[] = ['low', 'normal', 'high', 'urgent', 'critical'];
-const STATUSES: TaskStatus[] = ['todo', 'inprogress', 'done', 'overdue', 'pending_approval', 'blocked', 'review'];
-
-// ─── Helpers ──────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmtDate = (dateStr: string): string => {
   if (!dateStr) return "—";
   const d = new Date(dateStr);
@@ -47,6 +39,18 @@ const fmtDate = (dateStr: string): string => {
     month: "short",
     year: "2-digit",
   });
+};
+
+// Backend expects a full ISO 8601 datetime (e.g. z.string().datetime()),
+// not a plain YYYY-MM-DD date. `<input type="date">` values and
+// `.toISOString().split("T")[0]` both produce date-only strings, which the
+// API rejects with {"success":false,"error":"Invalid ISO datetime"} (400).
+// Run any deadline through this before sending it to the API.
+const toISODateTime = (dateOnly: string): string => {
+  if (!dateOnly) return dateOnly;
+  // Already a full ISO datetime (contains a "T") — leave it alone.
+  if (dateOnly.includes("T")) return dateOnly;
+  return new Date(`${dateOnly}T00:00:00.000Z`).toISOString();
 };
 
 const daysUntil = (dateStr: string): number => {
@@ -58,7 +62,9 @@ const daysUntil = (dateStr: string): number => {
   return Math.round((d.getTime() - t.getTime()) / 86400000);
 };
 
-const getStatus = (task: Task): TaskStatus => {
+const getStatus = (
+  task: import("../../types/projects.types").ProjectTask,
+): TaskStatus => {
   if (task.status === "done") return "done";
   if (task.status === "pending_approval") return "inprogress";
   const days = daysUntil(task.deadline);
@@ -68,17 +74,47 @@ const getStatus = (task: Task): TaskStatus => {
 
 const priorityBadge = (p: string) => {
   const map: Record<string, { label: string; color: string; bg: string }> = {
-    urgent: { label: "Urgent", color: "text-red-700 ring-red-600/20", bg: "bg-red-50" },
-    high: { label: "High", color: "text-amber-700 ring-amber-600/20", bg: "bg-amber-50" },
-    normal: { label: "Normal", color: "text-emerald-700 ring-emerald-600/20", bg: "bg-emerald-50" },
-    low: { label: "Low", color: "text-slate-600 ring-slate-500/10", bg: "bg-slate-50" },
-    critical: { label: "Critical", color: "text-rose-700 ring-rose-600/20", bg: "bg-rose-50" },
+    urgent: {
+      label: "Urgent",
+      color: "text-red-700 ring-red-600/20",
+      bg: "bg-red-50",
+    },
+    high: {
+      label: "High",
+      color: "text-amber-700 ring-amber-600/20",
+      bg: "bg-amber-50",
+    },
+    normal: {
+      label: "Normal",
+      color: "text-emerald-700 ring-emerald-600/20",
+      bg: "bg-emerald-50",
+    },
+    low: {
+      label: "Low",
+      color: "text-slate-600 ring-slate-500/10",
+      bg: "bg-slate-50",
+    },
+    critical: {
+      label: "Critical",
+      color: "text-rose-700 ring-rose-600/20",
+      bg: "bg-rose-50",
+    },
   };
-  const info = map[p] || { label: p, color: "text-slate-700 ring-slate-600/10", bg: "bg-slate-50" };
+  const info = map[p] || {
+    label: p,
+    color: "text-slate-700 ring-slate-600/10",
+    bg: "bg-slate-50",
+  };
   return (
-    <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${info.color} ${info.bg}`}>
-      {(p === "urgent" || p === "critical") && <span className="mr-1 h-1.5 w-1.5 rounded-full bg-red-500" />}
-      {p === "high" && <span className="mr-1 h-1.5 w-1.5 rounded-full bg-amber-500" />}
+    <span
+      className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${info.color} ${info.bg}`}
+    >
+      {(p === "urgent" || p === "critical") && (
+        <span className="mr-1 h-1.5 w-1.5 rounded-full bg-red-500" />
+      )}
+      {p === "high" && (
+        <span className="mr-1 h-1.5 w-1.5 rounded-full bg-amber-500" />
+      )}
       {info.label}
     </span>
   );
@@ -93,9 +129,10 @@ const getColorFromId = (id: string): string => {
   return `hsl(${hue}, 65%, 45%)`;
 };
 
-const memberAvatar = (userId: string | null, size: number = 24, usersMap: Record<string, User>) => {
-  if (!userId) return null;
-  const user = usersMap[userId];
+const memberAvatar = (
+  user: { id: string; full_name: string; pj_number?: string } | null,
+  size: number = 24,
+) => {
   if (!user) return null;
   return (
     <div
@@ -104,13 +141,13 @@ const memberAvatar = (userId: string | null, size: number = 24, usersMap: Record
         width: size,
         height: size,
         fontSize: Math.floor(size * 0.38),
-        background: getColorFromId(userId),
+        background: getColorFromId(user.id),
         color: "#fff",
         marginRight: -6,
       }}
       title={user.full_name}
     >
-      {user.pj_number || userId.slice(0, 2).toUpperCase()}
+      {user.pj_number || user.id.slice(0, 2).toUpperCase()}
     </div>
   );
 };
@@ -120,150 +157,410 @@ const deadlineTag = (dateStr: string, status: TaskStatus) => {
   const days = daysUntil(dateStr);
   const label = fmtDate(dateStr);
   if (status === "done")
-    return <span className="inline-flex items-center text-emerald-600 font-medium">✓ {label}</span>;
+    return (
+      <span className="inline-flex items-center text-emerald-600 font-medium">
+        ✓ {label}
+      </span>
+    );
   if (days < 0)
-    return <span className="inline-flex items-center text-rose-500 font-medium animate-pulse">⚠ {label}</span>;
+    return (
+      <span className="inline-flex items-center text-rose-500 font-medium animate-pulse">
+        ⚠ {label}
+      </span>
+    );
   if (days <= 3)
-    return <span className="inline-flex items-center text-amber-600 font-medium">{days}d left</span>;
+    return (
+      <span className="inline-flex items-center text-amber-600 font-medium">
+        {days}d left
+      </span>
+    );
   return <span className="text-slate-500 font-medium">{label}</span>;
 };
 
-// ─── Main Component ──────────────────────────────────────────
-const SuperAdminTaskM: React.FC = () => {
-  const dispatch = useAppDispatch();
-  
-  // ── Redux state ──
-  const projects = useAppSelector(selectAllProjects);
-  const standaloneTasks = useAppSelector(selectStandaloneTasks);
-  const selectedTask = useAppSelector(selectSelectedTask);
-  const stats = useAppSelector(selectStats);
-  const dashboardStats = useAppSelector(selectDashboardStats);
-  const users = useAppSelector(selectAllUsers);
-  const currentUser = useAppSelector(selectCurrentUser);
-  const loading = useAppSelector(selectTasksLoading);
-  const error = useAppSelector(selectTasksError);
+// ─── Add Project Modal Component ─────────────────────────────────────────────
+const AddProjectModal: React.FC<{
+  onClose: () => void;
+  onSave: (input: CreateProjectInput) => void;
+  isSaving: boolean;
+}> = ({ onClose, onSave, isSaving }) => {
+  const [formData, setFormData] = useState<CreateProjectInput>({
+    title: "",
+    description: "",
+    priority: "normal",
+    deadline: "",
+    tags: [],
+    member_ids: [],
+  });
 
-  // ── Local UI state ──
-  const [currentView, setCurrentView] = useState<"projects" | "board" | "independent" | "todo">("projects");
+  const [tagInput, setTagInput] = useState<string>("");
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.title.trim()) return;
+    // `<input type="date">` gives us "YYYY-MM-DD" — widen to a full ISO
+    // datetime here so the API's Zod validation doesn't reject it.
+    onSave({
+      ...formData,
+      deadline: formData.deadline ? toISODateTime(formData.deadline) : formData.deadline,
+    });
+  };
+
+  const handleAddTag = () => {
+    if (tagInput.trim() && !formData.tags?.includes(tagInput.trim())) {
+      setFormData({
+        ...formData,
+        tags: [...(formData.tags || []), tagInput.trim()],
+      });
+      setTagInput("");
+    }
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    setFormData({
+      ...formData,
+      tags: formData.tags?.filter((tag) => tag !== tagToRemove) || [],
+    });
+  };
+
+  return (
+    <div className="bg-white rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold text-slate-800">Add New Project</h2>
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Title */}
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Project Title *
+          </label>
+          <input
+            type="text"
+            value={formData.title}
+            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+            placeholder="Enter project title"
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+            required
+          />
+        </div>
+
+        {/* Description */}
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Description
+          </label>
+          <textarea
+            value={formData.description || ""}
+            onChange={(e) =>
+              setFormData({ ...formData, description: e.target.value })
+            }
+            placeholder="Enter project description"
+            rows={3}
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 resize-none"
+          />
+        </div>
+
+        {/* Priority */}
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Priority
+          </label>
+          <select
+            value={formData.priority}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                priority: e.target.value as ProjectPriority,
+              })
+            }
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+          >
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+            <option value="critical">Critical</option>
+          </select>
+        </div>
+
+        {/* Deadline */}
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Deadline
+          </label>
+          <input
+            type="date"
+            value={formData.deadline || ""}
+            onChange={(e) =>
+              setFormData({ ...formData, deadline: e.target.value })
+            }
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+          />
+        </div>
+
+        {/* Tags */}
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Tags
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAddTag();
+                }
+              }}
+              placeholder="Add tag and press Enter"
+              className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+            />
+            <button
+              type="button"
+              onClick={handleAddTag}
+              className="px-3 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors"
+            >
+              Add
+            </button>
+          </div>
+          {formData.tags && formData.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {formData.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-700 rounded-full text-xs"
+                >
+                  #{tag}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTag(tag)}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Member IDs - Hidden for now, can be extended later */}
+        <input type="hidden" name="member_ids" value="" />
+
+        {/* Actions */}
+        <div className="flex gap-2 pt-2 border-t border-slate-100">
+          <button
+            type="submit"
+            disabled={isSaving || !formData.title.trim()}
+            className="flex-1 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-semibold hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSaving ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Creating...
+              </span>
+            ) : (
+              "Create Project"
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+// ─── ToDoModal Component ──────────────────────────────────────────────────────
+const ToDoModal: React.FC<{
+  onClose: () => void;
+  task: import("../../types/projects.types").ProjectTask;
+}> = ({ onClose, task }) => {
+  const status = getStatus(task);
+  return (
+    <div className="p-6">
+      <div className="flex justify-between items-start mb-4">
+        <div className="flex items-center gap-2">
+          <div
+            className={`w-3 h-3 rounded-full ${
+              status === "done"
+                ? "bg-emerald-500"
+                : status === "overdue"
+                  ? "bg-rose-500"
+                  : status === "inprogress"
+                    ? "bg-amber-500"
+                    : "bg-slate-400"
+            }`}
+          />
+          <span className="text-xs font-medium text-slate-500 uppercase">
+            {status}
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-600 text-xl"
+        >
+          ✕
+        </button>
+      </div>
+
+      <h2 className="text-xl font-bold text-slate-800 mb-2">{task.title}</h2>
+      {task.description && (
+        <p className="text-sm text-slate-600 mb-4">{task.description}</p>
+      )}
+
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-slate-500 w-20">Priority:</span>
+          {priorityBadge(task.priority)}
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-slate-500 w-20">Type:</span>
+          <span className="text-slate-700">{task.type}</span>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-slate-500 w-20">Assignee:</span>
+          <span className="text-slate-700">
+            {task.assignee_name || "Unassigned"}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-slate-500 w-20">Deadline:</span>
+          <span className="text-slate-700">{fmtDate(task.deadline)}</span>
+        </div>
+        {task.tags && task.tags.length > 0 && (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-slate-500 w-20">Tags:</span>
+            <div className="flex gap-1 flex-wrap">
+              {task.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded"
+                >
+                  #{tag}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 flex gap-2">
+        <button className="flex-1 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-semibold hover:bg-slate-700 transition-colors">
+          Mark as Complete
+        </button>
+        <button className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+          Edit
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── PROJECTS VIEW ────────────────────────────────────────────────────────────
+const ProjectsView: React.FC = () => {
+  const dispatch = useAppDispatch();
+  const projects = useAppSelector(selectAllProjects);
+  const loading = useAppSelector(selectProjectsLoading);
+  const error = useAppSelector(selectProjectsError);
+  const tasks = useAppSelector(selectAllTasks);
+  const isCreatingProject = useAppSelector(selectIsCreatingProject);
+
+  // Local UI state
+  const [selectedTask, setSelectedTask] = useState<
+    import("../../types/projects.types").ProjectTask | null
+  >(null);
+  const [showAddProjectModal, setShowAddProjectModal] = useState(false);
+  const [showAddTaskModal, setShowAddTaskModal] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<
+    import("../../types/projects.types").Project | null
+  >(null);
   const [filterAssignee, setFilterAssignee] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<TaskStatus | "">("");
   const [filterPriority, setFilterPriority] = useState<Priority | "">("");
   const [filterType, setFilterType] = useState<TaskType | "">("");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  const [showAddProjectModal, setShowAddProjectModal] = useState(false);
-  const [showAddTaskModal, setShowAddTaskModal] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [showAddStandaloneModal, setShowAddStandaloneModal] = useState(false);
-  const [showAddPersonalModal, setShowAddPersonalModal] = useState(false);
-  const [showToDoModal, setShowToDoModal] = useState(false);
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-
-  // ── Fetch data on mount ──
+  // Fetch all tasks on mount (and when filters change)
   useEffect(() => {
-    // Fetch users from user slice
-    dispatch(fetchUsers({
-      page: 1,
-      limit: 100,
-      sort_by: 'created_at',
-      sort_order: 'DESC'
-    }));
-    dispatch(fetchCurrentUser());
-    
-    // Fetch members from tasks slice
-    dispatch(fetchMembers());
-
-    // Fetch projects and tasks
-    dispatch(fetchProjects())
-      .then(() => {
-        dispatch(fetchTasks({}));
-      });
-
-    // Fetch dashboard stats
-    dispatch(fetchDashboardStats());
-    dispatch(fetchUserStats());
-    
-    // Clear any existing errors
-    dispatch(clearError());
+    dispatch(fetchTasks({}));
   }, [dispatch]);
 
-  // ── Handlers ──
-  const closeAllModals = useCallback(() => {
-    setShowAddProjectModal(false);
-    setShowAddTaskModal(false);
-    setShowAddStandaloneModal(false);
-    setShowAddPersonalModal(false);
-    setShowToDoModal(false);
-  }, []);
+  // When filters change, update Redux filters and refetch
+  useEffect(() => {
+    dispatch(
+      setTaskFilters({
+        assignee: filterAssignee || undefined,
+        status: filterStatus || undefined,
+        priority: filterPriority || undefined,
+        type: filterType || undefined,
+        search: searchQuery || undefined,
+      }),
+    );
+    dispatch(fetchTasks({}));
+  }, [
+    dispatch,
+    filterAssignee,
+    filterStatus,
+    filterPriority,
+    filterType,
+    searchQuery,
+  ]);
 
-  const openAddTaskModal = useCallback((project: Project) => {
-    closeAllModals();
-    setSelectedProject(project);
-    setShowAddTaskModal(true);
-  }, [closeAllModals]);
-
-  const openToDoModal = useCallback((taskId: string) => {
-    closeAllModals();
-    setSelectedTaskId(taskId);
-    setShowToDoModal(true);
-  }, [closeAllModals]);
-
-  const toggleTaskDone = useCallback((taskId: string, projectId: string | null) => {
-    dispatch(toggleTaskDoneAction({ taskId, projectId }));
-  }, [dispatch]);
-
-  const handleQuickAddTask = useCallback((projectId: string, title: string) => {
-    if (!currentUser) return;
-    dispatch(createTask({
-      project_id: projectId,
-      title,
-      description: null,
-      assignee: currentUser.id,
-      priority: "normal",
-      deadline: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-      start_date: null,
-      type: "task",
-      visibility: "team",
-      tags: [],
-      estimated_hours: null,
-      parent_task_id: null,
-    }));
-  }, [dispatch, currentUser]);
-
-  // ── Memoized values ──
-  const usersMap = useMemo(() => {
-    const map = users.reduce((acc, user) => {
-      acc[user.id] = user;
-      return acc;
-    }, {} as Record<string, User>);
-    
-    // Ensure current user is in the map
-    if (currentUser && !map[currentUser.id]) {
-      map[currentUser.id] = currentUser;
+  const toggleTaskDone = (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (task) {
+      const newStatus = task.status === "done" ? "todo" : "done";
+      dispatch(updateTask({ id: taskId, input: { status: newStatus } }));
     }
+  };
+
+  const filteredTasks = useAppSelector(selectFilteredTasks);
+
+  const handleCreateProject = (input: CreateProjectInput) => {
+    dispatch(createProject(input));
+    setShowAddProjectModal(false);
+  };
+
+  // Build a users map from project members for avatars
+  const usersMap = React.useMemo(() => {
+    const map: Record<
+      string,
+      { id: string; full_name: string; pj_number?: string }
+    > = {};
+    projects.forEach((p) => {
+      p.members?.forEach((m) => {
+        map[m.id] = {
+          id: m.id,
+          full_name: m.full_name,
+          pj_number: m.pj_number,
+        };
+      });
+    });
     return map;
-  }, [users, currentUser]);
+  }, [projects]);
 
-  // Memoize stats display values
-  const statsDisplay = useMemo(() => {
-    const todo = dashboardStats?.by_status?.todo ?? stats.todo;
-    const inprogress = dashboardStats?.by_status?.inprogress ?? stats.inprogress;
-    const overdue = dashboardStats?.overdue ?? stats.overdue;
-    const done = dashboardStats?.by_status?.done ?? stats.done;
-    return { todo, inprogress, overdue, done };
-  }, [dashboardStats, stats]);
-
-  // ── Helper: render a single task row ──
-  const renderTaskRow = useCallback((task: Task, projectId: string | null, projectMembers: string[] = []) => {
-    const isSelected = selectedTask?.id === task.id;
+  const renderTaskRow = (task: import("../../types/projects.types").ProjectTask) => {
     const status = getStatus(task);
+    const assigneeUser = task.assignee ? usersMap[task.assignee] : null;
     return (
       <div
         key={task.id}
-        className={`flex items-center gap-4 px-6 py-3.5 border-b border-slate-100 cursor-pointer transition-all duration-150 group ${
-          isSelected ? "bg-amber-50/50" : "hover:bg-slate-50"
-        }`}
-        onClick={() => openToDoModal(task.id)}
+        className="flex items-center gap-4 px-6 py-3.5 border-b border-slate-100 cursor-pointer transition-all duration-150 group hover:bg-slate-50"
+        onClick={() => setSelectedTask(task)}
       >
         <div
           className={`w-5 h-5 rounded-md flex items-center justify-center text-white text-[10px] font-bold cursor-pointer flex-shrink-0 border-2 transition-all duration-200 ${
@@ -273,7 +570,7 @@ const SuperAdminTaskM: React.FC = () => {
           }`}
           onClick={(e) => {
             e.stopPropagation();
-            toggleTaskDone(task.id, projectId);
+            toggleTaskDone(task.id);
           }}
         >
           {task.status === "done" && "✓"}
@@ -286,23 +583,23 @@ const SuperAdminTaskM: React.FC = () => {
               task.priority === "critical" || task.priority === "urgent"
                 ? "#ef4444"
                 : task.priority === "high"
-                ? "#f59e0b"
-                : task.priority === "normal"
-                ? "#10b981"
-                : "#94a3b8",
+                  ? "#f59e0b"
+                  : task.priority === "normal"
+                    ? "#10b981"
+                    : "#94a3b8",
           }}
         />
 
         <div className="flex-1 min-w-0">
           <h5
-            className={`text-sm font-medium truncate ${
-              task.status === "done" ? "line-through text-slate-400" : "text-slate-700"
-            }`}
+            className={`text-sm font-medium truncate ${task.status === "done" ? "line-through text-slate-400" : "text-slate-700"}`}
           >
             {task.title}
           </h5>
           {task.description && (
-            <p className="text-xs text-slate-400 truncate mt-0.5">{task.description}</p>
+            <p className="text-xs text-slate-400 truncate mt-0.5">
+              {task.description}
+            </p>
           )}
           <div className="flex gap-1 mt-1 flex-wrap">
             {task.type && (
@@ -310,18 +607,24 @@ const SuperAdminTaskM: React.FC = () => {
                 {task.type}
               </span>
             )}
-            {task.tags && task.tags.slice(0, 3).map((tag) => (
-              <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded">
-                #{tag}
-              </span>
-            ))}
+            {task.tags &&
+              task.tags.slice(0, 3).map((tag) => (
+                <span
+                  key={tag}
+                  className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded"
+                >
+                  #{tag}
+                </span>
+              ))}
           </div>
         </div>
 
         <div className="flex flex-shrink-0 pl-2">
-          {task.assignee === "GROUP"
-            ? projectMembers.map((m) => memberAvatar(m, 24, usersMap))
-            : memberAvatar(task.assignee, 24, usersMap)}
+          {assigneeUser ? (
+            memberAvatar(assigneeUser, 24)
+          ) : (
+            <span className="text-xs text-slate-400">—</span>
+          )}
         </div>
 
         <div className="text-xs font-mono flex-shrink-0 w-24 text-right">
@@ -329,135 +632,114 @@ const SuperAdminTaskM: React.FC = () => {
         </div>
       </div>
     );
-  }, [selectedTask, openToDoModal, toggleTaskDone, usersMap]);
+  };
 
-  // ─── Render Views ──
-  const renderStats = useCallback(() => {
-    const { todo, inprogress, overdue, done } = statsDisplay;
-    
-    // If loading, show skeleton
-    if (loading) {
-      return (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-white p-5 rounded-2xl border-l-4 border-slate-200 shadow-sm ring-1 ring-slate-100 animate-pulse">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-slate-200" />
-                <div className="flex-1">
-                  <div className="h-7 w-12 bg-slate-200 rounded" />
-                  <div className="h-3 w-16 bg-slate-200 rounded mt-1" />
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      );
-    }
+  if (loading && projects.length === 0) {
+    return <div className="text-center py-8">Loading projects...</div>;
+  }
 
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
-        {[
-          { val: todo, label: "Todo", icon: "📋", border: "border-slate-200", bg: "bg-slate-50" },
-          { val: inprogress, label: "In Progress", icon: "⏳", border: "border-amber-500", bg: "bg-amber-50/40" },
-          { val: overdue, label: "Overdue", icon: "🚨", border: "border-rose-500", bg: "bg-rose-50/30" },
-          { val: done, label: "Completed", icon: "✅", border: "border-emerald-500", bg: "bg-emerald-50/30" },
-        ].map((card, i) => (
-          <div key={i} className={`bg-white p-5 rounded-2xl border-l-4 ${card.border} shadow-sm ring-1 ring-slate-100 transition-transform hover:-translate-y-0.5`}>
-            <div className="flex items-center gap-4">
-              <div className={`w-12 h-12 rounded-xl ${card.bg} flex items-center justify-center text-xl`}>{card.icon}</div>
-              <div>
-                <h4 className="text-2xl font-bold tracking-tight text-slate-800">{card.val}</h4>
-                <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mt-0.5">{card.label}</p>
-              </div>
-            </div>
-          </div>
-        ))}
+  if (error) {
+    return <div className="text-center py-8 text-red-500">Error: {error}</div>;
+  }
+
+  return (
+    <div>
+      <div className="flex justify-end mb-6">
+        <button
+          className="inline-flex items-center justify-center px-4 py-2 rounded-xl text-sm font-semibold shadow-sm text-white bg-slate-900 hover:bg-slate-800 transition-colors cursor-pointer"
+          onClick={() => setShowAddProjectModal(true)}
+        >
+          + New Project
+        </button>
       </div>
-    );
-  }, [statsDisplay, loading]);
 
-  const renderProjectsView = useCallback(() => {
-    if (loading && projects.length === 0) {
-      return (
-        <div className="space-y-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="bg-white rounded-2xl shadow-sm ring-1 ring-slate-100 overflow-hidden animate-pulse">
-              <div className="px-6 py-5 bg-slate-800 h-32" />
-              <div className="h-1.5 bg-slate-100" />
-              <div className="px-6 py-8 space-y-3">
-                {[1, 2, 3].map((j) => (
-                  <div key={j} className="flex items-center gap-4">
-                    <div className="w-5 h-5 bg-slate-200 rounded" />
-                    <div className="flex-1 h-4 bg-slate-200 rounded" />
-                    <div className="w-6 h-6 bg-slate-200 rounded-full" />
-                  </div>
-                ))}
-              </div>
-            </div>
+      <div className="flex gap-2 items-center flex-wrap mb-6">
+        <input
+          type="text"
+          placeholder="Search tasks..."
+          className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 w-32 sm:w-40"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        <select
+          className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+          value={filterAssignee}
+          onChange={(e) => setFilterAssignee(e.target.value)}
+        >
+          <option value="">All Members</option>
+          {Object.values(usersMap).map((user) => (
+            <option key={user.id} value={user.id}>
+              {user.full_name} {user.pj_number ? `(${user.pj_number})` : ""}
+            </option>
           ))}
-        </div>
-      );
-    }
+        </select>
+        <select
+          className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+          value={filterPriority}
+          onChange={(e) => setFilterPriority(e.target.value as Priority | "")}
+        >
+          <option value="">All Priorities</option>
+          {["low", "normal", "high", "urgent", "critical"].map((p) => (
+            <option key={p} value={p}>
+              {p.charAt(0).toUpperCase() + p.slice(1)}
+            </option>
+          ))}
+        </select>
+        <select
+          className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value as TaskType | "")}
+        >
+          <option value="">All Types</option>
+          {[
+            "task",
+            "bug",
+            "feature",
+            "improvement",
+            "support",
+            "maintenance",
+          ].map((type) => (
+            <option key={type} value={type}>
+              {type.charAt(0).toUpperCase() + type.slice(1)}
+            </option>
+          ))}
+        </select>
+        <select
+          className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value as TaskStatus | "")}
+        >
+          <option value="">All Statuses</option>
+          {[
+            "todo",
+            "inprogress",
+            "done",
+            "overdue",
+            "pending_approval",
+            "blocked",
+            "review",
+          ].map((s) => (
+            <option key={s} value={s}>
+              {s.charAt(0).toUpperCase() + s.slice(1)}
+            </option>
+          ))}
+        </select>
+      </div>
 
-    if (error) {
-      return (
-        <div className="bg-red-50 border border-red-200 rounded-2xl p-8 text-center">
-          <div className="text-4xl mb-4">⚠️</div>
-          <h3 className="text-lg font-bold text-red-700 mb-2">Error Loading Projects</h3>
-          <p className="text-sm text-red-600 mb-4">{error}</p>
-          <button 
-            className="px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors"
-            onClick={() => {
-              dispatch(clearError());
-              dispatch(fetchProjects());
-            }}
-          >
-            Retry
-          </button>
-        </div>
-      );
-    }
-
-    return (
-      <div id="projectsList" className="space-y-6">
-        <div className="flex justify-end">
-          <button
-            className="inline-flex items-center justify-center px-4 py-2 rounded-xl text-sm font-semibold shadow-sm text-white bg-slate-900 hover:bg-slate-800 transition-colors cursor-pointer"
-            onClick={() => { closeAllModals(); setShowAddProjectModal(true); }}
-          >
-            + New Project
-          </button>
-        </div>
+      <div className="space-y-6">
         {projects.map((proj) => {
-          const prog = proj.tasks.length
-            ? Math.round((proj.tasks.filter((t) => t.status === "done").length / proj.tasks.length) * 100)
+          const projTasks = filteredTasks.filter(
+            (t) => t.project_id === proj.id,
+          );
+          const prog = projTasks.length
+            ? Math.round(
+                (projTasks.filter((t) => t.status === "done").length /
+                  projTasks.length) *
+                  100,
+              )
             : 0;
           const projDays = daysUntil(proj.deadline);
           const isOverdue = projDays < 0;
-
-          let tasks = proj.tasks;
-          if (filterAssignee) {
-            tasks = tasks.filter(
-              (t) => t.assignee === filterAssignee || (t.assignee === "GROUP" && proj.members.includes(filterAssignee))
-            );
-          }
-          if (filterStatus) {
-            tasks = tasks.filter((t) => getStatus(t) === filterStatus);
-          }
-          if (filterPriority) {
-            tasks = tasks.filter((t) => t.priority === filterPriority);
-          }
-          if (filterType) {
-            tasks = tasks.filter((t) => t.type === filterType);
-          }
-          if (searchQuery) {
-            const query = searchQuery.toLowerCase();
-            tasks = tasks.filter((t) => 
-              t.title.toLowerCase().includes(query) || 
-              (t.description && t.description.toLowerCase().includes(query)) ||
-              (t.tags && t.tags.some(tag => tag.toLowerCase().includes(query)))
-            );
-          }
 
           return (
             <div
@@ -466,25 +748,31 @@ const SuperAdminTaskM: React.FC = () => {
             >
               <div className="px-6 py-5 bg-gradient-to-r from-slate-900 to-slate-800 flex flex-col md:flex-row md:items-center gap-4 justify-between">
                 <div className="flex items-start gap-3.5 min-w-0">
-                  <div className="text-3xl p-1 bg-white/10 rounded-xl select-none">📂</div>
+                  <div className="text-3xl p-1 bg-white/10 rounded-xl select-none">
+                    📂
+                  </div>
                   <div className="min-w-0">
                     <h3 className="text-base font-bold text-white tracking-tight">
                       {proj.title}
                     </h3>
-                    <p className="text-xs text-slate-300 line-clamp-1 mt-0.5">{proj.description}</p>
+                    <p className="text-xs text-slate-300 line-clamp-1 mt-0.5">
+                      {proj.description}
+                    </p>
                     <div className="flex items-center gap-3 flex-wrap mt-2.5">
                       {priorityBadge(proj.priority)}
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded bg-white/10 text-slate-200 ${isOverdue ? 'text-rose-300 font-semibold' : ''}`}>
+                      <span
+                        className={`text-xs font-medium px-2 py-0.5 rounded bg-white/10 text-slate-200 ${isOverdue ? "text-rose-300 font-semibold" : ""}`}
+                      >
                         📅 Deadline: {fmtDate(proj.deadline)}
                         {isOverdue && " (OVERDUE)"}
                         {!isOverdue && projDays <= 3 && ` (${projDays}d left)`}
                       </span>
                       <span className="text-xs text-slate-400">
-                        {prog}% complete · {proj.tasks.length} tasks
+                        {prog}% complete · {projTasks.length} tasks
                       </span>
                       {proj.tags && proj.tags.length > 0 && (
                         <span className="text-xs text-slate-400">
-                          🏷️ {proj.tags.join(', ')}
+                          🏷️ {proj.tags.join(", ")}
                         </span>
                       )}
                     </div>
@@ -492,14 +780,15 @@ const SuperAdminTaskM: React.FC = () => {
                 </div>
                 <div className="flex items-center justify-between md:justify-end gap-4 border-t border-white/10 md:border-none pt-3 md:pt-0">
                   <div className="flex pl-2">
-                    {proj.members.map((m) => memberAvatar(m, 28, usersMap))}
+                    {proj.members &&
+                      proj.members.map((m) => memberAvatar(m, 28))}
                   </div>
                 </div>
               </div>
 
               <div className="h-1.5 bg-slate-100 relative">
-                <div 
-                  className={`h-full transition-all duration-500 ease-out ${prog === 100 ? 'bg-emerald-500' : 'bg-amber-500'}`} 
+                <div
+                  className={`h-full transition-all duration-500 ease-out ${prog === 100 ? "bg-emerald-500" : "bg-amber-500"}`}
                   style={{ width: `${prog}%` }}
                 />
               </div>
@@ -507,25 +796,30 @@ const SuperAdminTaskM: React.FC = () => {
               <div className="project-tasks-section bg-white">
                 <div className="px-6 py-3.5 bg-slate-50/70 border-b border-slate-100 flex justify-between items-center">
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    Tasks ({tasks.length})
+                    Tasks ({projTasks.length})
                   </span>
                   <button
                     className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 bg-white shadow-sm border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer"
-                    onClick={(e) => { e.stopPropagation(); openAddTaskModal(proj); }}
+                    onClick={() => {
+                      setSelectedProject(proj);
+                      setShowAddTaskModal(true);
+                    }}
                   >
                     + Add Task
                   </button>
                 </div>
-                <div id={`tasklist_${proj.id}`}>
-                  {tasks.length === 0 && (
+                <div>
+                  {projTasks.length === 0 && (
                     <div className="px-6 py-8 text-sm text-slate-400 text-center bg-slate-50/20">
                       No tasks match the current filters.
                     </div>
                   )}
-                  {tasks.map((t) => renderTaskRow(t, proj.id, proj.members))}
+                  {projTasks.map((t) => renderTaskRow(t))}
                 </div>
                 <div className="px-6 py-3 flex items-center gap-3 border-t border-dashed border-slate-200 bg-slate-50/30">
-                  <span className="text-slate-400 text-lg font-light select-none">+</span>
+                  <span className="text-slate-400 text-lg font-light select-none">
+                    +
+                  </span>
                   <input
                     className="flex-1 border-none bg-transparent text-sm text-slate-700 outline-none placeholder:text-slate-400 font-medium"
                     placeholder="Quick add task — type and press Enter"
@@ -533,7 +827,22 @@ const SuperAdminTaskM: React.FC = () => {
                       if (e.key === "Enter") {
                         const input = e.target as HTMLInputElement;
                         if (input.value.trim()) {
-                          handleQuickAddTask(proj.id, input.value.trim());
+                          dispatch(
+                            createTask({
+                              project_id: proj.id,
+                              title: input.value.trim(),
+                              status: "todo",
+                              priority: "normal",
+                              type: "task",
+                              // Keep the full ISO datetime — do NOT
+                              // .split("T")[0] this, or the API will
+                              // reject it with "Invalid ISO datetime".
+                              deadline: new Date(
+                                Date.now() + 7 * 86400000,
+                              ).toISOString(),
+                              tags: [],
+                            }),
+                          );
                           input.value = "";
                         }
                       }
@@ -544,44 +853,150 @@ const SuperAdminTaskM: React.FC = () => {
             </div>
           );
         })}
-        {projects.length === 0 && !loading && !error && (
-          <div className="text-center py-20 bg-white rounded-2xl border border-slate-100 shadow-sm">
-            <div className="text-5xl mb-4">📂</div>
-            <h3 className="text-lg font-bold text-slate-700 mb-2">No Projects Yet</h3>
-            <p className="text-sm text-slate-400 mb-5">Get started by building your structural project container.</p>
-            <button className="bg-slate-900 text-white font-semibold text-sm px-5 py-2.5 rounded-xl shadow-sm hover:bg-slate-800 transition-colors" onClick={() => { closeAllModals(); setShowAddProjectModal(true); }}>
-              Create First Project
+      </div>
+
+      {/* Add Project Modal */}
+      {showAddProjectModal && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[1000] backdrop-blur-sm"
+          onClick={() => setShowAddProjectModal(false)}
+        >
+          <div onClick={(e) => e.stopPropagation()}>
+            <AddProjectModal
+              onClose={() => setShowAddProjectModal(false)}
+              onSave={handleCreateProject}
+              isSaving={isCreatingProject}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Add Task Modal */}
+      {showAddTaskModal && selectedProject && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[1000] backdrop-blur-sm"
+          onClick={() => {
+            setShowAddTaskModal(false);
+            setSelectedProject(null);
+          }}
+        >
+          <div
+            className="bg-white rounded-2xl p-6 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4">
+              Add Task to {selectedProject.title}
+            </h2>
+            <p className="text-slate-500 mb-4">Task form would go here</p>
+            <button
+              onClick={() => {
+                setShowAddTaskModal(false);
+                setSelectedProject(null);
+              }}
+              className="px-4 py-2 bg-slate-800 text-white rounded-lg"
+            >
+              Close
             </button>
           </div>
-        )}
-      </div>
-    );
-  }, [projects, loading, error, filterAssignee, filterStatus, filterPriority, filterType, searchQuery, closeAllModals, openAddTaskModal, renderTaskRow, handleQuickAddTask, usersMap, dispatch]);
+        </div>
+      )}
 
-  const renderBoardView = useCallback(() => {
-    const allTasks = [
-      ...projects.flatMap((p) => p.tasks.map((t) => ({ ...t, projectTitle: p.title, projectId: p.id }))),
-      ...standaloneTasks.map((t) => ({ ...t, projectTitle: "Standalone", projectId: null })),
-    ];
-    
-    type ColKey = "todo" | "inprogress" | "overdue" | "done";
-    const cols: Record<ColKey, { label: string; dotColor: string; bg: string; tasks: typeof allTasks }> = {
-      todo: { label: "Todo", dotColor: "bg-slate-400", bg: "bg-slate-50/80 ring-slate-100", tasks: [] },
-      inprogress: { label: "In Progress", dotColor: "bg-amber-500", bg: "bg-amber-50/20 ring-amber-100/50", tasks: [] },
-      overdue: { label: "Overdue", dotColor: "bg-rose-500", bg: "bg-rose-50/20 ring-rose-100/50", tasks: [] },
-      done: { label: "Completed", dotColor: "bg-emerald-500", bg: "bg-emerald-50/20 ring-emerald-100/50", tasks: [] },
-    };
-    
-    allTasks.forEach((t) => {
-      const s = getStatus(t);
-      if (s in cols) cols[s as ColKey].tasks.push(t);
-      else cols.todo.tasks.push(t);
+      {/* Task Detail Modal */}
+      {selectedTask && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[1000] backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setSelectedTask(null);
+            }
+          }}
+        >
+          <div className="bg-white rounded-2xl w-[92%] max-w-[560px] max-h-[85vh] overflow-hidden shadow-2xl border border-slate-100">
+            <ToDoModal
+              task={selectedTask}
+              onClose={() => setSelectedTask(null)}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── BOARD VIEW ──────────────────────────────────────────────────────────────
+const BoardView: React.FC = () => {
+  const dispatch = useAppDispatch();
+  const tasks = useAppSelector(selectAllTasks);
+  const projects = useAppSelector(selectAllProjects);
+  const [selectedTask, setSelectedTask] = useState<
+    import("../../types/projects.types").ProjectTask | null
+  >(null);
+
+  useEffect(() => {
+    dispatch(fetchTasks({}));
+  }, [dispatch]);
+
+  const usersMap = React.useMemo(() => {
+    const map: Record<
+      string,
+      { id: string; full_name: string; pj_number?: string }
+    > = {};
+    projects.forEach((p) => {
+      p.members?.forEach((m) => {
+        map[m.id] = {
+          id: m.id,
+          full_name: m.full_name,
+          pj_number: m.pj_number,
+        };
+      });
     });
-    
-    return (
+    return map;
+  }, [projects]);
+
+  const todoTasks = tasks.filter((t) => getStatus(t) === "todo");
+  const inProgressTasks = tasks.filter((t) => getStatus(t) === "inprogress");
+  const overdueTasks = tasks.filter((t) => getStatus(t) === "overdue");
+  const doneTasks = tasks.filter((t) => getStatus(t) === "done");
+
+  const columns = [
+    {
+      key: "todo",
+      label: "Todo",
+      tasks: todoTasks,
+      dotColor: "bg-slate-400",
+      bg: "bg-slate-50/80 ring-slate-100",
+    },
+    {
+      key: "inprogress",
+      label: "In Progress",
+      tasks: inProgressTasks,
+      dotColor: "bg-amber-500",
+      bg: "bg-amber-50/20 ring-amber-100/50",
+    },
+    {
+      key: "overdue",
+      label: "Overdue",
+      tasks: overdueTasks,
+      dotColor: "bg-rose-500",
+      bg: "bg-rose-50/20 ring-rose-100/50",
+    },
+    {
+      key: "done",
+      label: "Completed",
+      tasks: doneTasks,
+      dotColor: "bg-emerald-500",
+      bg: "bg-emerald-50/20 ring-emerald-100/50",
+    },
+  ];
+
+  return (
+    <div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 items-start">
-        {Object.entries(cols).map(([key, col]) => (
-          <div key={key} className={`${col.bg} rounded-2xl p-4 min-h-[500px] ring-1 border border-transparent`}>
+        {columns.map((col) => (
+          <div
+            key={col.key}
+            className={`${col.bg} rounded-2xl p-4 min-h-[500px] ring-1 border border-transparent`}
+          >
             <div className="flex justify-between items-center mb-4 px-1">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full ${col.dotColor}`} />
@@ -592,28 +1007,36 @@ const SuperAdminTaskM: React.FC = () => {
               </span>
             </div>
             <div className="space-y-3">
-              {col.tasks.map((t) => (
-                <div
-                  key={t.id}
-                  className={`bg-white rounded-xl p-4 shadow-sm border transition-all duration-200 hover:shadow-md hover:border-slate-300 ${
-                    selectedTask?.id === t.id ? "border-amber-500 ring-2 ring-amber-100" : "border-slate-100"
-                  }`}
-                  onClick={() => openToDoModal(t.id)}
-                >
-                  <h5 className="text-sm font-semibold text-slate-700 leading-snug line-clamp-2">{t.title}</h5>
-                  <div className="text-xs font-medium text-slate-400 mt-1 mb-3">{t.projectTitle}</div>
-                  <div className="flex items-center justify-between border-t border-slate-50 pt-2.5 mt-2">
-                    <div className="flex">
-                      {t.assignee === "GROUP"
-                        ? <span className="text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Group</span>
-                        : memberAvatar(t.assignee, 22, usersMap)}
+              {col.tasks.map((t) => {
+                const project = projects.find((p) => p.id === t.project_id);
+                const assigneeUser = t.assignee ? usersMap[t.assignee] : null;
+                return (
+                  <div
+                    key={t.id}
+                    className="bg-white rounded-xl p-4 shadow-sm border transition-all duration-200 hover:shadow-md hover:border-slate-300 border-slate-100 cursor-pointer"
+                    onClick={() => setSelectedTask(t)}
+                  >
+                    <h5 className="text-sm font-semibold text-slate-700 leading-snug line-clamp-2">
+                      {t.title}
+                    </h5>
+                    <div className="text-xs font-medium text-slate-400 mt-1 mb-3">
+                      {project?.title || "Standalone"}
                     </div>
-                    <div className="text-[11px] font-mono">
-                      {deadlineTag(t.deadline, getStatus(t))}
+                    <div className="flex items-center justify-between border-t border-slate-50 pt-2.5 mt-2">
+                      <div className="flex">
+                        {assigneeUser ? (
+                          memberAvatar(assigneeUser, 22)
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
+                      </div>
+                      <div className="text-[11px] font-mono">
+                        {deadlineTag(t.deadline, getStatus(t))}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {col.tasks.length === 0 && (
                 <div className="text-center py-8 text-xs font-medium text-slate-400 border-2 border-dashed border-slate-200 rounded-xl bg-white/50">
                   Empty column
@@ -623,200 +1046,334 @@ const SuperAdminTaskM: React.FC = () => {
           </div>
         ))}
       </div>
-    );
-  }, [projects, standaloneTasks, selectedTask, openToDoModal, usersMap]);
 
-  const renderStandaloneView = useCallback(() => {
-    let tasks = standaloneTasks;
-    if (filterAssignee) {
-      tasks = tasks.filter((t) => t.assignee === filterAssignee);
-    }
-    if (filterStatus) {
-      tasks = tasks.filter((t) => getStatus(t) === filterStatus);
-    }
-    if (filterPriority) {
-      tasks = tasks.filter((t) => t.priority === filterPriority);
-    }
-    if (filterType) {
-      tasks = tasks.filter((t) => t.type === filterType);
-    }
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      tasks = tasks.filter((t) => 
-        t.title.toLowerCase().includes(query) || 
-        (t.description && t.description.toLowerCase().includes(query)) ||
-        (t.tags && t.tags.some(tag => tag.toLowerCase().includes(query)))
-      );
-    }
-    
-    return (
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 ring-1 ring-slate-100 overflow-hidden">
-        <div className="px-6 py-4.5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <h3 className="text-base font-bold text-slate-800 tracking-tight">Standalone Tasks</h3>
-          <button
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 transition-colors cursor-pointer"
-            onClick={() => { closeAllModals(); setShowAddStandaloneModal(true); }}
-          >
-            + Add Task
-          </button>
-        </div>
-        <div>
-          {tasks.length === 0 ? (
-            <div className="p-12 text-center text-sm text-slate-400">No standalone tasks currently registered.</div>
-          ) : (
-            tasks.map((t) => renderTaskRow(t, null, []))
-          )}
-        </div>
-      </div>
-    );
-  }, [standaloneTasks, filterAssignee, filterStatus, filterPriority, filterType, searchQuery, closeAllModals, renderTaskRow]);
-
-  const renderTodoView = useCallback(() => {
-    const allTasks = [
-      ...projects.flatMap((p) => p.tasks.map((t) => ({ ...t, projectTitle: p.title, projectId: p.id }))),
-      ...standaloneTasks.map((t) => ({ ...t, projectTitle: "Standalone", projectId: null })),
-    ];
-    const todoTasks = allTasks.filter(
-      (t) => getStatus(t) === "todo" && t.assignee === currentUser?.id
-    );
-    
-    return (
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 ring-1 ring-slate-100 overflow-hidden">
-        <div className="px-6 py-4.5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <h3 className="text-base font-bold text-slate-800 tracking-tight flex items-center gap-2">
-            📋 My To‑Do List <span className="text-xs px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 font-bold">{todoTasks.length}</span>
-          </h3>
-          <button
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-700 bg-white border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors cursor-pointer"
-            onClick={() => { closeAllModals(); setShowAddPersonalModal(true); }}
-          >
-            + Add Personal Task
-          </button>
-        </div>
-        <div>
-          {todoTasks.length === 0 ? (
-            <div className="p-12 text-center text-sm text-slate-400 font-medium">No pending personal tasks found. Great job! 🎉</div>
-          ) : (
-            todoTasks.map((t) => renderTaskRow(t, t.projectId, []))
-          )}
-        </div>
-      </div>
-    );
-  }, [projects, standaloneTasks, currentUser, closeAllModals, renderTaskRow]);
-
-  // ─── Main Render ──────────────────────────────────────────
-  return (
-    <div className="p-6 font-sans bg-slate-50/50 min-h-screen text-slate-600 antialiased">
-      {renderStats()}
-
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-2 border-b border-slate-100">
-        <div className="flex bg-slate-100 rounded-xl p-1 gap-1 self-start shadow-inner">
-          {[
-            { key: "projects", label: "📂 Projects" },
-            { key: "board", label: "🗂 Board" },
-            { key: "independent", label: "⚡ Standalone" },
-            { key: "todo", label: "📋 To-Do" }
-          ].map((view) => (
-            <button
-              key={view.key}
-              className={`px-4 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all ${
-                currentView === view.key
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-500 hover:text-slate-800"
-              }`}
-              onClick={() => setCurrentView(view.key as typeof currentView)}
-            >
-              {view.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-2 items-center flex-wrap sm:justify-end">
-          {currentView !== "todo" && (
-            <>
-              <input
-                type="text"
-                placeholder="Search tasks..."
-                className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 w-32 sm:w-40"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-              <select
-                className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
-                value={filterAssignee}
-                onChange={(e) => setFilterAssignee(e.target.value)}
-              >
-                <option value="">All Members</option>
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.full_name} {user.pj_number ? `(${user.pj_number})` : ''}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
-                value={filterPriority}
-                onChange={(e) => setFilterPriority(e.target.value as Priority | "")}
-              >
-                <option value="">All Priorities</option>
-                {PRIORITIES.map((p) => (
-                  <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
-                ))}
-              </select>
-              <select
-                className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
-                value={filterType}
-                onChange={(e) => setFilterType(e.target.value as TaskType | "")}
-              >
-                <option value="">All Types</option>
-                {TASK_TYPES.map((type) => (
-                  <option key={type} value={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>
-                ))}
-              </select>
-            </>
-          )}
-          <select
-            className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value as TaskStatus | "")}
-          >
-            <option value="">All Statuses</option>
-            {STATUSES.map((status) => (
-              <option key={status} value={status}>{status.charAt(0).toUpperCase() + status.slice(1)}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="transition-all duration-200">
-        {currentView === "projects" && renderProjectsView()}
-        {currentView === "board" && renderBoardView()}
-        {currentView === "independent" && renderStandaloneView()}
-        {currentView === "todo" && renderTodoView()}
-      </div>
-
-      <AddProjectModal show={showAddProjectModal} onClose={() => setShowAddProjectModal(false)} />
-      <AddTaskModal show={showAddTaskModal} onClose={() => { setShowAddTaskModal(false); setSelectedProject(null); }} project={selectedProject} />
-      <AddStandaloneModal show={showAddStandaloneModal} onClose={() => setShowAddStandaloneModal(false)} />
-      <AddPersonalTaskModal show={showAddPersonalModal} onClose={() => setShowAddPersonalModal(false)} />
-
-      {showToDoModal && selectedTaskId && (
+      {selectedTask && (
         <div
-          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[1000] backdrop-blur-sm transition-opacity duration-300"
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[1000] backdrop-blur-sm"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
-              setShowToDoModal(false);
-              setSelectedTaskId(null);
+              setSelectedTask(null);
             }
           }}
         >
-          <div className="bg-white rounded-2xl w-[92%] max-w-[560px] max-h-[85vh] overflow-hidden shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
+          <div className="bg-white rounded-2xl w-[92%] max-w-[560px] max-h-[85vh] overflow-hidden shadow-2xl border border-slate-100">
             <ToDoModal
-              show={showToDoModal}
-              onClose={() => { setShowToDoModal(false); setSelectedTaskId(null); }}
-              taskId={selectedTaskId}
+              task={selectedTask}
+              onClose={() => setSelectedTask(null)}
             />
           </div>
         </div>
+      )}
+    </div>
+  );
+};
+
+// ─── STANDALONE VIEW ──────────────────────────────────────────────────────────
+const StandaloneView: React.FC = () => {
+  const dispatch = useAppDispatch();
+  const tasks = useAppSelector(selectAllTasks);
+  const projects = useAppSelector(selectAllProjects);
+  const [selectedTask, setSelectedTask] = useState<
+    import("../../types/projects.types").ProjectTask | null
+  >(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  useEffect(() => {
+    dispatch(fetchTasks({}));
+  }, [dispatch]);
+
+  const standaloneTasks = tasks.filter((t) => !t.project_id);
+
+  const usersMap = React.useMemo(() => {
+    const map: Record<
+      string,
+      { id: string; full_name: string; pj_number?: string }
+    > = {};
+    projects.forEach((p) => {
+      p.members?.forEach((m) => {
+        map[m.id] = {
+          id: m.id,
+          full_name: m.full_name,
+          pj_number: m.pj_number,
+        };
+      });
+    });
+    return map;
+  }, [projects]);
+
+  const toggleTaskDone = (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (task) {
+      const newStatus = task.status === "done" ? "todo" : "done";
+      dispatch(updateTask({ id: taskId, input: { status: newStatus } }));
+    }
+  };
+
+  const renderTaskRow = (task: import("../../types/projects.types").ProjectTask) => {
+    const status = getStatus(task);
+    const assigneeUser = task.assignee ? usersMap[task.assignee] : null;
+    return (
+      <div
+        key={task.id}
+        className="flex items-center gap-4 px-6 py-3.5 border-b border-slate-100 cursor-pointer transition-all duration-150 group hover:bg-slate-50"
+        onClick={() => setSelectedTask(task)}
+      >
+        <div
+          className={`w-5 h-5 rounded-md flex items-center justify-center text-white text-[10px] font-bold cursor-pointer flex-shrink-0 border-2 transition-all duration-200 ${
+            task.status === "done"
+              ? "bg-emerald-500 border-emerald-500 shadow-sm shadow-emerald-200"
+              : "border-slate-300 bg-white group-hover:border-slate-400"
+          }`}
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleTaskDone(task.id);
+          }}
+        >
+          {task.status === "done" && "✓"}
+        </div>
+
+        <div
+          className="w-1.5 h-7 rounded-full flex-shrink-0"
+          style={{
+            background:
+              task.priority === "critical" || task.priority === "urgent"
+                ? "#ef4444"
+                : task.priority === "high"
+                  ? "#f59e0b"
+                  : task.priority === "normal"
+                    ? "#10b981"
+                    : "#94a3b8",
+          }}
+        />
+
+        <div className="flex-1 min-w-0">
+          <h5
+            className={`text-sm font-medium truncate ${task.status === "done" ? "line-through text-slate-400" : "text-slate-700"}`}
+          >
+            {task.title}
+          </h5>
+          {task.description && (
+            <p className="text-xs text-slate-400 truncate mt-0.5">
+              {task.description}
+            </p>
+          )}
+          <div className="flex gap-1 mt-1 flex-wrap">
+            {task.type && (
+              <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">
+                {task.type}
+              </span>
+            )}
+            {task.tags &&
+              task.tags.slice(0, 3).map((tag) => (
+                <span
+                  key={tag}
+                  className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded"
+                >
+                  #{tag}
+                </span>
+              ))}
+          </div>
+        </div>
+
+        <div className="flex flex-shrink-0 pl-2">
+          {assigneeUser ? (
+            memberAvatar(assigneeUser, 24)
+          ) : (
+            <span className="text-xs text-slate-400">—</span>
+          )}
+        </div>
+
+        <div className="text-xs font-mono flex-shrink-0 w-24 text-right">
+          {deadlineTag(task.deadline, status)}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-base font-bold text-slate-800 tracking-tight">
+          Standalone Tasks
+        </h3>
+        <button
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 transition-colors cursor-pointer"
+          onClick={() => setShowAddModal(true)}
+        >
+          + Add Task
+        </button>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 ring-1 ring-slate-100 overflow-hidden">
+        <div>
+          {standaloneTasks.length === 0 ? (
+            <div className="p-12 text-center text-sm text-slate-400">
+              No standalone tasks currently registered.
+            </div>
+          ) : (
+            standaloneTasks.map((t) => renderTaskRow(t))
+          )}
+        </div>
+      </div>
+
+      {showAddModal && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[1000] backdrop-blur-sm"
+          onClick={() => setShowAddModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl p-6 max-w-md w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold mb-4">Add Standalone Task</h2>
+            <p className="text-slate-500 mb-4">
+              Standalone task form would go here
+            </p>
+            <button
+              onClick={() => setShowAddModal(false)}
+              className="px-4 py-2 bg-slate-800 text-white rounded-lg"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
+      {selectedTask && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[1000] backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setSelectedTask(null);
+            }
+          }}
+        >
+          <div className="bg-white rounded-2xl w-[92%] max-w-[560px] max-h-[85vh] overflow-hidden shadow-2xl border border-slate-100">
+            <ToDoModal
+              task={selectedTask}
+              onClose={() => setSelectedTask(null)}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── TODO VIEW ────────────────────────────────────────────────────────────────
+const TodoView: React.FC = () => {
+  return <SuperAdminToDo />;
+};
+
+// ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
+const SuperAdminTaskM: React.FC = () => {
+  const dispatch = useAppDispatch();
+  const [currentView, setCurrentView] = useState<
+    "projects" | "board" | "independent" | "todo"
+  >("projects");
+  const stats = useAppSelector(selectProjectStats);
+
+  useEffect(() => {
+    dispatch(fetchProjects({}));
+    dispatch(fetchTaskStats(""));
+  }, [dispatch]);
+
+  const todo = stats?.todo || 0;
+  const inprogress = stats?.inprogress || 0;
+  const overdue = stats?.overdue || 0;
+  const done = stats?.done || 0;
+
+  const renderStats = () => (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+      {[
+        {
+          val: todo,
+          label: "Todo",
+          icon: "📋",
+          border: "border-slate-200",
+          bg: "bg-slate-50",
+        },
+        {
+          val: inprogress,
+          label: "In Progress",
+          icon: "⏳",
+          border: "border-amber-500",
+          bg: "bg-amber-50/40",
+        },
+        {
+          val: overdue,
+          label: "Overdue",
+          icon: "🚨",
+          border: "border-rose-500",
+          bg: "bg-rose-50/30",
+        },
+        {
+          val: done,
+          label: "Completed",
+          icon: "✅",
+          border: "border-emerald-500",
+          bg: "bg-emerald-50/30",
+        },
+      ].map((card, i) => (
+        <div
+          key={i}
+          className={`bg-white p-5 rounded-2xl border-l-4 ${card.border} shadow-sm ring-1 ring-slate-100 transition-transform hover:-translate-y-0.5`}
+        >
+          <div className="flex items-center gap-4">
+            <div
+              className={`w-12 h-12 rounded-xl ${card.bg} flex items-center justify-center text-xl`}
+            >
+              {card.icon}
+            </div>
+            <div>
+              <h4 className="text-2xl font-bold tracking-tight text-slate-800">
+                {card.val}
+              </h4>
+              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mt-0.5">
+                {card.label}
+              </p>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="p-6 font-sans antialiased bg-slate-50/50 min-h-screen text-slate-600">
+      {currentView === "todo" ? (
+        <TodoView />
+      ) : (
+        <>
+          {renderStats()}
+
+          <div className="flex bg-slate-100 rounded-xl p-1 gap-1 self-start shadow-inner mb-6">
+            {[
+              { key: "projects", label: "📂 Projects" },
+              { key: "board", label: "🗂 Board" },
+              { key: "independent", label: "⚡ Standalone" },
+              { key: "todo", label: "📋 To-Do" },
+            ].map((view) => (
+              <button
+                key={view.key}
+                className={`px-4 py-2 rounded-lg text-xs font-semibold tracking-wide transition-all ${
+                  currentView === view.key
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : "text-slate-500 hover:text-slate-800"
+                }`}
+                onClick={() => setCurrentView(view.key as typeof currentView)}
+              >
+                {view.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="transition-all duration-200">
+            {currentView === "projects" && <ProjectsView />}
+            {currentView === "board" && <BoardView />}
+            {currentView === "independent" && <StandaloneView />}
+          </div>
+        </>
       )}
     </div>
   );
