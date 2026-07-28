@@ -1729,16 +1729,16 @@ const AdminDocs = () => {
     setSelectedDocument(doc);
   };
 
-  const filteredDocuments = useMemo(() => {
-    if (!currentUser) return documents;
+ const filteredDocuments = useMemo(() => {
+  if (!currentUser) return documents;
 
-    return documents.filter(doc => {
-      if (doc.type === 'memo' || doc.type === 'letter') return false;
-      if (doc.folder_id) return false;
-      if (doc.is_draft) return doc.created_by === currentUser.id;
-      return true;
-    });
-  }, [documents, currentUser]);
+  return documents.filter(doc => {
+    if (doc.type === 'memo' || doc.type === 'letter' || doc.type === 'certificate') return false;
+    if (doc.folder_id) return false;
+    if (doc.is_draft) return doc.created_by === currentUser.id;
+    return true;
+  });
+}, [documents, currentUser]);
 
   return (
     <div className="min-h-screen bg-slate-50">
