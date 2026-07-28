@@ -2605,13 +2605,14 @@ const SuperAdminDocuments: React.FC = () => {
 
   // ─── Filter out memos, letters, AND documents with bring_up_date ──────────
   const visibleDocuments = useMemo(
-    () => documents.filter((doc) => 
-      doc.type !== "memo" && 
-      doc.type !== "letter" && 
-      !doc.bring_up_date
-    ),
-    [documents]
-  );
+  () => documents.filter((doc) => 
+    doc.type !== "memo" && 
+    doc.type !== "letter" && 
+    doc.type !== "certificate" && 
+    !doc.bring_up_date
+  ),
+  [documents]
+);
 
   // ─── Fetch documents ─────────────────────────────────────────────────────
   useEffect(() => {
