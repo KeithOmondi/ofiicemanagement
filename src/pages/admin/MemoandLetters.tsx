@@ -3326,10 +3326,12 @@ const MemoandLetters: React.FC = () => {
   const canView = !!user;
 
   // ─── UPDATED: Filter to include certificates ────────────────────────────────
-  const memoLetterDocs = useMemo(
-    () => documents.filter((doc) => doc.type === "memo" || doc.type === "letter" || doc.type === "certificate"),
-    [documents]
-  );
+ const memoLetterDocs = useMemo(
+  () => documents.filter(
+    (doc) => (doc.type === "memo" || doc.type === "letter" || doc.type === "certificate") && doc.status !== "released"
+  ),
+  [documents]
+);
 
   useEffect(() => {
     if (!canView) return;
