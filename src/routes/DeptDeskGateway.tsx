@@ -75,6 +75,7 @@ import StoreDocuments from '../pages/store/StoreDocuments';
 import StoreStock from '../pages/store/StoreStock';
 import HelpdeskAides from '../pages/helpdesk/HelpdeskAides';
 import JODocuments from '../pages/JO/JODocuments';
+import StuffHelpdeskDocs from '../pages/staff/StuffHelpDeskDoscs';
 
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
@@ -174,6 +175,7 @@ const DeptDeskGateway: React.FC = () => {
           {isHelpdeskStaff && (
             <>
               <Route path="help-desk" element={<HelpdeskStuff />} />
+              <Route path="helpdesk-docs" element={<StuffHelpdeskDocs />} />
               <Route path="helpdesk-tickets" element={<HelpdeskStuffTickets />} />
             </>
           )}

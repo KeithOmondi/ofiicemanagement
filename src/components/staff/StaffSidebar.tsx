@@ -15,6 +15,7 @@ import {
   Workflow,
   HelpCircle,
   Tickets,
+  File,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import { logoutUser } from '../../store/slices/authSlice';
@@ -72,6 +73,7 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
         ...(isHelpdeskStaff
           ? [
               { to: `${base}/help-desk`, label: 'Help Desk', icon: <HelpCircle className="h-4 w-4" />, tab: 'help' },
+              { to: `${base}/helpdesk-docs`, label: 'HelpDesk Docs', icon: <File className="h-4 w-4" />, tab: 'docs' },
               { to: `${base}/helpdesk-tickets`, label: 'Tickets', icon: <Tickets className="h-4 w-4" />, tab: 'tickets' },
             ]
           : []),
