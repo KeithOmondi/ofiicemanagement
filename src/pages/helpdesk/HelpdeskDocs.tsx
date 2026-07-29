@@ -1,8 +1,9 @@
 // src/components/helpdesk/HelpdeskDocs.tsx
 
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  selectAllHelpdeskDocuments, 
+import { toast, Toaster } from 'react-hot-toast';
+import {
+  selectAllHelpdeskDocuments,
   selectDocumentsFetchLoading,
   selectDocumentError,
   selectDocumentsUploading,
@@ -26,12 +27,25 @@ import {
   type HelpdeskDocument,
 } from '../../store/slices/helpdeskDocumentsSlice';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
-import { 
-  X, Loader2, Upload, FileText, Download, Trash2, Eye, 
-  CheckCircle, XCircle, Clock, ArrowLeft, Send, 
-  FileCheck, Stamp, MessageSquare,
-   File,
-  ExternalLink, Check,
+import {
+  X,
+  Loader2,
+  Upload,
+  FileText,
+  Download,
+  Trash2,
+  Eye,
+  CheckCircle,
+  XCircle,
+  Clock,
+  ArrowLeft,
+  Send,
+  FileCheck,
+  Stamp,
+  MessageSquare,
+  File,
+  ExternalLink,
+  Check,
 } from 'lucide-react';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -51,38 +65,39 @@ interface UploadFormData {
 
 const FORMAT_OPTIONS: DocumentFormat[] = ['pdf', 'docx', 'xlsx'];
 
-const STATUS_CONFIG: Record<DocumentStatus, { label: string; color: string; icon: React.ReactNode; bgColor: string }> = {
-  draft: {
-    label: 'Draft',
-    color: 'text-stone-600',
-    bgColor: 'bg-stone-100',
-    icon: <File size={14} />,
-  },
-  pending_approval: {
-    label: 'Pending Approval',
-    color: 'text-amber-700',
-    bgColor: 'bg-amber-50',
-    icon: <Clock size={14} />,
-  },
-  approved: {
-    label: 'Approved ✓',
-    color: 'text-emerald-700',
-    bgColor: 'bg-emerald-50',
-    icon: <CheckCircle size={14} />,
-  },
-  rejected: {
-    label: 'Rejected',
-    color: 'text-red-700',
-    bgColor: 'bg-red-50',
-    icon: <XCircle size={14} />,
-  },
-  returned: {
-    label: 'Returned',
-    color: 'text-blue-700',
-    bgColor: 'bg-blue-50',
-    icon: <ArrowLeft size={14} />,
-  },
-};
+const STATUS_CONFIG: Record<DocumentStatus, { label: string; color: string; icon: React.ReactNode; bgColor: string }> =
+  {
+    draft: {
+      label: 'Draft',
+      color: 'text-stone-600',
+      bgColor: 'bg-stone-100',
+      icon: <File size={14} />,
+    },
+    pending_approval: {
+      label: 'Pending Approval',
+      color: 'text-amber-700',
+      bgColor: 'bg-amber-50',
+      icon: <Clock size={14} />,
+    },
+    approved: {
+      label: 'Approved ✓',
+      color: 'text-emerald-700',
+      bgColor: 'bg-emerald-50',
+      icon: <CheckCircle size={14} />,
+    },
+    rejected: {
+      label: 'Rejected',
+      color: 'text-red-700',
+      bgColor: 'bg-red-50',
+      icon: <XCircle size={14} />,
+    },
+    returned: {
+      label: 'Returned',
+      color: 'text-blue-700',
+      bgColor: 'bg-blue-50',
+      icon: <ArrowLeft size={14} />,
+    },
+  };
 
 const ACTION_LABELS: Record<string, string> = {
   submitted: 'Submitted for Approval',
@@ -96,7 +111,9 @@ const ACTION_LABELS: Record<string, string> = {
 const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => {
   const config = STATUS_CONFIG[status];
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${config.bgColor} ${config.color}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${config.bgColor} ${config.color}`}
+    >
       {config.icon}
       {config.label}
     </span>
@@ -160,7 +177,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
 
   const handleReject = async () => {
     if (!rejectReason.trim()) {
-      alert('Please provide a rejection reason.');
+      toast.error('Please provide a rejection reason.');
       return;
     }
     setIsSubmitting(true);
@@ -180,15 +197,17 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
   const handleReturn = async () => {
     setIsSubmitting(true);
     try {
-      await dispatch(returnDocument({ 
-        id: docId, 
-        comments: returnComments.trim() || undefined 
-      })).unwrap();
+      await dispatch(
+        returnDocument({
+          id: docId,
+          comments: returnComments.trim() || undefined,
+        })
+      ).unwrap();
       setShowReturnModal(false);
       setReturnComments('');
       onRefresh();
       toast.success('Document returned');
-    } catch  {
+    } catch {
       toast.error('Failed to return document');
     } finally {
       setIsSubmitting(false);
@@ -199,10 +218,12 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
     if (!newComment.trim()) return;
     setIsSubmitting(true);
     try {
-      await dispatch(addComment({ 
-        id: docId, 
-        comment: newComment.trim() 
-      })).unwrap();
+      await dispatch(
+        addComment({
+          id: docId,
+          comment: newComment.trim(),
+        })
+      ).unwrap();
       setNewComment('');
       onRefresh();
     } catch {
@@ -219,37 +240,36 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
   const canDownloadStamped = document.status === 'approved' && document.e_stamp_url;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-start justify-between border-b border-stone-100 bg-stone-50 px-6 py-4">
-          <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between px-6 py-4 border-b border-slate-200">
+          <div>
             <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-base font-semibold text-[#1a3d1c] truncate">
-                {document.subject}
-              </h2>
+              <h3 className="text-lg font-medium text-slate-900 truncate">{document.subject}</h3>
               <StatusBadge status={document.status} />
             </div>
-            <p className="mt-1 text-xs text-stone-400 font-mono">
-              Ref: {document.ref} • {document.format.toUpperCase()} • {new Date(document.created_at).toLocaleDateString()}
+            <p className="mt-1 text-sm text-slate-500 font-mono">
+              Ref: {document.ref} • {document.format.toUpperCase()} •{' '}
+              {new Date(document.created_at).toLocaleDateString()}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="rounded-full p-1.5 text-stone-400 transition hover:bg-stone-200 hover:text-stone-600"
+            className="text-slate-400 hover:text-slate-600 transition"
           >
-            <X size={18} />
+            <X size={20} />
           </button>
         </div>
 
-        <div className="max-h-[75vh] overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto px-6 py-4 bg-slate-50">
           {/* ── Quick Actions ────────────────────────────────────────────── */}
           <div className="mb-4 flex flex-wrap gap-2">
             <a
               href={document.file_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
               <ExternalLink size={14} />
               View Document
@@ -257,7 +277,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             <a
               href={document.file_url}
               download
-              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
               <Download size={14} />
               Download
@@ -321,41 +341,41 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
           </div>
 
           {/* ── Document Info ────────────────────────────────────────────── */}
-          <div className="grid grid-cols-2 gap-4 rounded-lg border border-stone-200 bg-stone-50 p-4 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-3">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Reference</p>
-              <p className="mt-0.5 text-sm font-mono text-stone-800">{document.ref}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Reference</p>
+              <p className="mt-0.5 text-sm font-mono text-slate-800">{document.ref}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Format</p>
-              <p className="mt-0.5 text-sm font-semibold text-stone-800 uppercase">{document.format}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Format</p>
+              <p className="mt-0.5 text-sm font-semibold text-slate-800 uppercase">{document.format}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Entity Type</p>
-              <p className="mt-0.5 text-sm capitalize text-stone-800">{document.entity_type}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Entity Type</p>
+              <p className="mt-0.5 text-sm capitalize text-slate-800">{document.entity_type}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Uploaded By</p>
-              <p className="mt-0.5 text-sm text-stone-800">{document.uploaded_by_name || 'Unknown'}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Uploaded By</p>
+              <p className="mt-0.5 text-sm text-slate-800">{document.uploaded_by_name || 'Unknown'}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Uploaded On</p>
-              <p className="mt-0.5 text-sm text-stone-800">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Uploaded On</p>
+              <p className="mt-0.5 text-sm text-slate-800">
                 {new Date(document.created_at).toLocaleString()}
               </p>
             </div>
             {document.approved_at && (
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Approved On</p>
-                <p className="mt-0.5 text-sm text-stone-800">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Approved On</p>
+                <p className="mt-0.5 text-sm text-slate-800">
                   {new Date(document.approved_at).toLocaleString()}
                 </p>
               </div>
             )}
             {document.approved_by_name && (
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Approved By</p>
-                <p className="mt-0.5 text-sm text-stone-800">{document.approved_by_name}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Approved By</p>
+                <p className="mt-0.5 text-sm text-slate-800">{document.approved_by_name}</p>
               </div>
             )}
             {document.rejection_reason && (
@@ -404,9 +424,11 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
                   alt="E-Stamp"
                   className="max-h-16 w-auto object-contain"
                 />
-                <div className="text-xs text-stone-500">
+                <div className="text-xs text-slate-500">
                   <p className="font-mono">{document.ref}</p>
-                  <p className="text-emerald-600">✓ Approved on {document.approved_at ? new Date(document.approved_at).toLocaleDateString() : 'N/A'}</p>
+                  <p className="text-emerald-600">
+                    ✓ Approved on {document.approved_at ? new Date(document.approved_at).toLocaleDateString() : 'N/A'}
+                  </p>
                 </div>
               </div>
             </div>
@@ -438,20 +460,20 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
           {/* ── Approval History ─────────────────────────────────────────── */}
           {document.approval_history && document.approval_history.length > 0 && (
             <div className="mt-6">
-              <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
-                <Clock size={16} className="text-stone-400" />
+              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                <Clock size={16} className="text-slate-400" />
                 Approval History
               </h3>
               <div className="mt-3 space-y-2">
                 {document.approval_history.map((entry, index) => (
                   <div
                     key={entry.id}
-                    className="relative flex items-start gap-3 rounded-lg border border-stone-100 bg-white p-3"
+                    className="relative flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3"
                   >
                     {index < document.approval_history.length - 1 && (
-                      <div className="absolute left-5 top-8 h-full w-0.5 bg-stone-200" />
+                      <div className="absolute left-5 top-8 h-full w-0.5 bg-slate-200" />
                     )}
-                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-stone-100">
+                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-slate-100">
                       {entry.action === 'submitted' && <Send size={14} className="text-amber-600" />}
                       {entry.action === 'approved' && <CheckCircle size={14} className="text-emerald-600" />}
                       {entry.action === 'rejected' && <XCircle size={14} className="text-red-600" />}
@@ -459,19 +481,19 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <p className="text-sm font-medium text-stone-800">
+                        <p className="text-sm font-medium text-slate-800">
                           {ACTION_LABELS[entry.action] || entry.action}
                         </p>
-                        <span className="text-xs text-stone-400">
+                        <span className="text-xs text-slate-400">
                           {new Date(entry.created_at).toLocaleString()}
                         </span>
                       </div>
-                      <p className="text-xs text-stone-500">
+                      <p className="text-xs text-slate-500">
                         By: {entry.from_user_name}
                         {entry.to_user_name && ` → ${entry.to_user_name}`}
                       </p>
                       {entry.comments && (
-                        <p className="mt-1 text-xs text-stone-600 bg-stone-50 rounded p-2">
+                        <p className="mt-1 text-xs text-slate-600 bg-slate-50 rounded p-2">
                           {entry.comments}
                         </p>
                       )}
@@ -484,21 +506,21 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
 
           {/* ── Comments ────────────────────────────────────────────────── */}
           <div className="mt-6">
-            <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
-              <MessageSquare size={16} className="text-stone-400" />
+            <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+              <MessageSquare size={16} className="text-slate-400" />
               Comments ({document.comments?.length || 0})
             </h3>
             <div className="mt-3 max-h-48 overflow-y-auto space-y-2">
               {document.comments && document.comments.length > 0 ? (
                 document.comments.map((comment) => (
-                  <div key={comment.id} className="rounded-lg border border-stone-100 bg-white p-3">
+                  <div key={comment.id} className="rounded-lg border border-slate-200 bg-white p-3">
                     <div className="flex items-baseline justify-between gap-2">
-                      <p className="text-sm font-medium text-stone-800">{comment.user_name}</p>
-                      <span className="text-xs text-stone-400">
+                      <p className="text-sm font-medium text-slate-800">{comment.user_name}</p>
+                      <span className="text-xs text-slate-400">
                         {new Date(comment.created_at).toLocaleString()}
                       </span>
                     </div>
-                    <p className="mt-1 text-sm text-stone-600">{comment.comment}</p>
+                    <p className="mt-1 text-sm text-slate-600">{comment.comment}</p>
                     {comment.is_internal && (
                       <span className="mt-1 inline-block text-[10px] font-semibold uppercase tracking-wide text-amber-600">
                         Internal
@@ -507,7 +529,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
                   </div>
                 ))
               ) : (
-                <p className="text-sm text-stone-400 italic">No comments yet.</p>
+                <p className="text-sm text-slate-400 italic">No comments yet.</p>
               )}
             </div>
 
@@ -518,14 +540,14 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
                 placeholder="Add a comment..."
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
-                className="flex-1 rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
                 onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
                 disabled={isSubmitting}
               />
               <button
                 onClick={handleAddComment}
                 disabled={!newComment.trim() || isSubmitting}
-                className="rounded-lg bg-[#c9a84c] px-4 py-2 text-sm font-semibold text-[#1a3d1c] transition hover:bg-[#b8973f] disabled:opacity-50 disabled:cursor-not-allowed"
+                className="rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#7A5E12] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : 'Post'}
               </button>
@@ -534,8 +556,8 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
         </div>
 
         {/* ── Footer ──────────────────────────────────────────────────────── */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 bg-stone-50 px-6 py-3">
-          <div className="text-xs text-stone-400">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
+          <div className="text-xs text-slate-500">
             {document.e_stamp_status === 'stamped' ? (
               <span className="flex items-center gap-1 text-emerald-600">
                 <Check size={14} />
@@ -547,7 +569,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg border border-stone-300 px-4 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-50"
+            className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
           >
             Close
           </button>
@@ -555,37 +577,39 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
 
         {/* ── Reject Modal ────────────────────────────────────────────────── */}
         {showRejectModal && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-            <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-              <h3 className="text-lg font-semibold text-stone-900">Reject Document</h3>
-              <p className="mt-1 text-sm text-stone-500">
-                Please provide a reason for rejecting this document.
-              </p>
-              <textarea
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="Enter rejection reason..."
-                rows={4}
-                className="mt-4 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
-                autoFocus
-              />
-              <div className="mt-4 flex justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setShowRejectModal(false);
-                    setRejectReason('');
-                  }}
-                  className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleReject}
-                  disabled={!rejectReason.trim() || isSubmitting}
-                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : 'Reject'}
-                </button>
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+              <div className="p-6">
+                <h3 className="text-lg font-medium text-slate-900">Reject Document</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Please provide a reason for rejecting this document.
+                </p>
+                <textarea
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="Enter rejection reason..."
+                  rows={4}
+                  className="mt-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+                  autoFocus
+                />
+                <div className="mt-4 flex justify-end gap-3">
+                  <button
+                    onClick={() => {
+                      setShowRejectModal(false);
+                      setRejectReason('');
+                    }}
+                    className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleReject}
+                    disabled={!rejectReason.trim() || isSubmitting}
+                    className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition disabled:opacity-50"
+                  >
+                    {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : 'Reject'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -593,37 +617,39 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
 
         {/* ── Return Modal ────────────────────────────────────────────────── */}
         {showReturnModal && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-            <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-              <h3 className="text-lg font-semibold text-stone-900">Return Document</h3>
-              <p className="mt-1 text-sm text-stone-500">
-                Add any instructions or comments for the department head.
-              </p>
-              <textarea
-                value={returnComments}
-                onChange={(e) => setReturnComments(e.target.value)}
-                placeholder="Enter return instructions (optional)..."
-                rows={4}
-                className="mt-4 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                autoFocus
-              />
-              <div className="mt-4 flex justify-end gap-3">
-                <button
-                  onClick={() => {
-                    setShowReturnModal(false);
-                    setReturnComments('');
-                  }}
-                  className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleReturn}
-                  disabled={isSubmitting}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : 'Return'}
-                </button>
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+              <div className="p-6">
+                <h3 className="text-lg font-medium text-slate-900">Return Document</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Add any instructions or comments for the department head.
+                </p>
+                <textarea
+                  value={returnComments}
+                  onChange={(e) => setReturnComments(e.target.value)}
+                  placeholder="Enter return instructions (optional)..."
+                  rows={4}
+                  className="mt-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  autoFocus
+                />
+                <div className="mt-4 flex justify-end gap-3">
+                  <button
+                    onClick={() => {
+                      setShowReturnModal(false);
+                      setReturnComments('');
+                    }}
+                    className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleReturn}
+                    disabled={isSubmitting}
+                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition disabled:opacity-50"
+                  >
+                    {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : 'Return'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -662,10 +688,12 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
   // ── Effects ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    dispatch(fetchHelpdeskDocuments({ 
-      entity_type: entityType, 
-      entity_id: entityId 
-    }));
+    dispatch(
+      fetchHelpdeskDocuments({
+        entity_type: entityType,
+        entity_id: entityId,
+      })
+    );
   }, [dispatch, entityType, entityId]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
@@ -679,9 +707,7 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
     e.target.value = '';
   };
 
-  const handleUploadFormChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
+  const handleUploadFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setUploadFormData((prev) => ({ ...prev, [name]: value }));
   };
@@ -703,27 +729,31 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
     }
 
     try {
-      await dispatch(uploadHelpdeskDocument({
-        blob: selectedFile,
-        filename: selectedFile.name,
-        ref: uploadFormData.ref.trim(),
-        subject: uploadFormData.subject.trim(),
-        entity_type: entityType || 'circuit',
-        entity_id: entityId || undefined,
-        format: uploadFormData.format,
-        status: 'draft',
-      })).unwrap();
+      await dispatch(
+        uploadHelpdeskDocument({
+          blob: selectedFile,
+          filename: selectedFile.name,
+          ref: uploadFormData.ref.trim(),
+          subject: uploadFormData.subject.trim(),
+          entity_type: entityType || 'circuit',
+          entity_id: entityId || undefined,
+          format: uploadFormData.format,
+          status: 'draft',
+        })
+      ).unwrap();
 
       setSelectedFile(null);
       setUploadFormData({ ref: '', subject: '', format: 'pdf' });
       setUploadError(null);
       setShowUploadModal(false);
-      
-      dispatch(fetchHelpdeskDocuments({ 
-        entity_type: entityType, 
-        entity_id: entityId 
-      }));
-      
+
+      dispatch(
+        fetchHelpdeskDocuments({
+          entity_type: entityType,
+          entity_id: entityId,
+        })
+      );
+
       toast.success('Document uploaded successfully');
     } catch (err) {
       setUploadError(typeof err === 'string' ? err : 'Upload failed. Please try again.');
@@ -759,10 +789,12 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
   };
 
   const handleRefresh = () => {
-    dispatch(fetchHelpdeskDocuments({ 
-      entity_type: entityType, 
-      entity_id: entityId 
-    }));
+    dispatch(
+      fetchHelpdeskDocuments({
+        entity_type: entityType,
+        entity_id: entityId,
+      })
+    );
   };
 
   const handleClearError = () => {
@@ -774,8 +806,8 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
   if (isLoading && documents.length === 0) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="h-8 w-8 animate-spin text-[#c9a84c]" />
-        <span className="ml-3 text-sm text-stone-600">Loading documents...</span>
+        <Loader2 className="h-8 w-8 animate-spin text-[#8B6914]" />
+        <span className="ml-3 text-sm text-slate-600">Loading documents...</span>
       </div>
     );
   }
@@ -785,10 +817,7 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
       <div className="rounded-lg border border-red-200 bg-red-50 p-4">
         <div className="flex items-center justify-between">
           <p className="text-sm text-red-700">Error: {error}</p>
-          <button
-            onClick={handleClearError}
-            className="text-red-500 hover:text-red-700"
-          >
+          <button onClick={handleClearError} className="text-red-500 hover:text-red-700">
             <X size={16} />
           </button>
         </div>
@@ -800,18 +829,20 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
 
   return (
     <div className="space-y-4">
+      <Toaster position="top-right" />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-stone-800">Documents</h2>
-          <p className="text-xs text-stone-500">
+          <h2 className="text-sm font-medium text-slate-900">Documents</h2>
+          <p className="text-xs text-slate-500">
             {documents.length} document{documents.length !== 1 ? 's' : ''} found
           </p>
         </div>
         <button
           onClick={() => setShowUploadModal(true)}
           disabled={isUploading}
-          className="inline-flex items-center gap-2 rounded-lg bg-[#c9a84c] px-4 py-2 text-sm font-semibold text-[#1a3d1c] transition hover:bg-[#b8973f] disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-2 rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#7A5E12] disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isUploading ? (
             <Loader2 size={16} className="animate-spin" />
@@ -824,39 +855,35 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
 
       {/* Document List */}
       {documents.length === 0 ? (
-        <div className="rounded-lg border-2 border-dashed border-stone-200 bg-stone-50 p-12 text-center">
-          <FileText size={48} className="mx-auto text-stone-300" />
-          <p className="mt-2 text-sm text-stone-500">No documents uploaded yet.</p>
-          <p className="text-xs text-stone-400">Upload your first document using the button above.</p>
+        <div className="rounded-lg border-2 border-dashed border-slate-200 bg-slate-50 p-12 text-center">
+          <FileText size={48} className="mx-auto text-slate-300" />
+          <p className="mt-2 text-sm text-slate-500">No documents uploaded yet.</p>
+          <p className="text-xs text-slate-400">Upload your first document using the button above.</p>
         </div>
       ) : (
-        <div className="grid gap-3">
+        <div className="grid gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
           {documents.map((doc) => (
             <div
               key={doc.id}
-              className="group flex items-center justify-between rounded-lg border border-stone-200 bg-white p-4 transition hover:shadow-md hover:border-stone-300 cursor-pointer"
+              className="group flex items-center justify-between bg-white p-4 transition hover:bg-slate-50 cursor-pointer"
               onClick={() => handleViewDocument(doc.id)}
             >
               <div className="flex items-start gap-4 min-w-0 flex-1">
-                <div className="rounded-lg bg-stone-100 p-2 flex-shrink-0 group-hover:bg-[#c9a84c]/10">
-                  <FileText size={20} className="text-stone-600 group-hover:text-[#c9a84c]" />
+                <div className="rounded-lg bg-slate-100 p-2 flex-shrink-0 group-hover:bg-[#8B6914]/10">
+                  <FileText size={20} className="text-slate-600 group-hover:text-[#8B6914]" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-medium text-stone-800 truncate">{doc.subject}</h3>
+                    <h3 className="font-medium text-slate-800 truncate">{doc.subject}</h3>
                     <StatusBadge status={doc.status} />
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-stone-500">
+                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
                     <span className="font-mono">Ref: {doc.ref}</span>
-                    <span className="inline-block rounded bg-stone-100 px-2 py-0.5 font-mono uppercase">
+                    <span className="inline-block rounded bg-slate-100 px-2 py-0.5 font-mono uppercase">
                       {doc.format}
                     </span>
-                    <span>
-                      {new Date(doc.created_at).toLocaleDateString()}
-                    </span>
-                    {doc.file_size && (
-                      <span>{(doc.file_size / 1024).toFixed(1)} KB</span>
-                    )}
+                    <span>{new Date(doc.created_at).toLocaleDateString()}</span>
+                    {doc.file_size && <span>{(doc.file_size / 1024).toFixed(1)} KB</span>}
                     {doc.e_stamp_status === 'stamped' && (
                       <span className="inline-flex items-center gap-1 text-emerald-600">
                         <Stamp size={12} />
@@ -869,7 +896,7 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
               <div className="flex items-center gap-1 ml-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                 <button
                   onClick={() => handleViewDocument(doc.id)}
-                  className="rounded-lg p-2 text-[#c9a84c] transition hover:bg-[#c9a84c]/10 hover:text-[#b8973f]"
+                  className="rounded-lg p-2 text-[#8B6914] transition hover:bg-[#8B6914]/10 hover:text-[#7A5E12]"
                   title="View & manage document"
                 >
                   <Eye size={18} />
@@ -878,7 +905,7 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
                   href={doc.file_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rounded-lg p-2 text-stone-400 transition hover:bg-stone-100 hover:text-stone-600"
+                  className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
                   title="Download document"
                 >
                   <Download size={16} />
@@ -886,7 +913,7 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
                 <button
                   onClick={() => handleDelete(doc.id)}
                   disabled={deletingId === doc.id}
-                  className="rounded-lg p-2 text-stone-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
                   title="Delete document"
                 >
                   {deletingId === doc.id ? (
@@ -903,30 +930,28 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
 
       {/* Upload Modal */}
       {showUploadModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
-              <h3 className="text-sm font-semibold text-[#1a3d1c]">Upload Document</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+              <h3 className="text-lg font-medium text-slate-900">Upload Document</h3>
               <button
                 onClick={handleCloseModal}
-                className="text-stone-400 hover:text-stone-600"
+                className="text-slate-400 hover:text-slate-600 transition"
               >
-                <X size={18} />
+                <X size={20} />
               </button>
             </div>
 
             <div className="p-6 space-y-4">
               {/* File Input */}
               <div>
-                <label className="mb-1 block text-xs font-medium text-stone-600">
-                  File *
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">File *</label>
                 <input
                   ref={fileInputRef}
                   type="file"
                   onChange={handleFileSelect}
                   accept=".pdf,.docx,.xlsx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                  className="w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-700 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
                 />
                 {selectedFile && (
                   <p className="mt-1 text-xs text-emerald-600">
@@ -937,44 +962,38 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
 
               {/* Reference */}
               <div>
-                <label className="mb-1 block text-xs font-medium text-stone-600">
-                  Reference *
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Reference *</label>
                 <input
                   type="text"
                   name="ref"
                   value={uploadFormData.ref}
                   onChange={handleUploadFormChange}
                   placeholder="e.g. RHC/CIRCUIT/001"
-                  className="w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-700 placeholder:text-stone-400 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
                 />
               </div>
 
               {/* Subject */}
               <div>
-                <label className="mb-1 block text-xs font-medium text-stone-600">
-                  Subject *
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Subject *</label>
                 <input
                   type="text"
                   name="subject"
                   value={uploadFormData.subject}
                   onChange={handleUploadFormChange}
                   placeholder="e.g. MOMBASA CIRCUIT"
-                  className="w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-700 placeholder:text-stone-400 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 placeholder:text-slate-400 focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
                 />
               </div>
 
               {/* Format */}
               <div>
-                <label className="mb-1 block text-xs font-medium text-stone-600">
-                  Format *
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Format *</label>
                 <select
                   name="format"
                   value={uploadFormData.format}
                   onChange={handleUploadFormChange}
-                  className="w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-700 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
                 >
                   {FORMAT_OPTIONS.map((format) => (
                     <option key={format} value={format}>
@@ -992,17 +1011,17 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
               )}
 
               {/* Actions */}
-              <div className="flex items-center justify-end gap-3 pt-2">
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-200">
                 <button
                   onClick={handleCloseModal}
-                  className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50"
+                  className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleUpload}
                   disabled={isUploading || !selectedFile}
-                  className="inline-flex items-center gap-2 rounded-lg bg-[#c9a84c] px-4 py-2 text-sm font-semibold text-[#1a3d1c] transition hover:bg-[#b8973f] disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#7A5E12] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isUploading ? (
                     <>
@@ -1033,21 +1052,6 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
       )}
     </div>
   );
-};
-
-// ─── Toast helper ────────────────────────────────────────────────────────────
-
-// Simple toast implementation - you can replace with your preferred toast library
-const toast = {
-  success: (message: string) => {
-    // You can replace this with react-hot-toast or your preferred toast library
-    console.log('✅', message);
-    alert(message);
-  },
-  error: (message: string) => {
-    console.log('❌', message);
-    alert(message);
-  },
 };
 
 export default HelpdeskDocs;

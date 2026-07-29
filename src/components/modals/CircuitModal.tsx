@@ -834,17 +834,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
     }
   };
 
-  const getFrom = () => {
-    switch (mode) {
-      case 'circuit': return 'HIGH COURT SUPPORT OFFICE -ORHC';
-      case 'bench': return 'BENCH MANAGEMENT OFFICE -ORHC';
-      case 'partHeard': return 'PART-HEARD MANAGEMENT OFFICE -ORHC';
-      case 'serviceWeek': return 'SERVICE WEEK MANAGEMENT OFFICE -ORHC';
-      case 'otherPayment': return 'OTHER PAYMENTS MANAGEMENT OFFICE -ORHC';
-      default: return 'HIGH COURT SUPPORT OFFICE -ORHC';
-    }
-  };
-
   const getTo = () => 'REGISTRAR, HIGH COURT/ ORHC AIE HOLDER';
 
   const currentUser = useAppSelector((state) => state.auth.user);
@@ -853,7 +842,10 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   const grandTotal = calculateGrandTotal();
 
   const [toField, setToField] = useState(() => getTo());
-  const [fromField, setFromField] = useState(() => getFrom());
+
+  // ── FIX: fromField now defaults to "HIGH COURT SUPPORT OFFICE" for all modes ──
+  const [fromField, setFromField] = useState('HIGH COURT SUPPORT OFFICE');
+
   const [subjectField, setSubjectField] = useState(() => getSubject());
   const dispatch = useAppDispatch();
 

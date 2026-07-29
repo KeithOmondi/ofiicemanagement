@@ -22,13 +22,13 @@ import {
   selectTasksListLoading,
   selectTasksDetailLoading,
   resetTasksState,
-  clearCurrentTask, // 👈 added
+  clearCurrentTask,
 } from "../../store/slices/tasksSlice";
 import type {
   Task,
   TaskDay,
   TaskStatus,
-  TaskAttachment, // 👈 used for attachments
+  TaskAttachment,
 } from "../../types/tasks.types";
 import {
   Sun,
@@ -50,28 +50,27 @@ import {
   MoreHorizontal,
   ArrowUpDown,
   Bell,
-  Tag,
   Target,
   Archive,
   MoreVertical,
   X,
-  ChevronLeft,
-  RotateCcw,
   Menu,
   Upload,
+  User,
 } from "lucide-react";
 
-const TAG_OPTIONS = [
-  { id: "priority", name: "Priority", color: "bg-amber-400 text-white" },
-  { id: "important", name: "important", color: "bg-rose-200 text-slate-700" },
-  { id: "family", name: "family", color: "bg-orange-100 text-slate-700" },
-  { id: "deadline", name: "deadline", color: "bg-amber-100 text-slate-700" },
-  { id: "nothing", name: "nothing", color: "bg-yellow-100 text-slate-700" },
-  { id: "trackback", name: "trackback", color: "bg-emerald-100 text-slate-700" },
-  { id: "science-project", name: "science project", color: "bg-emerald-200 text-slate-700" },
-];
+// ─── Types ──────────────────────────────────────────────────────────────
+interface User {
+  id: string;
+  full_name: string;
+}
 
-// ─── Shared Task Detail Props ──────────────────────────────────────────────
+// Local interface for the part of the root state we care about (users)
+interface RootStateWithUsers {
+  users: User[] | { list: User[] };
+}
+
+// ─── Shared Task Detail Props ──────────────────────────────────────────
 interface TaskDetailContentProps {
   task: Task;
   completedSubtasksCount: number;
@@ -81,21 +80,19 @@ interface TaskDetailContentProps {
   toggleSubtask: (subtaskId: string) => void;
   isReminderOpen: boolean;
   setIsReminderOpen: (open: boolean) => void;
-  isTagsOpen: boolean;
-  setIsTagsOpen: (open: boolean) => void;
   reminderDate: string;
   setReminderDate: (date: string) => void;
   reminderTime: string;
   setReminderTime: (time: string) => void;
   handleSaveReminder: () => void;
-  selectedTags: string[];
-  toggleTagSelection: (tagId: string) => void;
-  handleSaveTags: () => void;
+  selectedAssigneeId: string | null;
+  setSelectedAssigneeId: (id: string | null) => void;
+  users: User[];
+  onAssigneeChange: (userId: string | null) => void;
   onAttachmentUpload: (files: FileList | null) => void;
-  TAG_OPTIONS: typeof TAG_OPTIONS;
 }
 
-// ─── TaskDetailContent (unchanged except attachment fields) ──────────────
+// ─── TaskDetailContent ─────────────────────────────────────────────────
 const TaskDetailContent = ({
   task,
   completedSubtasksCount,
@@ -105,31 +102,26 @@ const TaskDetailContent = ({
   toggleSubtask,
   isReminderOpen,
   setIsReminderOpen,
-  isTagsOpen,
-  setIsTagsOpen,
   reminderDate,
   setReminderDate,
   reminderTime,
   setReminderTime,
   handleSaveReminder,
-  selectedTags,
-  toggleTagSelection,
-  handleSaveTags,
+  selectedAssigneeId,
+  setSelectedAssigneeId,
+  users,
+  onAssigneeChange,
   onAttachmentUpload,
-  TAG_OPTIONS,
 }: TaskDetailContentProps) => {
   return (
     <div className="space-y-4 sm:space-y-6">
       <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">{task.title}</h1>
 
-      {/* Reminder, Tags buttons (same as before) */}
+      {/* Reminder + Assign to */}
       <div className="relative">
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
-            onClick={() => {
-              setIsReminderOpen(!isReminderOpen);
-              setIsTagsOpen(false);
-            }}
+            onClick={() => setIsReminderOpen(!isReminderOpen)}
             className={`flex items-center space-x-1.5 sm:space-x-2 px-3 py-1.5 rounded-full border text-xs font-semibold transition ${
               isReminderOpen || task.reminder_date
                 ? "border-sky-500 bg-sky-50 text-sky-600"
@@ -149,143 +141,110 @@ const TaskDetailContent = ({
             <span>Personal</span>
           </button>
 
-          <button
-            onClick={() => {
-              setIsTagsOpen(!isTagsOpen);
-              setIsReminderOpen(false);
-            }}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition ${
-              isTagsOpen || (task.tags && task.tags.length > 0)
-                ? "border-sky-500 bg-sky-50 text-sky-600"
-                : "border-slate-200 text-slate-700 hover:bg-slate-50"
-            }`}
-          >
-            <Tag className="w-3.5 h-3.5 text-sky-500" />
-            <span>Tags</span>
-          </button>
+          <div className="relative">
+            <select
+              value={selectedAssigneeId || ""}
+              onChange={(e) => {
+                const val = e.target.value;
+                const userId = val || null;
+                setSelectedAssigneeId(userId);
+                onAssigneeChange(userId);
+              }}
+              className="flex items-center space-x-1.5 px-3 py-1.5 pr-8 rounded-full border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition bg-white appearance-none cursor-pointer"
+            >
+              <option value="">Assign to...</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.full_name}
+                </option>
+              ))}
+            </select>
+            <User className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+          </div>
         </div>
 
-        {/* Reminder Popover (unchanged) */}
+        {/* Reminder Popover (native date/time) */}
         {isReminderOpen && (
           <div className="absolute top-10 left-0 z-50 w-full max-w-md bg-white rounded-3xl border border-slate-200 shadow-2xl p-4 sm:p-5 space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            {/* ... same content ... */}
             <h3 className="text-center text-sm font-bold text-slate-800">Reminder</h3>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">DATE</label>
                 <input
-                  type="text"
+                  type="date"
                   value={reminderDate}
                   onChange={(e) => setReminderDate(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 text-center outline-none focus:border-sky-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-sky-500"
                 />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">TIME</label>
                 <input
-                  type="text"
+                  type="time"
                   value={reminderTime}
                   onChange={(e) => setReminderTime(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 text-center outline-none focus:border-sky-500"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 outline-none focus:border-sky-500"
                 />
               </div>
             </div>
-            <div className="grid grid-cols-12 gap-4 pt-1">
-              <div className="col-span-7 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-800">July 2026</span>
-                  <div className="flex items-center space-x-1 text-slate-400">
-                    <button className="p-0.5 hover:text-slate-600"><ChevronLeft className="w-4 h-4" /></button>
-                    <button className="p-0.5 hover:text-slate-600"><ChevronRight className="w-4 h-4" /></button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-7 text-center text-[10px] font-semibold text-slate-400 gap-1">
-                  <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
-                </div>
-                <div className="grid grid-cols-7 text-center text-xs font-semibold gap-y-1 gap-x-1">
-                  <span className="text-slate-300 py-1">29</span><span className="text-slate-300 py-1">30</span>
-                  <span className="text-slate-300 py-1">1</span><span className="text-slate-300 py-1">2</span>
-                  <span className="text-slate-300 py-1">3</span><span className="text-slate-300 py-1">4</span>
-                  <span className="text-slate-300 py-1">5</span><span className="text-slate-300 py-1">6</span>
-                  <span className="text-slate-300 py-1">7</span><span className="text-slate-300 py-1">8</span>
-                  <span className="text-slate-300 py-1">9</span><span className="text-slate-300 py-1">10</span>
-                  <span className="text-slate-300 py-1">11</span><span className="text-slate-300 py-1">12</span>
-                  <span className="text-slate-300 py-1">13</span><span className="text-slate-300 py-1">14</span>
-                  <span className="text-slate-300 py-1">15</span><span className="text-slate-300 py-1">16</span>
-                  <span className="text-slate-300 py-1">17</span><span className="text-slate-300 py-1">18</span>
-                  <span className="text-slate-300 py-1">19</span><span className="text-slate-300 py-1">20</span>
-                  <span className="text-slate-300 py-1">21</span><span className="text-slate-300 py-1">22</span>
-                  <span className="text-slate-300 py-1">23</span><span className="text-slate-300 py-1">24</span>
-                  <span className="text-slate-300 py-1">25</span><span className="text-slate-300 py-1">26</span>
-                  <button className="bg-sky-500 text-white rounded-full py-1 font-bold">27</button>
-                  <button className="text-slate-700 py-1 hover:bg-slate-100 rounded-full">28</button>
-                  <button className="text-slate-700 py-1 hover:bg-slate-100 rounded-full">29</button>
-                  <button className="text-slate-700 py-1 hover:bg-slate-100 rounded-full">30</button>
-                  <button className="text-slate-700 py-1 hover:bg-slate-100 rounded-full">31</button>
-                </div>
-              </div>
-              <div className="col-span-5 flex flex-col justify-center space-y-1.5 pl-2 border-l border-slate-100">
-                <button className="w-full py-1.5 px-3 rounded-full border border-slate-200 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 text-center">Later today</button>
-                <button className="w-full py-1.5 px-3 rounded-full border border-slate-200 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 text-center">Tomorrow</button>
-                <button className="w-full py-1.5 px-3 rounded-full border border-slate-200 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 text-center">Next week</button>
-                <button className="w-full py-1.5 px-3 rounded-full border border-slate-200 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 text-center">Someday</button>
-                <button className="w-full py-1.5 px-3 rounded-full border border-slate-200 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 flex items-center justify-center space-x-1 text-center">
-                  <RotateCcw className="w-3 h-3 text-slate-400" />
-                  <span>Recurring</span>
-                </button>
-              </div>
+            <div className="flex flex-wrap justify-center gap-2">
+              <button
+                onClick={() => {
+                  const today = new Date();
+                  setReminderDate(today.toISOString().split('T')[0]);
+                  setReminderTime("23:59");
+                }}
+                className="py-1.5 px-3 rounded-full border border-slate-200 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Later today
+              </button>
+              <button
+                onClick={() => {
+                  const tomorrow = new Date();
+                  tomorrow.setDate(tomorrow.getDate() + 1);
+                  setReminderDate(tomorrow.toISOString().split('T')[0]);
+                  setReminderTime("09:00");
+                }}
+                className="py-1.5 px-3 rounded-full border border-slate-200 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Tomorrow
+              </button>
+              <button
+                onClick={() => {
+                  const nextWeek = new Date();
+                  nextWeek.setDate(nextWeek.getDate() + 7);
+                  setReminderDate(nextWeek.toISOString().split('T')[0]);
+                  setReminderTime("09:00");
+                }}
+                className="py-1.5 px-3 rounded-full border border-slate-200 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Next week
+              </button>
+              <button
+                onClick={() => {
+                  const someday = new Date();
+                  someday.setFullYear(someday.getFullYear() + 1);
+                  setReminderDate(someday.toISOString().split('T')[0]);
+                  setReminderTime("09:00");
+                }}
+                className="py-1.5 px-3 rounded-full border border-slate-200 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Someday
+              </button>
             </div>
             <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-              <button onClick={() => setIsReminderOpen(false)} className="w-1/2 text-xs font-bold text-slate-700 hover:text-slate-900 transition py-1 text-center">Cancel</button>
-              <div className="h-4 w-px bg-slate-200" />
-              <button onClick={handleSaveReminder} className="w-1/2 text-xs font-bold text-sky-500 hover:text-sky-600 transition py-1 text-center">Set</button>
-            </div>
-          </div>
-        )}
-
-        {/* Tags Popover (unchanged) */}
-        {isTagsOpen && (
-          <div className="absolute top-10 left-0 z-50 w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <h3 className="text-center text-sm font-bold text-slate-800 py-3 border-b border-slate-100">Tags</h3>
-            <div
-              onClick={() => toggleTagSelection("priority")}
-              className="p-3.5 bg-amber-400 text-white flex items-center space-x-3 cursor-pointer select-none font-semibold text-xs"
-            >
-              <div className={`w-4 h-4 rounded border border-white flex items-center justify-center ${selectedTags.includes("priority") ? "bg-white text-amber-500" : ""}`}>
-                {selectedTags.includes("priority") && "✓"}
-              </div>
-              <span>Priority</span>
-            </div>
-            <div className="divide-y divide-slate-100/60 max-h-56 overflow-y-auto">
-              {TAG_OPTIONS.slice(1).map((tag) => {
-                const isSelected = selectedTags.includes(tag.id);
-                return (
-                  <div
-                    key={tag.id}
-                    onClick={() => toggleTagSelection(tag.id)}
-                    className={`p-3 ${tag.color} flex items-center space-x-3 cursor-pointer select-none font-medium text-xs transition hover:opacity-90`}
-                  >
-                    <div className={`w-4 h-4 rounded border border-slate-400/40 bg-white/60 flex items-center justify-center ${isSelected ? "bg-slate-700 text-white" : ""}`}>
-                      {isSelected && "✓"}
-                    </div>
-                    <span>{tag.name}</span>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="flex items-center justify-between p-3 border-t border-slate-100 bg-white">
               <button
-                onClick={() => setIsTagsOpen(false)}
+                onClick={() => setIsReminderOpen(false)}
                 className="w-1/2 text-xs font-bold text-slate-700 hover:text-slate-900 transition py-1 text-center"
               >
                 Cancel
               </button>
               <div className="h-4 w-px bg-slate-200" />
               <button
-                onClick={handleSaveTags}
+                onClick={handleSaveReminder}
                 className="w-1/2 text-xs font-bold text-sky-500 hover:text-sky-600 transition py-1 text-center"
               >
-                Save
+                Set
               </button>
             </div>
           </div>
@@ -334,7 +293,7 @@ const TaskDetailContent = ({
         </div>
       </div>
 
-      {/* Attachments - fixed field names */}
+      {/* Attachments */}
       <div className="space-y-2">
         <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">ATTACHMENTS</label>
         <div className="border-2 border-dashed border-slate-200 rounded-2xl p-6 sm:p-8 flex flex-col items-center justify-center text-slate-400 hover:border-slate-300 cursor-pointer transition">
@@ -365,7 +324,7 @@ const TaskDetailContent = ({
   );
 };
 
-// ─── Helper: greeting ──────────────────────────────────────────────────────
+// ─── Helper ─────────────────────────────────────────────────────────────
 const getGreeting = (): string => {
   const hour = new Date().getHours();
   if (hour < 12) return "Good Morning";
@@ -374,7 +333,7 @@ const getGreeting = (): string => {
   return "Good Night";
 };
 
-// ─── Main Dashboard ─────────────────────────────────────────────────────────
+// ─── Main Dashboard ─────────────────────────────────────────────────────
 const AnyDoDashboard = () => {
   const dispatch = useAppDispatch();
 
@@ -389,7 +348,21 @@ const AnyDoDashboard = () => {
   const myDayTasks = useAppSelector(selectMyDayTasks);
   const todayTasks = useAppSelector(selectTasksByDay('Today'));
 
+  // Auth & users – fixed selector without 'any'
   const user = useAppSelector((state) => state.auth.user);
+  const users = useAppSelector((state): User[] => {
+    // Cast the whole state to unknown, then to our local interface
+    const usersState = (state as unknown as RootStateWithUsers).users;
+    // If it's an array directly, return it
+    if (Array.isArray(usersState)) return usersState;
+    // If it's an object with a 'list' property that is an array, return that
+    if (usersState && typeof usersState === 'object' && 'list' in usersState && Array.isArray(usersState.list)) {
+      return usersState.list;
+    }
+    // Fallback to empty array
+    return [];
+  });
+
   const userName = user?.full_name || 'Guest';
   const greeting = getGreeting();
 
@@ -403,17 +376,12 @@ const AnyDoDashboard = () => {
   const [myDayInput, setMyDayInput] = useState<string>("");
   const [newSubtaskInput, setNewSubtaskInput] = useState<string>("");
   const [isReminderOpen, setIsReminderOpen] = useState<boolean>(false);
-  const [reminderDate, setReminderDate] = useState<string>("7.27.2026");
-  const [reminderTime, setReminderTime] = useState<string>("12:54 AM");
-  const [isTagsOpen, setIsTagsOpen] = useState<boolean>(false);
-  const [selectedTags, setSelectedTags] = useState<string[]>(["priority"]);
-
-  // Tracks which task's fields are currently reflected in the local state
-  // above (selectedTags / reminderDate / reminderTime). Used to derive that
-  // local state during render instead of via a useEffect — see note below.
+  const [reminderDate, setReminderDate] = useState<string>("");
+  const [reminderTime, setReminderTime] = useState<string>("");
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState<string | null>(null);
   const [syncedTaskId, setSyncedTaskId] = useState<string | null>(null);
 
-  // ── Load data (memoized) ──────────────────────────────────────────────────
+  // ── Load data ──────────────────────────────────────────────────────────
   const loadData = useCallback(() => {
     dispatch(resetTasksState());
     dispatch(fetchTasks({}));
@@ -433,31 +401,20 @@ const AnyDoDashboard = () => {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [loadData]);
 
-  // ── Sync local state with currentTask ────────────────────────────────────
-  // This used to be a useEffect that called setState synchronously whenever
-  // `currentTask` changed, which React flags as causing an extra cascading
-  // render (commit → run effect → setState → re-render). Since this is a
-  // "derive/reset local state when a prop/selector changes" pattern rather
-  // than a real subscription to an external system, React's own guidance is
-  // to do the comparison during render and call setState conditionally in
-  // the render body. When the condition below is true, React discards the
-  // in-progress render and re-renders immediately with the new state in the
-  // same pass — no extra commit, no cascading render warning.
+  // ── Sync local state with currentTask ────────────────────────────────
   if (currentTask && currentTask.id !== syncedTaskId) {
     setSyncedTaskId(currentTask.id);
-    setSelectedTags(currentTask.tags || []);
-    if (currentTask.reminder_date && currentTask.reminder_time) {
-      setReminderDate(currentTask.reminder_date);
-      setReminderTime(currentTask.reminder_time);
-    }
+    setReminderDate(currentTask.reminder_date || new Date().toISOString().split('T')[0]);
+    setReminderTime(currentTask.reminder_time || "09:00");
+    setSelectedAssigneeId(currentTask.assigned_to || null);
   } else if (!currentTask && syncedTaskId !== null) {
-    // currentTask was cleared (e.g. handleClearCurrentTask) — reset local
-    // state back to defaults so stale values don't leak into the next task.
     setSyncedTaskId(null);
-    setSelectedTags(["priority"]);
+    setSelectedAssigneeId(null);
+    setReminderDate("");
+    setReminderTime("");
   }
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
+  // ── Handlers ──────────────────────────────────────────────────────────
   const toggleTaskCompletion = (taskId: string) => {
     const task = tasks.find(t => t.id === taskId);
     if (task) {
@@ -505,7 +462,9 @@ const AnyDoDashboard = () => {
     dispatch(createSubtask({
       taskId: currentTask.id,
       data: { task_id: currentTask.id, title: newSubtaskInput.trim() }
-    }));
+    })).then(() => {
+      dispatch(fetchTaskById(currentTask.id));
+    });
     setNewSubtaskInput("");
   };
 
@@ -517,7 +476,9 @@ const AnyDoDashboard = () => {
       taskId: currentTask.id,
       subtaskId,
       data: { completed: !subtask.completed }
-    }));
+    })).then(() => {
+      dispatch(fetchTaskById(currentTask.id));
+    });
   };
 
   const handleSaveReminder = () => {
@@ -525,35 +486,30 @@ const AnyDoDashboard = () => {
     dispatch(updateTask({
       id: currentTask.id,
       data: { reminder_date: reminderDate, reminder_time: reminderTime }
-    }));
+    })).then(() => {
+      dispatch(fetchTaskById(currentTask.id));
+    });
     setIsReminderOpen(false);
   };
 
-  const toggleTagSelection = (tagId: string) => {
-    setSelectedTags((prev) =>
-      prev.includes(tagId) ? prev.filter(id => id !== tagId) : [...prev, tagId]
-    );
-  };
-
-  const handleSaveTags = () => {
+  const handleAssigneeChange = (userId: string | null) => {
     if (!currentTask) return;
     dispatch(updateTask({
       id: currentTask.id,
-      data: { tags: selectedTags }
-    }));
-    setIsTagsOpen(false);
+      data: { assigned_to: userId }
+    })).then(() => {
+      dispatch(fetchTaskById(currentTask.id));
+    });
   };
 
   const handleSelectTask = (taskId: string) => {
     dispatch(fetchTaskById(taskId));
     setIsReminderOpen(false);
-    setIsTagsOpen(false);
   };
 
   const handleClearCurrentTask = () => {
     dispatch(clearCurrentTask());
     setIsReminderOpen(false);
-    setIsTagsOpen(false);
   };
 
   const handleAttachmentUpload = (files: FileList | null) => {
@@ -565,7 +521,7 @@ const AnyDoDashboard = () => {
 
   const completedSubtasksCount = currentTask?.subtasks?.filter(st => st.completed).length || 0;
 
-  // ─── Loading & Error ──────────────────────────────────────────────────────
+  // ─── Loading & Error ──────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-[#f4f5f7]">
@@ -595,7 +551,7 @@ const AnyDoDashboard = () => {
     );
   }
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ─── Render ───────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen w-full bg-[#f4f5f7] font-sans overflow-hidden text-slate-800 relative">
       {/* Mobile hamburger */}
@@ -606,7 +562,7 @@ const AnyDoDashboard = () => {
         <Menu className="w-5 h-5 text-slate-600" />
       </button>
 
-      {/* Sidebar */}
+      {/* Sidebar (unchanged) */}
       <aside
         className={`
           bg-white border-r border-slate-200 flex flex-col justify-between p-3 shrink-0 transition-all duration-300 relative z-40
@@ -615,7 +571,6 @@ const AnyDoDashboard = () => {
         `}
       >
         <div className="space-y-5">
-          {/* Header */}
           <div className="flex items-center justify-between pb-2 border-b border-slate-100 min-h-[40px]">
             {!isSidebarCollapsed && (
               <div className="flex items-center space-x-2.5 overflow-hidden">
@@ -810,7 +765,6 @@ const AnyDoDashboard = () => {
       <main className="flex-1 flex flex-col overflow-hidden relative">
         {activeTab === "My day" ? (
           <div className="flex-1 flex flex-col justify-between p-4 sm:p-6 md:p-8 overflow-y-auto relative bg-gradient-to-br from-[#f8fafc] via-[#e0f2fe]/40 to-[#0284c7]/20">
-            {/* ... My day content (unchanged) ... */}
             <div className="absolute right-0 top-1/4 w-96 h-96 rounded-full bg-sky-500/30 blur-2xl pointer-events-none" />
             <div className="absolute -right-10 top-1/2 w-80 h-80 rounded-full bg-blue-600/40 blur-xl pointer-events-none" />
 
@@ -865,7 +819,6 @@ const AnyDoDashboard = () => {
                     onClick={() => {
                       handleSelectTask(task.id);
                       setIsReminderOpen(false);
-                      setIsTagsOpen(false);
                     }}
                     className="bg-white/90 backdrop-blur-md border border-white/80 rounded-2xl p-3 sm:p-4 shadow-2xs flex items-center space-x-3 group transition hover:shadow-xs cursor-pointer"
                   >
@@ -888,13 +841,9 @@ const AnyDoDashboard = () => {
                       <h3 className={`text-sm font-semibold truncate ${task.status === 'completed' ? "line-through text-slate-400" : "text-slate-800"}`}>
                         {task.title}
                       </h3>
-                      {task.tags && task.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          {task.tags.map((tag) => (
-                            <span key={tag} className="text-[8px] px-1.5 py-0.5 bg-slate-100 rounded-full text-slate-500">
-                              {tag}
-                            </span>
-                          ))}
+                      {task.assigned_to && (
+                        <div className="text-[10px] text-slate-500 mt-0.5">
+                          Assigned to: {users.find(u => u.id === task.assigned_to)?.full_name || 'Unknown'}
                         </div>
                       )}
                     </div>
@@ -923,7 +872,6 @@ const AnyDoDashboard = () => {
         ) : activeTab === "Next 7 days" ? (
           /* Next 7 days Kanban (unchanged) */
           <div className="flex-1 flex flex-col overflow-hidden relative bg-[#f4f5f7]">
-            {/* ... (same as before) ... */}
             <div className="absolute -right-20 -top-20 w-[600px] h-[600px] bg-sky-500/80 rounded-full blur-3xl pointer-events-none" />
             <div className="absolute right-0 top-1/4 w-[500px] h-[500px] bg-blue-600/80 rounded-full blur-2xl pointer-events-none" />
 
@@ -984,7 +932,6 @@ const AnyDoDashboard = () => {
                             onClick={() => {
                               handleSelectTask(task.id);
                               setIsReminderOpen(false);
-                              setIsTagsOpen(false);
                             }}
                             className="bg-white rounded-2xl p-3 border border-slate-100 shadow-2xs space-y-1 group transition hover:shadow-xs cursor-pointer"
                           >
@@ -1008,6 +955,11 @@ const AnyDoDashboard = () => {
                                 {task.title}
                               </span>
                             </div>
+                            {task.assigned_to && (
+                              <div className="text-[9px] text-slate-500 ml-7">
+                                Assigned: {users.find(u => u.id === task.assigned_to)?.full_name || 'Unknown'}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -1063,7 +1015,6 @@ const AnyDoDashboard = () => {
             </div>
 
             <div className="relative z-10 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 px-4 sm:px-8 pb-4 sm:pb-8 overflow-hidden">
-              {/* Left panel – task list */}
               <div className="lg:col-span-4 bg-white/90 backdrop-blur-md rounded-3xl border border-white/80 p-4 sm:p-5 shadow-xs flex flex-col justify-between overflow-hidden">
                 <div className="space-y-4 sm:space-y-6 overflow-y-auto pr-1">
                   <div className="space-y-2">
@@ -1077,7 +1028,6 @@ const AnyDoDashboard = () => {
                             onClick={() => {
                               handleSelectTask(task.id);
                               setIsReminderOpen(false);
-                              setIsTagsOpen(false);
                             }}
                             className={`flex items-start space-x-3 p-2 sm:p-3 rounded-2xl cursor-pointer transition ${
                               isSelected ? "bg-slate-50/90 shadow-2xs border border-slate-100" : "hover:bg-slate-50"
@@ -1097,6 +1047,11 @@ const AnyDoDashboard = () => {
                                 {task.title}
                               </h4>
                               <p className="text-[10px] text-slate-400 font-medium truncate">{task.list_name || 'Personal'}</p>
+                              {task.assigned_to && (
+                                <p className="text-[9px] text-slate-500">
+                                  Assigned: {users.find(u => u.id === task.assigned_to)?.full_name || 'Unknown'}
+                                </p>
+                              )}
                             </div>
                           </div>
                         );
@@ -1118,7 +1073,6 @@ const AnyDoDashboard = () => {
                 </div>
               </div>
 
-              {/* Right panel – detail view */}
               <div className="hidden lg:block lg:col-span-8 bg-white rounded-3xl border border-slate-200/80 p-6 sm:p-8 shadow-xs flex flex-col justify-between overflow-y-auto relative">
                 {detailLoading ? (
                   <div className="flex items-center justify-center h-full text-slate-400">
@@ -1135,18 +1089,16 @@ const AnyDoDashboard = () => {
                     toggleSubtask={toggleSubtask}
                     isReminderOpen={isReminderOpen}
                     setIsReminderOpen={setIsReminderOpen}
-                    isTagsOpen={isTagsOpen}
-                    setIsTagsOpen={setIsTagsOpen}
                     reminderDate={reminderDate}
                     setReminderDate={setReminderDate}
                     reminderTime={reminderTime}
                     setReminderTime={setReminderTime}
                     handleSaveReminder={handleSaveReminder}
-                    selectedTags={selectedTags}
-                    toggleTagSelection={toggleTagSelection}
-                    handleSaveTags={handleSaveTags}
+                    selectedAssigneeId={selectedAssigneeId}
+                    setSelectedAssigneeId={setSelectedAssigneeId}
+                    users={users}
+                    onAssigneeChange={handleAssigneeChange}
                     onAttachmentUpload={handleAttachmentUpload}
-                    TAG_OPTIONS={TAG_OPTIONS}
                   />
                 ) : (
                   <div className="flex items-center justify-center h-full text-slate-400 text-xs">
@@ -1159,7 +1111,7 @@ const AnyDoDashboard = () => {
         )}
       </main>
 
-      {/* Mobile bottom sheet for task detail */}
+      {/* Mobile bottom sheet for All my tasks */}
       {currentTask && activeTab === "All my tasks" && (
         <div className="absolute inset-0 z-50 flex items-end justify-center lg:hidden">
           <div className="absolute inset-0 bg-black/30" onClick={handleClearCurrentTask} />
@@ -1182,18 +1134,16 @@ const AnyDoDashboard = () => {
               toggleSubtask={toggleSubtask}
               isReminderOpen={isReminderOpen}
               setIsReminderOpen={setIsReminderOpen}
-              isTagsOpen={isTagsOpen}
-              setIsTagsOpen={setIsTagsOpen}
               reminderDate={reminderDate}
               setReminderDate={setReminderDate}
               reminderTime={reminderTime}
               setReminderTime={setReminderTime}
               handleSaveReminder={handleSaveReminder}
-              selectedTags={selectedTags}
-              toggleTagSelection={toggleTagSelection}
-              handleSaveTags={handleSaveTags}
+              selectedAssigneeId={selectedAssigneeId}
+              setSelectedAssigneeId={setSelectedAssigneeId}
+              users={users}
+              onAssigneeChange={handleAssigneeChange}
               onAttachmentUpload={handleAttachmentUpload}
-              TAG_OPTIONS={TAG_OPTIONS}
             />
           </div>
         </div>
@@ -1242,18 +1192,16 @@ const AnyDoDashboard = () => {
               toggleSubtask={toggleSubtask}
               isReminderOpen={isReminderOpen}
               setIsReminderOpen={setIsReminderOpen}
-              isTagsOpen={isTagsOpen}
-              setIsTagsOpen={setIsTagsOpen}
               reminderDate={reminderDate}
               setReminderDate={setReminderDate}
               reminderTime={reminderTime}
               setReminderTime={setReminderTime}
               handleSaveReminder={handleSaveReminder}
-              selectedTags={selectedTags}
-              toggleTagSelection={toggleTagSelection}
-              handleSaveTags={handleSaveTags}
+              selectedAssigneeId={selectedAssigneeId}
+              setSelectedAssigneeId={setSelectedAssigneeId}
+              users={users}
+              onAssigneeChange={handleAssigneeChange}
               onAttachmentUpload={handleAttachmentUpload}
-              TAG_OPTIONS={TAG_OPTIONS}
             />
           </div>
         </div>
