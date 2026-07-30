@@ -15,13 +15,41 @@ export type HelpdeskEntityType =
     | 'visa'             // Visa support documents
     | 'protocol'         // Protocol event documents
     | 'club'             // Club membership documents
-    | 'utility_memo'     // Utility memo documents
-    | 'aide';            // Aide request documents
+    | 'utility_memo'     // Single judge utility memo
+    | 'consolidated_utility_memo'  // Consolidated memo covering all utilities
+    | 'consolidated_fuel_memo'     // Consolidated memo covering fuel only
+    | 'aide'             // Aide request documents
+    | 'sentry';          // Sentry request documents ← ADDED THIS
 
 export type HelpdeskDocumentFormat = 'pdf' | 'docx' | 'xlsx';
 
 export type HelpdeskDocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
+
+// ─── Consolidated Memo Helpers ──────────────────────────────────────────────
+
+export type ConsolidatedMemoType = 'all' | 'fuel';
+
+/**
+ * Generates a stable, human-readable entity ID for a consolidated memo.
+ * Format: "cons-{type}-{YYYY-MM}" e.g., "cons-all-2026-07"
+ */
+export function getConsolidatedMemoEntityId(
+    type: ConsolidatedMemoType,
+    date: Date = new Date()
+): string {
+    const month = date.toISOString().slice(0, 7); // YYYY-MM
+    return `cons-${type}-${month}`;
+}
+
+/**
+ * Returns the appropriate HelpdeskEntityType for a consolidated memo.
+ */
+export function getConsolidatedMemoEntityType(
+    type: ConsolidatedMemoType
+): HelpdeskEntityType {
+    return type === 'fuel' ? 'consolidated_fuel_memo' : 'consolidated_utility_memo';
+}
 
 // ─── Request Types (Unified) ───────────────────────────────────────────────
 
@@ -36,6 +64,26 @@ export type RequestType =
 
 export type RemarkType = 'Onboarding' | 'Release';
 export type GeneralRequestCategory = 'Security' | 'Personnel' | 'Administrative';
+
+// ─── Officer Ranks (Matching Backend) ──────────────────────────────────────
+
+export type OfficerRank =
+    | 'Police Constable (PC)'
+    | 'Corporal (CPL)'
+    | 'Sergeant (SGT)'
+    | 'Inspector (IP)'
+    | 'Chief Inspector (CIP)'
+    | 'Assistant Superintendent (ASP)'
+    | 'Superintendent (SP)'
+    | 'Senior Superintendent (SSP)'
+    | 'Assistant Commissioner (ACP)'
+    | 'Senior Assistant Commissioner (SACP)'
+    | 'Commissioner (CP)';
+
+export type UnitType = 'KPS' | 'APS' | 'GSU' | 'DCI' | 'VIPPU' | 'Other';
+
+export type AideStatus = 'pending' | 'in_progress' | 'rejected' | 'attached';
+export type SentryStatus = 'pending' | 'active' | 'resolved' | 'rejected';
 
 // ─── Approval History ──────────────────────────────────────────────────────
 
@@ -90,13 +138,14 @@ export interface DocumentWithViewStatus {
 
 /**
  * Extended document type for helpdesk-specific fields
+ * Matches the backend's HelpdeskDocument interface
  */
 export interface HelpdeskDocument {
     id: string;
     ref: string;
     subject: string;
     entity_type: HelpdeskEntityType;
-    entity_id: string | null;
+    entity_id: string | null;   // can be UUID or custom ID (e.g., "cons-all-2026-07")
     format: HelpdeskDocumentFormat;
     file_url: string;
     public_id: string;
@@ -129,14 +178,18 @@ export interface HelpdeskDocument {
     category_type?: GeneralRequestCategory; // Security, Personnel, Administrative
 
     // ─── Aide Request Fields ──────────────────────────────────────────────────
-    officer_rank?: string | null;      // Police officer rank
-    officer_name?: string | null;      // Police officer name
-    employment_number?: string | null; // Employment/Service number
-    current_station?: string | null;   // Current station
-    current_unit?: string | null;      // Current unit (KPS, APS, GSU, etc.)
-    proposed_assignment?: string | null; // Proposed assignment description
-    reporting_date?: string | null;    // Expected reporting date
-    aide_status?: string | null;       // Aide request status (in_progress, rejected, attached)
+    officer_rank?: OfficerRank | null;
+    officer_name?: string | null;
+    employment_number?: string | null;
+    current_station?: string | null;
+    current_unit?: UnitType | null;
+    proposed_assignment?: string | null;
+    reporting_date?: string | null;
+    aide_status?: AideStatus | null;
+    
+    // ─── Sentry Request Fields ──────────────────────────────────────────────
+    residence_location?: string | null;
+    sentry_status?: SentryStatus | null;
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string | null;              // Officer's rank (deprecated, use officer_rank)
@@ -146,7 +199,7 @@ export interface HelpdeskDocument {
 
 export interface HelpdeskDocumentFilters {
     entity_type?: HelpdeskEntityType;
-    entity_id?: string;
+    entity_id?: string;   // can be UUID or custom ID
     format?: HelpdeskDocumentFormat;
     status?: HelpdeskDocumentStatus;
     search?: string;
@@ -165,13 +218,17 @@ export interface HelpdeskDocumentFilters {
     date_to?: string;
 
     // ─── Aide Request Filters ──────────────────────────────────────────────
-    officer_rank?: string;
+    officer_rank?: OfficerRank;
     officer_name?: string;
     employment_number?: string;
     current_station?: string;
-    current_unit?: string;
-    aide_status?: string;
+    current_unit?: UnitType;
+    aide_status?: AideStatus;
     reporting_date?: string;
+    
+    // ─── Sentry Request Filters ──────────────────────────────────────────────
+    residence_location?: string;
+    sentry_status?: SentryStatus;
     
     // ─── Legacy filters ──────────────────────────────────────────────────────
     rank?: string;
@@ -185,7 +242,7 @@ export interface UploadHelpdeskDocumentPayload {
     ref: string;
     subject: string;
     entity_type: HelpdeskEntityType;
-    entity_id?: string;
+    entity_id?: string;   // can be UUID or custom ID
     format: HelpdeskDocumentFormat;
     status?: HelpdeskDocumentStatus;
 
@@ -196,14 +253,18 @@ export interface UploadHelpdeskDocumentPayload {
     category_type?: GeneralRequestCategory;
 
     // ─── Aide Request Fields ──────────────────────────────────────────────
-    officer_rank?: string;
+    officer_rank?: OfficerRank;
     officer_name?: string;
     employment_number?: string;
     current_station?: string;
-    current_unit?: string;
+    current_unit?: UnitType;
     proposed_assignment?: string;
     reporting_date?: string;
-    aide_status?: string;
+    aide_status?: AideStatus;
+    
+    // ─── Sentry Request Fields ──────────────────────────────────────────────
+    residence_location?: string;
+    sentry_status?: SentryStatus;
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
@@ -273,21 +334,25 @@ export interface DeleteCommentPayload {
 export interface LinkHelpdeskDocumentPayload {
     id: string;
     entity_type: HelpdeskEntityType;
-    entity_id: string;
+    entity_id: string;   // can be UUID or custom ID
     request_type?: RequestType;
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
     
     // ─── Aide Request Fields ──────────────────────────────────────────────
-    officer_rank?: string;
+    officer_rank?: OfficerRank;
     officer_name?: string;
     employment_number?: string;
     current_station?: string;
-    current_unit?: string;
+    current_unit?: UnitType;
     proposed_assignment?: string;
     reporting_date?: string;
-    aide_status?: string;
+    aide_status?: AideStatus;
+    
+    // ─── Sentry Request Fields ──────────────────────────────────────────────
+    residence_location?: string;
+    sentry_status?: SentryStatus;
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
@@ -305,21 +370,25 @@ export interface UpdateEStampPayload {
 export interface BulkLinkDocumentsPayload {
     document_ids: string[];
     entity_type: HelpdeskEntityType;
-    entity_id: string;
+    entity_id: string;   // can be UUID or custom ID
     request_type?: RequestType;
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
     
     // ─── Aide Request Fields ──────────────────────────────────────────────
-    officer_rank?: string;
+    officer_rank?: OfficerRank;
     officer_name?: string;
     employment_number?: string;
     current_station?: string;
-    current_unit?: string;
+    current_unit?: UnitType;
     proposed_assignment?: string;
     reporting_date?: string;
-    aide_status?: string;
+    aide_status?: AideStatus;
+    
+    // ─── Sentry Request Fields ──────────────────────────────────────────────
+    residence_location?: string;
+    sentry_status?: SentryStatus;
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
@@ -446,8 +515,11 @@ export const HELPEDSK_ENTITY_LABELS: Record<HelpdeskEntityType, string> = {
     visa: 'Visa Support',
     protocol: 'Protocol Event',
     club: 'Club Membership',
-    utility_memo: 'Utility Memo',
+    utility_memo: 'Utility Memo (Single Judge)',
+    consolidated_utility_memo: 'Consolidated Utility Memo',
+    consolidated_fuel_memo: 'Consolidated Fuel Memo',
     aide: 'Aide Request',
+    sentry: 'Sentry Request', // ← ADDED
 };
 
 export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
@@ -464,7 +536,10 @@ export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
     protocol: 'Calendar',
     club: 'Users',
     utility_memo: 'FileText',
+    consolidated_utility_memo: 'FileSpreadsheet',
+    consolidated_fuel_memo: 'Fuel',
     aide: 'Shield',
+    sentry: 'Home', // ← ADDED
 };
 
 export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
@@ -481,7 +556,10 @@ export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
     protocol: 'text-blue-600 bg-blue-50',
     club: 'text-purple-600 bg-purple-50',
     utility_memo: 'text-amber-600 bg-amber-50',
+    consolidated_utility_memo: 'text-indigo-600 bg-indigo-50',
+    consolidated_fuel_memo: 'text-orange-600 bg-orange-50',
     aide: 'text-blue-600 bg-blue-50',
+    sentry: 'text-emerald-600 bg-emerald-50', // ← ADDED
 };
 
 export const DOCUMENT_STATUS_LABELS: Record<HelpdeskDocumentStatus, string> = {
@@ -518,6 +596,54 @@ export const E_STAMP_STATUS_COLORS: Record<EStampStatus, string> = {
     pending: 'text-amber-600 bg-amber-50',
     stamped: 'text-emerald-600 bg-emerald-50',
     failed: 'text-red-600 bg-red-50',
+};
+
+// ─── Aide Status Constants ──────────────────────────────────────────────────
+
+export const AIDE_STATUS_LABELS: Record<AideStatus, string> = {
+    pending: 'Pending',
+    in_progress: 'In Progress',
+    rejected: 'Rejected',
+    attached: 'Attached',
+};
+
+export const AIDE_STATUS_COLORS: Record<AideStatus, string> = {
+    pending: 'text-amber-600 bg-amber-50',
+    in_progress: 'text-blue-600 bg-blue-50',
+    rejected: 'text-red-600 bg-red-50',
+    attached: 'text-emerald-600 bg-emerald-50',
+};
+
+// ─── Sentry Status Constants ──────────────────────────────────────────────
+
+export const SENTRY_STATUS_LABELS: Record<SentryStatus, string> = {
+    pending: 'Pending',
+    active: 'Active',
+    resolved: 'Resolved',
+    rejected: 'Rejected',
+};
+
+export const SENTRY_STATUS_COLORS: Record<SentryStatus, string> = {
+    pending: 'text-amber-600 bg-amber-50',
+    active: 'text-emerald-600 bg-emerald-50',
+    resolved: 'text-blue-600 bg-blue-50',
+    rejected: 'text-red-600 bg-red-50',
+};
+
+// ─── Officer Rank Constants ──────────────────────────────────────────────────
+
+export const OFFICER_RANK_LABELS: Record<OfficerRank, string> = {
+    'Police Constable (PC)': 'Police Constable (PC)',
+    'Corporal (CPL)': 'Corporal (CPL)',
+    'Sergeant (SGT)': 'Sergeant (SGT)',
+    'Inspector (IP)': 'Inspector (IP)',
+    'Chief Inspector (CIP)': 'Chief Inspector (CIP)',
+    'Assistant Superintendent (ASP)': 'Assistant Superintendent (ASP)',
+    'Superintendent (SP)': 'Superintendent (SP)',
+    'Senior Superintendent (SSP)': 'Senior Superintendent (SSP)',
+    'Assistant Commissioner (ACP)': 'Assistant Commissioner (ACP)',
+    'Senior Assistant Commissioner (SACP)': 'Senior Assistant Commissioner (SACP)',
+    'Commissioner (CP)': 'Commissioner (CP)',
 };
 
 // ─── Request Type Helpers ────────────────────────────────────────────────────
@@ -603,6 +729,26 @@ export function getCategoryTypeLabel(category: GeneralRequestCategory): string {
     return CATEGORY_TYPE_LABELS[category] || category;
 }
 
+export function getOfficerRankLabel(rank: OfficerRank): string {
+    return OFFICER_RANK_LABELS[rank] || rank;
+}
+
+export function getAideStatusLabel(status: AideStatus): string {
+    return AIDE_STATUS_LABELS[status] || status;
+}
+
+export function getAideStatusColor(status: AideStatus): string {
+    return AIDE_STATUS_COLORS[status] || '';
+}
+
+export function getSentryStatusLabel(status: SentryStatus): string {
+    return SENTRY_STATUS_LABELS[status] || status;
+}
+
+export function getSentryStatusColor(status: SentryStatus): string {
+    return SENTRY_STATUS_COLORS[status] || '';
+}
+
 export function isRequestType(value: string): value is RequestType {
     return [
         'Driver',
@@ -623,6 +769,34 @@ export function isGeneralRequestCategory(value: string): value is GeneralRequest
     return ['Security', 'Personnel', 'Administrative'].includes(value);
 }
 
+export function isOfficerRank(value: string): value is OfficerRank {
+    return [
+        'Police Constable (PC)',
+        'Corporal (CPL)',
+        'Sergeant (SGT)',
+        'Inspector (IP)',
+        'Chief Inspector (CIP)',
+        'Assistant Superintendent (ASP)',
+        'Superintendent (SP)',
+        'Senior Superintendent (SSP)',
+        'Assistant Commissioner (ACP)',
+        'Senior Assistant Commissioner (SACP)',
+        'Commissioner (CP)'
+    ].includes(value);
+}
+
+export function isUnitType(value: string): value is UnitType {
+    return ['KPS', 'APS', 'GSU', 'DCI', 'VIPPU', 'Other'].includes(value);
+}
+
+export function isAideStatus(value: string): value is AideStatus {
+    return ['pending', 'in_progress', 'rejected', 'attached'].includes(value);
+}
+
+export function isSentryStatus(value: string): value is SentryStatus {
+    return ['pending', 'active', 'resolved', 'rejected'].includes(value);
+}
+
 // ─── Type Guards ─────────────────────────────────────────────────────────────
 
 export function isHelpdeskEntityType(value: string): value is HelpdeskEntityType {
@@ -640,7 +814,10 @@ export function isHelpdeskEntityType(value: string): value is HelpdeskEntityType
         'protocol',
         'club',
         'utility_memo',
-        'aide'
+        'consolidated_utility_memo',
+        'consolidated_fuel_memo',
+        'aide',
+        'sentry'  // ← ADDED
     ].includes(value);
 }
 

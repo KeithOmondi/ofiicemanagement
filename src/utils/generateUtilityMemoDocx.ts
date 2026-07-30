@@ -1,4 +1,3 @@
-// src/utils/generateUtilityMemoDocx.ts
 import {
   Document,
   Packer,
@@ -95,51 +94,98 @@ export async function generateUtilityMemoDocx(data: UtilityMemoData): Promise<Bl
         }),
     );
 
-  const headerRow = new TableRow({
-    tableHeader: true,
-    children: [
-      headerCell('S/NO.', 8, AlignmentType.CENTER),
-      headerCell('NAMES', 32),
-      headerCell('KPLC', 15, AlignmentType.RIGHT),
-      headerCell('WATER', 15, AlignmentType.RIGHT),
-      headerCell('WIFI', 15, AlignmentType.RIGHT),
-      headerCell('TOTAL', 15, AlignmentType.RIGHT),
-    ],
-  });
+  const isFuel = data.memoType === 'fuel';
 
-  const dataRows = data.rows.map(
-    (row, index) =>
-      new TableRow({
-        children: [
-          dataCell(String(index + 1), 8, AlignmentType.CENTER),
-          dataCell(row.judge_name, 32),
-          dataCell(formatAmount(row.kplc), 15, AlignmentType.RIGHT),
-          dataCell(formatAmount(row.water), 15, AlignmentType.RIGHT),
-          dataCell(formatAmount(row.wifi), 15, AlignmentType.RIGHT),
-          dataCell(formatAmount(row.total), 15, AlignmentType.RIGHT, true),
-        ],
-      }),
-  );
+  let headerRow: TableRow;
+  let dataRows: TableRow[];
+  let totalRow: TableRow;
 
-  const totalRow = new TableRow({
-    children: [
-      new TableCell({
-        width: { size: 40, type: WidthType.PERCENTAGE },
-        columnSpan: 2,
-        borders: cellBorders,
-        children: [
-          new Paragraph({
-            alignment: AlignmentType.RIGHT,
-            children: [new TextRun({ text: 'GRAND TOTAL', bold: true, size: 20 })],
-          }),
-        ],
-      }),
-      dataCell(formatAmount(data.grandKplc), 15, AlignmentType.RIGHT, true),
-      dataCell(formatAmount(data.grandWater), 15, AlignmentType.RIGHT, true),
-      dataCell(formatAmount(data.grandWifi), 15, AlignmentType.RIGHT, true),
-      dataCell(formatAmount(data.grandTotal), 15, AlignmentType.RIGHT, true),
-    ],
-  });
+  if (isFuel) {
+    // ─── Fuel‑only table ──────────────────────────────────────────────
+    headerRow = new TableRow({
+      tableHeader: true,
+      children: [
+        headerCell('S/NO.', 10, AlignmentType.CENTER),
+        headerCell('NAMES', 50),
+        headerCell('FUEL', 40, AlignmentType.RIGHT),
+      ],
+    });
+
+    dataRows = data.rows.map(
+      (row, index) =>
+        new TableRow({
+          children: [
+            dataCell(String(index + 1), 10, AlignmentType.CENTER),
+            dataCell(row.judge_name, 50),
+            dataCell(formatAmount(row.total), 40, AlignmentType.RIGHT, true),
+          ],
+        }),
+    );
+
+    totalRow = new TableRow({
+      children: [
+        new TableCell({
+          width: { size: 60, type: WidthType.PERCENTAGE },
+          columnSpan: 2,
+          borders: cellBorders,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.RIGHT,
+              children: [new TextRun({ text: 'GRAND TOTAL', bold: true, size: 20 })],
+            }),
+          ],
+        }),
+        dataCell(formatAmount(data.grandTotal), 40, AlignmentType.RIGHT, true),
+      ],
+    });
+  } else {
+    // ─── All‑utilities table ──────────────────────────────────────────
+    headerRow = new TableRow({
+      tableHeader: true,
+      children: [
+        headerCell('S/NO.', 8, AlignmentType.CENTER),
+        headerCell('NAMES', 32),
+        headerCell('KPLC', 15, AlignmentType.RIGHT),
+        headerCell('WATER', 15, AlignmentType.RIGHT),
+        headerCell('WIFI', 15, AlignmentType.RIGHT),
+        headerCell('TOTAL', 15, AlignmentType.RIGHT),
+      ],
+    });
+
+    dataRows = data.rows.map(
+      (row, index) =>
+        new TableRow({
+          children: [
+            dataCell(String(index + 1), 8, AlignmentType.CENTER),
+            dataCell(row.judge_name, 32),
+            dataCell(formatAmount(row.kplc), 15, AlignmentType.RIGHT),
+            dataCell(formatAmount(row.water), 15, AlignmentType.RIGHT),
+            dataCell(formatAmount(row.wifi), 15, AlignmentType.RIGHT),
+            dataCell(formatAmount(row.total), 15, AlignmentType.RIGHT, true),
+          ],
+        }),
+    );
+
+    totalRow = new TableRow({
+      children: [
+        new TableCell({
+          width: { size: 40, type: WidthType.PERCENTAGE },
+          columnSpan: 2,
+          borders: cellBorders,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.RIGHT,
+              children: [new TextRun({ text: 'GRAND TOTAL', bold: true, size: 20 })],
+            }),
+          ],
+        }),
+        dataCell(formatAmount(data.grandKplc), 15, AlignmentType.RIGHT, true),
+        dataCell(formatAmount(data.grandWater), 15, AlignmentType.RIGHT, true),
+        dataCell(formatAmount(data.grandWifi), 15, AlignmentType.RIGHT, true),
+        dataCell(formatAmount(data.grandTotal), 15, AlignmentType.RIGHT, true),
+      ],
+    });
+  }
 
   const table = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
@@ -267,9 +313,5 @@ export async function generateUtilityMemoDocx(data: UtilityMemoData): Promise<Bl
     ],
   });
 
-  // Return the generated Word document as a Blob instead of triggering a
-  // local download via saveAs(). The caller (UtilitiesMemoModal) is
-  // responsible for naming the file and deciding what to do with the
-  // blob (upload to the document system and/or offer a local download).
   return Packer.toBlob(doc);
 }

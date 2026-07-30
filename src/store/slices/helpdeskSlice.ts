@@ -444,6 +444,16 @@ export interface CreateCircuitInput {
   dsa_details?: DSADetailInput[];
 }
 
+// ─── NEW: Update input for circuits ─────────────────────────────────────────
+export interface UpdateCircuitInput {
+  name?: string;
+  location?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: Status;
+  dsa_details?: DSADetailInput[];
+}
+
 // ─── Other Payments ──────────────────────────────────────────────────────────
 
 export interface OtherPayment {
@@ -466,6 +476,16 @@ export interface CreateOtherPaymentInput {
   description?: string;
   start_date: string;
   end_date: string;
+  dsa_details?: DSADetailInput[];
+}
+
+// ─── NEW: Update input for other payments ──────────────────────────────────
+export interface UpdateOtherPaymentInput {
+  name?: string;
+  description?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: Status;
   dsa_details?: DSADetailInput[];
 }
 
@@ -563,6 +583,17 @@ export interface CreateServiceWeekInput {
   year: string;
   start_date: string;
   end_date: string;
+  dsa_details?: DSADetailInput[];
+}
+
+// ─── NEW: Update input for service weeks ────────────────────────────────────
+export interface UpdateServiceWeekInput {
+  name?: string;
+  week_number?: string;
+  year?: string;
+  start_date?: string;
+  end_date?: string;
+  status?: Status;
   dsa_details?: DSADetailInput[];
 }
 
@@ -1682,6 +1713,22 @@ export const updateCircuitStatus = createAsyncThunk(
   },
 );
 
+// ─── UPDATED: Full update for circuits ─────────────────────────────────────
+export const updateCircuit = createAsyncThunk(
+  "helpdesk/updateCircuit",
+  async (
+    { id, updates }: { id: string; updates: UpdateCircuitInput },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.put(`/helpdesk/circuits/${id}`, updates);
+      return data.data as Circuit;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
 export const updateCircuitDSADetails = createAsyncThunk(
   "helpdesk/updateCircuitDSADetails",
   async (
@@ -1782,6 +1829,22 @@ export const updateOtherPaymentDSADetails = createAsyncThunk(
         `/helpdesk/other-payments/${id}/dsa-details`,
         { dsa_details },
       );
+      return data.data as OtherPayment;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+// ─── UPDATED: Full update for other payments ──────────────────────────────
+export const updateOtherPayment = createAsyncThunk(
+  "helpdesk/updateOtherPayment",
+  async (
+    { id, updates }: { id: string; updates: UpdateOtherPaymentInput },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.put(`/helpdesk/other-payments/${id}`, updates);
       return data.data as OtherPayment;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -2024,6 +2087,22 @@ export const updateServiceWeekStatus = createAsyncThunk(
         `/helpdesk/service-weeks/${id}/status`,
         { status },
       );
+      return data.data as ServiceWeek;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+// ─── UPDATED: Full update for service weeks ──────────────────────────────
+export const updateServiceWeek = createAsyncThunk(
+  "helpdesk/updateServiceWeek",
+  async (
+    { id, updates }: { id: string; updates: UpdateServiceWeekInput },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { data } = await axiosClient.put(`/helpdesk/service-weeks/${id}`, updates);
       return data.data as ServiceWeek;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -2587,7 +2666,7 @@ const helpdeskSlice = createSlice({
           state.loading.generalRequests = false;
           state.generalRequests = action.payload;
           state.pagination.generalRequests.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchGeneralRequests.rejected, (state, action) => {
         state.loading.generalRequests = false;
@@ -2605,7 +2684,7 @@ const helpdeskSlice = createSlice({
           state.success = true;
           state.generalRequests = [action.payload, ...state.generalRequests];
           if (state.stats) state.stats.total_records += 1;
-        },
+        }
       )
       .addCase(createGeneralRequest.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -2623,12 +2702,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.generalRequests.findIndex(
-            (r) => r.id === action.payload.id,
+            (r) => r.id === action.payload.id
           );
           if (index !== -1) state.generalRequests[index] = action.payload;
           if (state.selectedGeneralRequest?.id === action.payload.id)
             state.selectedGeneralRequest = action.payload;
-        },
+        }
       )
       .addCase(updateGeneralRequest.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -2646,12 +2725,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.generalRequests.findIndex(
-            (r) => r.id === action.payload.id,
+            (r) => r.id === action.payload.id
           );
           if (index !== -1) state.generalRequests[index] = action.payload;
           if (state.selectedGeneralRequest?.id === action.payload.id)
             state.selectedGeneralRequest = action.payload;
-        },
+        }
       )
       .addCase(updateGeneralRequestStatus.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -2667,12 +2746,12 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<string>) => {
           state.loading.mutating = false;
           state.generalRequests = state.generalRequests.filter(
-            (r) => r.id !== action.payload,
+            (r) => r.id !== action.payload
           );
           if (state.selectedGeneralRequest?.id === action.payload)
             state.selectedGeneralRequest = null;
           if (state.stats) state.stats.total_records -= 1;
-        },
+        }
       )
       .addCase(deleteGeneralRequest.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -2687,7 +2766,7 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<GeneralRequest[]>) => {
           state.loading.generalRequests = false;
           state.generalRequests = action.payload;
-        },
+        }
       )
       .addCase(fetchGeneralRequestsByJudge.rejected, (state, action) => {
         state.loading.generalRequests = false;
@@ -2702,7 +2781,7 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<GeneralRequest[]>) => {
           state.loading.generalRequests = false;
           state.generalRequests = action.payload;
-        },
+        }
       )
       .addCase(fetchGeneralRequestsByType.rejected, (state, action) => {
         state.loading.generalRequests = false;
@@ -2717,7 +2796,7 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<GeneralRequest[]>) => {
           state.loading.generalRequests = false;
           state.generalRequests = action.payload;
-        },
+        }
       )
       .addCase(fetchGeneralRequestsByRemarkType.rejected, (state, action) => {
         state.loading.generalRequests = false;
@@ -2736,7 +2815,7 @@ const helpdeskSlice = createSlice({
           state.loading.security = false;
           state.securityRequests = action.payload;
           state.pagination.security.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchSecurityRequests.rejected, (state, action) => {
         state.loading.security = false;
@@ -2754,7 +2833,7 @@ const helpdeskSlice = createSlice({
           state.success = true;
           state.securityRequests = [action.payload, ...state.securityRequests];
           if (state.stats) state.stats.total_records += 1;
-        },
+        }
       )
       .addCase(createSecurityRequest.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -2772,12 +2851,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.securityRequests.findIndex(
-            (r) => r.id === action.payload.id,
+            (r) => r.id === action.payload.id
           );
           if (index !== -1) state.securityRequests[index] = action.payload;
           if (state.selectedSecurityRequest?.id === action.payload.id)
             state.selectedSecurityRequest = action.payload;
-        },
+        }
       )
       .addCase(updateSecurityRequest.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -2795,12 +2874,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.securityRequests.findIndex(
-            (r) => r.id === action.payload.id,
+            (r) => r.id === action.payload.id
           );
           if (index !== -1) state.securityRequests[index] = action.payload;
           if (state.selectedSecurityRequest?.id === action.payload.id)
             state.selectedSecurityRequest = action.payload;
-        },
+        }
       )
       .addCase(updateSecurityRequestStatus.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -2816,12 +2895,12 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<string>) => {
           state.loading.mutating = false;
           state.securityRequests = state.securityRequests.filter(
-            (r) => r.id !== action.payload,
+            (r) => r.id !== action.payload
           );
           if (state.selectedSecurityRequest?.id === action.payload)
             state.selectedSecurityRequest = null;
           if (state.stats) state.stats.total_records -= 1;
-        },
+        }
       )
       .addCase(deleteSecurityRequest.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -2840,7 +2919,7 @@ const helpdeskSlice = createSlice({
           state.loading.reports = false;
           state.dsaReport = action.payload;
           state.pagination.reports.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchDSAReport.rejected, (state, action) => {
         state.loading.reports = false;
@@ -2858,7 +2937,7 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<HelpDeskStats>) => {
           state.loading.stats = false;
           state.stats = action.payload;
-        },
+        }
       )
       .addCase(fetchHelpDeskStats.rejected, (state, action) => {
         state.loading.stats = false;
@@ -2876,7 +2955,7 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<HelpDeskAuditEntry[]>) => {
           state.loading.audit = false;
           state.auditLog = action.payload;
-        },
+        }
       )
       .addCase(fetchHelpDeskAudit.rejected, (state, action) => {
         state.loading.audit = false;
@@ -2905,9 +2984,10 @@ const helpdeskSlice = createSlice({
           }
           if (state.documentViewStatus && state.documentViewStatus.id === docId) {
             state.documentViewStatus.view_count += 1;
-            state.documentViewStatus.viewed_at = state.documentViewStatus.viewed_at || new Date().toISOString();
+            state.documentViewStatus.viewed_at =
+              state.documentViewStatus.viewed_at || new Date().toISOString();
           }
-        },
+        }
       )
       .addCase(markDocumentViewed.rejected, (state, action) => {
         state.loading.documentTracking = false;
@@ -2923,7 +3003,7 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<DocumentWithViewStatus>) => {
           state.loading.documentTracking = false;
           state.documentViewStatus = action.payload;
-        },
+        }
       )
       .addCase(fetchDocumentViewStatus.rejected, (state, action) => {
         state.loading.documentTracking = false;
@@ -2942,7 +3022,7 @@ const helpdeskSlice = createSlice({
           state.loading.tickets = false;
           state.tickets = action.payload;
           state.pagination.tickets.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchTickets.rejected, (state, action) => {
         state.loading.tickets = false;
@@ -2960,7 +3040,7 @@ const helpdeskSlice = createSlice({
           state.success = true;
           state.tickets = [action.payload, ...state.tickets];
           if (state.stats) state.stats.total_records += 1;
-        },
+        }
       )
       .addCase(createTicket.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -2981,7 +3061,7 @@ const helpdeskSlice = createSlice({
           if (index !== -1) state.tickets[index] = action.payload;
           if (state.selectedTicket?.id === action.payload.id)
             state.selectedTicket = action.payload;
-        },
+        }
       )
       .addCase(updateTicket.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3000,7 +3080,7 @@ const helpdeskSlice = createSlice({
           if (state.selectedTicket?.id === action.payload)
             state.selectedTicket = null;
           if (state.stats) state.stats.total_records -= 1;
-        },
+        }
       )
       .addCase(deleteTicket.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3019,7 +3099,7 @@ const helpdeskSlice = createSlice({
           state.loading.utilities = false;
           state.utilities = action.payload;
           state.pagination.utilities.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchUtilities.rejected, (state, action) => {
         state.loading.utilities = false;
@@ -3037,7 +3117,7 @@ const helpdeskSlice = createSlice({
           state.success = true;
           state.utilities = [action.payload, ...state.utilities];
           if (state.stats) state.stats.total_records += 1;
-        },
+        }
       )
       .addCase(createUtility.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3055,12 +3135,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.utilities.findIndex(
-            (u) => u.id === action.payload.id,
+            (u) => u.id === action.payload.id
           );
           if (index !== -1) state.utilities[index] = action.payload;
           if (state.selectedUtility?.id === action.payload.id)
             state.selectedUtility = action.payload;
-        },
+        }
       )
       .addCase(addUtilityItem.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3078,12 +3158,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.utilities.findIndex(
-            (u) => u.id === action.payload.id,
+            (u) => u.id === action.payload.id
           );
           if (index !== -1) state.utilities[index] = action.payload;
           if (state.selectedUtility?.id === action.payload.id)
             state.selectedUtility = action.payload;
-        },
+        }
       )
       .addCase(updateUtilityItem.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3096,10 +3176,7 @@ const helpdeskSlice = createSlice({
       })
       .addCase(
         deleteUtilityItem.fulfilled,
-        (
-          state,
-          action: PayloadAction<{ id: string; itemId: string }>,
-        ) => {
+        (state, action: PayloadAction<{ id: string; itemId: string }>) => {
           state.loading.mutating = false;
           const { id, itemId } = action.payload;
           const utility = state.utilities.find((u) => u.id === id);
@@ -3108,10 +3185,10 @@ const helpdeskSlice = createSlice({
           }
           if (state.selectedUtility?.id === id) {
             state.selectedUtility.items = state.selectedUtility.items.filter(
-              (i) => i.id !== itemId,
+              (i) => i.id !== itemId
             );
           }
-        },
+        }
       )
       .addCase(deleteUtilityItem.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3126,12 +3203,12 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<string>) => {
           state.loading.mutating = false;
           state.utilities = state.utilities.filter(
-            (u) => u.id !== action.payload,
+            (u) => u.id !== action.payload
           );
           if (state.selectedUtility?.id === action.payload)
             state.selectedUtility = null;
           if (state.stats) state.stats.total_records -= 1;
-        },
+        }
       )
       .addCase(deleteUtility.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3150,7 +3227,7 @@ const helpdeskSlice = createSlice({
           state.loading.club = false;
           state.clubMemberships = action.payload;
           state.pagination.club.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchClubMemberships.rejected, (state, action) => {
         state.loading.club = false;
@@ -3168,7 +3245,7 @@ const helpdeskSlice = createSlice({
           state.success = true;
           state.clubMemberships = [action.payload, ...state.clubMemberships];
           if (state.stats) state.stats.total_records += 1;
-        },
+        }
       )
       .addCase(createClubMembership.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3186,12 +3263,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.clubMemberships.findIndex(
-            (c) => c.id === action.payload.id,
+            (c) => c.id === action.payload.id
           );
           if (index !== -1) state.clubMemberships[index] = action.payload;
           if (state.selectedClubMembership?.id === action.payload.id)
             state.selectedClubMembership = action.payload;
-        },
+        }
       )
       .addCase(updateClubMembershipStatus.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3207,12 +3284,12 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<string>) => {
           state.loading.mutating = false;
           state.clubMemberships = state.clubMemberships.filter(
-            (c) => c.id !== action.payload,
+            (c) => c.id !== action.payload
           );
           if (state.selectedClubMembership?.id === action.payload)
             state.selectedClubMembership = null;
           if (state.stats) state.stats.total_records -= 1;
-        },
+        }
       )
       .addCase(deleteClubMembership.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3231,7 +3308,7 @@ const helpdeskSlice = createSlice({
           state.loading.circuits = false;
           state.circuits = action.payload;
           state.pagination.circuits.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchCircuits.rejected, (state, action) => {
         state.loading.circuits = false;
@@ -3249,7 +3326,7 @@ const helpdeskSlice = createSlice({
           state.success = true;
           state.circuits = [action.payload, ...state.circuits];
           if (state.stats) state.stats.total_records += 1;
-        },
+        }
       )
       .addCase(createCircuit.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3267,14 +3344,37 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.circuits.findIndex(
-            (c) => c.id === action.payload.id,
+            (c) => c.id === action.payload.id
           );
           if (index !== -1) state.circuits[index] = action.payload;
           if (state.selectedCircuit?.id === action.payload.id)
             state.selectedCircuit = action.payload;
-        },
+        }
       )
       .addCase(updateCircuitStatus.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updateCircuit.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateCircuit.fulfilled,
+        (state, action: PayloadAction<Circuit>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.circuits.findIndex(
+            (c) => c.id === action.payload.id
+          );
+          if (index !== -1) state.circuits[index] = action.payload;
+          if (state.selectedCircuit?.id === action.payload.id)
+            state.selectedCircuit = action.payload;
+        }
+      )
+      .addCase(updateCircuit.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
@@ -3290,12 +3390,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.circuits.findIndex(
-            (c) => c.id === action.payload.id,
+            (c) => c.id === action.payload.id
           );
           if (index !== -1) state.circuits[index] = action.payload;
           if (state.selectedCircuit?.id === action.payload.id)
             state.selectedCircuit = action.payload;
-        },
+        }
       )
       .addCase(updateCircuitDSADetails.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3311,12 +3411,12 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<string>) => {
           state.loading.mutating = false;
           state.circuits = state.circuits.filter(
-            (c) => c.id !== action.payload,
+            (c) => c.id !== action.payload
           );
           if (state.selectedCircuit?.id === action.payload)
             state.selectedCircuit = null;
           if (state.stats) state.stats.total_records -= 1;
-        },
+        }
       )
       .addCase(deleteCircuit.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3335,7 +3435,7 @@ const helpdeskSlice = createSlice({
           state.loading.otherPayments = false;
           state.otherPayments = action.payload;
           state.pagination.otherPayments.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchOtherPayments.rejected, (state, action) => {
         state.loading.otherPayments = false;
@@ -3353,7 +3453,7 @@ const helpdeskSlice = createSlice({
           state.success = true;
           state.otherPayments = [action.payload, ...state.otherPayments];
           if (state.stats) state.stats.total_records += 1;
-        },
+        }
       )
       .addCase(createOtherPayment.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3371,12 +3471,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.otherPayments.findIndex(
-            (p) => p.id === action.payload.id,
+            (p) => p.id === action.payload.id
           );
           if (index !== -1) state.otherPayments[index] = action.payload;
           if (state.selectedOtherPayment?.id === action.payload.id)
             state.selectedOtherPayment = action.payload;
-        },
+        }
       )
       .addCase(updateOtherPaymentStatus.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3394,14 +3494,37 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.otherPayments.findIndex(
-            (p) => p.id === action.payload.id,
+            (p) => p.id === action.payload.id
           );
           if (index !== -1) state.otherPayments[index] = action.payload;
           if (state.selectedOtherPayment?.id === action.payload.id)
             state.selectedOtherPayment = action.payload;
-        },
+        }
       )
       .addCase(updateOtherPaymentDSADetails.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updateOtherPayment.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateOtherPayment.fulfilled,
+        (state, action: PayloadAction<OtherPayment>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.otherPayments.findIndex(
+            (p) => p.id === action.payload.id
+          );
+          if (index !== -1) state.otherPayments[index] = action.payload;
+          if (state.selectedOtherPayment?.id === action.payload.id)
+            state.selectedOtherPayment = action.payload;
+        }
+      )
+      .addCase(updateOtherPayment.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
@@ -3415,12 +3538,12 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<string>) => {
           state.loading.mutating = false;
           state.otherPayments = state.otherPayments.filter(
-            (p) => p.id !== action.payload,
+            (p) => p.id !== action.payload
           );
           if (state.selectedOtherPayment?.id === action.payload)
             state.selectedOtherPayment = null;
           if (state.stats) state.stats.total_records -= 1;
-        },
+        }
       )
       .addCase(deleteOtherPayment.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3439,7 +3562,7 @@ const helpdeskSlice = createSlice({
           state.loading.benches = false;
           state.benches = action.payload;
           state.pagination.benches.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchBenches.rejected, (state, action) => {
         state.loading.benches = false;
@@ -3457,7 +3580,7 @@ const helpdeskSlice = createSlice({
           state.success = true;
           state.benches = [action.payload, ...state.benches];
           if (state.stats) state.stats.total_records += 1;
-        },
+        }
       )
       .addCase(createBench.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3475,12 +3598,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.benches.findIndex(
-            (b) => b.id === action.payload.id,
+            (b) => b.id === action.payload.id
           );
           if (index !== -1) state.benches[index] = action.payload;
           if (state.selectedBench?.id === action.payload.id)
             state.selectedBench = action.payload;
-        },
+        }
       )
       .addCase(updateBench.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3498,12 +3621,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.benches.findIndex(
-            (b) => b.id === action.payload.id,
+            (b) => b.id === action.payload.id
           );
           if (index !== -1) state.benches[index] = action.payload;
           if (state.selectedBench?.id === action.payload.id)
             state.selectedBench = action.payload;
-        },
+        }
       )
       .addCase(updateBenchStatus.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3522,7 +3645,7 @@ const helpdeskSlice = createSlice({
           if (state.selectedBench?.id === action.payload)
             state.selectedBench = null;
           if (state.stats) state.stats.total_records -= 1;
-        },
+        }
       )
       .addCase(deleteBench.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3541,7 +3664,7 @@ const helpdeskSlice = createSlice({
           state.loading.partHeards = false;
           state.partHeards = action.payload;
           state.pagination.partHeards.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchPartHeards.rejected, (state, action) => {
         state.loading.partHeards = false;
@@ -3559,7 +3682,7 @@ const helpdeskSlice = createSlice({
           state.success = true;
           state.partHeards = [action.payload, ...state.partHeards];
           if (state.stats) state.stats.total_records += 1;
-        },
+        }
       )
       .addCase(createPartHeard.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3577,12 +3700,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.partHeards.findIndex(
-            (p) => p.id === action.payload.id,
+            (p) => p.id === action.payload.id
           );
           if (index !== -1) state.partHeards[index] = action.payload;
           if (state.selectedPartHeard?.id === action.payload.id)
             state.selectedPartHeard = action.payload;
-        },
+        }
       )
       .addCase(updatePartHeard.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3600,12 +3723,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.partHeards.findIndex(
-            (p) => p.id === action.payload.id,
+            (p) => p.id === action.payload.id
           );
           if (index !== -1) state.partHeards[index] = action.payload;
           if (state.selectedPartHeard?.id === action.payload.id)
             state.selectedPartHeard = action.payload;
-        },
+        }
       )
       .addCase(updatePartHeardStatus.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3621,12 +3744,12 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<string>) => {
           state.loading.mutating = false;
           state.partHeards = state.partHeards.filter(
-            (p) => p.id !== action.payload,
+            (p) => p.id !== action.payload
           );
           if (state.selectedPartHeard?.id === action.payload)
             state.selectedPartHeard = null;
           if (state.stats) state.stats.total_records -= 1;
-        },
+        }
       )
       .addCase(deletePartHeard.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3645,7 +3768,7 @@ const helpdeskSlice = createSlice({
           state.loading.serviceWeeks = false;
           state.serviceWeeks = action.payload;
           state.pagination.serviceWeeks.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchServiceWeeks.rejected, (state, action) => {
         state.loading.serviceWeeks = false;
@@ -3663,7 +3786,7 @@ const helpdeskSlice = createSlice({
           state.success = true;
           state.serviceWeeks = [action.payload, ...state.serviceWeeks];
           if (state.stats) state.stats.total_records += 1;
-        },
+        }
       )
       .addCase(createServiceWeek.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3681,14 +3804,37 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.serviceWeeks.findIndex(
-            (w) => w.id === action.payload.id,
+            (w) => w.id === action.payload.id
           );
           if (index !== -1) state.serviceWeeks[index] = action.payload;
           if (state.selectedServiceWeek?.id === action.payload.id)
             state.selectedServiceWeek = action.payload;
-        },
+        }
       )
       .addCase(updateServiceWeekStatus.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      })
+      .addCase(updateServiceWeek.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(
+        updateServiceWeek.fulfilled,
+        (state, action: PayloadAction<ServiceWeek>) => {
+          state.loading.mutating = false;
+          state.success = true;
+          const index = state.serviceWeeks.findIndex(
+            (w) => w.id === action.payload.id
+          );
+          if (index !== -1) state.serviceWeeks[index] = action.payload;
+          if (state.selectedServiceWeek?.id === action.payload.id)
+            state.selectedServiceWeek = action.payload;
+        }
+      )
+      .addCase(updateServiceWeek.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
@@ -3702,12 +3848,12 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<string>) => {
           state.loading.mutating = false;
           state.serviceWeeks = state.serviceWeeks.filter(
-            (w) => w.id !== action.payload,
+            (w) => w.id !== action.payload
           );
           if (state.selectedServiceWeek?.id === action.payload)
             state.selectedServiceWeek = null;
           if (state.stats) state.stats.total_records -= 1;
-        },
+        }
       )
       .addCase(deleteServiceWeek.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3726,7 +3872,7 @@ const helpdeskSlice = createSlice({
           state.loading.medicalClaims = false;
           state.medicalClaims = action.payload;
           state.pagination.medicalClaims.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchMedicalClaims.rejected, (state, action) => {
         state.loading.medicalClaims = false;
@@ -3744,7 +3890,7 @@ const helpdeskSlice = createSlice({
           state.success = true;
           state.medicalClaims = [action.payload, ...state.medicalClaims];
           if (state.stats) state.stats.total_records += 1;
-        },
+        }
       )
       .addCase(createMedicalClaim.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3762,12 +3908,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.medicalClaims.findIndex(
-            (c) => c.id === action.payload.id,
+            (c) => c.id === action.payload.id
           );
           if (index !== -1) state.medicalClaims[index] = action.payload;
           if (state.selectedMedicalClaim?.id === action.payload.id)
             state.selectedMedicalClaim = action.payload;
-        },
+        }
       )
       .addCase(updateMedicalClaimStatus.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3783,12 +3929,12 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<string>) => {
           state.loading.mutating = false;
           state.medicalClaims = state.medicalClaims.filter(
-            (c) => c.id !== action.payload,
+            (c) => c.id !== action.payload
           );
           if (state.selectedMedicalClaim?.id === action.payload)
             state.selectedMedicalClaim = null;
           if (state.stats) state.stats.total_records -= 1;
-        },
+        }
       )
       .addCase(deleteMedicalClaim.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3807,7 +3953,7 @@ const helpdeskSlice = createSlice({
           state.loading.visa = false;
           state.visaRequests = action.payload;
           state.pagination.visa.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchVisaRequests.rejected, (state, action) => {
         state.loading.visa = false;
@@ -3826,10 +3972,9 @@ const helpdeskSlice = createSlice({
           state.visaRequests = [action.payload, ...state.visaRequests];
           if (state.stats) {
             state.stats.total_records += 1;
-            if (action.payload.status === "Active")
-              state.stats.visa_active += 1;
+            if (action.payload.status === "Active") state.stats.visa_active += 1;
           }
-        },
+        }
       )
       .addCase(createVisaRequest.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3847,12 +3992,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.visaRequests.findIndex(
-            (v) => v.id === action.payload.id,
+            (v) => v.id === action.payload.id
           );
           if (index !== -1) state.visaRequests[index] = action.payload;
           if (state.selectedVisaRequest?.id === action.payload.id)
             state.selectedVisaRequest = action.payload;
-        },
+        }
       )
       .addCase(updateVisaStatus.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3868,17 +4013,17 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<string>) => {
           state.loading.mutating = false;
           const deleted = state.visaRequests.find(
-            (v) => v.id === action.payload,
+            (v) => v.id === action.payload
           );
           state.visaRequests = state.visaRequests.filter(
-            (v) => v.id !== action.payload,
+            (v) => v.id !== action.payload
           );
           if (state.selectedVisaRequest?.id === action.payload)
             state.selectedVisaRequest = null;
           if (state.stats && deleted?.status === "Active")
             state.stats.visa_active -= 1;
           if (state.stats) state.stats.total_records -= 1;
-        },
+        }
       )
       .addCase(deleteVisaRequest.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3897,7 +4042,7 @@ const helpdeskSlice = createSlice({
           state.loading.protocol = false;
           state.protocolEvents = action.payload;
           state.pagination.protocol.total = action.payload.length;
-        },
+        }
       )
       .addCase(fetchProtocolEvents.rejected, (state, action) => {
         state.loading.protocol = false;
@@ -3915,7 +4060,7 @@ const helpdeskSlice = createSlice({
           state.success = true;
           state.protocolEvents = [action.payload, ...state.protocolEvents];
           if (state.stats) state.stats.total_records += 1;
-        },
+        }
       )
       .addCase(createProtocolEvent.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3933,12 +4078,12 @@ const helpdeskSlice = createSlice({
           state.loading.mutating = false;
           state.success = true;
           const index = state.protocolEvents.findIndex(
-            (p) => p.id === action.payload.id,
+            (p) => p.id === action.payload.id
           );
           if (index !== -1) state.protocolEvents[index] = action.payload;
           if (state.selectedProtocolEvent?.id === action.payload.id)
             state.selectedProtocolEvent = action.payload;
-        },
+        }
       )
       .addCase(updateProtocolStatus.rejected, (state, action) => {
         state.loading.mutating = false;
@@ -3954,17 +4099,17 @@ const helpdeskSlice = createSlice({
         (state, action: PayloadAction<string>) => {
           state.loading.mutating = false;
           const deleted = state.protocolEvents.find(
-            (p) => p.id === action.payload,
+            (p) => p.id === action.payload
           );
           state.protocolEvents = state.protocolEvents.filter(
-            (p) => p.id !== action.payload,
+            (p) => p.id !== action.payload
           );
           if (state.selectedProtocolEvent?.id === action.payload)
             state.selectedProtocolEvent = null;
           if (state.stats && deleted?.status === "Pending")
             state.stats.protocol_pending -= 1;
           if (state.stats) state.stats.total_records -= 1;
-        },
+        }
       )
       .addCase(deleteProtocolEvent.rejected, (state, action) => {
         state.loading.mutating = false;

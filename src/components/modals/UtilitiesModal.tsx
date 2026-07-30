@@ -1,6 +1,6 @@
 // src/components/Helpdesk/UtilitiesModal.tsx
 
-import React, { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import React, { useState, useEffect, useRef, type ChangeEvent, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   createUtility,
@@ -10,7 +10,7 @@ import {
   deleteUtility,
   fetchUtilities,
   fetchHelpDeskStats,
-  selectAllUtilities,
+  //selectAllUtilities,
   type UtilityType,
   type UtilityStatus,
   type UtilityItem,
@@ -38,6 +38,10 @@ import {
   type DocumentEntityType,
 } from '../../store/slices/helpdeskDocumentsSlice';
 import {
+  getConsolidatedMemoEntityId,
+  getConsolidatedMemoEntityType,
+} from '../../types/helpdesk-documents.types';
+import {
   X,
   Loader2,
   Save,
@@ -64,10 +68,10 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { generateUtilityMemoDocx } from '../../utils/generateUtilityMemoDocx';
-import { generateUtilityMemoPdf } from '../../utils/generateUtilityMemoPdf';
 import { generateUtilityMemoExcel } from '../../utils/generateUtilityMemoExcel';
 import toast, { Toaster } from 'react-hot-toast';
 import type { UtilityMemoData } from '../../types/generateUtilityMemoTypes';
+import { generateUtilityMemoPdf } from '../../utils/generateUtilityMemoPdf';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -86,9 +90,6 @@ const UTILITY_STATUSES: UtilityStatus[] = [
 const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784363826/ORHC_L_crclut.jpg';
 const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784364354/ORHC_EMBLEM_wzmp94.jpg';
 
-// ✅ Define the entity type as a constant for reuse
-const UTILITY_MEMO_ENTITY_TYPE: DocumentEntityType = 'utility_memo';
-
 // ─── Helper Functions ──────────────────────────────────────────────────────
 
 const formatDateForAPI = (dateString: string): string | undefined => {
@@ -97,6 +98,36 @@ const formatDateForAPI = (dateString: string): string | undefined => {
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return undefined;
   return date.toISOString().split('T')[0];
+};
+
+// Resolve the signed-in user's display name defensively. Different parts of
+// the app (and different API responses) have historically used different
+// field names for "the user's name" — full_name, name, display_name, or
+// separate first/last name fields. Rather than betting on one of them being
+// populated, try them in order and fall back to first+last concatenated.
+// This mirrors how names already arrive pre-resolved elsewhere in the app
+// (e.g. Tickets' created_by_name / user_name / from_user_name), except here
+// we don't control the API response shape, so we resolve it client-side.
+const resolveUserDisplayName = (
+  user:
+    | {
+        full_name?: string | null;
+        name?: string | null;
+        display_name?: string | null;
+        first_name?: string | null;
+        last_name?: string | null;
+      }
+    | null
+    | undefined
+): string => {
+  if (!user) return '';
+  return (
+    user.full_name?.trim() ||
+    user.name?.trim() ||
+    user.display_name?.trim() ||
+    [user.first_name, user.last_name].filter(Boolean).join(' ').trim() ||
+    ''
+  );
 };
 
 const documentStatusColor = (status: DocumentStatus): string => {
@@ -522,7 +553,7 @@ function computeFuelTotals(judges: JudgeUtility[]): JudgeTotals[] {
         wifi: 0,
         fuel,
         other: 0,
-        total: fuel
+        total: fuel,
       };
     })
     .filter((row) => row.fuel > 0)
@@ -552,9 +583,13 @@ interface MemoModalProps {
   isOpen: boolean;
   onClose: () => void;
   judges: JudgeUtility[];
-  memoType: 'all' | 'fuel';
   onMemoGenerated: (docId: string) => void;
-  entityId?: string; // the JudgeUtility.id this memo belongs to, if editing an existing record
+  entityId?: string; // for single judge utility memo (the judge utility ID)
+  isConsolidated?: boolean; // if true, we are generating a consolidated memo for multiple judges
+  entityType?: DocumentEntityType; // override for entity_type
+  entityIdOverride?: string; // override for entity_id (e.g., for consolidated monthly ID)
+  // ─── Consolidated judges list for bulk memo ──────────────────────
+  allJudgesForConsolidated?: JudgeUtility[];
 }
 
 type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
@@ -563,9 +598,12 @@ const MemoModal: React.FC<MemoModalProps> = ({
   isOpen,
   onClose,
   judges,
-  memoType,
   onMemoGenerated,
   entityId,
+  isConsolidated = false,
+  entityType: propEntityType,
+  entityIdOverride: propEntityId,
+  allJudgesForConsolidated,
 }) => {
   const dispatch = useAppDispatch();
   const currentUser = useAppSelector(selectCurrentUser);
@@ -581,6 +619,10 @@ const MemoModal: React.FC<MemoModalProps> = ({
   const [showLinkPicker, setShowLinkPicker] = useState(false);
   const [uploadingDocument, setUploadingDocument] = useState(false);
 
+  // ─── Tab state ──────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<'all' | 'fuel'>('all');
+
+  // ─── Memo field state ──────────────────────────────────────────────────
   const [toField, setToField] = useState('DEPUTY DIRECTOR - DASS');
   const [fromField, setFromField] = useState('REGISTRAR, HIGH COURT');
   const [refField] = useState(() => {
@@ -590,25 +632,68 @@ const MemoModal: React.FC<MemoModalProps> = ({
   const [dateField, setDateField] = useState(() =>
     new Date().toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' })
   );
-  const [subjectField, setSubjectField] = useState(
-    memoType === 'fuel' ? 'FUEL BILL CLAIMS' : 'UTILITY BILL CLAIMS'
-  );
-  const [bodyText, setBodyText] = useState(
-    memoType === 'fuel'
-      ? `I hereby forward the fuel bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`
-      : `I hereby forward the utility bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`
-  );
 
-  const signatoryName = currentUser?.full_name || '';
+  // ─── Body texts ────────────────────────────────────────────────────────
+  const fuelBody = `I hereby forward the fuel bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`;
+
+  const utilityBody = `I hereby forward the utility bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`;
+
+  // ─── Initialise subject/body based on activeTab ──────────────────────
+  const [subjectField, setSubjectField] = useState(
+    activeTab === 'fuel' ? 'FUEL BILL CLAIMS' : 'UTILITY BILL CLAIMS'
+  );
+  const [bodyText, setBodyText] = useState(activeTab === 'fuel' ? fuelBody : utilityBody);
+
+  // ─── Tab change handler (resets subject & body) ──────────────────────
+  const handleTabChange = (tab: 'all' | 'fuel') => {
+    setActiveTab(tab);
+    setSubjectField(tab === 'fuel' ? 'FUEL BILL CLAIMS' : 'UTILITY BILL CLAIMS');
+    setBodyText(tab === 'fuel' ? fuelBody : utilityBody);
+  };
+
+  // The actual signed-in officer's name — shown above the designation in the
+  // signature block. Resolved defensively across the field names the user
+  // object might use (see resolveUserDisplayName above), since relying on a
+  // single field (e.g. full_name alone) left this blank whenever the user's
+  // name lived under a different key. May still be empty if the profile
+  // truly has no name set anywhere; the signature block below only renders
+  // this line when it's non-empty.
+  const signatoryName = resolveUserDisplayName(currentUser);
 
   const [downloadingFormat, setDownloadingFormat] = useState<DownloadFormat | null>(null);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
 
-  useEffect(() => {
-    if (isOpen) {
-      dispatch(fetchHelpdeskDocuments({ entity_type: UTILITY_MEMO_ENTITY_TYPE }));
+  // ─── Determine which judges to use ──────────────────────────────────────
+  // For consolidated memos, use all judges passed in; for single judge, use the judges array
+  const effectiveJudges = useMemo(() => {
+    if (isConsolidated && allJudgesForConsolidated && allJudgesForConsolidated.length > 0) {
+      return allJudgesForConsolidated;
     }
-  }, [dispatch, isOpen]);
+    return judges;
+  }, [isConsolidated, allJudgesForConsolidated, judges]);
+
+  // ─── Derived entity type and ID ──────────────────────────────────────────
+  const currentEntityType = useMemo(() => {
+    if (propEntityType) return propEntityType;
+    if (!isConsolidated) return 'utility_memo' as DocumentEntityType;
+    return getConsolidatedMemoEntityType(activeTab);
+  }, [propEntityType, isConsolidated, activeTab]);
+
+  const currentEntityId = useMemo(() => {
+    if (propEntityId) return propEntityId;
+    if (!isConsolidated) return entityId; // single judge utility ID
+    return getConsolidatedMemoEntityId(activeTab);
+  }, [propEntityId, isConsolidated, entityId, activeTab]);
+
+  // ─── Effects ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (isOpen && currentEntityId) {
+      dispatch(fetchHelpdeskDocuments({
+        entity_type: currentEntityType,
+        entity_id: currentEntityId
+      }));
+    }
+  }, [dispatch, isOpen, currentEntityType, currentEntityId]);
 
   useEffect(() => {
     if (showLinkPicker) {
@@ -616,6 +701,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
     }
   }, [dispatch, showLinkPicker]);
 
+  // ─── Signature handlers ────────────────────────────────────────────────
   const handleSignatureUpload = async (file: File) => {
     try {
       await dispatch(uploadSignature(file)).unwrap();
@@ -635,6 +721,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
     }
   };
 
+  // ─── Formatting ────────────────────────────────────────────────────────
   const formatAmount = (amount: number) =>
     amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -655,9 +742,10 @@ const MemoModal: React.FC<MemoModalProps> = ({
     return result;
   };
 
-  const judgeTotals = memoType === 'fuel'
-    ? computeFuelTotals(judges)
-    : computeNonFuelTotals(judges);
+  // ─── Compute totals based on active tab ──────────────────────────────
+  const judgeTotals = activeTab === 'fuel'
+    ? computeFuelTotals(effectiveJudges)
+    : computeNonFuelTotals(effectiveJudges);
 
   const grandKplc = judgeTotals.reduce((s, r) => s + r.kplc, 0);
   const grandWater = judgeTotals.reduce((s, r) => s + r.water, 0);
@@ -665,6 +753,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
   const grandFuel = judgeTotals.reduce((s, r) => s + r.fuel, 0);
   const grandTotal = judgeTotals.reduce((s, r) => s + r.total, 0);
 
+  // ─── Build memo data ────────────────────────────────────────────────────
   const buildMemoData = (): UtilityMemoData => ({
     to: toField,
     from: fromField,
@@ -688,15 +777,16 @@ const MemoModal: React.FC<MemoModalProps> = ({
     crestUrl: JUDICIARY_CREST_SRC,
     footerEmblemUrl: FOOTER_EMBLEM_SRC,
     signatureUrl: currentUser?.signature_url || undefined,
+    memoType: activeTab,
   });
 
-  // ─── Attach an existing local file to this memo ─────────────────────────
+  // ─── Document handlers ──────────────────────────────────────────────────
   const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!entityId) {
-      toast.error('Save the judge utility record first before attaching a document.');
+    if (!currentEntityId) {
+      toast.error('Entity ID is required to attach a document.');
       e.target.value = '';
       return;
     }
@@ -718,13 +808,16 @@ const MemoModal: React.FC<MemoModalProps> = ({
           filename: file.name,
           ref: refField,
           subject: subjectField,
-          entity_type: UTILITY_MEMO_ENTITY_TYPE,
-          entity_id: entityId,
+          entity_type: currentEntityType,
+          entity_id: currentEntityId,
           format,
         })
       ).unwrap();
       toast.success('Document attached to this memo.');
-      dispatch(fetchHelpdeskDocuments({ entity_type: UTILITY_MEMO_ENTITY_TYPE }));
+      dispatch(fetchHelpdeskDocuments({
+        entity_type: currentEntityType,
+        entity_id: currentEntityId
+      }));
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to attach document.');
     } finally {
@@ -733,10 +826,9 @@ const MemoModal: React.FC<MemoModalProps> = ({
     }
   };
 
-  // ─── Link an existing unlinked document to this memo's judge record ────
   const handleLinkExisting = async (docId: string) => {
-    if (!entityId) {
-      toast.error('Save the judge utility record first before linking a document.');
+    if (!currentEntityId) {
+      toast.error('Entity ID is required to link a document.');
       return;
     }
 
@@ -744,13 +836,16 @@ const MemoModal: React.FC<MemoModalProps> = ({
       await dispatch(
         linkHelpdeskDocument({
           id: docId,
-          entity_type: UTILITY_MEMO_ENTITY_TYPE,
-          entity_id: entityId,
+          entity_type: currentEntityType,
+          entity_id: currentEntityId,
         })
       ).unwrap();
       toast.success('Document linked to this memo.');
       setShowLinkPicker(false);
-      dispatch(fetchHelpdeskDocuments({ entity_type: UTILITY_MEMO_ENTITY_TYPE }));
+      dispatch(fetchHelpdeskDocuments({
+        entity_type: currentEntityType,
+        entity_id: currentEntityId
+      }));
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to link document.');
     }
@@ -760,30 +855,25 @@ const MemoModal: React.FC<MemoModalProps> = ({
     try {
       await dispatch(submitForApproval({ id: docId })).unwrap();
       toast.success('Document sent for approval.');
-      dispatch(fetchHelpdeskDocuments({ entity_type: UTILITY_MEMO_ENTITY_TYPE }));
+      dispatch(fetchHelpdeskDocuments({
+        entity_type: currentEntityType,
+        entity_id: currentEntityId
+      }));
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
     }
   };
 
-  // ─── Generate the memo file and save it into the system ────────────────
+  // ─── Generate memo ─────────────────────────────────────────────────────
   const handleGenerate = async (format: DownloadFormat) => {
     setShowDownloadMenu(false);
     setDownloadingFormat(format);
 
-    console.group(`🧾 handleGenerate("${format}")`);
-    console.log('entityId (judge record id, if editing):', entityId);
-    console.log('refField:', refField);
-    console.log('subjectField:', subjectField);
-    console.log('judges passed in:', judges);
-
     try {
       const memoData = buildMemoData();
-      console.log('memoData built:', memoData);
 
       let blob: Blob | null = null;
 
-      console.log(`⏳ generating ${format} blob...`);
       switch (format) {
         case 'docx':
           blob = await generateUtilityMemoDocx(memoData);
@@ -801,82 +891,56 @@ const MemoModal: React.FC<MemoModalProps> = ({
       if (!blob) {
         throw new Error('Generator returned no blob');
       }
-      console.log('✅ blob generated:', {
-        size: blob.size,
-        type: blob.type,
-      });
 
       const filename = `${refField}.${format}`;
       const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
-      console.log('📦 File object built:', {
-        name: file.name,
-        size: file.size,
-        type: file.type,
-      });
 
       const uploadPayload = {
         blob: file,
         filename,
         ref: refField,
         subject: subjectField,
-        entity_type: UTILITY_MEMO_ENTITY_TYPE,
-        entity_id: entityId,
+        entity_type: currentEntityType,
+        entity_id: currentEntityId || undefined,
         format: format as DocumentFormat,
       };
-      console.log('📤 dispatching uploadHelpdeskDocument with payload:', {
-        ...uploadPayload,
-        blob: `[File: ${file.name}, ${file.size} bytes]`,
-      });
 
       const result = await dispatch(uploadHelpdeskDocument(uploadPayload)).unwrap();
-      console.log('✅ upload succeeded, server response:', result);
 
       toast.success(`${format.toUpperCase()} memo saved to the system.`);
 
-      if (entityId) {
-        console.log(`🔗 entityId present (${entityId}) — linking immediately...`);
+      // ─── If NOT consolidated AND entityId (single judge utility ID) is provided, link it ───
+      if (!isConsolidated && entityId) {
         try {
-          const linkPayload = {
+          await dispatch(linkHelpdeskDocument({
             id: result.id,
-            entity_type: UTILITY_MEMO_ENTITY_TYPE,
+            entity_type: currentEntityType,
             entity_id: entityId,
-          };
-          console.log('📤 dispatching linkHelpdeskDocument with payload:', linkPayload);
-          const linkResult = await dispatch(linkHelpdeskDocument(linkPayload)).unwrap();
-          console.log('✅ link succeeded:', linkResult);
+          })).unwrap();
           toast.success('Memo linked to the judge utility record.');
         } catch (linkErr) {
-          console.error('❌ link failed:', linkErr);
           console.warn('Saved but failed to link to the judge record:', linkErr);
           toast.error('Memo saved, but could not link it automatically. You can link it manually.');
         }
-      } else {
-        console.log('🕓 no entityId yet — deferring link via onMemoGenerated(docId):', result.id);
+      } else if (!isConsolidated && !entityId) {
+        // If it's a single judge memo but no entityId yet (new record), pass back the docId
         onMemoGenerated(result.id);
       }
 
-      dispatch(fetchHelpdeskDocuments({ entity_type: UTILITY_MEMO_ENTITY_TYPE }));
+      dispatch(fetchHelpdeskDocuments({
+        entity_type: currentEntityType,
+        entity_id: currentEntityId
+      }));
     } catch (err) {
-      console.error(`❌ Failed to generate ${format} memo — raw error:`, err);
-      console.log('typeof err:', typeof err);
-      console.log('err instanceof Error:', err instanceof Error);
-      try {
-        console.log('JSON.stringify(err):', JSON.stringify(err));
-      } catch {
-        console.log('err is not JSON-serializable');
-      }
-
+      console.error(`Failed to generate ${format} memo:`, err);
       const message =
         err instanceof Error
           ? err.message
           : typeof err === 'string'
           ? err
           : 'Failed to generate document. Please try again.';
-
-      console.log('📢 toast message resolved to:', message);
       toast.error(message);
     } finally {
-      console.groupEnd();
       setDownloadingFormat(null);
     }
   };
@@ -887,16 +951,23 @@ const MemoModal: React.FC<MemoModalProps> = ({
     xlsx: 'Preparing Excel…',
   };
 
-  // Match on `ref` (always set correctly) rather than `entity_id`
   const linkedDocuments = allDocuments.filter(
-    (d) => d.entity_type === UTILITY_MEMO_ENTITY_TYPE && d.ref === refField
+    (d) => d.entity_type === currentEntityType &&
+           d.entity_id === currentEntityId &&
+           d.ref === refField
   );
 
   if (!isOpen) return null;
 
-  const showNonFuelColumns = memoType === 'all';
-  const showFuelColumn = memoType === 'fuel';
+  const showNonFuelColumns = activeTab === 'all';
+  const showFuelColumn = activeTab === 'fuel';
 
+  // Modal title
+  const modalTitle = isConsolidated
+    ? (activeTab === 'fuel' ? 'Consolidated Fuel Memo' : 'Consolidated Utility Memo')
+    : (activeTab === 'fuel' ? 'Fuel Memo' : 'Utility Memo');
+
+  // ─── Render ──────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
       <Toaster
@@ -908,14 +979,41 @@ const MemoModal: React.FC<MemoModalProps> = ({
         }}
       />
       <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+        {/* Header */}
         <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
           <h3 className="text-sm font-semibold text-[#1a3d1c]">
-            {memoType === 'fuel' ? 'Fuel Memo' : 'Utility Memo'}
+            {modalTitle}
           </h3>
           <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {/* Tabs (only show if there are judges) */}
+        {effectiveJudges.length > 0 && (
+          <div className="flex gap-2 border-b border-stone-200 px-4 py-2">
+            <button
+              onClick={() => handleTabChange('all')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                activeTab === 'all'
+                  ? 'bg-[#c9a84c] text-[#1a3d1c]'
+                  : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+              }`}
+            >
+              All Utilities
+            </button>
+            <button
+              onClick={() => handleTabChange('fuel')}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                activeTab === 'fuel'
+                  ? 'bg-[#c9a84c] text-[#1a3d1c]'
+                  : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
+              }`}
+            >
+              Fuel Only
+            </button>
+          </div>
+        )}
 
         <div className="max-h-[70vh] overflow-y-auto p-4 space-y-4">
           {/* Signature Section */}
@@ -966,101 +1064,98 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 </div>
               </div>
             )}
+            {!signatoryName && (
+              <p className="mt-2 text-[11px] text-amber-600 italic">
+                Your profile has no full name set, so the memo will only show the designation
+                ("{fromField || 'REGISTRAR, HIGH COURT'}") in the signature block, not your name.
+              </p>
+            )}
           </div>
 
-          {/* ─── Memo Preview ───────────────────────────────────────────────────────── */}
-          <div className="border border-stone-300 bg-white p-10 shadow-sm font-sans text-black">
-            {/* Crest - properly centered with spacing */}
-            <div className="flex justify-center mb-2">
-              <img 
-                src={JUDICIARY_CREST_SRC} 
-                alt="Judiciary of Kenya crest" 
-                className="h-24 w-auto object-contain" 
+          {/* ─── Memo Preview ────────────────────────────────────────────── */}
+          {effectiveJudges.length > 0 ? (
+            <div className="border border-stone-300 bg-white p-10 shadow-sm font-sans text-black">
+              <div className="flex justify-center mb-2">
+                <img
+                  src={JUDICIARY_CREST_SRC}
+                  alt="Judiciary of Kenya crest"
+                  className="h-24 w-auto object-contain"
+                />
+              </div>
+              <div className="text-center mb-1">
+                <p className="text-base font-bold uppercase leading-snug tracking-wide text-stone-800">
+                  OFFICE OF THE REGISTRAR HIGH COURT
+                </p>
+                {currentUser?.full_name && (
+                  <p className="text-sm font-semibold uppercase text-stone-600 mt-0.5">
+                    {currentUser.full_name}
+                  </p>
+                )}
+              </div>
+              <div className="text-center mb-6">
+                <p className="text-base font-bold uppercase tracking-wide text-stone-800">
+                  INTERNAL MEMO
+                </p>
+                <hr className="border-t-2 border-black w-full mt-1" />
+              </div>
+
+              <div className="space-y-3 text-sm font-bold mb-8">
+                <div className="flex">
+                  <span className="w-24 shrink-0">FROM</span>
+                  <span className="w-4 shrink-0">:</span>
+                  <input type="text" value={fromField} onChange={(e) => setFromField(e.target.value)}
+                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase" />
+                </div>
+                <div className="flex">
+                  <span className="w-24 shrink-0">TO</span>
+                  <span className="w-4 shrink-0">:</span>
+                  <input type="text" value={toField} onChange={(e) => setToField(e.target.value)}
+                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase" />
+                </div>
+                <div className="flex">
+                  <span className="w-24 shrink-0">DATE</span>
+                  <span className="w-4 shrink-0">:</span>
+                  <input type="text" value={dateField} onChange={(e) => setDateField(e.target.value)}
+                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none" />
+                </div>
+                <div className="flex border-b-2 border-black pb-3">
+                  <span className="w-24 shrink-0">SUBJECT</span>
+                  <span className="w-4 shrink-0">:</span>
+                  <input type="text" value={subjectField} onChange={(e) => setSubjectField(e.target.value)}
+                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase" />
+                </div>
+              </div>
+
+              <textarea
+                value={bodyText}
+                onChange={(e) => setBodyText(e.target.value)}
+                rows={6}
+                className="w-full bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none resize-none text-sm leading-relaxed mb-6"
               />
-            </div>
 
-            {/* Office title with registrar's name */}
-            <div className="text-center mb-1">
-              <p className="text-base font-bold uppercase leading-snug tracking-wide text-stone-800">
-                OFFICE OF THE REGISTRAR HIGH COURT
-              </p>
-              <p className="text-sm font-semibold uppercase text-stone-600 mt-0.5">
-                {currentUser?.full_name || 'REGISTRAR, HIGH COURT'}
-              </p>
-            </div>
-
-            {/* Internal Memo with full-width underline */}
-            <div className="text-center mb-6">
-              <p className="text-base font-bold uppercase tracking-wide text-stone-800">
-                INTERNAL MEMO
-              </p>
-              <hr className="border-t-2 border-black w-full mt-1" />
-            </div>
-
-            <div className="space-y-3 text-sm font-bold mb-8">
-              <div className="flex">
-                <span className="w-24 shrink-0">FROM</span>
-                <span className="w-4 shrink-0">:</span>
-                <input type="text" value={fromField} onChange={(e) => setFromField(e.target.value)}
-                  className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase" />
-              </div>
-              <div className="flex">
-                <span className="w-24 shrink-0">TO</span>
-                <span className="w-4 shrink-0">:</span>
-                <input type="text" value={toField} onChange={(e) => setToField(e.target.value)}
-                  className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase" />
-              </div>
-              <div className="flex">
-                <span className="w-24 shrink-0">DATE</span>
-                <span className="w-4 shrink-0">:</span>
-                <input type="text" value={dateField} onChange={(e) => setDateField(e.target.value)}
-                  className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none" />
-              </div>
-              <div className="flex border-b-2 border-black pb-3">
-                <span className="w-24 shrink-0">SUBJECT</span>
-                <span className="w-4 shrink-0">:</span>
-                <input type="text" value={subjectField} onChange={(e) => setSubjectField(e.target.value)}
-                  className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase" />
-              </div>
-            </div>
-
-            <textarea
-              value={bodyText}
-              onChange={(e) => setBodyText(e.target.value)}
-              rows={6}
-              className="w-full bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none resize-none text-sm leading-relaxed mb-6"
-            />
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse border border-black">
-                <thead>
-                  <tr>
-                    <th className="border border-black px-2 py-1 text-left text-xs font-bold">S/NO.</th>
-                    <th className="border border-black px-2 py-1 text-left text-xs font-bold">NAMES</th>
-                    {showNonFuelColumns && (
-                      <>
-                        <th className="border border-black px-2 py-1 text-right text-xs font-bold">KPLC</th>
-                        <th className="border border-black px-2 py-1 text-right text-xs font-bold">WATER</th>
-                        <th className="border border-black px-2 py-1 text-right text-xs font-bold">WIFI</th>
-                      </>
-                    )}
-                    {showFuelColumn && (
-                      <th className="border border-black px-2 py-1 text-right text-xs font-bold">FUEL</th>
-                    )}
-                    {showNonFuelColumns && (
-                      <th className="border border-black px-2 py-1 text-right text-xs font-bold">TOTAL</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {judgeTotals.length === 0 ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse border border-black">
+                  <thead>
                     <tr>
-                      <td colSpan={showNonFuelColumns ? 7 : (showFuelColumn ? 4 : 1)} className="border border-black px-2 py-4 text-center text-stone-400">
-                        No outstanding {memoType === 'fuel' ? 'fuel' : 'utility'} claims found.
-                      </td>
+                      <th className="border border-black px-2 py-1 text-left text-xs font-bold">S/NO.</th>
+                      <th className="border border-black px-2 py-1 text-left text-xs font-bold">NAMES</th>
+                      {showNonFuelColumns && (
+                        <>
+                          <th className="border border-black px-2 py-1 text-right text-xs font-bold">KPLC</th>
+                          <th className="border border-black px-2 py-1 text-right text-xs font-bold">WATER</th>
+                          <th className="border border-black px-2 py-1 text-right text-xs font-bold">WIFI</th>
+                        </>
+                      )}
+                      {showFuelColumn && (
+                        <th className="border border-black px-2 py-1 text-right text-xs font-bold">FUEL</th>
+                      )}
+                      {showNonFuelColumns && (
+                        <th className="border border-black px-2 py-1 text-right text-xs font-bold">TOTAL</th>
+                      )}
                     </tr>
-                  ) : (
-                    judgeTotals.map((row, index) => (
+                  </thead>
+                  <tbody>
+                    {judgeTotals.map((row, index) => (
                       <tr key={row.judge_name}>
                         <td className="border border-black px-2 py-1 text-center">{index + 1}</td>
                         <td className="border border-black px-2 py-1 font-medium">{row.judge_name}</td>
@@ -1078,52 +1173,65 @@ const MemoModal: React.FC<MemoModalProps> = ({
                           <td className="border border-black px-2 py-1 text-right font-bold">{formatAmount(row.total)}</td>
                         )}
                       </tr>
-                    ))
+                    ))}
+                  </tbody>
+                  {judgeTotals.length > 0 && (
+                    <tfoot>
+                      <tr>
+                        <td colSpan={showNonFuelColumns ? 2 : (showFuelColumn ? 2 : 1)} className="border border-black px-2 py-2 text-right font-bold">GRAND TOTAL</td>
+                        {showNonFuelColumns && (
+                          <>
+                            <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandKplc)}</td>
+                            <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandWater)}</td>
+                            <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandWifi)}</td>
+                          </>
+                        )}
+                        {showFuelColumn && (
+                          <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandFuel)}</td>
+                        )}
+                        {showNonFuelColumns && (
+                          <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandTotal)}</td>
+                        )}
+                      </tr>
+                    </tfoot>
                   )}
-                </tbody>
-                {judgeTotals.length > 0 && (
-                  <tfoot>
-                    <tr>
-                      <td colSpan={showNonFuelColumns ? 2 : (showFuelColumn ? 2 : 1)} className="border border-black px-2 py-2 text-right font-bold">GRAND TOTAL</td>
-                      {showNonFuelColumns && (
-                        <>
-                          <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandKplc)}</td>
-                          <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandWater)}</td>
-                          <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandWifi)}</td>
-                        </>
-                      )}
-                      {showFuelColumn && (
-                        <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandFuel)}</td>
-                      )}
-                      {showNonFuelColumns && (
-                        <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandTotal)}</td>
-                      )}
-                    </tr>
-                  </tfoot>
+                </table>
+              </div>
+
+              {/* ─── Signature block ────────────────────────────────────────
+                  The actual signed-in officer's name prints in bold above the
+                  designation line, but only when it's present — no more blank
+                  line when the profile has no full_name set. `signatoryName`
+                  is resolved defensively (see resolveUserDisplayName), so
+                  this now renders correctly regardless of which name field
+                  the user object actually populates. */}
+              <div className="mt-16 space-y-1">
+                {signatoryName && (
+                  <p className="text-sm font-bold text-black">{signatoryName}</p>
                 )}
-              </table>
-            </div>
+                {currentUser?.signature_url && (
+                  <div className="py-1">
+                    <img src={currentUser.signature_url} alt="Signature" className="max-h-12 w-auto object-contain" />
+                  </div>
+                )}
+                <input type="text" value={fromField} onChange={(e) => setFromField(e.target.value)}
+                  className="block w-full bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none text-sm font-bold underline uppercase" />
+              </div>
 
-            <div className="mt-16 space-y-1">
-              <p className="text-sm font-bold text-black">{signatoryName}</p>
-              {currentUser?.signature_url && (
-                <div className="py-1">
-                  <img src={currentUser.signature_url} alt="Signature" className="max-h-12 w-auto object-contain" />
+              <div className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3">
+                <img src={FOOTER_EMBLEM_SRC} alt="" className="h-10 w-auto object-contain shrink-0" />
+                <div className="text-[10px] leading-tight text-stone-700 text-right">
+                  <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
+                  <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
+                  <p className="mt-1 font-bold text-emerald-800">Justice Be Our Shield and Defender</p>
                 </div>
-              )}
-              <input type="text" value={fromField} onChange={(e) => setFromField(e.target.value)}
-                className="block w-full bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none text-sm font-bold underline uppercase" />
-            </div>
-
-            <div className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3">
-              <img src={FOOTER_EMBLEM_SRC} alt="" className="h-10 w-auto object-contain shrink-0" />
-              <div className="text-[10px] leading-tight text-stone-700 text-right">
-                <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
-                <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
-                <p className="mt-1 font-bold text-emerald-800">Justice Be Our Shield and Defender</p>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50 p-8 text-center">
+              <p className="text-sm text-stone-500">No judges with utility claims to display.</p>
+            </div>
+          )}
 
           {/* Document Section */}
           <div className="mt-4">
@@ -1133,7 +1241,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 <GhostButton
                   onClick={() => setShowLinkPicker((v) => !v)}
                   icon={<Paperclip size={14} />}
-                  disabled={!entityId}
+                  disabled={!currentEntityId}
                 >
                   Link Existing
                 </GhostButton>
@@ -1143,11 +1251,11 @@ const MemoModal: React.FC<MemoModalProps> = ({
                   accept=".pdf,.docx,.xlsx"
                   onChange={handleAttachDocument}
                   className="hidden"
-                  disabled={documentsUploading || uploadingDocument || !entityId}
+                  disabled={documentsUploading || uploadingDocument || !currentEntityId}
                 />
                 <GhostButton
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={documentsUploading || uploadingDocument || !entityId}
+                  disabled={documentsUploading || uploadingDocument || !currentEntityId}
                   icon={documentsUploading || uploadingDocument ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
                 >
                   {documentsUploading || uploadingDocument ? 'Uploading…' : 'Attach Document'}
@@ -1155,9 +1263,11 @@ const MemoModal: React.FC<MemoModalProps> = ({
               </div>
             </div>
 
-            {!entityId && (
+            {!currentEntityId && (
               <p className="mt-2 text-[11px] text-stone-400 italic">
-                Attaching and linking documents will be available once this judge utility record has been saved.
+                {isConsolidated
+                  ? 'Entity ID is being generated automatically.'
+                  : 'Attaching and linking documents will be available once this judge utility record has been saved.'}
               </p>
             )}
 
@@ -1176,7 +1286,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
                         </div>
                         <GhostButton
                           onClick={() => handleLinkExisting(doc.id)}
-                          disabled={isLinking}
+                          disabled={isLinking || !currentEntityId}
                           icon={isLinking ? <Loader2 size={12} className="animate-spin" /> : undefined}
                         >
                           Attach
@@ -1247,6 +1357,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
           </div>
         </div>
 
+        {/* Footer */}
         <div className="flex justify-between border-t border-stone-100 px-4 py-3">
           <GhostButton onClick={onClose}>Close</GhostButton>
           <div className="relative">
@@ -1319,8 +1430,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
   editingUtility,
 }) => {
   const dispatch = useAppDispatch();
-  const allJudges = useAppSelector(selectAllUtilities);
-  void allJudges;
+//  const allJudges = useAppSelector(selectAllUtilities);
 
   const [judgeName, setJudgeName] = useState(() => editingUtility?.judge_name ?? '');
   const [items, setItems] = useState<UtilityItemFormState[]>(() => buildInitialItems(editingUtility));
@@ -1329,7 +1439,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
 
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
   const [showMemoModal, setShowMemoModal] = useState(false);
-  const [memoType, setMemoType] = useState<'all' | 'fuel'>('all');
   const [pendingDocumentId, setPendingDocumentId] = useState<string | undefined>();
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1386,11 +1495,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     setDirtyItemIds(new Set());
     setCurrentStep(1);
     setPendingDocumentId(undefined);
-  };
-
-  const handleGenerateMemo = (type: 'all' | 'fuel') => {
-    setMemoType(type);
-    setShowMemoModal(true);
   };
 
   const handleMemoGenerated = (docId: string) => {
@@ -1558,7 +1662,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
           await dispatch(
             linkHelpdeskDocument({
               id: pendingDocumentId,
-              entity_type: UTILITY_MEMO_ENTITY_TYPE,
+              entity_type: 'utility_memo',
               entity_id: result.id,
             })
           ).unwrap();
@@ -1722,7 +1826,8 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                         onChange={(e) => setJudgeName(e.target.value)}
                         placeholder="e.g. Hon. Justice Korir"
                         className={`${inputClasses} pl-9`}
-                        required                        onKeyDown={(e) => {
+                        required
+                        onKeyDown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
                           }
@@ -1832,26 +1937,15 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
               </div>
               <div className="flex gap-2">
                 {!isEditing && currentStep === 2 && (
-                  <>
-                    <GoldButton
-                      size="sm"
-                      variant="outline"
-                      type="button"
-                      onClick={() => handleGenerateMemo('all')}
-                      icon={<FileText size={14} />}
-                    >
-                      Memo
-                    </GoldButton>
-                    <GoldButton
-                      size="sm"
-                      variant="outline"
-                      type="button"
-                      onClick={() => handleGenerateMemo('fuel')}
-                      icon={<FileText size={14} />}
-                    >
-                      Fuel Memo
-                    </GoldButton>
-                  </>
+                  <GoldButton
+                    size="sm"
+                    variant="outline"
+                    type="button"
+                    onClick={() => setShowMemoModal(true)}
+                    icon={<FileText size={14} />}
+                  >
+                    Generate Memo
+                  </GoldButton>
                 )}
                 <GhostButton type="button" onClick={handleClose} disabled={isSubmitting || isDeleting}>
                   {isEditing ? 'Close' : 'Cancel'}
@@ -1878,13 +1972,14 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         </div>
       </div>
 
+      {/* ─── Memo Modal (single judge) ────────────────────────────────── */}
       <MemoModal
         isOpen={showMemoModal}
         onClose={() => setShowMemoModal(false)}
         judges={getJudgesForMemo()}
-        memoType={memoType}
         onMemoGenerated={handleMemoGenerated}
         entityId={editingUtility?.id}
+        isConsolidated={false}
       />
 
       {deleteTarget !== null && (

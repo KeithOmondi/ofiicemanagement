@@ -92,6 +92,13 @@ import {
   type DocumentEntityType,
 } from '../../store/slices/helpdeskDocumentsSlice';
 
+// ─── Consolidated Memo imports ───────────────────────────────────────────────
+import { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
+import {
+  getConsolidatedMemoEntityId,
+  //getConsolidatedMemoEntityType,
+} from '../../types/helpdesk-documents.types';
+
 import {
   BarChart3,
   Clock3,
@@ -623,8 +630,10 @@ function OverviewTab() {
 
 function UtilitiesTab({
   onViewJudge,
+  onConsolidatedMemo,
 }: {
   onViewJudge?: (judgeName: string) => void;
+  onConsolidatedMemo?: () => void;
 }) {
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllUtilities);
@@ -682,6 +691,14 @@ function UtilitiesTab({
         action={
           <div className="flex gap-2">
             <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
+            {onConsolidatedMemo && (
+              <GoldOutlineButton
+                icon={<FileText className="h-3.5 w-3.5" />}
+                onClick={onConsolidatedMemo}
+              >
+                Consolidated Memo
+              </GoldOutlineButton>
+            )}
             <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
               Add Utility
             </GoldOutlineButton>
@@ -1259,7 +1276,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                         <ExternalLink size={12} />
                         View
                       </a>
-                      {/* ✅ Helpdesk/Requester sees "Send for Approval" on draft documents */}
                       {doc.status === 'draft' && (
                         <GhostButton
                           onClick={() => handleSendForApproval(doc.id)}
@@ -1275,21 +1291,18 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                           {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
                         </GhostButton>
                       )}
-                      {/* ✅ Show "Pending Approval" status for documents that have been submitted */}
                       {doc.status === 'pending_approval' && (
                         <span className="inline-flex items-center gap-1 text-xs text-amber-600">
                           <ClockIcon size={12} />
                           Pending Approval
                         </span>
                       )}
-                      {/* ✅ Show "Approved" status for approved documents */}
                       {doc.status === 'approved' && (
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
                           <CheckCircle size={12} />
                           Approved
                         </span>
                       )}
-                      {/* ✅ Show "Returned" status for returned documents */}
                       {doc.status === 'returned' && (
                         <span className="inline-flex items-center gap-1 text-xs text-blue-600">
                           <ArrowLeft size={12} />
@@ -3409,6 +3422,10 @@ const Helpdesk: React.FC = () => {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedJudgeForDetail, setSelectedJudgeForDetail] = useState<string | null>(null);
 
+  // ─── Consolidated Memo State ───────────────────────────────────────────────
+  const [consolidatedMemoOpen, setConsolidatedMemoOpen] = useState(false);
+  const [consolidatedEntityId, setConsolidatedEntityId] = useState<string>('');
+
   const utilities = useAppSelector(selectAllUtilities);
 
   const handleViewJudge = (judgeName: string) => {
@@ -3433,6 +3450,14 @@ const Helpdesk: React.FC = () => {
   const closeUtilitiesModal = () => {
     setUtilitiesModalOpen(false);
     setEditingUtility(null);
+  };
+
+  // ─── Consolidated Memo Handler ─────────────────────────────────────────────
+  const handleOpenConsolidatedMemo = () => {
+    // Generate a monthly entity ID (stable for the current month)
+    const entityId = getConsolidatedMemoEntityId('all');
+    setConsolidatedEntityId(entityId);
+    setConsolidatedMemoOpen(true);
   };
 
   useEffect(() => {
@@ -3520,7 +3545,12 @@ const Helpdesk: React.FC = () => {
 
         <div className="mb-4">
           {activeTabUI === 'overview' && <OverviewTab />}
-          {activeTabUI === 'utilities' && <UtilitiesTab onViewJudge={handleViewJudge} />}
+          {activeTabUI === 'utilities' && (
+            <UtilitiesTab
+              onViewJudge={handleViewJudge}
+              onConsolidatedMemo={handleOpenConsolidatedMemo}
+            />
+          )}
           {activeTabUI === 'club' && <ClubTab />}
           {activeTabUI === 'circuits' && <CircuitsTab />}
           {activeTabUI === 'otherPayments' && <OtherPaymentsTab />}
@@ -3547,6 +3577,23 @@ const Helpdesk: React.FC = () => {
         isOpen={utilitiesModalOpen}
         onClose={closeUtilitiesModal}
         editingUtility={editingUtility}
+      />
+
+      {/* ─── Consolidated Memo Modal ───────────────────────────────────────── */}
+      <UtilitiesMemoModal
+        isOpen={consolidatedMemoOpen}
+        onClose={() => {
+          setConsolidatedMemoOpen(false);
+          setConsolidatedEntityId('');
+        }}
+        judges={utilities}
+        isConsolidated={true}
+        entityIdOverride={consolidatedEntityId}
+        onMemoGenerated={(docId) => {
+          console.log(`Consolidated memo saved with ID: ${docId}`);
+          // Optionally show a success toast or refresh the document list
+          toast.success('Consolidated memo generated successfully.');
+        }}
       />
     </div>
   );

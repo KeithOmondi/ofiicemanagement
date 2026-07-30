@@ -8,6 +8,8 @@ import type { RootState } from '../store';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type DocumentFormat = 'pdf' | 'docx' | 'xlsx';
+
+// ✅ Fully synced with backend - includes all entity types
 export type DocumentEntityType =
     | 'circuit'
     | 'bench'
@@ -18,12 +20,14 @@ export type DocumentEntityType =
     | 'medicalClaim'
     | 'generalRequest'
     | 'securityRequest'
-    | 'visa'             // Visa support documents
-    | 'protocol'         // Protocol event documents
-    | 'club'             // Club membership documents
-    | 'utility_memo'     // Utility memo documents
-    | 'aide'             // Aide request documents
-    | 'sentry';          // Sentry request documents
+    | 'visa'
+    | 'protocol'
+    | 'club'
+    | 'utility_memo'
+    | 'consolidated_utility_memo'
+    | 'consolidated_fuel_memo'
+    | 'aide'
+    | 'sentry';
 
 export type DocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
@@ -41,6 +45,25 @@ export type RequestType =
 
 export type RemarkType = 'Onboarding' | 'Release';
 export type GeneralRequestCategory = 'Security' | 'Personnel' | 'Administrative';
+
+// ─── Aide & Sentry Types ────────────────────────────────────────────────────
+
+export type OfficerRank =
+    | 'Police Constable (PC)'
+    | 'Corporal (CPL)'
+    | 'Sergeant (SGT)'
+    | 'Inspector (IP)'
+    | 'Chief Inspector (CIP)'
+    | 'Assistant Superintendent (ASP)'
+    | 'Superintendent (SP)'
+    | 'Senior Superintendent (SSP)'
+    | 'Assistant Commissioner (ACP)'
+    | 'Senior Assistant Commissioner (SACP)'
+    | 'Commissioner (CP)';
+
+export type UnitType = 'KPS' | 'APS' | 'GSU' | 'DCI' | 'VIPPU' | 'Other';
+export type AideStatus = 'pending' | 'in_progress' | 'rejected' | 'attached';
+export type SentryStatus = 'pending' | 'active' | 'resolved' | 'rejected';
 
 // ─── Document Tracking ──────────────────────────────────────────────────────
 
@@ -89,6 +112,8 @@ export interface Comment {
     created_at: string;
 }
 
+// ─── Main Document Interface ─────────────────────────────────────────────────
+
 export interface HelpdeskDocument {
     id: string;
     ref: string;
@@ -124,22 +149,24 @@ export interface HelpdeskDocument {
     category_type?: GeneralRequestCategory;
 
     // ─── Aide Request Fields ──────────────────────────────────────────────────
-    officer_rank?: string | null;      // Police officer rank
-    officer_name?: string | null;      // Police officer name
-    employment_number?: string | null; // Employment/Service number
-    current_station?: string | null;   // Current station
-    current_unit?: string | null;      // Current unit (KPS, APS, GSU, etc.)
-    proposed_assignment?: string | null; // Proposed assignment description
-    aide_status?: string | null;       // Aide request status (pending, in_progress, rejected, attached)
+    officer_rank?: OfficerRank | null;
+    officer_name?: string | null;
+    employment_number?: string | null;
+    current_station?: string | null;
+    current_unit?: UnitType | null;
+    proposed_assignment?: string | null;
+    reporting_date?: string | null;
+    aide_status?: AideStatus | null;
     
     // ─── Sentry Request Fields ────────────────────────────────────────────────
-    residence_location?: string | null; // Residence location for sentry
-    sentry_status?: string | null;      // Sentry request status (pending, active, resolved, rejected)
+    residence_location?: string | null;
+    sentry_status?: SentryStatus | null;
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
-    rank?: string | null;              // Officer's rank (deprecated, use officer_rank)
-    reporting_date?: string | null;    // Expected reporting date
+    rank?: string | null;
 }
+
+// ─── Filters ─────────────────────────────────────────────────────────────────
 
 export interface HelpdeskDocumentFilters {
     entity_type?: DocumentEntityType;
@@ -162,21 +189,22 @@ export interface HelpdeskDocumentFilters {
     date_to?: string;
 
     // ─── Aide Request Filters ──────────────────────────────────────────────
-    officer_rank?: string;
+    officer_rank?: OfficerRank;
     officer_name?: string;
     employment_number?: string;
     current_station?: string;
-    current_unit?: string;
-    aide_status?: string;
-    reporting_date?: string;
+    current_unit?: UnitType;
+    aide_status?: AideStatus;
     
     // ─── Sentry Request Filters ──────────────────────────────────────────────
     residence_location?: string;
-    sentry_status?: string;
+    sentry_status?: SentryStatus;
     
     // ─── Legacy filters ──────────────────────────────────────────────────────
     rank?: string;
 }
+
+// ─── Payload Types ────────────────────────────────────────────────────────────
 
 export interface UploadHelpdeskDocumentPayload {
     blob: Blob;
@@ -195,18 +223,18 @@ export interface UploadHelpdeskDocumentPayload {
     category_type?: GeneralRequestCategory;
 
     // ─── Aide Request Fields ──────────────────────────────────────────────
-    officer_rank?: string;
+    officer_rank?: OfficerRank;
     officer_name?: string;
     employment_number?: string;
     current_station?: string;
-    current_unit?: string;
+    current_unit?: UnitType;
     proposed_assignment?: string;
     reporting_date?: string;
-    aide_status?: string;
+    aide_status?: AideStatus;
     
     // ─── Sentry Request Fields ──────────────────────────────────────────────
     residence_location?: string;
-    sentry_status?: string;
+    sentry_status?: SentryStatus;
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
@@ -281,18 +309,18 @@ export interface LinkHelpdeskDocumentPayload {
     category_type?: GeneralRequestCategory;
 
     // ─── Aide Request Fields ──────────────────────────────────────────────
-    officer_rank?: string;
+    officer_rank?: OfficerRank;
     officer_name?: string;
     employment_number?: string;
     current_station?: string;
-    current_unit?: string;
+    current_unit?: UnitType;
     proposed_assignment?: string;
     reporting_date?: string;
-    aide_status?: string;
+    aide_status?: AideStatus;
     
     // ─── Sentry Request Fields ──────────────────────────────────────────────
     residence_location?: string;
-    sentry_status?: string;
+    sentry_status?: SentryStatus;
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
@@ -317,18 +345,18 @@ export interface BulkLinkDocumentsPayload {
     category_type?: GeneralRequestCategory;
     
     // ─── Aide Request Fields ──────────────────────────────────────────────
-    officer_rank?: string;
+    officer_rank?: OfficerRank;
     officer_name?: string;
     employment_number?: string;
     current_station?: string;
-    current_unit?: string;
+    current_unit?: UnitType;
     proposed_assignment?: string;
     reporting_date?: string;
-    aide_status?: string;
+    aide_status?: AideStatus;
     
     // ─── Sentry Request Fields ──────────────────────────────────────────────
     residence_location?: string;
-    sentry_status?: string;
+    sentry_status?: SentryStatus;
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
@@ -454,6 +482,8 @@ const initialState: HelpdeskDocumentsState = {
 
 function buildParams(filters: HelpdeskDocumentFilters): Record<string, string> {
     const params: Record<string, string> = {};
+    
+    // Core filters
     if (filters.entity_type) params.entity_type = filters.entity_type;
     if (filters.entity_id) params.entity_id = filters.entity_id;
     if (filters.format) params.format = filters.format;
@@ -473,20 +503,19 @@ function buildParams(filters: HelpdeskDocumentFilters): Record<string, string> {
     if (filters.date_from) params.date_from = filters.date_from;
     if (filters.date_to) params.date_to = filters.date_to;
 
-    // ─── Aide Request Filters ──────────────────────────────────────────────
+    // Aide Request Filters
     if (filters.officer_rank) params.officer_rank = filters.officer_rank;
     if (filters.officer_name) params.officer_name = filters.officer_name;
     if (filters.employment_number) params.employment_number = filters.employment_number;
     if (filters.current_station) params.current_station = filters.current_station;
     if (filters.current_unit) params.current_unit = filters.current_unit;
     if (filters.aide_status) params.aide_status = filters.aide_status;
-    if (filters.reporting_date) params.reporting_date = filters.reporting_date;
     
-    // ─── Sentry Request Filters ──────────────────────────────────────────────
+    // Sentry Request Filters
     if (filters.residence_location) params.residence_location = filters.residence_location;
     if (filters.sentry_status) params.sentry_status = filters.sentry_status;
     
-    // ─── Legacy filters ──────────────────────────────────────────────────────
+    // Legacy filters
     if (filters.rank) params.rank = filters.rank;
 
     return params;
@@ -507,6 +536,31 @@ function setActionLoading(
         state.actionLoading[id] = {};
     }
     state.actionLoading[id][key] = value;
+}
+
+// ─── Consolidated Memo Helpers ──────────────────────────────────────────────
+
+export type ConsolidatedMemoType = 'all' | 'fuel';
+
+/**
+ * Generates a stable, human-readable entity ID for a consolidated memo.
+ * Format: "cons-{type}-{YYYY-MM}" e.g., "cons-all-2026-07"
+ */
+export function getConsolidatedMemoEntityId(
+    type: ConsolidatedMemoType,
+    date: Date = new Date()
+): string {
+    const month = date.toISOString().slice(0, 7);
+    return `cons-${type}-${month}`;
+}
+
+/**
+ * Returns the appropriate DocumentEntityType for a consolidated memo.
+ */
+export function getConsolidatedMemoEntityType(
+    type: ConsolidatedMemoType
+): DocumentEntityType {
+    return type === 'fuel' ? 'consolidated_fuel_memo' : 'consolidated_utility_memo';
 }
 
 // ─── Thunks ───────────────────────────────────────────────────────────────────
@@ -557,22 +611,24 @@ export const uploadHelpdeskDocument = createAsyncThunk<
         try {
             const formData = new FormData();
             
-            // ✅ CRITICAL: The field name MUST match multer's expected field name
+            // Required fields
             formData.append('file', payload.blob, payload.filename);
-            
-            // ✅ All fields must be appended as form-data
             formData.append('ref', payload.ref);
             formData.append('subject', payload.subject);
             formData.append('entity_type', payload.entity_type);
             formData.append('format', payload.format);
             
-            // Optional fields
+            // Optional core fields
             if (payload.entity_id) formData.append('entity_id', payload.entity_id);
             if (payload.status) formData.append('status', payload.status);
+            
+            // Unified General Request fields
             if (payload.request_type) formData.append('request_type', payload.request_type);
             if (payload.judge_name) formData.append('judge_name', payload.judge_name);
+            if (payload.remark_type) formData.append('remark_type', payload.remark_type);
+            if (payload.category_type) formData.append('category_type', payload.category_type);
             
-            // ─── Aide Request Fields ──────────────────────────────────────────
+            // Aide Request Fields
             if (payload.officer_rank) formData.append('officer_rank', payload.officer_rank);
             if (payload.officer_name) formData.append('officer_name', payload.officer_name);
             if (payload.employment_number) formData.append('employment_number', payload.employment_number);
@@ -582,14 +638,13 @@ export const uploadHelpdeskDocument = createAsyncThunk<
             if (payload.reporting_date) formData.append('reporting_date', payload.reporting_date);
             if (payload.aide_status) formData.append('aide_status', payload.aide_status);
             
-            // ─── Sentry Request Fields ──────────────────────────────────────────
+            // Sentry Request Fields
             if (payload.residence_location) formData.append('residence_location', payload.residence_location);
             if (payload.sentry_status) formData.append('sentry_status', payload.sentry_status);
             
-            // ─── Legacy fields ──────────────────────────────────────────────────
+            // Legacy fields
             if (payload.rank) formData.append('rank', payload.rank);
 
-            // ✅ Log what we're sending for debugging
             console.log('📤 Uploading document with form data:', {
                 ref: payload.ref,
                 subject: payload.subject,
@@ -601,6 +656,8 @@ export const uploadHelpdeskDocument = createAsyncThunk<
                 hasStatus: !!payload.status,
                 hasRequestType: !!payload.request_type,
                 hasJudgeName: !!payload.judge_name,
+                hasRemarkType: !!payload.remark_type,
+                hasCategoryType: !!payload.category_type,
                 hasOfficerRank: !!payload.officer_rank,
                 hasOfficerName: !!payload.officer_name,
                 hasEmploymentNumber: !!payload.employment_number,
@@ -615,17 +672,13 @@ export const uploadHelpdeskDocument = createAsyncThunk<
             });
 
             const { data } = await axiosClient.post('/helpdesk/documents/upload', formData, {
-                headers: { 
-                    'Content-Type': 'multipart/form-data',
-                },
+                headers: { 'Content-Type': 'multipart/form-data' },
             });
 
             console.log('✅ Upload successful:', data);
             return data.data as HelpdeskDocument;
         } catch (err) {
             const error = err as AxiosError<{ message?: string; errors?: unknown }>;
-            
-            // ✅ Detailed error logging
             console.error('❌ Upload failed:', {
                 status: error.response?.status,
                 statusText: error.response?.statusText,
@@ -636,8 +689,12 @@ export const uploadHelpdeskDocument = createAsyncThunk<
                     headers: error.config?.headers,
                 },
             });
+
+            // Full, unabbreviated dump of the validation payload
+            console.error('❌ Upload failed - full validation details:',
+                JSON.stringify(error.response?.data, null, 2)
+            );
             
-            // Try to extract a meaningful error message
             let message = 'Upload failed';
             if (error.response?.data) {
                 if (typeof error.response.data === 'string') {
@@ -645,7 +702,6 @@ export const uploadHelpdeskDocument = createAsyncThunk<
                 } else if (error.response.data.message) {
                     message = error.response.data.message;
                 } else if (error.response.data.errors) {
-                    // Zod validation errors
                     const errors = error.response.data.errors;
                     if (Array.isArray(errors)) {
                         message = errors.map((e: { message: string }) => e.message).join(', ');
@@ -671,11 +727,8 @@ export const updateDocumentFile = createAsyncThunk<
     async (payload, { rejectWithValue }) => {
         try {
             const formData = new FormData();
-            
-            // The file field
             formData.append('file', payload.blob, payload.filename);
             
-            // Optional fields
             if (payload.status) formData.append('status', payload.status);
             if (payload.e_stamp_url) formData.append('e_stamp_url', payload.e_stamp_url);
             if (payload.e_stamp_public_id) formData.append('e_stamp_public_id', payload.e_stamp_public_id);
@@ -697,16 +750,13 @@ export const updateDocumentFile = createAsyncThunk<
             });
 
             const { data } = await axiosClient.patch(`/helpdesk/documents/${payload.id}/file`, formData, {
-                headers: { 
-                    'Content-Type': 'multipart/form-data',
-                },
+                headers: { 'Content-Type': 'multipart/form-data' },
             });
 
             console.log('✅ Document file updated successfully:', data);
             return data.data as HelpdeskDocument;
         } catch (err) {
             const error = err as AxiosError<{ message?: string; errors?: unknown }>;
-            
             console.error('❌ Update document file failed:', {
                 status: error.response?.status,
                 statusText: error.response?.statusText,
@@ -727,6 +777,8 @@ export const updateDocumentFile = createAsyncThunk<
     }
 );
 
+// ─── Batch Upload ────────────────────────────────────────────────────────────
+
 export const batchUploadDocuments = createAsyncThunk<
     { success: HelpdeskDocument[]; failed: { index: number; error: string }[] },
     BatchUploadPayload,
@@ -742,6 +794,8 @@ export const batchUploadDocuments = createAsyncThunk<
         }
     }
 );
+
+// ─── Statistics ──────────────────────────────────────────────────────────────
 
 export const fetchDocumentStats = createAsyncThunk<
     DocumentStats,
@@ -778,6 +832,8 @@ export const fetchDocumentSummary = createAsyncThunk<
         }
     }
 );
+
+// ─── Workflow Actions ──────────────────────────────────────────────────────
 
 export const submitForApproval = createAsyncThunk<
     HelpdeskDocument,
@@ -863,6 +919,8 @@ export const returnDocument = createAsyncThunk<
     }
 );
 
+// ─── E-Stamp ─────────────────────────────────────────────────────────────────
+
 export const updateEStamp = createAsyncThunk<
     HelpdeskDocument,
     UpdateEStampPayload,
@@ -882,6 +940,8 @@ export const updateEStamp = createAsyncThunk<
         }
     }
 );
+
+// ─── Comments ─────────────────────────────────────────────────────────────────
 
 export const addComment = createAsyncThunk<
     Comment,
@@ -918,11 +978,11 @@ export const deleteComment = createAsyncThunk<
     }
 );
 
-// ─── Delete Document Thunks ──────────────────────────────────────────────────
+// ─── Delete Document ──────────────────────────────────────────────────────
 
 export const deleteHelpdeskDocument = createAsyncThunk<
-    string, // Returns the deleted document ID
-    string, // Input: document ID
+    string,
+    string,
     { rejectValue: string }
 >(
     'helpdeskDocuments/delete',
@@ -932,14 +992,11 @@ export const deleteHelpdeskDocument = createAsyncThunk<
             return id;
         } catch (err) {
             const error = err as AxiosError<{ message?: string }>;
-            return rejectWithValue(
-                error.response?.data?.message || 'Failed to delete document'
-            );
+            return rejectWithValue(error.response?.data?.message || 'Failed to delete document');
         }
     }
 );
 
-// Hard delete - permanent removal (admin only)
 export const hardDeleteHelpdeskDocument = createAsyncThunk<
     string,
     string,
@@ -952,12 +1009,12 @@ export const hardDeleteHelpdeskDocument = createAsyncThunk<
             return id;
         } catch (err) {
             const error = err as AxiosError<{ message?: string }>;
-            return rejectWithValue(
-                error.response?.data?.message || 'Failed to permanently delete document'
-            );
+            return rejectWithValue(error.response?.data?.message || 'Failed to permanently delete document');
         }
     }
 );
+
+// ─── Linking ──────────────────────────────────────────────────────────────────
 
 export const linkHelpdeskDocument = createAsyncThunk<
     HelpdeskDocument,
@@ -1063,14 +1120,12 @@ const helpdeskDocumentsSlice = createSlice({
             state.stats = null;
             state.summary = null;
         },
-        // Optimistic update for delete
         optimisticDelete(state, action: PayloadAction<string>) {
             state.items = state.items.filter(d => d.id !== action.payload);
             if (state.selectedDocument?.id === action.payload) {
                 state.selectedDocument = null;
             }
         },
-        // Restore document if delete fails
         restoreDocument(state, action: PayloadAction<HelpdeskDocument>) {
             const exists = state.items.some(d => d.id === action.payload.id);
             if (!exists) {
@@ -1251,7 +1306,6 @@ const helpdeskDocumentsSlice = createSlice({
             })
             .addCase(bulkLinkDocuments.fulfilled, (state, action) => {
                 state.loading.bulkLink = false;
-                // Remove successfully linked documents from the list
                 state.items = state.items.filter(d => !action.payload.success.includes(d.id));
             })
             .addCase(bulkLinkDocuments.rejected, (state, action) => {
@@ -1267,7 +1321,6 @@ const helpdeskDocumentsSlice = createSlice({
             })
             .addCase(bulkUpdateStatus.fulfilled, (state, action) => {
                 state.loading.bulkUpdate = false;
-                // Refresh items after bulk operation
                 state.items = state.items.filter(d => !action.payload.success.includes(d.id));
             })
             .addCase(bulkUpdateStatus.rejected, (state, action) => {
@@ -1407,7 +1460,6 @@ const helpdeskDocumentsSlice = createSlice({
                         c => c.id !== action.payload.commentId
                     );
                 }
-                // Also update in items list if needed
                 const itemIndex = state.items.findIndex(d => d.id === action.payload.documentId);
                 if (itemIndex !== -1) {
                     state.items[itemIndex].comments = state.items[itemIndex].comments.filter(
@@ -1496,6 +1548,8 @@ export const selectIsReturning = (state: RootState, id: string) =>
     state.helpdeskDocuments.actionLoading[id]?.returning || false;
 export const selectDocumentUpdatingFile = (state: RootState) => state.helpdeskDocuments.loading.updateFile;
 
+// ─── Entity Selectors ──────────────────────────────────────────────────────
+
 export const selectDocumentsByEntity = (
     entityType: DocumentEntityType,
     entityId?: string
@@ -1520,6 +1574,19 @@ export const selectDocumentLinking = (state: RootState) => state.helpdeskDocumen
 export const selectUnlinkedHelpdeskDocuments = (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => !d.entity_id);
 
+// ─── Consolidated Memo Selectors ──────────────────────────────────────────
+
+export const selectConsolidatedUtilityMemos = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.entity_type === 'consolidated_utility_memo');
+
+export const selectConsolidatedFuelMemos = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.entity_type === 'consolidated_fuel_memo');
+
+export const selectAllConsolidatedMemos = (state: RootState) =>
+    state.helpdeskDocuments.items.filter(
+        (d) => d.entity_type === 'consolidated_utility_memo' || d.entity_type === 'consolidated_fuel_memo'
+    );
+
 // ─── Unified General Request Selectors ──────────────────────────────────────
 
 export const selectDocumentsByRequestType = (requestType: RequestType) => (state: RootState) =>
@@ -1538,7 +1605,7 @@ export const selectDocumentsByCategory = (categoryType: GeneralRequestCategory) 
 
 // ─── Aide Request Selectors ──────────────────────────────────────────────────
 
-export const selectDocumentsByOfficerRank = (officerRank: string) => (state: RootState) =>
+export const selectDocumentsByOfficerRank = (officerRank: OfficerRank) => (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.officer_rank === officerRank);
 
 export const selectDocumentsByOfficerName = (officerName: string) => (state: RootState) =>
@@ -1554,10 +1621,10 @@ export const selectDocumentsByCurrentStation = (currentStation: string) => (stat
         (d) => d.current_station?.toLowerCase().includes(currentStation.toLowerCase())
     );
 
-export const selectDocumentsByCurrentUnit = (currentUnit: string) => (state: RootState) =>
+export const selectDocumentsByCurrentUnit = (currentUnit: UnitType) => (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.current_unit === currentUnit);
 
-export const selectDocumentsByAideStatus = (aideStatus: string) => (state: RootState) =>
+export const selectDocumentsByAideStatus = (aideStatus: AideStatus) => (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.aide_status === aideStatus);
 
 // ─── Sentry Request Selectors ──────────────────────────────────────────────
@@ -1567,7 +1634,7 @@ export const selectDocumentsByResidenceLocation = (residenceLocation: string) =>
         (d) => d.residence_location?.toLowerCase().includes(residenceLocation.toLowerCase())
     );
 
-export const selectDocumentsBySentryStatus = (sentryStatus: string) => (state: RootState) =>
+export const selectDocumentsBySentryStatus = (sentryStatus: SentryStatus) => (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.sentry_status === sentryStatus);
 
 // ─── Legacy Selectors ──────────────────────────────────────────────────────

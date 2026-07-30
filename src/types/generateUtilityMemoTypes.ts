@@ -25,4 +25,5 @@ export interface UtilityMemoData {
   crestUrl: string;
   footerEmblemUrl: string;
   signatureUrl?: string;
+  memoType: 'all' | 'fuel';    // ✅ added
 }

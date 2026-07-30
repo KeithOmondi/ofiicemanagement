@@ -6,11 +6,11 @@ import {
   createPartHeard,
   createServiceWeek,
   createOtherPayment,
-  updateCircuitStatus,
-  updateBenchStatus,
-  updatePartHeardStatus,
-  updateServiceWeekStatus,
-  updateOtherPaymentStatus,
+  updateCircuit,
+  updateBench,
+  updatePartHeard,
+  updateServiceWeek,
+  updateOtherPayment,
   fetchCircuits,
   fetchBenches,
   fetchPartHeards,
@@ -23,7 +23,6 @@ import {
   type ServiceWeek,
   type OtherPayment,
   type DSADetailInput,
-  type Status,
   type CreateCircuitInput,
   type CreateSpecialBenchInput,
   type CreatePartHeardInput,
@@ -123,7 +122,7 @@ type BasicInfoType = {
   case_reference?: string;
   approved_by?: string;
   week_number?: string;
-  year?: string;
+  year?: string;  
   description?: string;
   start_date: string;
   end_date: string;
@@ -1452,155 +1451,202 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     else if (currentStep === 3) setCurrentStep(2);
   };
 
-  const handleCreate = async () => {
-    try {
-      const dsaData = dsaDetails
-        .filter(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0)
-        .map(d => ({
-          judge_name: d.judge_name.trim(),
-          pj_number: d.pj_number.trim(),
-          designation: d.designation || undefined,
-          dsa_per_day: d.dsa_per_day,
-          days: d.days,
-          notes: undefined,
-        }));
+const handleCreate = async () => {
+  try {
+    const dsaData = dsaDetails
+      .filter(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0)
+      .map(d => ({
+        judge_name: d.judge_name.trim(),
+        pj_number: d.pj_number.trim(),
+        designation: d.designation || undefined,
+        dsa_per_day: d.dsa_per_day,
+        days: d.days,
+        notes: undefined,
+      }));
 
-      let createdId: string | undefined;
+    let createdId: string | undefined;
 
-      if (editingItem) {
-        const statusUpdate = { id: editingItem.id, status: 'Pending' as Status };
-        switch (mode) {
-          case 'circuit':
-            await dispatch(updateCircuitStatus(statusUpdate)).unwrap();
-            break;
-          case 'bench':
-            await dispatch(updateBenchStatus(statusUpdate)).unwrap();
-            break;
-          case 'partHeard':
-            await dispatch(updatePartHeardStatus(statusUpdate)).unwrap();
-            break;
-          case 'serviceWeek':
-            await dispatch(updateServiceWeekStatus(statusUpdate)).unwrap();
-            break;
-          case 'otherPayment':
-            await dispatch(updateOtherPaymentStatus(statusUpdate)).unwrap();
-            break;
-          default:
-            throw new Error('Invalid mode');
-        }
-        toast.success(`${getModalTitle()} updated successfully.`);
-        createdId = editingItem.id;
-      } else {
-        let result;
-        switch (mode) {
-          case 'circuit': {
-            const input: CreateCircuitInput = {
-              name: basicInfo.name!.trim(),
-              location: basicInfo.location?.trim() || undefined,
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            };
-            result = await dispatch(createCircuit(input)).unwrap();
-            break;
-          }
-          case 'bench': {
-            const input: CreateSpecialBenchInput = {
-              name: basicInfo.name!.trim(),
-              case_reference: basicInfo.case_reference?.trim() || undefined,
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            };
-            result = await dispatch(createBench(input)).unwrap();
-            break;
-          }
-          case 'partHeard': {
-            const input: CreatePartHeardInput = {
-              case_reference: basicInfo.case_reference!.trim(),
-              approved_by: basicInfo.approved_by?.trim() || undefined,
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            };
-            result = await dispatch(createPartHeard(input)).unwrap();
-            break;
-          }
-          case 'serviceWeek': {
-            const input: CreateServiceWeekInput = {
-              name: basicInfo.name!.trim(),
-              week_number: basicInfo.week_number!.trim(),
-              year: basicInfo.year!,
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            };
-            result = await dispatch(createServiceWeek(input)).unwrap();
-            break;
-          }
-          case 'otherPayment': {
-            const input: CreateOtherPaymentInput = {
-              name: basicInfo.name!.trim(),
-              description: basicInfo.description?.trim() || undefined,
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            };
-            result = await dispatch(createOtherPayment(input)).unwrap();
-            break;
-          }
-          default:
-            throw new Error('Invalid mode');
-        }
-        toast.success(`${getModalTitle()} created successfully.`);
-        createdId = result?.id;
-      }
-
-      // ─── Link the document if one was created ──────────────────────────
-      if (pendingDocumentId && createdId) {
-        try {
-          await dispatch(
-            linkHelpdeskDocument({
-              id: pendingDocumentId,
-              entity_type: DOCUMENT_ENTITY_TYPE_MAP[mode],
-              entity_id: createdId,
-            })
-          ).unwrap();
-          toast.success('Memo linked to the record.');
-        } catch {
-          toast.error('Record created, but failed to link the memo. You can attach it manually later.');
-        }
-      }
-
-      // ─── Refresh data ────────────────────────────────────────────────────
+    if (editingItem) {
+      // ─── EDITING: direct dispatch with mode‑specific updates ──────────────
       switch (mode) {
         case 'circuit':
-          await dispatch(fetchCircuits({}));
+          await dispatch(updateCircuit({
+            id: editingItem.id,
+            updates: {
+              name: basicInfo.name?.trim(),
+              location: basicInfo.location?.trim(),
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+            }
+          })).unwrap();
           break;
         case 'bench':
-          await dispatch(fetchBenches({}));
+          await dispatch(updateBench({
+            id: editingItem.id,
+            updates: {
+              name: basicInfo.name?.trim(),
+              case_reference: basicInfo.case_reference?.trim(),
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+            }
+          })).unwrap();
           break;
         case 'partHeard':
-          await dispatch(fetchPartHeards({}));
+          await dispatch(updatePartHeard({
+            id: editingItem.id,
+            updates: {
+              case_reference: basicInfo.case_reference?.trim(),
+              approved_by: basicInfo.approved_by?.trim(),
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+            }
+          })).unwrap();
           break;
         case 'serviceWeek':
-          await dispatch(fetchServiceWeeks({}));
+          await dispatch(updateServiceWeek({
+            id: editingItem.id,
+            updates: {
+              name: basicInfo.name?.trim(),
+              week_number: basicInfo.week_number?.trim(),
+              year: basicInfo.year,
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+            }
+          })).unwrap();
           break;
         case 'otherPayment':
-          await dispatch(fetchOtherPayments({}));
+          await dispatch(updateOtherPayment({
+            id: editingItem.id,
+            updates: {
+              name: basicInfo.name?.trim(),
+              description: basicInfo.description?.trim(),
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+            }
+          })).unwrap();
           break;
         default:
-          break;
+          throw new Error('Invalid mode');
       }
-      await dispatch(fetchHelpDeskStats());
-
-      onClose();
-      resetForm();
-    } catch (err) {
-      console.error('Failed to save:', err);
-      toast.error('Failed to save. Please try again.');
+      toast.success(`${getModalTitle()} updated successfully.`);
+      createdId = editingItem.id;
+    } else {
+      // ─── CREATING ──────────────────────────────────────────────────────────
+      let result;
+      switch (mode) {
+        case 'circuit': {
+          const input: CreateCircuitInput = {
+            name: basicInfo.name!.trim(),
+            location: basicInfo.location?.trim() || undefined,
+            start_date: basicInfo.start_date,
+            end_date: basicInfo.end_date,
+            dsa_details: dsaData,
+          };
+          result = await dispatch(createCircuit(input)).unwrap();
+          break;
+        }
+        case 'bench': {
+          const input: CreateSpecialBenchInput = {
+            name: basicInfo.name!.trim(),
+            case_reference: basicInfo.case_reference?.trim() || undefined,
+            start_date: basicInfo.start_date,
+            end_date: basicInfo.end_date,
+            dsa_details: dsaData,
+          };
+          result = await dispatch(createBench(input)).unwrap();
+          break;
+        }
+        case 'partHeard': {
+          const input: CreatePartHeardInput = {
+            case_reference: basicInfo.case_reference!.trim(),
+            approved_by: basicInfo.approved_by?.trim() || undefined,
+            start_date: basicInfo.start_date,
+            end_date: basicInfo.end_date,
+            dsa_details: dsaData,
+          };
+          result = await dispatch(createPartHeard(input)).unwrap();
+          break;
+        }
+        case 'serviceWeek': {
+          const input: CreateServiceWeekInput = {
+            name: basicInfo.name!.trim(),
+            week_number: basicInfo.week_number!.trim(),
+            year: basicInfo.year!,
+            start_date: basicInfo.start_date,
+            end_date: basicInfo.end_date,
+            dsa_details: dsaData,
+          };
+          result = await dispatch(createServiceWeek(input)).unwrap();
+          break;
+        }
+        case 'otherPayment': {
+          const input: CreateOtherPaymentInput = {
+            name: basicInfo.name!.trim(),
+            description: basicInfo.description?.trim() || undefined,
+            start_date: basicInfo.start_date,
+            end_date: basicInfo.end_date,
+            dsa_details: dsaData,
+          };
+          result = await dispatch(createOtherPayment(input)).unwrap();
+          break;
+        }
+        default:
+          throw new Error('Invalid mode');
+      }
+      toast.success(`${getModalTitle()} created successfully.`);
+      createdId = result?.id;
     }
-  };
+
+    // ─── Link the document if one was created ──────────────────────────
+    if (pendingDocumentId && createdId) {
+      try {
+        await dispatch(
+          linkHelpdeskDocument({
+            id: pendingDocumentId,
+            entity_type: DOCUMENT_ENTITY_TYPE_MAP[mode],
+            entity_id: createdId,
+          })
+        ).unwrap();
+        toast.success('Memo linked to the record.');
+      } catch {
+        toast.error('Record created, but failed to link the memo. You can attach it manually later.');
+      }
+    }
+
+    // ─── Refresh data ────────────────────────────────────────────────────
+    switch (mode) {
+      case 'circuit':
+        await dispatch(fetchCircuits({}));
+        break;
+      case 'bench':
+        await dispatch(fetchBenches({}));
+        break;
+      case 'partHeard':
+        await dispatch(fetchPartHeards({}));
+        break;
+      case 'serviceWeek':
+        await dispatch(fetchServiceWeeks({}));
+        break;
+      case 'otherPayment':
+        await dispatch(fetchOtherPayments({}));
+        break;
+      default:
+        break;
+    }
+    await dispatch(fetchHelpDeskStats());
+
+    onClose();
+    resetForm();
+  } catch (err) {
+    console.error('Failed to save:', err);
+    toast.error('Failed to save. Please try again.');
+  }
+};
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
