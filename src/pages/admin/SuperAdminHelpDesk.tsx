@@ -3050,12 +3050,12 @@ function UtilitiesTab({
       )}
 
       <UtilitiesMemoModal
-        isOpen={showMemoModal}
-        onClose={() => setShowMemoModal(false)}
-        judges={data}
-        memoType="all"
-        onMemoGenerated={handleMemoGenerated}
-      />
+  isOpen={showMemoModal}
+  onClose={() => setShowMemoModal(false)}
+  judges={data}
+  isConsolidated={true}
+  onMemoGenerated={handleMemoGenerated}
+/>
     </>
   );
 }
