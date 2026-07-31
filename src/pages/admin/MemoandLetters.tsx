@@ -1,6 +1,6 @@
 // src/pages/MemoandLetters.tsx
 
-import React, { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useAppDispatch, useAppSelector } from "../../store/hook";
 import {
   fetchDocuments,
@@ -13,11 +13,9 @@ import {
   updateDocument,
   clearError,
   requestSignOtp,
-  fetchResponses,
   updateMark,
   regeneratePdf,
   releaseDocument,
-  // ── Bring Up thunks ──────────────────────────────────────────────────
   setBringUp,
   updateBringUp,
   completeBringUp,
@@ -37,9 +35,7 @@ import {
 import type {
   Document,
   DocumentStatus,
-  DocumentType,
   DocumentFilters,
-  // ── Bring Up types ──────────────────────────────────────────────────
   SetBringUpInput,
   UpdateBringUpInput,
   CompleteBringUpInput,
@@ -49,6 +45,24 @@ import type { DepartmentWithUserCount } from "../../store/slices/departmentsSlic
 import { format } from "date-fns";
 import toast from "react-hot-toast";
 import TemplateComposerModal from "../../components/templates/TemplateComposerModal";
+
+// ─── Helpdesk Document Imports ──────────────────────────────────────────────
+import {
+  fetchHelpdeskDocuments,
+  internalPreviewDocument,
+  internalApproveDocument,
+  internalRejectDocument,
+  internalRequestChanges,
+  sendBackToRequester,
+  cancelInternalApproval,
+  selectAllHelpdeskDocuments,
+  type HelpdeskDocument,
+  type InternalApprovalStatus,
+  type RequesterVisibleStatus,
+  type DocumentStatus as HelpdeskDocumentStatus,
+  type DocumentEntityType,
+} from "../../store/slices/helpdeskDocumentsSlice";
+import { selectCurrentUser } from "../../store/slices/userSlice";
 
 // ─── Helper Components ──────────────────────────────────────────────────────
 
@@ -89,49 +103,88 @@ const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => (
   </span>
 );
 
-// (2) DocIcon – UPDATED to include certificate
-// (2) DocIcon – UPDATED to include certificate
-const DOC_ICON_COLORS: Partial<Record<DocumentType, string>> = {
-  memo: "text-amber-500",
-  letter: "text-stone-400",
-  certificate: "text-amber-600",
-  judgment: "text-amber-600",
-  ruling: "text-violet-600",
-  order: "text-blue-600",
-  correspondence: "text-teal-600",
-  upload: "text-stone-400",
-  ticket: "text-purple-500",
+// ─── Helpdesk Document Status Badge ─────────────────────────────────────────
+
+const HELPEDSK_STATUS_STYLES: Record<HelpdeskDocumentStatus, string> = {
+  draft: "bg-stone-100 text-stone-500 border border-stone-200",
+  pending_approval: "bg-amber-50 text-amber-700 border border-amber-100",
+  approved: "bg-emerald-50 text-emerald-700 border border-emerald-100",
+  rejected: "bg-red-50 text-red-700 border border-red-100",
+  returned: "bg-blue-50 text-blue-700 border border-blue-100",
 };
 
-const DocIcon: React.FC<{ type: DocumentType; className?: string }> = ({
-  type,
-  className = "",
-}) => (
-  <svg
-    className={`${DOC_ICON_COLORS[type] ?? "text-stone-400"} ${className}`}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
+const HELPEDSK_STATUS_LABELS: Record<HelpdeskDocumentStatus, string> = {
+  draft: "DRAFT",
+  pending_approval: "PENDING APPROVAL",
+  approved: "APPROVED ✓",
+  rejected: "REJECTED ✗",
+  returned: "RETURNED",
+};
+
+const HelpdeskStatusBadge: React.FC<{ status: HelpdeskDocumentStatus }> = ({ status }) => (
+  <span
+    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${HELPEDSK_STATUS_STYLES[status]}`}
   >
-    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-    <polyline points="14 2 14 8 20 8" />
-    <line x1="16" y1="13" x2="8" y2="13" />
-    <line x1="16" y1="17" x2="8" y2="17" />
-    <polyline points="10 9 9 9 8 9" />
-  </svg>
+    {HELPEDSK_STATUS_LABELS[status]}
+  </span>
 );
 
-// (3) formatFileSize
-const formatFileSize = (bytes: number | null): string => {
-  if (!bytes) return "";
-  const kb = bytes / 1024;
-  return kb < 1024 ? `${Math.round(kb)}KB` : `${(kb / 1024).toFixed(1)}MB`;
+// ─── Internal Approval Status Badge ─────────────────────────────────────────
+
+const INTERNAL_STATUS_STYLES: Record<InternalApprovalStatus, string> = {
+  pending: "bg-amber-50 text-amber-700 border border-amber-100",
+  previewed: "bg-blue-50 text-blue-700 border border-blue-100",
+  approved_internal: "bg-emerald-50 text-emerald-700 border border-emerald-100",
+  rejected_internal: "bg-red-50 text-red-700 border border-red-100",
+  changes_requested_internal: "bg-orange-50 text-orange-700 border border-orange-100",
+  changes_ready: "bg-purple-50 text-purple-700 border border-purple-100",
 };
 
-// (4) Spinner
+const INTERNAL_STATUS_LABELS: Record<InternalApprovalStatus, string> = {
+  pending: "PENDING REVIEW",
+  previewed: "PREVIEWED",
+  approved_internal: "APPROVED (INTERNAL)",
+  rejected_internal: "REJECTED (INTERNAL)",
+  changes_requested_internal: "CHANGES REQUESTED",
+  changes_ready: "CHANGES READY",
+};
+
+const InternalStatusBadge: React.FC<{ status: InternalApprovalStatus }> = ({ status }) => (
+  <span
+    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${INTERNAL_STATUS_STYLES[status]}`}
+  >
+    {INTERNAL_STATUS_LABELS[status]}
+  </span>
+);
+
+// ─── Requester Visible Status Badge ─────────────────────────────────────────
+
+const REQUESTER_STATUS_STYLES: Record<RequesterVisibleStatus, string> = {
+  pending_approval: "bg-amber-50 text-amber-700 border border-amber-100",
+  approved: "bg-emerald-50 text-emerald-700 border border-emerald-100",
+  rejected: "bg-red-50 text-red-700 border border-red-100",
+  changes_requested: "bg-orange-50 text-orange-700 border border-orange-100",
+  in_revision: "bg-blue-50 text-blue-700 border border-blue-100",
+};
+
+const REQUESTER_STATUS_LABELS: Record<RequesterVisibleStatus, string> = {
+  pending_approval: "PENDING APPROVAL",
+  approved: "APPROVED ✓",
+  rejected: "REJECTED ✗",
+  changes_requested: "CHANGES REQUESTED",
+  in_revision: "IN REVISION",
+};
+
+const RequesterStatusBadge: React.FC<{ status: RequesterVisibleStatus }> = ({ status }) => (
+  <span
+    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${REQUESTER_STATUS_STYLES[status]}`}
+  >
+    {REQUESTER_STATUS_LABELS[status]}
+  </span>
+);
+
+// ─── Spinner ──────────────────────────────────────────────────────────────────
+
 const Spinner: React.FC<{ className?: string }> = ({
   className = "h-3.5 w-3.5",
 }) => (
@@ -141,336 +194,55 @@ const Spinner: React.FC<{ className?: string }> = ({
   </svg>
 );
 
-// (5) StickyNote - Updated to use document.bring_up_date
-interface StickyNoteProps {
-  authorName: string;
-  initialText: string;
-  initialDate?: string | null;
-  canEdit: boolean;
-  onSave?: (text: string, date: string | null) => void;
-}
+// ─── formatDate ──────────────────────────────────────────────────────────────
 
-const StickyNote: React.FC<StickyNoteProps> = ({
-  authorName,
-  initialText,
-  initialDate = null,
-  canEdit,
-  onSave,
-}) => {
-  const normalizeDate = (dateStr: string | null | undefined): string | null => {
-    if (!dateStr) return null;
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return null;
-    return d.toISOString().split("T")[0];
-  };
-
-  const [text, setText] = useState(initialText);
-  const [date, setDate] = useState<string | null>(normalizeDate(initialDate));
-  const [editing, setEditing] = useState(false);
-  const [minimized, setMinimized] = useState(false);
-  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 24, y: 24 });
-  const [showDatePicker, setShowDatePicker] = useState(false);
-
-  const dragging = useRef(false);
-  const dragOffset = useRef({ x: 0, y: 0 });
-  const noteRef = useRef<HTMLDivElement>(null);
-
-  const onMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if ((e.target as HTMLElement).closest("textarea,button,a,input")) return;
-      dragging.current = true;
-      dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
-      e.preventDefault();
-    },
-    [pos],
-  );
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!dragging.current) return;
-      setPos({
-        x: e.clientX - dragOffset.current.x,
-        y: e.clientY - dragOffset.current.y,
-      });
-    };
-    const onUp = () => {
-      dragging.current = false;
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-  }, []);
-
-  const handleSave = () => {
-    setEditing(false);
-    onSave?.(text, date);
-  };
-
-  const handleCancel = () => {
-    setText(initialText);
-    setDate(normalizeDate(initialDate));
-    setEditing(false);
-  };
-
-  const handleQuickDateChange = (newDate: string | null) => {
-    setDate(newDate);
-    setShowDatePicker(false);
-    onSave?.(text, newDate);
-  };
-
-  const parseDate = (dateStr: string | null | undefined): Date | null => {
-    if (!dateStr) return null;
-    const d = new Date(dateStr);
-    return isNaN(d.getTime()) ? null : d;
-  };
-
-  const formatDateDisplay = (dateStr: string): string => {
-    const d = parseDate(dateStr);
-    if (!d) return "Invalid Date";
-    return d.toLocaleDateString("en-GB", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-  };
-
-  const isOverdue = (dateStr: string): boolean => {
-    const d = parseDate(dateStr);
-    if (!d) return false;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    d.setHours(0, 0, 0, 0);
-    return d < today;
-  };
-
-  const isToday = (dateStr: string): boolean => {
-    const d = parseDate(dateStr);
-    if (!d) return false;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    d.setHours(0, 0, 0, 0);
-    return d.getTime() === today.getTime();
-  };
-
-  const showDateChip = date && parseDate(date) !== null;
-
-  if (minimized) {
-    return (
-      <button
-        style={{ left: pos.x, top: pos.y }}
-        className="absolute z-30 flex items-center gap-1.5 rounded-full bg-[#F5C24C] border border-[#E8A840] shadow-md px-3 py-1.5 text-[11px] font-bold text-[#7A4E0D] hover:bg-[#f0bb40] transition-colors cursor-pointer select-none"
-        onClick={() => setMinimized(false)}
-        title="Expand note"
-      >
-        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-        Note
-      </button>
-    );
-  }
-
-  return (
-    <div
-      ref={noteRef}
-      style={{ left: pos.x, top: pos.y, width: 240 }}
-      className="absolute z-30 flex flex-col rounded-md shadow-xl select-none"
-      onMouseDown={onMouseDown}
-    >
-      <div className="flex justify-center -mb-1 pointer-events-none">
-        <div className="w-10 h-3 rounded-sm bg-[#F5C24C]/60 border border-[#E8A840]/40 shadow-sm" />
-      </div>
-
-      <div
-        className="rounded-md overflow-hidden"
-        style={{
-          background: "#FEF08A",
-          boxShadow:
-            "2px 4px 12px rgba(0,0,0,0.18), inset 0 -2px 0 rgba(0,0,0,0.06)",
-        }}
-      >
-        <div
-          className="flex items-center justify-between px-2.5 pt-2 pb-1.5 cursor-grab active:cursor-grabbing"
-          style={{ background: "#FDE047" }}
-        >
-          <div className="flex items-center gap-1.5 min-w-0">
-            <svg className="h-3 w-3 text-[#7A4E0D] flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M16 2a1 1 0 011 1v1h1a2 2 0 012 2v1a2 2 0 01-2 2h-.5l.5 9H6l.5-9H6a2 2 0 01-2-2V6a2 2 0 012-2h1V3a1 1 0 012 0v1h6V3a1 1 0 011-1z" />
-            </svg>
-            <span className="text-[10px] font-bold text-[#7A4E0D] tracking-wide truncate">
-              {authorName}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-0.5 flex-shrink-0">
-            {canEdit && !editing && (
-              <>
-                <button
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={() => setShowDatePicker((v) => !v)}
-                  className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
-                  title="Set bring‑up date"
-                >
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="4" width="18" height="18" rx="2" />
-                    <line x1="16" y1="2" x2="16" y2="6" />
-                    <line x1="8" y1="2" x2="8" y2="6" />
-                    <line x1="3" y1="10" x2="21" y2="10" />
-                  </svg>
-                </button>
-                <button
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={() => setEditing(true)}
-                  className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
-                  title="Edit note"
-                >
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 11l6-6 3 3-6 6H9v-3z" />
-                  </svg>
-                </button>
-              </>
-            )}
-            <button
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={() => setMinimized(true)}
-              className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
-              title="Minimise"
-            >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        <div className="px-2.5 pb-2.5 pt-1.5">
-          {editing ? (
-            <>
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onMouseDown={(e) => e.stopPropagation()}
-                autoFocus
-                rows={6}
-                className="w-full resize-none rounded border-0 bg-transparent text-[11px] text-stone-800 leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#E8A840] placeholder:text-stone-400"
-                placeholder="Add a note…"
-                style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
-              />
-
-              <div
-                className="mt-2 flex items-center gap-2"
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                <label className="text-[10px] font-medium text-[#7A4E0D]/70 whitespace-nowrap">
-                  📅 Bring‑up date:
-                </label>
-                <input
-                  type="date"
-                  value={date || ""}
-                  onChange={(e) => setDate(e.target.value || null)}
-                  className="flex-1 rounded border border-[#E8A840] bg-white/70 px-2 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-[#E8A840]"
-                />
-              </div>
-
-              <div
-                className="flex justify-end gap-1.5 mt-2"
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                <button
-                  onClick={handleCancel}
-                  className="px-2 py-0.5 rounded text-[10px] font-medium text-[#7A4E0D]/70 hover:bg-[#FDE047] transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSave}
-                  className="px-2 py-0.5 rounded bg-[#7A4E0D] text-[10px] font-semibold text-white hover:bg-[#5c3a09] transition-colors"
-                >
-                  Save
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <p
-                className="text-[11px] text-stone-800 leading-relaxed whitespace-pre-wrap break-words min-h-[48px]"
-                style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
-              >
-                {text || <span className="italic text-stone-400">No note yet.</span>}
-              </p>
-
-              {showDateChip && (
-                <div
-                  className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium border ${
-                    isToday(date!)
-                      ? "bg-amber-100 text-amber-800 border-amber-300"
-                      : isOverdue(date!)
-                        ? "bg-red-100 text-red-800 border-red-300"
-                        : "bg-stone-100 text-stone-700 border-stone-200"
-                  }`}
-                >
-                  <span>📅</span>
-                  <span>Bring up: {formatDateDisplay(date!)}</span>
-                </div>
-              )}
-
-              {showDatePicker && canEdit && (
-                <div
-                  className="mt-2 p-2 bg-white rounded border border-[#E8A840] shadow-sm"
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="date"
-                      value={date || ""}
-                      onChange={(e) => handleQuickDateChange(e.target.value || null)}
-                      className="flex-1 rounded border border-stone-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-                      autoFocus
-                    />
-                    <button
-                      onClick={() => setShowDatePicker(false)}
-                      className="text-[10px] text-stone-400 hover:text-stone-600"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <p className="text-[9px] text-stone-400 mt-1">
-                    Select a date and it saves automatically.
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        <div className="px-2.5 pb-1.5 flex items-center justify-between">
-          <span className="text-[9px] text-[#7A4E0D]/50 font-medium">
-            {format(new Date(), "dd MMM yyyy")}
-          </span>
-          <div
-            className="w-4 h-4 flex-shrink-0"
-            style={{
-              background:
-                "linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.10) 50%)",
-              borderRadius: "0 0 4px 0",
-            }}
-          />
-        </div>
-      </div>
-    </div>
-  );
+const formatDate = (dateString: string | null | undefined): string => {
+  if (!dateString) return "—";
+  const d = new Date(dateString);
+  if (isNaN(d.getTime())) return dateString;
+  return d.toLocaleDateString("en-KE", { day: "2-digit", month: "short", year: "numeric" });
 };
 
-// (6) ListItem – updated with bring up date and certificate support
-const ListItem: React.FC<{
+// ─── Helper: Format Document Type Display ──────────────────────────────────
+
+const getHelpdeskEntityDisplay = (entityType: DocumentEntityType): string => {
+  const labels: Record<DocumentEntityType, string> = {
+    circuit: "Circuit",
+    bench: "Bench",
+    partHeard: "Part-Heard",
+    serviceWeek: "Service Week",
+    otherPayment: "Other Payment",
+    ticket: "Travel Ticket",
+    medicalClaim: "Medical Claim",
+    generalRequest: "General Request",
+    securityRequest: "Security Request",
+    visa: "Visa Support",
+    protocol: "Protocol Event",
+    club: "Club Membership",
+    utility_memo: "Utility Memo",
+    consolidated_utility_memo: "Consolidated Utility Memo",
+    consolidated_fuel_memo: "Consolidated Fuel Memo",
+    aide: "Aide Request",
+    sentry: "Sentry Request",
+  };
+  return labels[entityType] || entityType;
+};
+
+// ─── ListItem ────────────────────────────────────────────────────────────────
+
+interface ListItemProps {
   document: Document;
   selected: boolean;
   onSelect: () => void;
   hasResponse?: boolean;
-}> = ({ document, selected, onSelect, hasResponse = false }) => {
+}
+
+const ListItem: React.FC<ListItemProps> = ({
+  document,
+  selected,
+  onSelect,
+  hasResponse = false,
+}) => {
   const mark = document.active_mark;
   const showMarkInfo = mark && (document.status === "marked" || document.status === "dept_assigned" || document.status === "user_assigned");
 
@@ -486,7 +258,9 @@ const ListItem: React.FC<{
       }`}
     >
       <div className="mt-0.5 flex-shrink-0">
-        <DocIcon type={document.type} className="h-4 w-4" />
+        <svg className="h-4 w-4 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+        </svg>
       </div>
 
       <div className="flex-1 min-w-0">
@@ -516,12 +290,6 @@ const ListItem: React.FC<{
               ? format(new Date(document.created_at), "yyyy-MM-dd")
               : "—"}
           </span>
-          {document.file_size_bytes && (
-            <>
-              <span>·</span>
-              <span>{formatFileSize(document.file_size_bytes)}</span>
-            </>
-          )}
           <span>·</span>
           <span className="truncate">
             {document.reference_no || document.created_by_name || "RHC"}
@@ -583,939 +351,562 @@ const ListItem: React.FC<{
   );
 };
 
-// (7) AnnotationCard (unchanged)
-const AnnotationCard: React.FC<{
-  title: string;
-  department: string;
-  assignee: string;
-  comment: string;
-  urgent: boolean;
-  visibleInSummary: boolean;
-  timestamp: string;
-}> = ({
-  title,
-  department,
-  assignee,
-  comment,
-  urgent,
-  visibleInSummary,
-  timestamp,
-}) => (
-  <div className="rounded-lg border border-stone-200 bg-stone-50 p-2.5 text-[10px]">
-    <div className="flex items-start justify-between gap-2 mb-1">
-      <span className="font-semibold text-stone-700 truncate">{title}</span>
-      {urgent && <span className="text-red-600 font-bold shrink-0">Urgent</span>}
-    </div>
-    <p className="text-stone-500 mb-1">
-      Marked to: <span className="text-stone-700">{department}</span>
-    </p>
-    {assignee !== "—" && (
-      <p className="text-stone-500 mb-1">
-        Assigned to: <span className="text-stone-700">{assignee}</span>
-      </p>
-    )}
-    {comment && (
-      <div className="border-l-2 border-[#C29B38] pl-2 mb-1">
-        <span className="text-stone-500">Registrar's Comment: </span>
-        <span className="text-stone-700">{comment}</span>
-      </div>
-    )}
-    <div className="flex items-center justify-between text-stone-400 gap-2 flex-wrap">
-      <span>{timestamp}</span>
-      {visibleInSummary && (
-        <span className="text-[#1E4620] font-medium">Visible in Summary</span>
-      )}
-    </div>
-  </div>
-);
+// ─── Helpdesk Document List Item ────────────────────────────────────────────
 
-// (8) AnnotationsPanel (unchanged)
-const AnnotationsPanel: React.FC<{ document: Document }> = ({
-  document: doc,
-}) => (
-  <div className="bg-white border-t border-stone-200 flex-shrink-0">
-    <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-stone-100 gap-2">
-      <span className="text-xs font-semibold text-[#1E4620]">
-        Registrar's Annotations
-      </span>
-      <button className="text-[10px] text-stone-400 hover:text-[#1E4620] transition-colors font-medium whitespace-nowrap">
-        Secretary View Active
-      </button>
-    </div>
-    <div className="px-3 sm:px-4 py-3 max-h-[140px] overflow-y-auto">
-      {doc.active_mark ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <AnnotationCard
-            title={doc.title}
-            department={doc.active_mark.marked_to_dept_name}
-            assignee={doc.active_mark.assigned_to_name ?? "—"}
-            comment={doc.active_mark.instructions ?? "Marked for action."}
-            urgent={doc.active_mark.priority === "urgent"}
-            visibleInSummary={false}
-            timestamp={
-              doc.active_mark.marked_at
-                ? format(
-                    new Date(doc.active_mark.marked_at),
-                    "dd MMM yyyy · hh:mm aa",
-                  )
-                : ""
-            }
-          />
-        </div>
-      ) : (
-        <p className="text-[10px] text-stone-400 italic">No annotations yet.</p>
-      )}
-      <button className="mt-2 text-[10px] text-[#1E4620] hover:underline font-medium">
-        + Add New Annotation
-      </button>
-    </div>
-  </div>
-);
-
-// (9) DocumentFallback – UPDATED to include certificate
-const DocumentFallback: React.FC<{ document: Document }> = ({
-  document: doc,
-}) => (
-  <div className="px-5 sm:px-16 py-8 sm:py-14">
-    <div className="flex items-center justify-center gap-4 sm:gap-6 mb-6 sm:mb-8">
-      <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full border-2 border-stone-200 bg-stone-50 flex items-center justify-center text-stone-300">
-        <svg viewBox="0 0 40 40" className="w-7 h-7 sm:w-10 sm:h-10" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <circle cx="20" cy="20" r="18" />
-          <path d="M20 8 L22 15 L30 15 L24 20 L26 28 L20 23 L14 28 L16 20 L10 15 L18 15 Z" />
-        </svg>
-      </div>
-      <div className="h-12 sm:h-16 w-px bg-stone-200" />
-      <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-full border-2 border-stone-200 bg-stone-50 flex items-center justify-center text-stone-300">
-        <svg viewBox="0 0 40 40" className="w-7 h-7 sm:w-10 sm:h-10" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <circle cx="20" cy="20" r="18" />
-          <path d="M10 25 L20 10 L30 25" />
-          <line x1="8" y1="25" x2="32" y2="25" />
-          <line x1="20" y1="25" x2="20" y2="30" />
-        </svg>
-      </div>
-    </div>
-    <div className="text-center mb-2">
-      <p className="text-[10px] text-stone-400 tracking-widest uppercase">Republic of Kenya</p>
-      <p className="text-xs sm:text-sm font-bold text-stone-900 tracking-wide mt-0.5 uppercase">Office of the Registrar High Court</p>
-    </div>
-    <div className="border-t-2 border-stone-700 mt-4 mb-6" />
-    <h2 className="text-center text-sm sm:text-base font-bold tracking-widest uppercase text-stone-800 mb-6 sm:mb-8">
-      {doc.type === "memo" ? "MEMO" : doc.type === "letter" ? "LETTER" : "CERTIFICATE"}
-    </h2>
-    <div className="text-sm text-stone-300 italic text-center py-8 sm:py-12">
-      Document body will appear here…
-    </div>
-  </div>
-);
-
-// (10) FilePreview (unchanged)
-const FilePreview: React.FC<{ document: Document }> = ({ document: doc }) => {
-  const fileUrl = doc.file_url;
-
-  if (!fileUrl) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full min-h-[300px] sm:min-h-[400px] p-6 sm:p-8">
-        <DocIcon type={doc.type} className="h-12 w-12 sm:h-14 sm:w-14 text-stone-300 mb-3" />
-        <p className="text-sm text-stone-400 text-center">No file attached to this document.</p>
-      </div>
-    );
-  }
-
-  const ext =
-    (fileUrl.split("/").pop() ?? "").split(".").pop()?.toLowerCase() ?? "";
-
-  if (ext === "pdf") {
-    return (
-      <iframe
-        src={`${fileUrl}#toolbar=0`}
-        title={doc.title}
-        className="w-full h-full min-h-[500px] sm:min-h-[800px] border-0"
-      />
-    );
-  }
-
-  if (["jpg", "jpeg", "png", "gif", "webp", "svg", "bmp"].includes(ext)) {
-    return (
-      <div className="flex items-center justify-center h-full min-h-[300px] sm:min-h-[400px] p-4 sm:p-8">
-        <img
-          src={fileUrl}
-          alt={doc.title}
-          className="max-w-full max-h-[calc(100vh-300px)] object-contain rounded shadow-sm"
-        />
-      </div>
-    );
-  }
-
-  if (["docx", "doc", "xlsx", "xls", "pptx", "ppt"].includes(ext)) {
-    return (
-      <iframe
-        src={`https://docs.google.com/gview?url=${encodeURIComponent(fileUrl)}&embedded=true`}
-        title={doc.title}
-        className="w-full flex-1 min-h-[500px] sm:min-h-[800px] border-0"
-      />
-    );
-  }
-
-  return (
-    <div className="flex flex-col items-center justify-center h-full min-h-[300px] sm:min-h-[400px] p-6 sm:p-8 gap-4">
-      <DocIcon type={doc.type} className="h-12 w-12 sm:h-14 sm:w-14 text-stone-300" />
-      <p className="text-sm text-stone-600 font-medium text-center break-all">
-        {doc.original_name || doc.title}
-      </p>
-      <div className="flex flex-wrap justify-center gap-3">
-        <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 rounded-lg bg-[#1E4620] px-4 py-2 text-xs font-medium text-white hover:bg-[#163a18]">
-          Open in New Tab
-        </a>
-        <a href={fileUrl} download className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-4 py-2 text-xs font-medium text-stone-700 hover:bg-stone-50">
-          Download
-        </a>
-      </div>
-    </div>
-  );
-};
-
-// (11) ResponsesPanel (unchanged)
-const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
-  const dispatch = useAppDispatch();
-  const responses = useAppSelector((state) => state.documents.responses);
-  const loading = useAppSelector((state) => state.documents.loading);
-
-  useEffect(() => {
-    dispatch(fetchResponses(documentId));
-  }, [dispatch, documentId]);
-
-  if (loading) {
-    return (
-      <div className="bg-white border-t border-stone-200 flex-shrink-0 px-4 py-6 flex justify-center">
-        <Spinner className="h-4 w-4 text-stone-400" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-white border-t border-stone-200 flex-shrink-0">
-      <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-stone-100">
-        <span className="text-xs font-semibold text-[#1E4620]">
-          Responses
-          {responses.length > 0 && (
-            <span className="ml-1.5 rounded-full bg-stone-100 px-1.5 py-0.5 text-[10px] font-medium text-stone-500">
-              {responses.length}
-            </span>
-          )}
-        </span>
-      </div>
-
-      <div className="px-3 sm:px-4 py-3 max-h-[220px] overflow-y-auto space-y-2">
-        {responses.length === 0 ? (
-          <p className="text-[10px] text-stone-400 italic">No responses yet.</p>
-        ) : (
-          responses.map((r) => (
-            <div key={r.id} className="rounded-lg border border-stone-200 bg-stone-50 p-2.5">
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full bg-[#1E4620] text-[8px] font-bold text-white">
-                    {r.response_number}
-                  </span>
-                  <span className="text-[11px] font-semibold text-stone-800 truncate">
-                    {r.responded_by_name}
-                  </span>
-                </div>
-                <span className="text-[9px] text-stone-400 whitespace-nowrap flex-shrink-0">
-                  {format(new Date(r.created_at), "dd MMM yyyy · hh:mm aa")}
-                </span>
-              </div>
-
-              {r.note && (
-                <p className="text-[11px] text-stone-700 leading-relaxed mt-1 whitespace-pre-wrap">
-                  {r.note}
-                </p>
-              )}
-
-              {r.file_url && (
-                <a
-                  href={r.file_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-1.5 inline-flex items-center gap-1 text-[10px] text-[#1E4620] hover:underline font-medium"
-                >
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round"
-                      d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                  </svg>
-                  {r.original_name ?? "Attached file"}
-                  {r.file_size_bytes && (
-                    <span className="text-stone-400 ml-1">
-                      ({formatFileSize(r.file_size_bytes)})
-                    </span>
-                  )}
-                </a>
-              )}
-            </div>
-          ))
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ─── Editable Fields Type ──────────────────────────────────────────────────
-
-interface EditableFields {
-  to_recipient: string;
-  from_sender: string;
-  reference_no: string;
-  document_date: string;
-  subject: string;
-  cc: string;
-  enclosures: string;
-  signature_name: string;
-  signature_title: string;
+interface HelpdeskListItemProps {
+  document: HelpdeskDocument;
+  selected: boolean;
+  onSelect: () => void;
 }
 
-const toISODateInput = (value: string | Date | null | undefined): string => {
-  if (!value) return new Date().toISOString().split('T')[0];
-  const d = value instanceof Date ? value : new Date(value);
-  if (isNaN(d.getTime())) return new Date().toISOString().split('T')[0];
-  return d.toISOString().split('T')[0];
-};
-
-// ─── Draggable Signature Box (unchanged) ──────────────────────────────────
-
-interface SignatureBoxProps {
-  position: { x: number; y: number; width: number; height: number };
-  onPositionChange: (pos: { x: number; y: number; width: number; height: number }) => void;
-  isOtpModalOpen?: boolean;
-}
-
-const SignatureBox: React.FC<SignatureBoxProps> = ({
-  position,
-  onPositionChange,
-  isOtpModalOpen = false,
+const HelpdeskListItem: React.FC<HelpdeskListItemProps> = ({
+  document,
+  selected,
+  onSelect,
 }) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const [isResizing, setIsResizing] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [posStart, setPosStart] = useState({ x: 0, y: 0, width: 0, height: 0 });
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
-    setPosStart({ x: position.x, y: position.y, width: position.width, height: position.height });
-  };
-
-  const handleResizeMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsResizing(true);
-    setDragStart({ x: e.clientX, y: e.clientY });
-    setPosStart({ x: position.x, y: position.y, width: position.width, height: position.height });
-  };
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging) {
-        const dx = e.clientX - dragStart.x;
-        const dy = e.clientY - dragStart.y;
-        onPositionChange({
-          x: Math.max(0, posStart.x + dx),
-          y: Math.max(0, posStart.y + dy),
-          width: posStart.width,
-          height: posStart.height,
-        });
-      }
-      if (isResizing) {
-        const dx = e.clientX - dragStart.x;
-        const dy = e.clientY - dragStart.y;
-        onPositionChange({
-          x: posStart.x,
-          y: posStart.y,
-          width: Math.max(100, posStart.width + dx),
-          height: Math.max(40, posStart.height + dy),
-        });
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-      setIsResizing(false);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, isResizing, dragStart, posStart, onPositionChange]);
-
+  const entityLabel = getHelpdeskEntityDisplay(document.entity_type);
+  
   return (
     <div
-      className={`absolute border-2 border-[#C29B38] border-dashed bg-[#C29B38]/10 rounded ${
-        isOtpModalOpen ? 'z-[100]' : 'z-20'
+      onClick={onSelect}
+      className={`flex items-start gap-2.5 px-3 py-2.5 cursor-pointer transition-colors ${
+        selected
+          ? "bg-[#1E4620]/5 border-l-2 border-[#1E4620]"
+          : "hover:bg-stone-50 border-l-2 border-transparent"
       }`}
-      style={{
-        left: position.x,
-        top: position.y,
-        width: position.width,
-        height: position.height,
-        cursor: isDragging ? 'grabbing' : 'grab',
-      }}
-      onMouseDown={handleMouseDown}
     >
-      <div className="absolute -top-6 left-0 text-[9px] font-semibold text-[#C29B38] bg-white/80 px-1.5 py-0.5 rounded whitespace-nowrap">
-        📍 Signature here
+      <div className="mt-0.5 flex-shrink-0">
+        <svg className="h-4 w-4 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+        </svg>
       </div>
 
-      <div
-        className="absolute -bottom-1 -right-1 w-3 h-3 bg-[#C29B38] rounded-sm cursor-se-resize"
-        onMouseDown={handleResizeMouseDown}
-      />
-      <div
-        className="absolute -bottom-1 -left-1 w-3 h-3 bg-[#C29B38] rounded-sm cursor-sw-resize"
-        onMouseDown={handleResizeMouseDown}
-      />
-      <div
-        className="absolute -top-1 -right-1 w-3 h-3 bg-[#C29B38] rounded-sm cursor-ne-resize"
-        onMouseDown={handleResizeMouseDown}
-      />
-      <div
-        className="absolute -top-1 -left-1 w-3 h-3 bg-[#C29B38] rounded-sm cursor-nw-resize"
-        onMouseDown={handleResizeMouseDown}
-      />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start justify-between gap-1.5">
+          <p
+            className={`text-xs font-semibold leading-snug truncate ${selected ? "text-[#1E4620]" : "text-stone-800"}`}
+          >
+            {document.subject}
+          </p>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <span className="text-[9px] text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded">
+              {entityLabel}
+            </span>
+            <HelpdeskStatusBadge status={document.status} />
+          </div>
+        </div>
 
-      <div className="absolute inset-0 flex items-center justify-center text-[10px] text-[#C29B38]/40 font-medium select-none pointer-events-none">
-        Drag to position · Resize corners
+        <div className="mt-0.5 flex items-center gap-1 text-[10px] text-stone-400 flex-wrap">
+          <span>Ref: {document.ref}</span>
+          <span>·</span>
+          <span>{document.format.toUpperCase()}</span>
+          <span>·</span>
+          <span>{formatDate(document.created_at)}</span>
+        </div>
+
+        <div className="mt-0.5 flex items-center gap-1.5 flex-wrap">
+          <InternalStatusBadge status={document.internal_approval_status} />
+          <RequesterStatusBadge status={document.requester_status} />
+          {document.e_stamp_status === 'stamped' && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 border border-emerald-200">
+              📜 Stamped
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
 };
 
-// ─── Ref types for display components ──────────────────────────────────────
+// ─── MarkModal ─────────────────────────────────────────────────────────────
 
-export interface DisplayHandle {
-  getSignaturePosition: () => { x: number; y: number; width: number; height: number } | null;
-}
-
-// ─── MemoDisplay (unchanged) ──────────────────────────────────────────────
-
-interface MemoDisplayProps {
+interface MarkModalProps {
   document: Document;
-  isEditable: boolean;
-  isEditMode: boolean;
-  editorRef: React.RefObject<HTMLDivElement | null>;
-  handleInput: () => void;
-  handleManualSave: () => void;
-  currentUserName: string;
-  isSuperAdmin: boolean;
-  fields?: EditableFields;
-  onFieldChange?: (field: keyof EditableFields, value: string) => void;
-  bodyHtml?: string;
+  onClose: () => void;
+  onMark: (
+    id: string,
+    data: {
+      departmentId: string;
+      userId: string;
+      instructions: string;
+      priority: string;
+    },
+  ) => void;
 }
 
-const MemoDisplay = forwardRef<DisplayHandle, MemoDisplayProps>(({
-  document,
-  isEditable,
-  isEditMode,
-  editorRef,
-  handleInput,
-  handleManualSave,
-  currentUserName,
-  isSuperAdmin,
-  fields,
-  onFieldChange,
-  bodyHtml,
-}, ref) => {
-  const canEditFields = isSuperAdmin && isEditMode && !!fields && !!onFieldChange;
+const MarkModal: React.FC<MarkModalProps> = ({
+  document: doc,
+  onClose,
+  onMark,
+}) => {
+  const dispatch = useAppDispatch();
 
-  const toField = canEditFields ? fields!.to_recipient : (document.to_recipient || document.assigned_to_name || 'REGISTRAR, HIGH COURT / ORHC AIE HOLDER');
-  const fromField = canEditFields ? fields!.from_sender : (document.from_sender || document.department_name || 'HIGH COURT SUPPORT OFFICE');
-  const refField = canEditFields ? fields!.reference_no : (document.reference_no || 'RHC/AIE/0000');
-  const dateField = canEditFields ? fields!.document_date : (
-    document.document_date
-      ? format(new Date(document.document_date), "dd MMM yyyy")
-      : document.created_at
-        ? format(new Date(document.created_at), "dd MMM yyyy")
-        : format(new Date(), "dd MMM yyyy")
-  );
-  const subjectField = canEditFields ? fields!.subject : (document.subject || document.title);
-  const signatureName = canEditFields ? fields!.signature_name : (document.signature_name || currentUserName || 'HIGH COURT SUPPORT OFFICE');
-  const signatureTitle = canEditFields ? fields!.signature_title : (document.signature_title || 'Registrar, High Court');
+  const departments = useAppSelector(selectAllDepartments);
+  const departmentsLoading = useAppSelector(selectDepartmentsListLoading);
+  const teamMembers = useAppSelector(selectAllUsers);
+  const usersLoading = useAppSelector(selectUsersListLoading);
 
-  const handleFieldChange = (field: keyof EditableFields, value: string) => {
-    onFieldChange?.(field, value);
+  const [userId, setUserId] = useState("");
+  const [deptId, setDeptId] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [priority, setPriority] = useState("normal");
+
+  useEffect(() => {
+    dispatch(fetchDepartments({ is_active: true }));
+  }, [dispatch]);
+
+  useEffect(() => {
+    if (!deptId) return;
+    dispatch(
+      fetchUsers({
+        is_active: true,
+        department_id: deptId,
+        limit: 100,
+        sort_by: "full_name",
+        sort_order: "ASC",
+      }),
+    );
+  }, [dispatch, deptId]);
+
+  const activeDepartments = departments.filter((d) => d.is_active);
+
+  const handleDeptChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setDeptId(e.target.value);
+    setUserId("");
   };
 
-  const editModeIndicator = isEditMode && (
-    <div className="mb-3 flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-1.5 text-xs text-amber-700">
-      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-      </svg>
-      <span>Edit mode enabled — click Save to save changes</span>
-    </div>
-  );
-
-  const signatureRef = useRef<HTMLDivElement>(null);
-
-  useImperativeHandle(ref, () => ({
-    getSignaturePosition: () => {
-      if (!signatureRef.current) return null;
-      const rect = signatureRef.current.getBoundingClientRect();
-      const container = signatureRef.current.closest('.document-preview-container');
-      if (!container) return null;
-      const containerRect = container.getBoundingClientRect();
-      const containerStyle = window.getComputedStyle(container);
-      const paddingTop = parseFloat(containerStyle.paddingTop) || 0;
-      const paddingLeft = parseFloat(containerStyle.paddingLeft) || 0;
-      const padding = 8;
-      return {
-        x: rect.left - containerRect.left - paddingLeft,
-        y: rect.top - containerRect.top - paddingTop - padding,
-        width: Math.min(rect.width, 250),
-        height: Math.min(rect.height + padding, 90),
-      };
-    },
-  }));
-
-  const renderSignature = () => {
-    const content = canEditFields ? (
-      <>
-        <input
-          type="text"
-          value={signatureName}
-          onChange={(e) => handleFieldChange('signature_name', e.target.value)}
-          className="font-bold uppercase text-[13.5px] bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full"
-        />
-        <input
-          type="text"
-          value={signatureTitle}
-          onChange={(e) => handleFieldChange('signature_title', e.target.value)}
-          className="font-bold underline uppercase text-[13.5px] bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full mt-1"
-        />
-      </>
-    ) : (
-      <>
-        <div className="font-bold uppercase text-[13.5px]">{signatureName}</div>
-        <div className="font-bold underline uppercase text-[13.5px]">{signatureTitle}</div>
-      </>
-    );
-
-    return (
-      <div className="mt-10">
-        <div ref={signatureRef} className="inline-block">
-          {content}
-        </div>
-      </div>
-    );
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deptId) return;
+    onMark(doc.id, { departmentId: deptId, userId, instructions, priority });
   };
 
   return (
-    <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col">
-      <div className="flex justify-center mb-3">
-        <img
-          src="/JOB_LOGO.jpg"
-          alt="Judiciary of Kenya crest"
-          className="h-[78px] w-auto object-contain"
-          onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
-        />
-      </div>
-      <div className="text-center mt-4 mb-2">
-        <p className="text-[19px] font-bold uppercase leading-snug">
-          OFFICE OF THE REGISTRAR HIGH COURT<br />INTERNAL MEMO
-        </p>
-      </div>
-      <div className="border-t-[2.5px] border-black mb-2.5" />
-      {editModeIndicator}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-3 sm:p-4">
+      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-4 sm:p-6 shadow-xl">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm sm:text-base font-bold text-stone-900 flex items-center gap-2">
+            <span className="text-red-500">📌</span> Mark Document to Department
+          </h2>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-lg leading-none flex-shrink-0">
+            ✕
+          </button>
+        </div>
 
-      <div className="mt-2">
-        <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
-          <span className="w-24 shrink-0 uppercase">TO</span>
-          <span className="w-5 shrink-0">:</span>
-          {canEditFields ? (
-            <input
-              type="text"
-              value={toField}
-              onChange={(e) => handleFieldChange('to_recipient', e.target.value)}
-              className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
-            />
-          ) : (
-            <span className="flex-1">{toField}</span>
-          )}
-        </div>
-        <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
-          <span className="w-24 shrink-0 uppercase">FROM</span>
-          <span className="w-5 shrink-0">:</span>
-          {canEditFields ? (
-            <input
-              type="text"
-              value={fromField}
-              onChange={(e) => handleFieldChange('from_sender', e.target.value)}
-              className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
-            />
-          ) : (
-            <span className="flex-1">{fromField}</span>
-          )}
-        </div>
-        <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
-          <span className="w-24 shrink-0 uppercase">REF</span>
-          <span className="w-5 shrink-0">:</span>
-          {canEditFields ? (
-            <input
-              type="text"
-              value={refField}
-              onChange={(e) => handleFieldChange('reference_no', e.target.value)}
-              className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
-            />
-          ) : (
-            <span className="flex-1">{refField}</span>
-          )}
-        </div>
-        <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
-          <span className="w-24 shrink-0 uppercase">DATE</span>
-          <span className="w-5 shrink-0">:</span>
-          {canEditFields ? (
-            <input
-              type="date"
-              value={dateField}
-              onChange={(e) => handleFieldChange('document_date', e.target.value)}
-              className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
-            />
-          ) : (
-            <span className="flex-1">{dateField}</span>
-          )}
-        </div>
-        <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
-          <span className="w-24 shrink-0 uppercase">SUBJECT</span>
-          <span className="w-5 shrink-0">:</span>
-          {canEditFields ? (
-            <input
-              type="text"
-              value={subjectField}
-              onChange={(e) => handleFieldChange('subject', e.target.value)}
-              className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
-            />
-          ) : (
-            <span className="flex-1">{subjectField}</span>
-          )}
-        </div>
-      </div>
-      <div className="border-t-[2.5px] border-black mt-3 mb-10" />
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Document
+            </label>
+            <div className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700 font-medium truncate">
+              {doc.title}
+            </div>
+          </div>
 
-      {isEditMode && isEditable ? (
-        <div
-          ref={editorRef}
-          contentEditable
-          suppressContentEditableWarning
-          onInput={handleInput}
-          onBlur={handleManualSave}
-          data-placeholder="Start typing the body of the memo…"
-          className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none border-2 border-dashed border-[#c9a84c]/50 rounded p-1"
-        />
-      ) : (
-        <div
-          className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify"
-          dangerouslySetInnerHTML={{ __html: bodyHtml || document.body || '' }}
-        />
-      )}
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Department *
+            </label>
+            <select
+              value={deptId}
+              onChange={handleDeptChange}
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none disabled:bg-stone-50 disabled:text-stone-400"
+              required
+              disabled={departmentsLoading}
+            >
+              <option value="">
+                {departmentsLoading
+                  ? "Loading departments…"
+                  : "— Select Department —"}
+              </option>
+              {activeDepartments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                  {d.code ? ` (${d.code})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      {renderSignature()}
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Assign to (Optional)
+            </label>
+            <select
+              value={userId}
+              onChange={(e) => setUserId(e.target.value)}
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none disabled:bg-stone-50 disabled:text-stone-400"
+              disabled={usersLoading || !deptId}
+            >
+              <option value="">
+                {usersLoading
+                  ? "Loading team members…"
+                  : !deptId
+                    ? "— Select a department first —"
+                    : teamMembers.length === 0
+                      ? "No active users in this department"
+                      : "— Assign to specific user (optional) —"}
+              </option>
+              {teamMembers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.full_name} — {u.pj_number}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
-        <div className="flex-1 text-[10px] leading-tight text-stone-700">
-          <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
-          <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
-          <p className="font-bold text-[#1E4620] mt-1">Justice Be Our Shield and Defender</p>
-        </div>
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Priority
+            </label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
+            >
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+              Registrar's Comment{" "}
+              <span className="font-normal text-stone-400 normal-case">
+                (Visible to Secretary)
+              </span>
+            </label>
+            <textarea
+              value={instructions}
+              onChange={(e) => setInstructions(e.target.value)}
+              rows={3}
+              placeholder="Add instructions, annotations, or comments for this department..."
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
+            />
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-stone-500 hover:text-stone-800 order-2 sm:order-1"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a18] flex items-center justify-center gap-1.5 order-1 sm:order-2"
+            >
+              <span className="text-red-400">📌</span> Mark Document
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
-});
+};
 
-MemoDisplay.displayName = 'MemoDisplay';
+// ─── OtpModal ─────────────────────────────────────────────────────────────
 
-// ─── LetterDisplay (unchanged) ─────────────────────────────────────────
-
-interface LetterDisplayProps {
-  document: Document;
-  isEditable: boolean;
-  isEditMode: boolean;
-  editorRef: React.RefObject<HTMLDivElement | null>;
-  handleInput: () => void;
-  handleManualSave: () => void;
-  currentUserName: string;
-  isSuperAdmin: boolean;
-  fields?: EditableFields;
-  onFieldChange?: (field: keyof EditableFields, value: string) => void;
-  bodyHtml?: string;
+interface OtpModalProps {
+  isSigningInProgress: boolean;
+  otpLoading: boolean;
+  otpValue: string;
+  otpError: string | null;
+  signingDocId: string | null;
+  onOtpChange: (val: string) => void;
+  onSubmit: () => void;
+  onCancel: () => void;
+  onResend: () => void;
+  showPositionBox?: boolean;
+  positionBox?: { x: number; y: number; width: number; height: number };
 }
 
-const LetterDisplay = forwardRef<DisplayHandle, LetterDisplayProps>(({
-  document,
-  isEditable,
-  isEditMode,
-  editorRef,
-  handleInput,
-  handleManualSave,
-  currentUserName,
-  isSuperAdmin,
-  fields,
-  onFieldChange,
-  bodyHtml,
-}, ref) => {
-  const canEditFields = isSuperAdmin && isEditMode && !!fields && !!onFieldChange;
-
-  const refField = canEditFields ? fields!.reference_no : (document.reference_no || 'RHC/LTR/0000');
-  const dateField = canEditFields ? fields!.document_date : (
-    document.document_date
-      ? format(new Date(document.document_date), "dd MMM yyyy")
-      : document.created_at
-        ? format(new Date(document.created_at), "dd MMM yyyy")
-        : format(new Date(), "dd MMM yyyy")
-  );
-  const toField = canEditFields ? fields!.to_recipient : (document.to_recipient || document.assigned_to_name || '');
-  const fromField = canEditFields ? fields!.from_sender : (document.from_sender || document.department_name || 'HIGH COURT SUPPORT OFFICE');
-  const subjectField = canEditFields ? fields!.subject : (document.subject || document.title);
-  const ccField = canEditFields ? fields!.cc : (document.cc || '');
-  const enclosuresField = canEditFields ? fields!.enclosures : (document.enclosures || '');
-  const signatureName = canEditFields ? fields!.signature_name : (document.signature_name || currentUserName || 'HIGH COURT SUPPORT OFFICE');
-  const signatureTitle = canEditFields ? fields!.signature_title : (document.signature_title || 'Registrar, High Court');
-
-  const handleFieldChange = (field: keyof EditableFields, value: string) => {
-    onFieldChange?.(field, value);
-  };
-
-  const editModeIndicator = isEditMode && (
-    <div className="mb-3 flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-1.5 text-xs text-amber-700">
-      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-      </svg>
-      <span>Edit mode enabled — click Save to save changes</span>
-    </div>
-  );
-
-  const signatureRef = useRef<HTMLDivElement>(null);
-
-  useImperativeHandle(ref, () => ({
-    getSignaturePosition: () => {
-      if (!signatureRef.current) return null;
-      const rect = signatureRef.current.getBoundingClientRect();
-      const container = signatureRef.current.closest('.document-preview-container');
-      if (!container) return null;
-      const containerRect = container.getBoundingClientRect();
-      const containerStyle = window.getComputedStyle(container);
-      const paddingTop = parseFloat(containerStyle.paddingTop) || 0;
-      const paddingLeft = parseFloat(containerStyle.paddingLeft) || 0;
-      const padding = 8;
-      return {
-        x: rect.left - containerRect.left - paddingLeft,
-        y: rect.top - containerRect.top - paddingTop - padding,
-        width: Math.min(rect.width, 250),
-        height: Math.min(rect.height + padding, 90),
-      };
-    },
-  }));
-
-  const renderSignature = () => {
-    const content = canEditFields ? (
-      <>
-        <input
-          type="text"
-          value={signatureName}
-          onChange={(e) => handleFieldChange('signature_name', e.target.value)}
-          className="font-bold uppercase text-sm bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full max-w-xs"
-        />
-        <input
-          type="text"
-          value={signatureTitle}
-          onChange={(e) => handleFieldChange('signature_title', e.target.value)}
-          className="font-bold uppercase text-sm bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full max-w-xs mt-1"
-        />
-      </>
-    ) : (
-      <>
-        <div className="font-bold uppercase text-sm">{signatureName}</div>
-        <div className="font-bold uppercase text-sm">{signatureTitle}</div>
-      </>
-    );
-
-    return (
-      <div className="mt-16" ref={signatureRef}>
-        {content}
+const OtpModal: React.FC<OtpModalProps> = ({
+  isSigningInProgress,
+  otpLoading,
+  otpValue,
+  otpError,
+  onOtpChange,
+  onSubmit,
+  onCancel,
+  onResend,
+  showPositionBox = false,
+  positionBox = { x: 0, y: 0, width: 200, height: 80 },
+}) => (
+  <div
+    className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4"
+    style={{ pointerEvents: 'none' }}
+  >
+    <div
+      className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl"
+      style={{ pointerEvents: 'auto' }}
+    >
+      <div className="flex items-center gap-3 mb-5">
+        <div className="h-9 w-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+          <svg className="h-4 w-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+          </svg>
+        </div>
+        <div>
+          <h3 className="text-sm font-bold text-stone-900">Confirm E-Signature</h3>
+          <p className="text-xs text-stone-400 mt-0.5">
+            Enter the OTP sent to the <strong>Super Admin</strong>'s email
+          </p>
+        </div>
       </div>
-    );
-  };
+
+      {showPositionBox && (
+        <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+          <p className="text-[10px] text-blue-700 font-medium">
+            📍 Signature position set
+          </p>
+          <p className="text-[9px] text-blue-600 mt-0.5">
+            Position: ({Math.round(positionBox.x)}, {Math.round(positionBox.y)}) · Size: {Math.round(positionBox.width)}×{Math.round(positionBox.height)}
+          </p>
+        </div>
+      )}
+
+      <div className="mb-4">
+        <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-2">
+          One-Time PIN
+        </label>
+        <input
+          type="text"
+          inputMode="numeric"
+          maxLength={6}
+          value={otpValue}
+          onChange={(e) =>
+            onOtpChange(e.target.value.replace(/\D/g, "").slice(0, 6))
+          }
+          onKeyDown={(e) =>
+            e.key === "Enter" &&
+            otpValue.length === 6 &&
+            !isSigningInProgress &&
+            onSubmit()
+          }
+          placeholder="● ● ● ● ● ●"
+          className="w-full rounded-lg border border-stone-200 px-4 py-3 text-center text-xl font-bold tracking-[0.5em] text-stone-900 focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
+          autoFocus
+        />
+        <p className="text-[10px] text-stone-400 mt-1.5 text-center">OTP expires in 5 minutes</p>
+      </div>
+
+      {otpError && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+          <svg className="h-3.5 w-3.5 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-xs text-red-700">{otpError}</p>
+        </div>
+      )}
+
+      <p className="text-[10px] text-stone-400 text-center mb-5">
+        Didn't receive it?{" "}
+        <button
+          onClick={onResend}
+          disabled={otpLoading || isSigningInProgress}
+          className="text-[#1E4620] font-semibold hover:underline disabled:opacity-50"
+        >
+          {otpLoading ? "Sending…" : "Resend OTP"}
+        </button>
+      </p>
+
+      <div className="flex gap-2">
+        <button
+          onClick={onCancel}
+          disabled={isSigningInProgress}
+          className="flex-1 rounded-lg border border-stone-300 px-4 py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button          onClick={onSubmit}
+          disabled={otpValue.length !== 6 || isSigningInProgress}
+          className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+        >
+          {isSigningInProgress ? (
+            <>
+              <Spinner className="h-3.5 w-3.5" /> Verifying…
+            </>
+          ) : (
+            "Confirm & Sign"
+          )}
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+// ─── ReleaseConfirmationModal ─────────────────────────────────────────────
+
+interface ReleaseConfirmationModalProps {
+  document: Document;
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: (note?: string, recipientId?: string) => void;
+  isReleasing: boolean;
+  users: User[];
+  departments: DepartmentWithUserCount[];
+}
+
+const ReleaseConfirmationModal: React.FC<ReleaseConfirmationModalProps> = ({
+  document,
+  isOpen,
+  onClose,
+  onConfirm,
+  isReleasing,
+  users = [],
+  departments = [],
+}) => {
+  const [note, setNote] = useState("");
+  const [recipientId, setRecipientId] = useState<string>("");
+  const [selectedDepartment, setSelectedDepartment] = useState<string>("");
+
+  const filteredUsers = useMemo(() => {
+    if (!selectedDepartment) return users;
+    return users.filter((u) => u.department_id === selectedDepartment);
+  }, [users, selectedDepartment]);
+
+  if (!isOpen) return null;
 
   return (
-    <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col font-sans">
-      <div className="flex justify-center mb-3">
-        <img
-          src="/JOB_LOGO.jpg"
-          alt="Judiciary of Kenya crest"
-          className="h-[78px] w-auto object-contain"
-          onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
-        />
-      </div>
-      <div className="text-center mb-6">
-        <p className="text-lg font-bold uppercase leading-snug">
-          OFFICE OF THE REGISTRAR HIGH COURT
-        </p>
-        <p className="text-lg font-bold uppercase leading-snug border-b-2 border-black inline-block pb-2 px-1">
-          OFFICIAL LETTER
-        </p>
-      </div>
-      {editModeIndicator}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-md rounded-xl bg-white shadow-2xl p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 flex-shrink-0">
+            <svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-stone-900">Release Document</h3>
+            <p className="text-xs text-stone-500 mt-0.5">
+              This action will make the document visible to the admin side.
+            </p>
+          </div>
+        </div>
 
-      <div className="space-y-3 text-sm font-bold mb-8">
-        <div className="flex">
-          <span className="w-24 shrink-0">REF</span>
-          <span className="w-4 shrink-0">:</span>
-          {canEditFields ? (
-            <input
-              type="text"
-              value={refField}
-              onChange={(e) => handleFieldChange('reference_no', e.target.value)}
-              className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
-            />
-          ) : (
-            <span className="flex-1">{refField}</span>
+        <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 p-3">
+          <p className="text-xs text-amber-800">
+            <strong>Document:</strong> {document.title}
+          </p>
+          <p className="text-xs text-amber-800 mt-1">
+            <strong>Status:</strong> {document.status.replace('_', ' ')}
+          </p>
+          {document.signed_by_name && (
+            <p className="text-xs text-amber-800 mt-1">
+              <strong>Signed by:</strong> {document.signed_by_name}
+            </p>
           )}
         </div>
-        <div className="flex">
-          <span className="w-24 shrink-0">DATE</span>
-          <span className="w-4 shrink-0">:</span>
-          {canEditFields ? (
-            <input
-              type="date"
-              value={dateField}
-              onChange={(e) => handleFieldChange('document_date', e.target.value)}
-              className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
-            />
-          ) : (
-            <span className="flex-1">{dateField}</span>
-          )}
-        </div>
-        <div className="flex">
-          <span className="w-24 shrink-0">TO</span>
-          <span className="w-4 shrink-0">:</span>
-          {canEditFields ? (
-            <input
-              type="text"
-              value={toField}
-              onChange={(e) => handleFieldChange('to_recipient', e.target.value)}
-              className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
-            />
-          ) : (
-            <span className="flex-1 whitespace-pre-wrap">{toField}</span>
-          )}
-        </div>
-        <div className="flex">
-          <span className="w-24 shrink-0">FROM</span>
-          <span className="w-4 shrink-0">:</span>
-          {canEditFields ? (
-            <input
-              type="text"
-              value={fromField}
-              onChange={(e) => handleFieldChange('from_sender', e.target.value)}
-              className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
-            />
-          ) : (
-            <span className="flex-1">{fromField}</span>
-          )}
-        </div>
-        <div className="flex border-b-2 border-black pb-3">
-          <span className="w-24 shrink-0">SUBJECT</span>
-          <span className="w-4 shrink-0">:</span>
-          {canEditFields ? (
-            <input
-              type="text"
-              value={subjectField}
-              onChange={(e) => handleFieldChange('subject', e.target.value)}
-              className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
-            />
-          ) : (
-            <span className="flex-1">{subjectField}</span>
-          )}
-        </div>
-      </div>
 
-      {isEditMode && isEditable ? (
-        <div
-          ref={editorRef}
-          contentEditable
-          suppressContentEditableWarning
-          onInput={handleInput}
-          onBlur={handleManualSave}
-          data-placeholder="Start typing the letter body…"
-          className="min-h-[300px] text-sm leading-relaxed text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none border-2 border-dashed border-[#c9a84c]/50 rounded p-1"
-        />
-      ) : (
-        <div
-          className="min-h-[300px] text-sm leading-relaxed text-justify"
-          dangerouslySetInnerHTML={{ __html: bodyHtml || document.body || '' }}
-        />
-      )}
+        <div className="mb-4">
+          <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
+            Department *
+          </label>
+          <select
+            value={selectedDepartment}
+            onChange={(e) => {
+              setSelectedDepartment(e.target.value);
+              setRecipientId("");
+            }}
+            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
+            disabled={isReleasing}
+          >
+            <option value="">Select Department</option>
+            {departments.map((dept) => (
+              <option key={dept.id} value={dept.id}>
+                {dept.name} ({dept.user_count || 0} users)
+              </option>
+            ))}
+          </select>
+        </div>
 
-      {renderSignature()}
-
-      {(ccField || enclosuresField || canEditFields) && (
-        <div className="mt-8 space-y-1 text-sm">
-          {canEditFields ? (
-            <>
-              <div className="flex items-center gap-2">
-                <span className="font-bold">CC:</span>
-                <input
-                  type="text"
-                  value={ccField}
-                  onChange={(e) => handleFieldChange('cc', e.target.value)}
-                  placeholder="Add CC recipients..."
-                  className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold">Enclosures:</span>
-                <input
-                  type="text"
-                  value={enclosuresField}
-                  onChange={(e) => handleFieldChange('enclosures', e.target.value)}
-                  placeholder="List enclosures..."
-                  className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
-                />
-              </div>
-            </>
-          ) : (
-            <>
-              {ccField && (
-                <div className="flex items-center gap-2">
-                  <span className="font-bold">CC:</span>
-                  <span>{ccField}</span>
-                </div>
-              )}
-              {enclosuresField && (
-                <div className="flex items-center gap-2">
-                  <span className="font-bold">Enclosures:</span>
-                  <span>{enclosuresField}</span>
-                </div>
-              )}
-            </>
+        <div className="mb-4">
+          <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
+            Assign to User (Optional)
+          </label>
+          <select
+            value={recipientId}
+            onChange={(e) => setRecipientId(e.target.value)}
+            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620] disabled:opacity-50"
+            disabled={!selectedDepartment || isReleasing}
+          >
+            <option value="">Select User</option>
+            {filteredUsers.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.full_name} — {user.pj_number}
+              </option>
+            ))}
+          </select>
+          {selectedDepartment && filteredUsers.length === 0 && (
+            <p className="mt-1 text-[10px] text-amber-600">
+              No active users found in this department.
+            </p>
           )}
         </div>
-      )}
 
-      <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
-        <div className="flex-1 text-[10px] leading-tight text-stone-700">
-          <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
-          <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
-          <p className="font-bold text-[#1E4620] mt-1">Justice Be Our Shield and Defender</p>
+        <div className="mb-4">
+          <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
+            Release Note (Optional)
+          </label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            rows={3}
+            placeholder="Add a note about this release..."
+            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620] resize-none"
+            disabled={isReleasing}
+          />
+        </div>
+
+        <div className="flex items-start gap-2 mb-4 p-2 bg-red-50 rounded-lg border border-red-100">
+          <svg className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <p className="text-xs text-red-700">
+            <strong>Warning:</strong> This action cannot be undone. Once released, 
+            the document will be visible to all admin users.
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={isReleasing}
+            className="px-4 py-2 text-sm font-medium text-stone-500 hover:text-stone-800 transition-colors disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onConfirm(note || undefined, recipientId || undefined)}
+            disabled={!selectedDepartment || isReleasing}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isReleasing ? (
+              <>
+                <Spinner className="h-4 w-4" />
+                Releasing...
+              </>
+            ) : (
+              <>
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+                Confirm Release
+              </>
+            )}
+          </button>
         </div>
       </div>
     </div>
   );
-});
+};
 
-LetterDisplay.displayName = 'LetterDisplay';
-
-// ─── Bring Up Modal ───────────────────────────────────────────────────────────
+// ─── BringUpModal ───────────────────────────────────────────────────────────
 
 interface BringUpModalProps {
   document: Document;
@@ -1731,15 +1122,7 @@ const BringUpModal: React.FC<BringUpModalProps> = ({
 
 // ─── DocumentEditor ────────────────────────────────────────────────────────
 
-type SaveState = "idle" | "saving" | "saved" | "unsaved" | "error";
-
-const SAVE_LABEL: Record<SaveState, string> = {
-  idle: "",
-  saving: "Saving…",
-  saved: "All changes saved",
-  unsaved: "Unsaved changes",
-  error: "Failed to save · click Save to retry",
-};
+// ─── DocumentEditor ────────────────────────────────────────────────────────
 
 interface DocumentEditorProps {
   document: Document;
@@ -1765,7 +1148,6 @@ interface DocumentEditorProps {
   onSignatureBoxChange?: (pos: { x: number; y: number; width: number; height: number }) => void;
   onAutoSignaturePosition?: (pos: { x: number; y: number; width: number; height: number }) => void;
   isOtpModalOpen?: boolean;
-  // ── Bring Up handlers ──────────────────────────────────────────────────────
   onOpenBringUp?: () => void;
   isSettingBringUp?: boolean;
   isUpdatingBringUp?: boolean;
@@ -1779,7 +1161,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   isReleased = false,
   onBack,
   onSave,
-  onFieldUpdate,
   onDelete,
   onSign,
   isSigning = false,
@@ -1787,21 +1168,13 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onMark,
   onAcknowledge,
   onComplete,
-  onUpdateMark,
   onDownload,
-  onRegeneratePdf,
   isRegeneratingPdf = false,
-  showSignatureBox = false,
-  signatureBoxPosition = { x: 100, y: 400, width: 250, height: 90 },
-  onSignatureBoxChange,
-  onAutoSignaturePosition,
-  isOtpModalOpen = false,
   onOpenBringUp,
   isSettingBringUp = false,
   isUpdatingBringUp = false,
   isCompletingBringUp = false,
 }) => {
-  // ─── UPDATED: Include certificate in isComposed ──────────────────────────
   const isComposed = document.type === "memo" || document.type === "letter" || document.type === "certificate";
   const isEditable = !!onSave && isComposed;
 
@@ -1811,221 +1184,9 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
 
   const [isEditMode, setIsEditMode] = useState(false);
 
-  const hasMarkNote = !!document.active_mark?.instructions;
-  const [showNote, setShowNote] = useState(hasMarkNote);
-  const [showResponses, setShowResponses] = useState(false);
-
-  const stickyNoteText = document.active_mark?.instructions ?? "";
-  const stickyNoteDate = document.bring_up_date ?? null;
-  const noteAuthor = document.active_mark
-    ? (document.created_by_name ?? currentUserName)
-    : currentUserName;
-
-  const editorRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [saveState, setSaveState] = useState<SaveState>(
-    document.body ? "saved" : "idle",
-  );
-  const [wordCount, setWordCount] = useState(
-    document.body ? document.body.split(/\s+/).filter(Boolean).length : 0,
-  );
-
-  const [bodyHtml, setBodyHtml] = useState(document.body || "");
-  const lastSavedHtml = useRef<string>(document.body ?? "");
-
-  const [fieldValues, setFieldValues] = useState<EditableFields>(() => ({
-    to_recipient: document.to_recipient || document.assigned_to_name || '',
-    from_sender: document.from_sender || document.department_name || '',
-    reference_no: document.reference_no || '',
-    document_date: toISODateInput(document.document_date || document.created_at),
-    subject: document.subject || document.title || '',
-    cc: document.cc || '',
-    enclosures: document.enclosures || '',
-    signature_name: document.signature_name || currentUserName || '',
-    signature_title: document.signature_title || 'Registrar, High Court',
-  }));
-
-  const fieldDebounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const fieldDirty = useRef<Set<string>>(new Set());
-  const fieldLatestValue = useRef<Record<string, string>>({});
-
-  const persistField = useCallback(
-    async (field: string, value: string) => {
-      if (!onFieldUpdate) return;
-      onFieldUpdate(field, value);
-    },
-    [onFieldUpdate],
-  );
-
-  const handleFieldChange = useCallback((field: keyof EditableFields, value: string) => {
-    setFieldValues((prev) => ({ ...prev, [field]: value }));
-    fieldLatestValue.current[field] = value;
-    fieldDirty.current.add(field);
-
-    if (fieldDebounceTimers.current[field]) clearTimeout(fieldDebounceTimers.current[field]);
-    fieldDebounceTimers.current[field] = setTimeout(() => {
-      fieldDirty.current.delete(field);
-      persistField(field, fieldLatestValue.current[field]);
-    }, 800);
-  }, [persistField]);
-
-  const flushFieldSaves = useCallback(async () => {
-    Object.values(fieldDebounceTimers.current).forEach(clearTimeout);
-    fieldDebounceTimers.current = {};
-    const dirty = Array.from(fieldDirty.current);
-    fieldDirty.current.clear();
-    await Promise.all(dirty.map((field) => persistField(field, fieldLatestValue.current[field])));
-  }, [persistField]);
-
-  const persistBody = useCallback(
-    async (html: string) => {
-      if (!onSave || html === lastSavedHtml.current) return;
-      setSaveState("saving");
-      try {
-        await onSave(document.id, html);
-        lastSavedHtml.current = html;
-        setBodyHtml(html);
-        setSaveState("saved");
-      } catch {
-        setSaveState("error");
-      }
-    },
-    [onSave, document.id],
-  );
-
-  const scheduleAutosave = useCallback(
-    (html: string) => {
-      setSaveState("unsaved");
-      if (debounceTimer.current) clearTimeout(debounceTimer.current);
-      debounceTimer.current = setTimeout(() => persistBody(html), 1500);
-    },
-    [persistBody],
-  );
-
-  const handleInput = () => {
-    if (!editorRef.current) return;
-    const html = editorRef.current.innerHTML;
-    const text = editorRef.current.innerText ?? "";
-    setWordCount(text.split(/\s+/).filter(Boolean).length);
-    setBodyHtml(html);
-    scheduleAutosave(html);
-  };
-
-  const handleSaveAll = useCallback(async () => {
-    const bodySave = editorRef.current
-      ? persistBody(editorRef.current.innerHTML)
-      : Promise.resolve();
-    await Promise.all([bodySave, flushFieldSaves()]);
-  }, [persistBody, flushFieldSaves]);
-
-  const enterEditMode = () => {
-    const newBody = document.body ?? "";
-    setBodyHtml(newBody);
-    lastSavedHtml.current = newBody;
-    setIsEditMode(true);
-    setTimeout(() => {
-      editorRef.current?.focus();
-      toast.success('Edit mode enabled. "Save" keeps you editing — "Done" saves, regenerates the PDF, and exits.');
-    }, 100);
-  };
-
-  const finishEditing = async () => {
-    await handleSaveAll();
-    setIsEditMode(false);
-    if (onRegeneratePdf) {
-      await onRegeneratePdf();
-      toast.success('Changes saved — PDF updated');
-    } else {
-      toast.success('Changes saved');
-    }
-  };
-
-  const toggleEditMode = () => {
-    if (isReleased) return;
-    if (isEditMode) {
-      finishEditing();
-    } else {
-      enterEditMode();
-    }
-  };
-
-  const handleManualSave = useCallback(() => {
-    if (!editorRef.current) return;
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    const html = editorRef.current.innerHTML;
-    persistBody(html);
-  }, [persistBody]);
-
-  const bodyHtmlRef = useRef<string>(document.body || "");
-  const documentBodyRef = useRef<string>(document.body ?? "");
-
-  useEffect(() => {
-    documentBodyRef.current = document.body ?? "";
-  }, [document.body]);
-
-  useEffect(() => {
-    return () => {
-      if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    };
-  }, []);
-
-  const lastRenderedBodyRef = useRef<string>('');
-
-useEffect(() => {
-  if (isEditMode && editorRef.current && bodyHtml !== lastRenderedBodyRef.current) {
-    editorRef.current.innerHTML = bodyHtml;
-    lastRenderedBodyRef.current = bodyHtml;
-  }
-}, [isEditMode, bodyHtml]);
-
-  useEffect(() => {
-    if (!isEditable) return;
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-        e.preventDefault();
-        handleSaveAll();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isEditable, handleSaveAll]);
-
-  const exec = (command: string, value?: string) => {
-    if (!isEditable || !isEditMode) return;
-    editorRef.current?.focus();
-    window.document.execCommand(command, false, value);
-    if (editorRef.current) {
-      const html = editorRef.current.innerHTML;
-      setBodyHtml(html);
-      bodyHtmlRef.current = html;
-      scheduleAutosave(html);
-    }
-  };
-
-  const insertDate = () => exec("insertHTML", format(new Date(), "dd MMM yyyy"));
-  const insertRef = () =>
-    exec(
-      "insertHTML",
-      `<strong>Ref: ${document.reference_no ?? "________"}</strong>`,
-    );
-  const insertSigBlock = () =>
-    exec(
-      "insertHTML",
-      `<div style="margin-top:48px;">
-        <p>_____________________________</p>
-        <p><strong>${currentUserName}</strong></p>
-        <p>REGISTRAR, HIGH COURT</p>
-      </div>`,
-    );
-
-  // ─── Updated: Handle sticky note save ──────────────────────────────────────
-  const handleStickyNoteSave = (text: string, _date: string | null) => {
-    if (document.active_mark && onUpdateMark) {
-      onUpdateMark(document.active_mark.id, text);
-    }
-    void _date;
-  };
+  const hasBringUp = !!document.bring_up_date;
+  const isBringUpCompleted = !!document.bring_up_completed_at;
+  const isBringUpOverdue = hasBringUp && !isBringUpCompleted && new Date(document.bring_up_date!) < new Date();
 
   const handleDownload = () => {
     if (onDownload) {
@@ -2037,30 +1198,20 @@ useEffect(() => {
     }
   };
 
-  const showEditControls = isSuperAdmin && isComposed;
+  const handleToggleEdit = () => {
+    if (isReleased) return;
+    setIsEditMode(!isEditMode);
+  };
 
-  const displayRef = useRef<DisplayHandle>(null);
-
-  useEffect(() => {
-    if (showSignatureBox && displayRef.current?.getSignaturePosition && onAutoSignaturePosition) {
-      const pos = displayRef.current.getSignaturePosition();
-      if (pos) {
-        onAutoSignaturePosition({
-          x: pos.x + 10,
-          y: pos.y - 15,
-          width: Math.min(pos.width + 20, 300),
-          height: Math.min(pos.height + 10, 100),
-        });
-      }
+  const handleSave = async () => {
+    if (!onSave || !document.body) return;
+    try {
+      await onSave(document.id, document.body);
+      toast.success('Document saved successfully');
+    } catch {
+      toast.error('Failed to save document');
     }
-  }, [showSignatureBox, onAutoSignaturePosition]);
-
-  const needsHiddenMeasurer =
-    isComposed && !!document.file_url && showSignatureBox && !isEditMode;
-
-  const hasBringUp = !!document.bring_up_date;
-  const isBringUpCompleted = !!document.bring_up_completed_at;
-  const isBringUpOverdue = hasBringUp && !isBringUpCompleted && new Date(document.bring_up_date!) < new Date();
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -2097,10 +1248,10 @@ useEffect(() => {
               ✅ Completed
             </span>
           )}
+          <StatusBadge status={document.status} />
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
-          {/* Bring Up button */}
           {isSuperAdmin && onOpenBringUp && (
             <button
               onClick={onOpenBringUp}
@@ -2129,9 +1280,9 @@ useEffect(() => {
             </button>
           )}
 
-          {!isReleased && showEditControls && (
+          {isSuperAdmin && isComposed && !isReleased && (
             <button
-              onClick={toggleEditMode}
+              onClick={handleToggleEdit}
               disabled={isRegeneratingPdf}
               className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap disabled:opacity-50 ${
                 isEditMode
@@ -2139,28 +1290,15 @@ useEffect(() => {
                   : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
               }`}
             >
-              {isRegeneratingPdf ? (
-                <Spinner className="h-3.5 w-3.5" />
-              ) : isEditMode ? (
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              ) : (
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
-              )}
-              {isRegeneratingPdf ? "Regenerating…" : isEditMode ? "Done" : "Edit"}
+              {isRegeneratingPdf ? <Spinner className="h-3.5 w-3.5" /> : isEditMode ? "Done" : "Edit"}
             </button>
           )}
 
           {isEditable && isEditMode && (
             <button
-              onClick={handleSaveAll}
-              disabled={saveState === "saving"}
-              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap disabled:opacity-50"
+              onClick={handleSave}
+              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap"
             >
-              {saveState === "saving" ? <Spinner className="h-3 w-3" /> : null}
               Save
             </button>
           )}
@@ -2169,48 +1307,11 @@ useEffect(() => {
             <button
               onClick={handleDownload}
               className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors whitespace-nowrap"
-              title="Download document"
             >
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
               Download
-            </button>
-          )}
-
-          <button
-            onClick={() => setShowResponses((v) => !v)}
-            className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
-              showResponses
-                ? "border-[#1E4620] bg-[#1E4620]/10 text-[#1E4620]"
-                : "border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
-            }`}
-          >
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round"
-                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-4 4-4-4z" />
-            </svg>
-            Responses
-            {document.response_count && document.response_count > 0 && (
-              <span className="ml-0.5 rounded-full bg-[#1E4620]/20 px-1.5 py-0.5 text-[9px] font-bold text-[#1E4620]">
-                {document.response_count}
-              </span>
-            )}
-          </button>
-
-          {(isSuperAdmin || hasMarkNote) && (
-            <button
-              onClick={() => setShowNote((v) => !v)}
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
-                showNote
-                  ? "border-[#E8A840] bg-[#FEF08A] text-[#7A4E0D]"
-                  : "border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
-              }`}
-            >
-              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m0 0v3m0 0l3 3m-3-3h-3" />
-              </svg>
-              Note
             </button>
           )}
 
@@ -2248,11 +1349,9 @@ useEffect(() => {
             <button
               onClick={onSign}
               disabled={isSigning}
-              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors whitespace-nowrap disabled:opacity-50"
             >
-              {isSigning ? (
-                <Spinner className="h-3 w-3" />
-              ) : (
+              {isSigning ? <Spinner className="h-3 w-3" /> : (
                 <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                 </svg>
@@ -2264,9 +1363,9 @@ useEffect(() => {
           {onSend && (
             <button
               onClick={onSend}
-              className="hidden sm:inline-flex items-center gap-1 rounded-md bg-[#1E4620] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap"
+              className="rounded-md bg-[#1E4620] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap"
             >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <svg className="h-3 w-3 inline mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
               Convert to PDF & Send
@@ -2286,994 +1385,75 @@ useEffect(() => {
         </div>
       </div>
 
-      {isEditMode && (
-        <div className="flex items-center gap-1 bg-[#1E4620] px-3 py-1.5 overflow-x-auto flex-shrink-0">
-          <div className="flex items-center gap-1.5 mr-2 flex-shrink-0">
-            <select className="rounded bg-[#2d5c30] border-0 text-white text-xs px-2 py-1 focus:outline-none cursor-pointer capitalize">
-              <option>{document.type}</option>
-            </select>
-            <span className="text-white/40 text-[10px] capitalize hidden sm:inline">
-              {document.status.replace("_", " ")}
-            </span>
-            {saveState !== "idle" && (
-              <>
-                <span className="text-white/30 text-[10px] hidden sm:inline">·</span>
-                <span
-                  className={`text-[10px] hidden sm:inline whitespace-nowrap ${
-                    saveState === "error" ? "text-red-300" : "text-white/40"
-                  }`}
-                >
-                  {SAVE_LABEL[saveState]}
-                </span>
-              </>
-            )}
-          </div>
-
-          <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-          {(
-            [
-              { label: "B", command: "bold" },
-              { label: "I", command: "italic" },
-              { label: "U", command: "underline" },
-              { label: "S", command: "strikeThrough" },
-            ] as const
-          ).map(({ label, command }) => (
-            <button
-              key={label}
-              type="button"
-              disabled={!isEditable || !isEditMode}
-              onClick={() => exec(command)}
-              className={`w-6 h-6 rounded text-xs text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
-                label === "B"
-                  ? "font-extrabold"
-                  : label === "I"
-                    ? "italic"
-                    : label === "U"
-                      ? "underline"
-                      : "line-through"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-
-          <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-          {(["h1", "h2", "h3"] as const).map((tag) => (
-            <button
-              key={tag}
-              type="button"
-              disabled={!isEditable || !isEditMode}
-              onClick={() => exec("formatBlock", `<${tag}>`)}
-              className="px-1.5 h-6 rounded text-[10px] font-semibold text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {tag.toUpperCase()}
-            </button>
-          ))}
-
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={() => exec("formatBlock", "<p>")}
-            className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            ¶
-          </button>
-
-          <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={() => exec("insertUnorderedList")}
-            className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            • List
-          </button>
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={() => exec("insertOrderedList")}
-            className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            1. List
-          </button>
-
-          <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={() => exec("insertHorizontalRule")}
-            className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            —
-          </button>
-
-          <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={insertDate}
-            className="px-2 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex items-center gap-1 flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="4" width="18" height="18" rx="2" />
-              <line x1="16" y1="2" x2="16" y2="6" />
-              <line x1="8" y1="2" x2="8" y2="6" />
-              <line x1="3" y1="10" x2="21" y2="10" />
-            </svg>
-            Date
-          </button>
-
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={insertRef}
-            className="px-2 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            § Ref
-          </button>
-
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={insertSigBlock}
-            className="px-2 h-6 rounded text-[10px] font-medium text-white/80 hover:bg-white/10 transition-colors flex items-center gap-1 flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
-            Sig Block
-          </button>
-
-          <div className="flex-1 min-w-[8px]" />
-
-          <span className="text-white/40 text-[10px] flex-shrink-0 whitespace-nowrap">
-            {wordCount} words
-          </span>
-        </div>
-      )}
-
-      <div
-        ref={containerRef}
-        className={`flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6 relative document-preview-container ${
-          isOtpModalOpen ? 'pointer-events-none' : ''
-        }`}
-      >
-        {showNote && (
-          <StickyNote
-            key={document.id}
-            authorName={noteAuthor}
-            initialText={stickyNoteText}
-            initialDate={stickyNoteDate}
-            canEdit={isSuperAdmin}
-            onSave={handleStickyNoteSave}
-          />
-        )}
-
-        {showSignatureBox && onSignatureBoxChange && (
-          <div className="pointer-events-auto">
-            <SignatureBox
-              position={signatureBoxPosition}
-              onPositionChange={onSignatureBoxChange}
-              isOtpModalOpen={isOtpModalOpen}
+      <div className="flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6">
+        <div className="mx-auto max-w-[794px] w-full bg-white shadow-sm rounded-sm pdf-page-surface p-8">
+          <div className="flex justify-center mb-3">
+            <img
+              src="/JOB_LOGO.jpg"
+              alt="Judiciary of Kenya crest"
+              className="h-[78px] w-auto object-contain"
+              onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
             />
           </div>
-        )}
-
-        {needsHiddenMeasurer && (
-          <div
-            className="absolute inset-0 opacity-0 pointer-events-none overflow-hidden"
-            aria-hidden="true"
-          >
-            <div className="mx-auto max-w-[794px] w-full">
-              {document.type === 'memo' ? (
-                <MemoDisplay
-                  ref={displayRef}
-                  document={document}
-                  isEditable={false}
-                  isEditMode={false}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
-                  currentUserName={currentUserName}
-                  isSuperAdmin={isSuperAdmin}
-                  bodyHtml={bodyHtml}
-                />
-              ) : document.type === 'letter' ? (
-                <LetterDisplay
-                  ref={displayRef}
-                  document={document}
-                  isEditable={false}
-                  isEditMode={false}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
-                  currentUserName={currentUserName}
-                  isSuperAdmin={isSuperAdmin}
-                  bodyHtml={bodyHtml}
-                />
-              ) : (
-                // ─── Certificate fallback ──────────────────────────────────────
-                <DocumentFallback document={document} />
-              )}
-            </div>
+          <div className="text-center mt-4 mb-2">
+            <p className="text-[19px] font-bold uppercase leading-snug">
+              OFFICE OF THE REGISTRAR HIGH COURT
+            </p>
           </div>
-        )}
+          <div className="border-t-[2.5px] border-black mb-2.5" />
 
-        <div className="mx-auto max-w-[794px] w-full bg-white shadow-sm rounded-sm pdf-page-surface">
-          {isComposed ? (
-            isEditMode ? (
-              document.type === 'memo' ? (
-                <MemoDisplay
-                  ref={displayRef}
-                  document={document}
-                  isEditable={isEditable}
-                  isEditMode={isEditMode}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
-                  currentUserName={currentUserName}
-                  isSuperAdmin={isSuperAdmin}
-                  fields={fieldValues}
-                  onFieldChange={handleFieldChange}
-                  bodyHtml={bodyHtml}
-                />
-              ) : document.type === 'letter' ? (
-                <LetterDisplay
-                  ref={displayRef}
-                  document={document}
-                  isEditable={isEditable}
-                  isEditMode={isEditMode}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
-                  currentUserName={currentUserName}
-                  isSuperAdmin={isSuperAdmin}
-                  fields={fieldValues}
-                  onFieldChange={handleFieldChange}
-                  bodyHtml={bodyHtml}
-                />
-              ) : (
-                // ─── Certificate edit mode ─────────────────────────────────────
-                <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col">
-                  <div className="flex justify-center mb-3">
-                    <img
-                      src="/JOB_LOGO.jpg"
-                      alt="Judiciary of Kenya crest"
-                      className="h-[78px] w-auto object-contain"
-                      onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
-                    />
-                  </div>
-                  <div className="text-center mt-2 mb-4">
-                    <p className="text-[19px] font-bold uppercase leading-snug">
-                      OFFICE OF THE REGISTRAR HIGH COURT
-                    </p>
-                  </div>
-                  <div className="border-t-[2.5px] border-black mb-6" />
-
-                  <div className="flex justify-between text-[13px] font-bold mb-6">
-                    <span className="flex items-baseline gap-1">
-                      Ref:
-                      <input
-                        type="text"
-                        value={fieldValues.reference_no}
-                        onChange={(e) => handleFieldChange('reference_no', e.target.value)}
-                        className="flex-1 bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1"
-                        placeholder="RHC/CERT/___"
-                      />
-                    </span>
-                    <input
-                      type="date"
-                      value={fieldValues.document_date}
-                      onChange={(e) => handleFieldChange('document_date', e.target.value)}
-                      className="bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 text-right"
-                    />
-                  </div>
-
-                  <div className="mb-4">
-                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-1">
-                      To (Recipient)
-                    </label>
-                    <textarea
-                      value={fieldValues.to_recipient}
-                      onChange={(e) => handleFieldChange('to_recipient', e.target.value)}
-                      placeholder="Recipient address block"
-                      rows={2}
-                      className="w-full resize-none bg-transparent border-0 focus:outline-none placeholder:text-stone-300 placeholder:italic text-[13px]"
-                    />
-                  </div>
-
-                  <div className="mb-4">
-                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-1">
-                      Certificate Title *
-                    </label>
-                    <input
-                      type="text"
-                      value={fieldValues.subject}
-                      onChange={(e) => handleFieldChange('subject', e.target.value)}
-                      className="w-full bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 text-[13px] font-bold uppercase"
-                      placeholder="CERTIFICATE OF SERVICE OF FOREIGN PROCESS"
-                    />
-                  </div>
-
-                  <div
-                    ref={editorRef}
-                    contentEditable
-                    suppressContentEditableWarning
-                    onInput={handleInput}
-                    onBlur={handleManualSave}
-                    data-placeholder="Start typing the certificate body…"
-                    className="min-h-[300px] text-[13px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none border-2 border-dashed border-[#c9a84c]/50 rounded p-1"
-                  />
-
-                  <div className="mt-12">
-                    <input
-                      type="text"
-                      value={fieldValues.signature_name}
-                      onChange={(e) => handleFieldChange('signature_name', e.target.value)}
-                      className="font-bold uppercase text-[13px] bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full max-w-xs"
-                      placeholder="Signatory name"
-                    />
-                    <input
-                      type="text"
-                      value={fieldValues.signature_title}
-                      onChange={(e) => handleFieldChange('signature_title', e.target.value)}
-                      className="font-bold underline uppercase text-[13px] bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 w-full max-w-xs mt-1"
-                      placeholder="Title"
-                    />
-                  </div>
-
-                  <div className="mt-4">
-                    <label className="block text-[11px] font-semibold uppercase tracking-wide text-stone-500 mb-1">
-                      From (Department)
-                    </label>
-                    <input
-                      type="text"
-                      value={fieldValues.from_sender}
-                      onChange={(e) => handleFieldChange('from_sender', e.target.value)}
-                      className="w-full bg-transparent border-b border-dashed border-[#c9a84c] hover:border-stone-300 focus:border-stone-500 focus:outline-none px-1 text-[13px]"
-                      placeholder="e.g., Office of the Registrar High Court"
-                    />
-                  </div>
-
-                  <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
-                    <div className="flex-1 text-[10px] leading-tight text-stone-700">
-                      <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
-                      <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
-                      <p className="font-bold text-[#1E4620] mt-1">Justice Be Our Shield and Defender</p>
-                    </div>
-                  </div>
-                </div>
-              )
-            ) : document.file_url ? (
-              <FilePreview document={document} />
-            ) : document.body ? (
-              document.type === 'memo' ? (
-                <MemoDisplay
-                  ref={displayRef}
-                  document={document}
-                  isEditable={false}
-                  isEditMode={false}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
-                  currentUserName={currentUserName}
-                  isSuperAdmin={isSuperAdmin}
-                  bodyHtml={bodyHtml}
-                />
-              ) : document.type === 'letter' ? (
-                <LetterDisplay
-                  ref={displayRef}
-                  document={document}
-                  isEditable={false}
-                  isEditMode={false}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
-                  currentUserName={currentUserName}
-                  isSuperAdmin={isSuperAdmin}
-                  bodyHtml={bodyHtml}
-                />
-              ) : (
-                // ─── Certificate display ──────────────────────────────────────
-                <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col">
-                  <div className="flex justify-center mb-3">
-                    <img
-                      src="/JOB_LOGO.jpg"
-                      alt="Judiciary of Kenya crest"
-                      className="h-[78px] w-auto object-contain"
-                      onError={(e) => (e.target as HTMLImageElement).style.display = 'none'}
-                    />
-                  </div>
-                  <div className="text-center mt-2 mb-4">
-                    <p className="text-[19px] font-bold uppercase leading-snug">
-                      OFFICE OF THE REGISTRAR HIGH COURT
-                    </p>
-                  </div>
-                  <div className="border-t-[2.5px] border-black mb-6" />
-
-                  <div className="flex justify-between text-[13px] font-bold mb-6">
-                    <span className="flex items-baseline gap-1">
-                      Ref: {document.reference_no || '—'}
-                    </span>
-                    <span>{formattedDate}</span>
-                  </div>
-
-                  <div className="mb-4">
-                    <p className="text-[13px]">{document.to_recipient || ''}</p>
-                  </div>
-
-                  <div className="mb-4">
-                    <p className="font-bold text-center block text-base uppercase">{document.subject || document.title}</p>
-                  </div>
-
-                  <div
-                    className="min-h-[300px] text-[13px] leading-[1.8] text-justify"
-                    dangerouslySetInnerHTML={{ __html: document.body || '' }}
-                  />
-
-                  <div className="mt-12">
-                    <div className="font-bold uppercase text-[13px]">{document.signature_name || ''}</div>
-                    <div className="font-bold underline uppercase text-[13px]">{document.signature_title || 'Registrar, High Court'}</div>
-                  </div>
-
-                  <div className="mt-4">
-                    <p className="text-[13px]">{document.from_sender || ''}</p>
-                  </div>
-
-                  <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
-                    <div className="flex-1 text-[10px] leading-tight text-stone-700">
-                      <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
-                      <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
-                      <p className="font-bold text-[#1E4620] mt-1">Justice Be Our Shield and Defender</p>
-                    </div>
-                  </div>
-                </div>
-              )
-            ) : (
-              <DocumentFallback document={document} />
-            )
-          ) : (
-            <FilePreview document={document} />
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between gap-2 bg-white border-t border-stone-100 px-3 sm:px-4 py-1.5 flex-shrink-0 flex-wrap">
-        <span className="text-[10px] text-stone-400 whitespace-nowrap">
-          {document.is_signed
-            ? `✅ Signed${document.signed_by_name ? ` · ${document.signed_by_name}` : ""}`
-            : "Not signed"}
-        </span>
-        <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto">
-          {(document.file_url || onDownload) && (
-            <button
-              onClick={handleDownload}
-              className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-blue-700 transition-colors whitespace-nowrap"
-            >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Download
-            </button>
-          )}
-          <button className="text-[10px] text-stone-400 hover:text-stone-600 transition-colors whitespace-nowrap">
-            🖨 Print
-          </button>
-          {onSign && (
-            <button
-              onClick={onSign}
-              disabled={isSigning}
-              className="inline-flex items-center gap-1 rounded bg-[#C29B38] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#a8832e] transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSigning && <Spinner className="h-2.5 w-2.5" />}
-              {isSigning ? "Sending OTP…" : "Request E-Sign"}
-            </button>
-          )}
-          {onSend && (
-            <button
-              onClick={onSend}
-              className="rounded bg-[#1E4620] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap"
-            >
-              Convert to PDF & Send
-            </button>
-          )}
-        </div>
-      </div>
-
-      {showResponses && <ResponsesPanel documentId={document.id} />}
-
-      <AnnotationsPanel document={document} />
-    </div>
-  );
-};
-// ─── MarkModal (unchanged) ─────────────────────────────────────────────
-
-interface MarkModalProps {
-  document: Document;
-  onClose: () => void;
-  onMark: (
-    id: string,
-    data: {
-      departmentId: string;
-      userId: string;
-      instructions: string;
-      priority: string;
-    },
-  ) => void;
-}
-
-const MarkModal: React.FC<MarkModalProps> = ({
-  document: doc,
-  onClose,
-  onMark,
-}) => {
-  const dispatch = useAppDispatch();
-
-  const departments = useAppSelector(selectAllDepartments);
-  const departmentsLoading = useAppSelector(selectDepartmentsListLoading);
-  const teamMembers = useAppSelector(selectAllUsers);
-  const usersLoading = useAppSelector(selectUsersListLoading);
-
-  const [userId, setUserId] = useState("");
-  const [deptId, setDeptId] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [priority, setPriority] = useState("normal");
-
-  useEffect(() => {
-    dispatch(fetchDepartments({ is_active: true }));
-  }, [dispatch]);
-
-  useEffect(() => {
-    if (!deptId) return;
-    dispatch(
-      fetchUsers({
-        is_active: true,
-        department_id: deptId,
-        limit: 100,
-        sort_by: "full_name",
-        sort_order: "ASC",
-      }),
-    );
-  }, [dispatch, deptId]);
-
-  const activeDepartments = departments.filter((d) => d.is_active);
-
-  const handleDeptChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setDeptId(e.target.value);
-    setUserId("");
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!deptId) return;
-    onMark(doc.id, { departmentId: deptId, userId, instructions, priority });
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-3 sm:p-4">
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-4 sm:p-6 shadow-xl">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm sm:text-base font-bold text-stone-900 flex items-center gap-2">
-            <span className="text-red-500">📌</span> Mark Document to Department
-          </h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-lg leading-none flex-shrink-0">
-            ✕
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Document
-            </label>
-            <div className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700 font-medium truncate">
-              {doc.title}
+          <div className="mt-4">
+            <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
+              <span className="w-24 shrink-0 uppercase">REF</span>
+              <span className="w-5 shrink-0">:</span>
+              <span className="flex-1">{document.reference_no || 'RHC/000/2024'}</span>
+            </div>
+            <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
+              <span className="w-24 shrink-0 uppercase">DATE</span>
+              <span className="w-5 shrink-0">:</span>
+              <span className="flex-1">{formattedDate}</span>
+            </div>
+            <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
+              <span className="w-24 shrink-0 uppercase">TO</span>
+              <span className="w-5 shrink-0">:</span>
+              <span className="flex-1">{document.to_recipient || document.assigned_to_name || 'All Staff'}</span>
+            </div>
+            <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
+              <span className="w-24 shrink-0 uppercase">FROM</span>
+              <span className="w-5 shrink-0">:</span>
+              <span className="flex-1">{document.from_sender || document.department_name || 'Registrar, High Court'}</span>
+            </div>
+            <div className="flex text-[13.5px] font-bold border-b-2 border-black pb-3" style={{ lineHeight: 2 }}>
+              <span className="w-24 shrink-0 uppercase">SUBJECT</span>
+              <span className="w-5 shrink-0">:</span>
+              <span className="flex-1">{document.subject || document.title}</span>
             </div>
           </div>
 
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Department *
-            </label>
-            <select
-              value={deptId}
-              onChange={handleDeptChange}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none disabled:bg-stone-50 disabled:text-stone-400"
-              required
-              disabled={departmentsLoading}
-            >
-              <option value="">
-                {departmentsLoading
-                  ? "Loading departments…"
-                  : "— Select Department —"}
-              </option>
-              {activeDepartments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                  {d.code ? ` (${d.code})` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Assign to (Optional)
-            </label>
-            <select
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none disabled:bg-stone-50 disabled:text-stone-400"
-              disabled={usersLoading || !deptId}
-            >
-              <option value="">
-                {usersLoading
-                  ? "Loading team members…"
-                  : !deptId
-                    ? "— Select a department first —"
-                    : teamMembers.length === 0
-                      ? "No active users in this department"
-                      : "— Assign to specific user (optional) —"}
-              </option>
-              {teamMembers.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.full_name} — {u.pj_number}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Priority
-            </label>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
-            >
-              <option value="low">Low</option>
-              <option value="normal">Normal</option>
-              <option value="urgent">Urgent</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Registrar's Comment{" "}
-              <span className="font-normal text-stone-400 normal-case">
-                (Visible to Secretary)
-              </span>
-            </label>
-            <textarea
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              rows={3}
-              placeholder="Add instructions, annotations, or comments for this department..."
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
-            />
-          </div>
-
-          <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-stone-500 hover:text-stone-800 order-2 sm:order-1"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a18] flex items-center justify-center gap-1.5 order-1 sm:order-2"
-            >
-              <span className="text-red-400">📌</span> Mark Document
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-// ─── OtpModal (unchanged) ─────────────────────────────────────────────
-
-interface OtpModalProps {
-  isSigningInProgress: boolean;
-  otpLoading: boolean;
-  otpValue: string;
-  otpError: string | null;
-  signingDocId: string | null;
-  onOtpChange: (val: string) => void;
-  onSubmit: () => void;
-  onCancel: () => void;
-  onResend: () => void;
-  showPositionBox?: boolean;
-  positionBox?: { x: number; y: number; width: number; height: number };
-}
-
-const OtpModal: React.FC<OtpModalProps> = ({
-  isSigningInProgress,
-  otpLoading,
-  otpValue,
-  otpError,
-  onOtpChange,
-  onSubmit,
-  onCancel,
-  onResend,
-  showPositionBox = false,
-  positionBox = { x: 0, y: 0, width: 200, height: 80 },
-}) => (
-  <div
-    className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4"
-    style={{ pointerEvents: 'none' }}
-  >
-    <div
-      className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl"
-      style={{ pointerEvents: 'auto' }}
-    >
-      <div className="flex items-center gap-3 mb-5">
-        <div className="h-9 w-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-          <svg className="h-4 w-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-          </svg>
-        </div>
-        <div>
-          <h3 className="text-sm font-bold text-stone-900">Confirm E-Signature</h3>
-          <p className="text-xs text-stone-400 mt-0.5">
-            Enter the OTP sent to the <strong>Super Admin</strong>'s email
-          </p>
-        </div>
-      </div>
-
-      {showPositionBox && (
-        <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-          <p className="text-[10px] text-blue-700 font-medium">
-            📍 Signature position set
-          </p>
-          <p className="text-[9px] text-blue-600 mt-0.5">
-            Position: ({Math.round(positionBox.x)}, {Math.round(positionBox.y)}) · Size: {Math.round(positionBox.width)}×{Math.round(positionBox.height)}
-          </p>
-        </div>
-      )}
-
-      <div className="mb-4">
-        <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-2">
-          One-Time PIN
-        </label>
-        <input
-          type="text"
-          inputMode="numeric"
-          maxLength={6}
-          value={otpValue}
-          onChange={(e) =>
-            onOtpChange(e.target.value.replace(/\D/g, "").slice(0, 6))
-          }
-          onKeyDown={(e) =>
-            e.key === "Enter" &&
-            otpValue.length === 6 &&
-            !isSigningInProgress &&
-            onSubmit()
-          }
-          placeholder="● ● ● ● ● ●"
-          className="w-full rounded-lg border border-stone-200 px-4 py-3 text-center text-xl font-bold tracking-[0.5em] text-stone-900 focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-          autoFocus
-        />
-        <p className="text-[10px] text-stone-400 mt-1.5 text-center">OTP expires in 5 minutes</p>
-      </div>
-
-      {otpError && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
-          <svg className="h-3.5 w-3.5 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <p className="text-xs text-red-700">{otpError}</p>
-        </div>
-      )}
-
-      <p className="text-[10px] text-stone-400 text-center mb-5">
-        Didn't receive it?{" "}
-        <button
-          onClick={onResend}
-          disabled={otpLoading || isSigningInProgress}
-          className="text-[#1E4620] font-semibold hover:underline disabled:opacity-50"
-        >
-          {otpLoading ? "Sending…" : "Resend OTP"}
-        </button>
-      </p>
-
-      <div className="flex gap-2">
-        <button
-          onClick={onCancel}
-          disabled={isSigningInProgress}
-          className="flex-1 rounded-lg border border-stone-300 px-4 py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors disabled:opacity-50"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={onSubmit}
-          disabled={otpValue.length !== 6 || isSigningInProgress}
-          className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-        >
-          {isSigningInProgress ? (
-            <>
-              <Spinner className="h-3.5 w-3.5" /> Verifying…
-            </>
-          ) : (
-            "Confirm & Sign"
-          )}
-        </button>
-      </div>
-    </div>
-  </div>
-);
-
-// ─── ReleaseConfirmationModal (unchanged) ─────────────────────────────
-
-interface ReleaseConfirmationModalProps {
-  document: Document;
-  isOpen: boolean;
-  onClose: () => void;
-  onConfirm: (note?: string, recipientId?: string) => void;
-  isReleasing: boolean;
-  users: User[];
-  departments: DepartmentWithUserCount[];
-}
-
-const ReleaseConfirmationModal: React.FC<ReleaseConfirmationModalProps> = ({
-  document,
-  isOpen,
-  onClose,
-  onConfirm,
-  isReleasing,
-  users = [],
-  departments = [],
-}) => {
-  const [note, setNote] = useState("");
-  const [recipientId, setRecipientId] = useState<string>("");
-  const [selectedDepartment, setSelectedDepartment] = useState<string>("");
-
-  const filteredUsers = useMemo(() => {
-    if (!selectedDepartment) return users;
-    return users.filter((u) => u.department_id === selectedDepartment);
-  }, [users, selectedDepartment]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-xl bg-white shadow-2xl p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 flex-shrink-0">
-            <svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-            </svg>
-          </div>
-          <div>
-            <h3 className="text-sm font-bold text-stone-900">Release Document</h3>
-            <p className="text-xs text-stone-500 mt-0.5">
-              This action will make the document visible to the admin side.
-            </p>
-          </div>
-        </div>
-
-        <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 p-3">
-          <p className="text-xs text-amber-800">
-            <strong>Document:</strong> {document.title}
-          </p>
-          <p className="text-xs text-amber-800 mt-1">
-            <strong>Status:</strong> {document.status.replace('_', ' ')}
-          </p>
-          {document.signed_by_name && (
-            <p className="text-xs text-amber-800 mt-1">
-              <strong>Signed by:</strong> {document.signed_by_name}
-            </p>
-          )}
-        </div>
-
-        <div className="mb-4">
-          <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
-            Department *
-          </label>
-          <select
-            value={selectedDepartment}
-            onChange={(e) => {
-              setSelectedDepartment(e.target.value);
-              setRecipientId("");
-            }}
-            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-            disabled={isReleasing}
-          >
-            <option value="">Select Department</option>
-            {departments.map((dept) => (
-              <option key={dept.id} value={dept.id}>
-                {dept.name} ({dept.user_count || 0} users)
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="mb-4">
-          <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
-            Assign to User (Optional)
-          </label>
-          <select
-            value={recipientId}
-            onChange={(e) => setRecipientId(e.target.value)}
-            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620] disabled:opacity-50"
-            disabled={!selectedDepartment || isReleasing}
-          >
-            <option value="">Select User</option>
-            {filteredUsers.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.full_name} — {user.pj_number}
-              </option>
-            ))}
-          </select>
-          {selectedDepartment && filteredUsers.length === 0 && (
-            <p className="mt-1 text-[10px] text-amber-600">
-              No active users found in this department.
-            </p>
-          )}
-        </div>
-
-        <div className="mb-4">
-          <label className="block text-[10px] font-semibold text-stone-500 uppercase tracking-wider mb-1">
-            Release Note (Optional)
-          </label>
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            rows={3}
-            placeholder="Add a note about this release..."
-            className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620] resize-none"
-            disabled={isReleasing}
-          />
-        </div>
-
-        <div className="flex items-start gap-2 mb-4 p-2 bg-red-50 rounded-lg border border-red-100">
-          <svg className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
-          <p className="text-xs text-red-700">
-            <strong>Warning:</strong> This action cannot be undone. Once released, 
-            the document will be visible to all admin users.
-          </p>
-        </div>
-
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            disabled={isReleasing}
-            className="px-4 py-2 text-sm font-medium text-stone-500 hover:text-stone-800 transition-colors disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onConfirm(note || undefined, recipientId || undefined)}
-            disabled={!selectedDepartment || isReleasing}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isReleasing ? (
-              <>
-                <Spinner className="h-4 w-4" />
-                Releasing...
-              </>
+          <div className="mt-8 min-h-[200px] text-[13.5px] leading-[1.8] text-justify">
+            {document.body ? (
+              <div dangerouslySetInnerHTML={{ __html: document.body }} />
             ) : (
-              <>
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                </svg>
-                Confirm Release
-              </>
+              <p className="text-stone-400 italic">No content available.</p>
             )}
-          </button>
+          </div>
+
+          <div className="mt-16">
+            <div className="font-bold uppercase text-[13.5px]">
+              {document.signature_name || currentUserName || 'REGISTRAR, HIGH COURT'}
+            </div>
+            <div className="font-bold underline uppercase text-[13.5px]">
+              {document.signature_title || 'REGISTRAR, HIGH COURT'}
+            </div>
+          </div>
+
+          <div className="mt-12 pt-3 border-t border-stone-300 flex items-center gap-3">
+            <div className="flex-1 text-[10px] leading-tight text-stone-700">
+              <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
+              <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
+              <p className="font-bold text-[#1E4620] mt-1">Justice Be Our Shield and Defender</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -3291,9 +1471,15 @@ const MemoandLetters: React.FC = () => {
   const users = useAppSelector(selectAllUsers);
   const departments = useAppSelector(selectAllDepartments);
 
-  const [activeTab, setActiveTab] = useState<"all" | "my_action">("all");
+  // ─── Helpdesk document state ──────────────────────────────────────────────
+  const helpdeskDocuments = useAppSelector(selectAllHelpdeskDocuments);
+  const helpdeskLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
+  const currentUser = useAppSelector(selectCurrentUser);
+
+  const [activeTab, setActiveTab] = useState<"all" | "my_action" | "helpdesk_approvals">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
+  const [selectedHelpdeskDoc, setSelectedHelpdeskDoc] = useState<HelpdeskDocument | null>(null);
   const [showMarkModal, setShowMarkModal] = useState(false);
   const [showComposer, setShowComposer] = useState<"memo" | "letter" | "certificate" | null>(null);
   const [signToast, setSignToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -3305,7 +1491,6 @@ const MemoandLetters: React.FC = () => {
   const [otpError, setOtpError] = useState<string | null>(null);
   const [signingDocId, setSigningDocId] = useState<string | null>(null);
 
-  // ── Signature box state ──
   const [signatureBoxPosition, setSignatureBoxPosition] = useState({
     x: 100,
     y: 400,
@@ -3313,11 +1498,10 @@ const MemoandLetters: React.FC = () => {
     height: 55,
   });
   const [showSignatureBox, setShowSignatureBox] = useState(false);
-  
+
   const [showReleaseModal, setShowReleaseModal] = useState(false);
   const [isReleasing, setIsReleasing] = useState(false);
 
-  // ── Bring Up state ──────────────────────────────────────────────────────────
   const [showBringUpModal, setShowBringUpModal] = useState(false);
 
   const canUpload = hasRole(user, "staff") || hasRole(user, "super_admin");
@@ -3325,13 +1509,24 @@ const MemoandLetters: React.FC = () => {
   const isSuperAdmin = hasRole(user, "super_admin");
   const canView = !!user;
 
-  // ─── UPDATED: Filter to include certificates ────────────────────────────────
- const memoLetterDocs = useMemo(
-  () => documents.filter(
-    (doc) => (doc.type === "memo" || doc.type === "letter" || doc.type === "certificate") && doc.status !== "released"
-  ),
-  [documents]
-);
+  // ─── Filter regular documents ──────────────────────────────────────────────
+  const memoLetterDocs = useMemo(
+    () => documents.filter(
+      (doc) => (doc.type === "memo" || doc.type === "letter" || doc.type === "certificate") && doc.status !== "released"
+    ),
+    [documents]
+  );
+
+  // ─── Filter helpdesk docs pending approval ────────────────────────────────────
+  const pendingApprovalDocs = useMemo(
+    () => helpdeskDocuments.filter(
+      (doc) => doc.status === 'pending_approval' || 
+               (doc.internal_approval_status === 'pending' || doc.internal_approval_status === 'previewed')
+    ),
+    [helpdeskDocuments]
+  );
+
+  const displayedHelpdeskDocs = activeTab === 'helpdesk_approvals' ? pendingApprovalDocs : helpdeskDocuments;
 
   useEffect(() => {
     if (!canView) return;
@@ -3340,6 +1535,16 @@ const MemoandLetters: React.FC = () => {
     if (searchQuery) params.search = searchQuery;
     dispatch(fetchDocuments(params));
   }, [dispatch, activeTab, searchQuery, canView]);
+
+  // ─── Fetch helpdesk documents for approval ─────────────────────────────────
+  useEffect(() => {
+    if (isSuperAdmin) {
+      dispatch(fetchHelpdeskDocuments({ 
+        pending_internal_approval: true,
+        status: 'pending_approval'
+      }));
+    }
+  }, [dispatch, isSuperAdmin, activeTab]);
 
   useEffect(() => {
     if (isSuperAdmin) {
@@ -3394,7 +1599,6 @@ const MemoandLetters: React.FC = () => {
     }
   };
 
-  // ── Signature box handlers ──
   const handleSignatureBoxChange = (pos: { x: number; y: number; width: number; height: number }) => {
     setSignatureBoxPosition(pos);
   };
@@ -3409,7 +1613,7 @@ const MemoandLetters: React.FC = () => {
       ? pageSurfaceEl.getBoundingClientRect().width
       : 794;
     const scale = PDF_PAGE_WIDTH_PT / renderedPageWidthPx;
-    
+
     const positionX = signatureBoxPosition.x * scale;
     const positionY = (signatureBoxPosition.y + 5) * scale;
     const positionWidth = signatureBoxPosition.width * scale;
@@ -3424,8 +1628,6 @@ const MemoandLetters: React.FC = () => {
       position_height: positionHeight,
     };
 
-    console.log('📦 [FRONTEND] Signature position (PDF pt):', payload);
-
     const result = await dispatch(signDocument(payload));
 
     if (signDocument.fulfilled.match(result)) {
@@ -3433,12 +1635,12 @@ const MemoandLetters: React.FC = () => {
       setShowSignatureBox(false);
       setOtpValue("");
       setSigningDocId(null);
-      
+
       const signedDoc = result.payload as Document;
       setSelectedDocument(signedDoc);
-      
+
       toast.success("Document signed successfully. Ready for release.");
-      
+
       const params: DocumentFilters = { page: 1, limit: 10 };
       if (activeTab === "my_action") params.for_my_action = true;
       if (searchQuery) params.search = searchQuery;
@@ -3465,15 +1667,15 @@ const MemoandLetters: React.FC = () => {
 
   const handleReleaseConfirm = async (note?: string, recipientId?: string) => {
     if (!selectedDocument) return;
-    
+
     setIsReleasing(true);
     try {
-      const result = await dispatch(releaseDocument({ 
-        id: selectedDocument.id, 
+      const result = await dispatch(releaseDocument({
+        id: selectedDocument.id,
         note,
         recipient_id: recipientId,
       }));
-      
+
       if (releaseDocument.fulfilled.match(result)) {
         setSelectedDocument(result.payload as Document);
         toast.success('Document released to admin side successfully.');
@@ -3632,6 +1834,150 @@ const MemoandLetters: React.FC = () => {
     window.open(selectedDocument.file_url, '_blank');
   };
 
+  // ─── Helpdesk Document Handlers ───────────────────────────────────────────
+
+  const handleSelectHelpdeskDoc = (doc: HelpdeskDocument) => {
+    setSelectedHelpdeskDoc(doc);
+  };
+
+  const handleHelpdeskPreview = async (doc: HelpdeskDocument) => {
+    if (!isSuperAdmin) return;
+    try {
+      await dispatch(internalPreviewDocument({
+        id: doc.id,
+        previewed_by: currentUser?.id,
+        previewed_by_name: currentUser?.full_name,
+        comments: 'Document previewed by Super Admin',
+      })).unwrap();
+      toast.success('Document previewed successfully.');
+      dispatch(fetchHelpdeskDocuments({ pending_internal_approval: true }));
+      const refreshed = helpdeskDocuments.find(d => d.id === doc.id);
+      if (refreshed) setSelectedHelpdeskDoc(refreshed);
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to preview document.');
+    }
+  };
+
+  const handleHelpdeskApprove = async (doc: HelpdeskDocument) => {
+    if (!isSuperAdmin) return;
+    try {
+      await dispatch(internalApproveDocument({
+        id: doc.id,
+        action: 'approve',
+        approved_by: currentUser?.id,
+        approved_by_name: currentUser?.full_name,
+        comments: 'Document approved internally.',
+        generate_e_stamp: true,
+      })).unwrap();
+      toast.success('Document approved internally.');
+      dispatch(fetchHelpdeskDocuments({ pending_internal_approval: true }));
+      const refreshed = helpdeskDocuments.find(d => d.id === doc.id);
+      if (refreshed) setSelectedHelpdeskDoc(refreshed);
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to approve document.');
+    }
+  };
+
+  const handleHelpdeskReject = async (doc: HelpdeskDocument) => {
+    if (!isSuperAdmin) return;
+    const reason = prompt('Please provide a reason for rejecting this document:');
+    if (reason === null) return;
+    if (!reason.trim()) {
+      toast.error('Rejection reason is required.');
+      return;
+    }
+    try {
+      await dispatch(internalRejectDocument({
+        id: doc.id,
+        action: 'reject',
+        rejection_reason: reason.trim(),
+        comments: `Rejected internally: ${reason.trim()}`,
+        approved_by: currentUser?.id,
+        approved_by_name: currentUser?.full_name,
+      })).unwrap();
+      toast.success('Document rejected internally.');
+      dispatch(fetchHelpdeskDocuments({ pending_internal_approval: true }));
+      const refreshed = helpdeskDocuments.find(d => d.id === doc.id);
+      if (refreshed) setSelectedHelpdeskDoc(refreshed);
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to reject document.');
+    }
+  };
+
+  const handleHelpdeskRequestChanges = async (doc: HelpdeskDocument) => {
+    if (!isSuperAdmin) return;
+    const changes = prompt('Please list the changes requested (comma separated):');
+    if (changes === null) return;
+    if (!changes.trim()) {
+      toast.error('At least one change request is required.');
+      return;
+    }
+    const changesList = changes.split(',').map(c => c.trim()).filter(c => c.length > 0);
+    if (changesList.length === 0) {
+      toast.error('At least one valid change request is required.');
+      return;
+    }
+    try {
+      await dispatch(internalRequestChanges({
+        id: doc.id,
+        action: 'request_changes',
+        changes_requested: changesList,
+        comments: `Changes requested internally: ${changesList.join(', ')}`,
+        approved_by: currentUser?.id,
+        approved_by_name: currentUser?.full_name,
+      })).unwrap();
+      toast.success('Changes requested internally.');
+      dispatch(fetchHelpdeskDocuments({ pending_internal_approval: true }));
+      const refreshed = helpdeskDocuments.find(d => d.id === doc.id);
+      if (refreshed) setSelectedHelpdeskDoc(refreshed);
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to request changes.');
+    }
+  };
+
+  const handleHelpdeskSendBack = async (doc: HelpdeskDocument, finalStatus: 'approved' | 'rejected' | 'changes_requested') => {
+    if (!isSuperAdmin) return;
+    try {
+      await dispatch(sendBackToRequester({
+        id: doc.id,
+        final_status: finalStatus,
+        sent_by: currentUser?.id,
+        sent_by_name: currentUser?.full_name,
+        comments: `Document sent back to requester with status: ${finalStatus}`,
+        notify_requester: true,
+      })).unwrap();
+      const statusMessages = {
+        approved: 'Document approved and sent back to requester.',
+        rejected: 'Document rejected and sent back to requester.',
+        changes_requested: 'Changes requested and sent back to requester.',
+      };
+      toast.success(statusMessages[finalStatus]);
+      dispatch(fetchHelpdeskDocuments({ pending_internal_approval: true }));
+      setSelectedHelpdeskDoc(null);
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to send document back to requester.');
+    }
+  };
+
+  const handleHelpdeskCancelDecision = async (doc: HelpdeskDocument) => {
+    if (!isSuperAdmin) return;
+    if (!window.confirm('Cancel the internal approval decision? This will reset the document to pending review.')) return;
+    try {
+      await dispatch(cancelInternalApproval({
+        id: doc.id,
+        cancelled_by: currentUser?.id,
+        cancelled_by_name: currentUser?.full_name,
+        reason: 'Decision cancelled by Super Admin',
+      })).unwrap();
+      toast.success('Internal decision cancelled.');
+      dispatch(fetchHelpdeskDocuments({ pending_internal_approval: true }));
+      const refreshed = helpdeskDocuments.find(d => d.id === doc.id);
+      if (refreshed) setSelectedHelpdeskDoc(refreshed);
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to cancel decision.');
+    }
+  };
+
   if (!canView) {
     return (
       <div className="flex items-center justify-center min-h-[400px] px-4 text-center">
@@ -3646,6 +1992,9 @@ const MemoandLetters: React.FC = () => {
   const isSettingBringUp = !!actionInProgress.settingBringUp;
   const isUpdatingBringUp = !!actionInProgress.updatingBringUp;
   const isCompletingBringUp = !!actionInProgress.completingBringUp;
+
+  const displayList = activeTab === 'helpdesk_approvals' ? displayedHelpdeskDocs : memoLetterDocs;
+  const isLoading = activeTab === 'helpdesk_approvals' ? helpdeskLoading : loading;
 
   return (
     <div className="flex flex-col h-full">
@@ -3680,14 +2029,14 @@ const MemoandLetters: React.FC = () => {
       <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b border-stone-200 bg-white flex-wrap">
         <div className="min-w-0">
           <h1 className="text-base sm:text-lg font-bold text-stone-900 tracking-tight truncate">
-            Memos, Letters & Certificates
+            Memos, Letters &amp; Approvals
           </h1>
           <p className="text-[11px] sm:text-xs text-stone-400 mt-0.5 hidden sm:block">
-            Compose, edit, and manage your official documents
+            Compose, edit, and manage your official documents and helpdesk approvals
           </p>
         </div>
 
-        {canUpload && (
+        {canUpload && activeTab !== 'helpdesk_approvals' && (
           <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <button
               onClick={() => setShowComposer("memo")}
@@ -3710,20 +2059,6 @@ const MemoandLetters: React.FC = () => {
             >
               <span>📜</span> New Certificate
             </button>
-            <button
-              onClick={() => selectedDocument && setShowMarkModal(true)}
-              disabled={!selectedDocument || !canAdmin}
-              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 sm:px-3 py-1.5 text-xs font-semibold transition-colors ${
-                !selectedDocument || !canAdmin
-                  ? "border-stone-200 bg-stone-50 text-stone-400 cursor-not-allowed"
-                  : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-              }`}
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-              </svg>
-              <span className="hidden sm:inline">Mark</span>
-            </button>
           </div>
         )}
       </div>
@@ -3731,7 +2066,7 @@ const MemoandLetters: React.FC = () => {
       <div className="flex flex-1 overflow-hidden relative">
         <div
           className={`w-full lg:w-[300px] flex-shrink-0 flex-col border-r border-stone-200 bg-white overflow-hidden ${
-            selectedDocument ? "hidden lg:flex" : "flex"
+            selectedDocument || selectedHelpdeskDoc ? "hidden lg:flex" : "flex"
           }`}
         >
           <div className="px-4 pt-4 pb-2">
@@ -3766,6 +2101,21 @@ const MemoandLetters: React.FC = () => {
             >
               For My Action
             </button>
+            {isSuperAdmin && (
+              <button
+                onClick={() => setActiveTab("helpdesk_approvals")}
+                className={`flex-1 rounded-md px-1.5 py-1.5 text-[9px] font-semibold transition-colors ${
+                  activeTab === "helpdesk_approvals" ? "bg-[#1E4620] text-white" : "text-stone-500 hover:bg-stone-100"
+                }`}
+              >
+                Approvals
+                {pendingApprovalDocs.length > 0 && (
+                  <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[8px] text-white">
+                    {pendingApprovalDocs.length}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto">
@@ -3776,20 +2126,35 @@ const MemoandLetters: React.FC = () => {
               </div>
             )}
 
-            {loading ? (
+            {isLoading ? (
               <div className="flex justify-center py-12">
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#1E4620] border-t-transparent" />
               </div>
-            ) : memoLetterDocs.length === 0 ? (
+            ) : displayList.length === 0 ? (
               <div className="px-4 py-12 text-center">
-                <p className="text-sm text-stone-400">No documents found.</p>
-                {canUpload && (
+                <p className="text-sm text-stone-400">
+                  {activeTab === 'helpdesk_approvals' 
+                    ? 'No pending approvals.' 
+                    : 'No documents found.'}
+                </p>
+                {canUpload && activeTab !== 'helpdesk_approvals' && (
                   <p className="text-xs text-stone-300 mt-1">Click "New Memo", "New Letter", or "New Certificate" to start.</p>
                 )}
               </div>
+            ) : activeTab === 'helpdesk_approvals' ? (
+              <div className="divide-y divide-stone-100">
+                {(displayList as HelpdeskDocument[]).map((doc) => (
+                  <HelpdeskListItem
+                    key={doc.id}
+                    document={doc}
+                    selected={selectedHelpdeskDoc?.id === doc.id}
+                    onSelect={() => handleSelectHelpdeskDoc(doc)}
+                  />
+                ))}
+              </div>
             ) : (
               <div className="divide-y divide-stone-100">
-                {memoLetterDocs.map((doc) => (
+                {(displayList as Document[]).map((doc) => (
                   <ListItem
                     key={doc.id}
                     document={doc}
@@ -3802,7 +2167,7 @@ const MemoandLetters: React.FC = () => {
             )}
           </div>
 
-          {pagination && pagination.totalPages > 1 && (
+          {!isLoading && activeTab !== 'helpdesk_approvals' && pagination && pagination.totalPages > 1 && (
             <div className="border-t border-stone-200 bg-stone-50 px-3 py-2.5 flex-shrink-0">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[10px] text-stone-500 font-medium whitespace-nowrap">
@@ -3837,9 +2202,10 @@ const MemoandLetters: React.FC = () => {
           )}
         </div>
 
+        {/* ─── Main Content Area ────────────────────────────────────────────── */}
         <div
           className={`w-full flex-1 flex-col overflow-hidden bg-stone-100 ${
-            selectedDocument ? "flex" : "hidden lg:flex"
+            selectedDocument || selectedHelpdeskDoc ? "flex" : "hidden lg:flex"
           }`}
         >
           {selectedDocument ? (
@@ -3906,6 +2272,390 @@ const MemoandLetters: React.FC = () => {
               isUpdatingBringUp={isUpdatingBringUp}
               isCompletingBringUp={isCompletingBringUp}
             />
+          ) : selectedHelpdeskDoc ? (
+            // ─── Helpdesk Document Detail View ──────────────────────────────────
+            <div className="flex flex-col h-full overflow-hidden bg-white">
+              <div className="flex items-center justify-between gap-2 sm:gap-3 bg-white border-b border-stone-200 px-3 sm:px-4 py-2.5 flex-wrap">
+                <div className="flex items-center gap-2 min-w-0">
+                  <button
+                    onClick={() => setSelectedHelpdeskDoc(null)}
+                    className="lg:hidden flex-shrink-0 rounded-md p-1 text-stone-500 hover:bg-stone-100 transition-colors -ml-1"
+                    aria-label="Back"
+                  >
+                    <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                    </svg>
+                  </button>
+                  <span className="text-sm font-semibold text-stone-900 truncate">
+                    {selectedHelpdeskDoc.subject}
+                  </span>
+                  <HelpdeskStatusBadge status={selectedHelpdeskDoc.status} />
+                </div>
+                <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
+                  <a
+                    href={selectedHelpdeskDoc.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors whitespace-nowrap"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                    View
+                  </a>
+                  <a
+                    href={selectedHelpdeskDoc.file_url}
+                    download
+                    className="inline-flex items-center gap-1 rounded-md border border-stone-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-stone-700 hover:bg-stone-50 transition-colors whitespace-nowrap"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Download
+                  </a>
+                  <button
+                    onClick={() => setSelectedHelpdeskDoc(null)}
+                    className="rounded-md p-1.5 text-stone-400 hover:bg-stone-100 transition-colors"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
+                {/* Document Info */}
+                <div className="grid grid-cols-2 gap-3 rounded-lg border border-stone-200 bg-stone-50 p-4 sm:grid-cols-3">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Reference</p>
+                    <p className="mt-0.5 text-sm font-mono text-stone-800">{selectedHelpdeskDoc.ref}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Format</p>
+                    <p className="mt-0.5 text-sm font-semibold text-stone-800 uppercase">{selectedHelpdeskDoc.format}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Entity Type</p>
+                    <p className="mt-0.5 text-sm capitalize text-stone-800">
+                      {getHelpdeskEntityDisplay(selectedHelpdeskDoc.entity_type)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Uploaded On</p>
+                    <p className="mt-0.5 text-sm text-stone-800">
+                      {new Date(selectedHelpdeskDoc.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Preview Count</p>
+                    <p className="mt-0.5 text-sm text-stone-800">{selectedHelpdeskDoc.internal_preview_count || 0}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Resubmit Count</p>
+                    <p className="mt-0.5 text-sm text-stone-800">{selectedHelpdeskDoc.resubmit_count || 0}</p>
+                  </div>
+                </div>
+
+                {/* Approval Status Section */}
+                <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
+                  <h4 className="text-sm font-semibold text-stone-700 flex items-center gap-2">
+                    <svg className="h-4 w-4 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    Approval Status
+                  </h4>
+                  <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="text-stone-500">Internal Status:</span>
+                      <div className="mt-1">
+                        <InternalStatusBadge status={selectedHelpdeskDoc.internal_approval_status} />
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-stone-500">Requester Status:</span>
+                      <div className="mt-1">
+                        <RequesterStatusBadge status={selectedHelpdeskDoc.requester_status} />
+                      </div>
+                    </div>
+                    {selectedHelpdeskDoc.internal_approved_at && (
+                      <div>
+                        <span className="text-stone-500">Approved At:</span>
+                        <p className="font-medium">{new Date(selectedHelpdeskDoc.internal_approved_at).toLocaleString()}</p>
+                      </div>
+                    )}
+                    {selectedHelpdeskDoc.requester_visible_at && (
+                      <div>
+                        <span className="text-stone-500">Sent Back At:</span>
+                        <p className="font-medium">{new Date(selectedHelpdeskDoc.requester_visible_at).toLocaleString()}</p>
+                      </div>
+                    )}
+                  </div>
+                  {selectedHelpdeskDoc.internal_changes_requested && selectedHelpdeskDoc.internal_changes_requested.length > 0 && (
+                    <div className="mt-2">
+                      <span className="text-stone-500">Changes Requested:</span>
+                      <ul className="mt-1 list-disc list-inside text-sm text-stone-700">
+                        {selectedHelpdeskDoc.internal_changes_requested.map((change, idx) => (
+                          <li key={idx}>{change}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {selectedHelpdeskDoc.internal_rejection_reason && (
+                    <div className="mt-2">
+                      <span className="text-stone-500">Rejection Reason:</span>
+                      <p className="text-sm text-red-600">{selectedHelpdeskDoc.internal_rejection_reason}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* E-Stamp Preview */}
+                {selectedHelpdeskDoc.e_stamp_url && selectedHelpdeskDoc.e_stamp_status === 'stamped' && (
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <svg className="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <h4 className="text-sm font-semibold text-emerald-800">E-Stamp</h4>
+                      </div>
+                      <div className="flex gap-2">
+                        <a
+                          href={selectedHelpdeskDoc.e_stamp_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                          View Stamp
+                        </a>
+                      </div>
+                    </div>
+                    <div className="mt-3 flex items-center gap-4 p-3 bg-white rounded border border-emerald-200">
+                      <img
+                        src={selectedHelpdeskDoc.e_stamp_url}
+                        alt="E-Stamp"
+                        className="max-h-16 w-auto object-contain"
+                      />
+                      <div className="text-xs text-stone-500">
+                        <p className="font-mono">{selectedHelpdeskDoc.ref}</p>
+                        <p className="text-emerald-600">✓ Approved internally on {selectedHelpdeskDoc.internal_approved_at ? new Date(selectedHelpdeskDoc.internal_approved_at).toLocaleDateString() : 'N/A'}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Document Preview */}
+                <div className="rounded-lg border border-stone-200 bg-white overflow-hidden">
+                  <div className="border-b border-stone-100 px-4 py-2 bg-stone-50">
+                    <span className="text-xs font-semibold text-stone-500 uppercase tracking-wide">Document Preview</span>
+                  </div>
+                  <div className="p-4 min-h-[200px] flex items-center justify-center bg-stone-50">
+                    <iframe
+                      src={`${selectedHelpdeskDoc.file_url}#toolbar=0`}
+                      title={selectedHelpdeskDoc.subject}
+                      className="w-full h-[400px] border-0 rounded"
+                    />
+                  </div>
+                </div>
+
+                {/* ─── Approval Actions ────────────────────────────────────────── */}
+                {isSuperAdmin && selectedHelpdeskDoc.status === 'pending_approval' && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                    <h4 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      </svg>
+                      {selectedHelpdeskDoc.internal_approval_status === 'pending' ? 'Pending Your Decision' : 'Decision Made - Send Back to Requester'}
+                    </h4>
+                    <p className="mt-1 text-xs text-amber-700">
+                      {selectedHelpdeskDoc.internal_approval_status === 'pending'
+                        ? 'Review the document and make a decision. Approving will stamp the document internally.'
+                        : selectedHelpdeskDoc.internal_approval_status === 'approved_internal'
+                        ? 'Document approved internally. Send back to requester to make it visible.'
+                        : selectedHelpdeskDoc.internal_approval_status === 'rejected_internal'
+                        ? 'Document rejected internally. Send back to requester with the rejection reason.'
+                        : selectedHelpdeskDoc.internal_approval_status === 'changes_requested_internal'
+                        ? 'Changes requested internally. Send back to requester with the list of changes.'
+                        : 'Changes ready for re-review. Preview again before deciding.'}
+                    </p>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {/* Preview Button */}
+                      {(selectedHelpdeskDoc.internal_approval_status === 'pending' || selectedHelpdeskDoc.internal_approval_status === 'changes_ready') && (
+                        <button
+                          onClick={() => handleHelpdeskPreview(selectedHelpdeskDoc)}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                        >
+                          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                          Preview
+                        </button>
+                      )}
+
+                      {/* Approve Button */}
+                      {(selectedHelpdeskDoc.internal_approval_status === 'pending' || selectedHelpdeskDoc.internal_approval_status === 'previewed') && (
+                        <button
+                          onClick={() => handleHelpdeskApprove(selectedHelpdeskDoc)}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                        >
+                          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                          Approve
+                        </button>
+                      )}
+
+                      {/* Reject Button */}
+                      {(selectedHelpdeskDoc.internal_approval_status === 'pending' || selectedHelpdeskDoc.internal_approval_status === 'previewed') && (
+                        <button
+                          onClick={() => handleHelpdeskReject(selectedHelpdeskDoc)}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                        >
+                          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                          Reject
+                        </button>
+                      )}
+
+                      {/* Request Changes Button */}
+                      {(selectedHelpdeskDoc.internal_approval_status === 'pending' || selectedHelpdeskDoc.internal_approval_status === 'previewed') && (
+                        <button
+                          onClick={() => handleHelpdeskRequestChanges(selectedHelpdeskDoc)}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                        >
+                          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                          Request Changes
+                        </button>
+                      )}
+
+                      {/* Send Back Buttons */}
+                      {selectedHelpdeskDoc.is_internal_approval_complete && selectedHelpdeskDoc.internal_approval_status !== 'pending' && !selectedHelpdeskDoc.is_sent_back_to_requester && (
+                        <>
+                          {selectedHelpdeskDoc.internal_approval_status === 'approved_internal' && (
+                            <button
+                              onClick={() => handleHelpdeskSendBack(selectedHelpdeskDoc, 'approved')}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                            >
+                              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                              Send Approved
+                            </button>
+                          )}
+                          {selectedHelpdeskDoc.internal_approval_status === 'rejected_internal' && (
+                            <button
+                              onClick={() => handleHelpdeskSendBack(selectedHelpdeskDoc, 'rejected')}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                            >
+                              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                              Send Rejected
+                            </button>
+                          )}
+                          {selectedHelpdeskDoc.internal_approval_status === 'changes_requested_internal' && (
+                            <button
+                              onClick={() => handleHelpdeskSendBack(selectedHelpdeskDoc, 'changes_requested')}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700"
+                            >
+                              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                              Send Changes Requested
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleHelpdeskCancelDecision(selectedHelpdeskDoc)}
+                            className="inline-flex items-center gap-1.5 rounded-md border border-stone-300 bg-white px-3 py-1.5 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+                          >
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                            Cancel Decision
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Already Sent Back */}
+                {selectedHelpdeskDoc.is_sent_back_to_requester && (
+                  <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
+                    <h4 className="text-sm font-semibold text-stone-700 flex items-center gap-2">
+                      <svg className="h-4 w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Sent Back to Requester
+                    </h4>
+                    <p className="mt-1 text-xs text-stone-600">
+                      This document has been sent back to the requester with status:{' '}
+                      <RequesterStatusBadge status={selectedHelpdeskDoc.requester_status} />
+                    </p>
+                    {selectedHelpdeskDoc.requester_visible_at && (
+                      <p className="mt-1 text-xs text-stone-500">
+                        Sent on: {new Date(selectedHelpdeskDoc.requester_visible_at).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Approval History */}
+                {selectedHelpdeskDoc.approval_history && selectedHelpdeskDoc.approval_history.length > 0 && (
+                  <div className="mt-2">
+                    <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
+                      <svg className="h-4 w-4 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Approval History
+                    </h3>
+                    <div className="mt-3 space-y-2 max-h-[200px] overflow-y-auto">
+                      {selectedHelpdeskDoc.approval_history.map((entry, index) => (
+                        <div
+                          key={entry.id}
+                          className="relative flex items-start gap-3 rounded-lg border border-stone-100 bg-white p-3"
+                        >
+                          {index < selectedHelpdeskDoc.approval_history.length - 1 && (
+                            <div className="absolute left-5 top-8 h-full w-0.5 bg-stone-200" />
+                          )}
+                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-stone-100">
+                            {entry.action === 'submitted' && <svg className="h-3.5 w-3.5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>}
+                            {entry.action === 'approved' && <svg className="h-3.5 w-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                            {entry.action === 'rejected' && <svg className="h-3.5 w-3.5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>}
+                            {entry.action === 'returned' && <svg className="h-3.5 w-3.5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>}
+                            {entry.action === 'previewed' && <svg className="h-3.5 w-3.5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>}
+                            {entry.action === 'sent_back' && <svg className="h-3.5 w-3.5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>}
+                            {entry.action === 'resubmitted' && <svg className="h-3.5 w-3.5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                              <p className="text-sm font-medium text-stone-800">
+                                {entry.action.charAt(0).toUpperCase() + entry.action.slice(1)}
+                                {entry.internal_action && (
+                                  <span className="ml-2 text-xs text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded">
+                                    Internal
+                                  </span>
+                                )}
+                                {entry.requester_visible && (
+                                  <span className="ml-2 text-xs text-emerald-400 bg-emerald-50 px-1.5 py-0.5 rounded">
+                                    Visible
+                                  </span>
+                                )}
+                              </p>
+                              <span className="text-xs text-stone-400">
+                                {new Date(entry.created_at).toLocaleString()}
+                              </span>
+                            </div>
+                            <p className="text-xs text-stone-500">
+                              By: {entry.from_user_name}
+                              {entry.to_user_name && ` → ${entry.to_user_name}`}
+                            </p>
+                            {entry.comments && (
+                              <p className="mt-1 text-xs text-stone-600 bg-stone-50 rounded p-2">
+                                {entry.comments}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           ) : (
             <div className="flex flex-1 items-center justify-center px-4">
               <div className="text-center max-w-sm">

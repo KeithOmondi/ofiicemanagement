@@ -19,12 +19,42 @@ export type HelpdeskEntityType =
     | 'consolidated_utility_memo'  // Consolidated memo covering all utilities
     | 'consolidated_fuel_memo'     // Consolidated memo covering fuel only
     | 'aide'             // Aide request documents
-    | 'sentry';          // Sentry request documents ← ADDED THIS
+    | 'sentry';          // Sentry request documents
 
 export type HelpdeskDocumentFormat = 'pdf' | 'docx' | 'xlsx';
 
 export type HelpdeskDocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
+
+// ─── Two-Step Approval Types ──────────────────────────────────────────────────
+
+/**
+ * Internal approval status (only visible to super admin)
+ * - 'pending': Awaiting super admin action
+ * - 'previewed': Super admin has previewed the document
+ * - 'approved_internal': Super admin approved internally (not yet sent to requester)
+ * - 'rejected_internal': Super admin rejected internally (not yet sent to requester)
+ * - 'changes_requested_internal': Super admin requested changes internally (not yet sent to requester)
+ * - 'changes_ready': Requester has made changes, ready for re-review
+ */
+export type InternalApprovalStatus = 
+    | 'pending'                    // Awaiting super admin review
+    | 'previewed'                  // Super admin has previewed the document
+    | 'approved_internal'          // Super admin approved (waiting to send back)
+    | 'rejected_internal'          // Super admin rejected (waiting to send back)
+    | 'changes_requested_internal' // Super admin wants changes (waiting to send back)
+    | 'changes_ready';             // Changes have been made, ready for re-preview
+
+/**
+ * External/Requester visible status (what the requester sees)
+ * Only changes when super admin clicks "Send Back to Requester"
+ */
+export type RequesterVisibleStatus = 
+    | 'pending_approval'    // Requester sees: Waiting for approval
+    | 'approved'            // Requester sees: Document approved ✓
+    | 'rejected'            // Requester sees: Document rejected ✗
+    | 'changes_requested'   // Requester sees: Changes requested
+    | 'in_revision';        // Requester sees: Being revised
 
 // ─── Consolidated Memo Helpers ──────────────────────────────────────────────
 
@@ -90,13 +120,16 @@ export type SentryStatus = 'pending' | 'active' | 'resolved' | 'rejected';
 export interface ApprovalHistoryEntry {
     id: string;
     document_id: string;
-    action: 'submitted' | 'approved' | 'rejected' | 'returned';
+    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted';
     from_user_id: string;
     from_user_name: string;
     to_user_id?: string;
     to_user_name?: string;
     comments?: string;
     created_at: string;
+    // For two-step workflow
+    internal_action?: boolean; // Whether this was an internal action (super admin only)
+    requester_visible?: boolean; // Whether this action is visible to requester
 }
 
 // ─── Comments ──────────────────────────────────────────────────────────────
@@ -108,6 +141,7 @@ export interface Comment {
     user_name: string;
     comment: string;
     is_internal: boolean;
+    is_active: boolean;
     created_at: string;
 }
 
@@ -135,6 +169,24 @@ export interface DocumentWithViewStatus {
     last_viewed_at: string | null;
     viewers: DocumentView[];
 }
+
+// ─── Preview History ──────────────────────────────────────────────────────────
+
+export interface DocumentPreviewHistory {
+    id: string;
+    document_id: string;
+    previewed_by: string;
+    previewed_by_name?: string;
+    previewed_at: string;
+    comments?: string;
+    ip_address?: string;
+    user_agent?: string;
+    preview_duration_seconds?: number;
+    is_active: boolean;
+    created_at: string;
+}
+
+// ─── Extended Document Type ──────────────────────────────────────────────────
 
 /**
  * Extended document type for helpdesk-specific fields
@@ -177,6 +229,36 @@ export interface HelpdeskDocument {
     remark_type?: RemarkType;          // Onboarding or Release
     category_type?: GeneralRequestCategory; // Security, Personnel, Administrative
 
+    // ─── Two-Step Approval Workflow Fields ────────────────────────────────────
+    // Internal tracking (super admin only)
+    internal_approval_status: InternalApprovalStatus;
+    internal_approved_by?: string;
+    internal_approved_by_name?: string;
+    internal_approved_at?: string;
+    internal_comments?: string;
+    internal_changes_requested?: string[];
+    internal_rejection_reason?: string;
+    internal_preview_count: number;
+    internal_previewed_at?: string;
+    internal_previewed_by?: string;
+    internal_previewed_by_name?: string;
+    
+    // External/Requester visible status
+    requester_status: RequesterVisibleStatus;
+    requester_visible_at?: string; // When status became visible to requester
+    requester_visible_by?: string; // Who sent it back to requester
+    requester_visible_by_name?: string;
+    
+    // Resubmit tracking
+    resubmit_count: number;
+    last_resubmitted_at?: string;
+    last_resubmitted_by?: string;
+    
+    // Flags
+    is_internal_approval_complete: boolean; // Super admin has made a decision internally
+    is_sent_back_to_requester: boolean; // Document has been sent back to requester
+    is_requester_notified: boolean; // Requester has been notified
+
     // ─── Aide Request Fields ──────────────────────────────────────────────────
     officer_rank?: OfficerRank | null;
     officer_name?: string | null;
@@ -195,6 +277,52 @@ export interface HelpdeskDocument {
     rank?: string | null;              // Officer's rank (deprecated, use officer_rank)
 }
 
+// ─── Requester Document View ─────────────────────────────────────────────────
+
+/**
+ * Requester's view of their document status
+ */
+export interface RequesterDocumentView {
+    document_id: string;
+    ref: string;
+    subject: string;
+    status: RequesterVisibleStatus;
+    submitted_at: string;
+    last_updated_at: string;
+    comments?: string;
+    entity_type: HelpdeskEntityType;
+    entity_id?: string;
+    // Only show these if status is 'approved' or 'rejected'
+    approved_rejected_at?: string;
+    approved_rejected_by?: string;
+    approved_rejected_by_name?: string;
+    // Only show if status is 'changes_requested'
+    changes_requested?: string[];
+    // Only show if status is 'rejected'
+    rejection_reason?: string;
+    // Show if resubmit is allowed
+    can_resubmit: boolean;
+}
+
+// ─── Pending Internal Approvals Summary ──────────────────────────────────────
+
+/**
+ * Pending internal approvals summary (super admin dashboard)
+ */
+export interface PendingInternalApprovalsSummary {
+    total_pending_internal: number;
+    pending_review: number;           // Awaiting super admin review
+    previewed: number;               // Super admin previewed but not decided
+    approved_internal: number;       // Approved internally, waiting to send back
+    rejected_internal: number;       // Rejected internally, waiting to send back
+    changes_requested_internal: number; // Changes requested, waiting to send back
+    ready_to_send_back: number;      // Super admin has decided, ready to send back to requester
+    by_entity_type: Record<HelpdeskEntityType, number>;
+    urgent_pending: number;
+    oldest_pending_days: number;
+    average_review_time_hours?: number;
+}
+
 // ─── Helpdesk Document Filters ───────────────────────────────────────────────
 
 export interface HelpdeskDocumentFilters {
@@ -208,6 +336,14 @@ export interface HelpdeskDocumentFilters {
     uploaded_by?: string;
     pending_my_approval?: boolean;
     unlinked?: boolean;
+
+    // ─── Two-Step Approval Filters ──────────────────────────────────────────
+    internal_approval_status?: InternalApprovalStatus;
+    requester_status?: RequesterVisibleStatus;
+    is_sent_back_to_requester?: boolean;
+    pending_internal_approval?: boolean; // For super admin dashboard
+    ready_to_send_back?: boolean; // Super admin has decided, ready to send back
+    my_requester_documents?: boolean; // For requester dashboard
 
     // Unified General Request filters
     request_type?: RequestType;
@@ -270,6 +406,70 @@ export interface UploadHelpdeskDocumentPayload {
     rank?: string;
 }
 
+// ─── Two-Step Approval Payloads ──────────────────────────────────────────────
+
+/**
+ * Request to preview document (super admin action)
+ */
+export interface InternalPreviewPayload {
+    id: string;
+    previewed_by?: string;
+    previewed_by_name?: string;
+    comments?: string;
+    ip_address?: string;
+    user_agent?: string;
+}
+
+/**
+ * Request to perform internal approval (super admin action)
+ * This doesn't change what requester sees yet
+ */
+export interface InternalApprovalPayload {
+    id: string;
+    action: 'approve' | 'reject' | 'request_changes';
+    comments?: string;
+    changes_requested?: string[]; // For 'request_changes' action
+    rejection_reason?: string; // For 'reject' action
+    approved_by?: string;
+    approved_by_name?: string;
+    generate_e_stamp?: boolean;
+}
+
+/**
+ * Request to send document back to requester (super admin action)
+ * This is when the requester finally sees the status change
+ */
+export interface SendBackToRequesterPayload {
+    id: string;
+    final_status: 'approved' | 'rejected' | 'changes_requested';
+    sent_by?: string;
+    sent_by_name?: string;
+    comments?: string;
+    requester_message?: string;
+    notify_requester?: boolean;
+}
+
+/**
+ * Request to resubmit after changes (requester action)
+ */
+export interface ResubmitAfterChangesPayload {
+    id: string;
+    submitted_by?: string;
+    submitted_by_name?: string;
+    comments?: string;
+    file_update?: boolean;
+}
+
+/**
+ * Request to cancel internal approval (super admin action)
+ */
+export interface CancelInternalApprovalPayload {
+    id: string;
+    cancelled_by?: string;
+    cancelled_by_name?: string;
+    reason?: string;
+}
+
 // ─── Update Document File Payload ─────────────────────────────────────────────
 
 export interface UpdateDocumentFilePayload {
@@ -295,6 +495,11 @@ export interface SubmitForApprovalPayload {
     submitted_by_name?: string;
 }
 
+// ─── Legacy Payloads (Deprecated) ───────────────────────────────────────────
+
+/**
+ * @deprecated Use InternalApprovalPayload with action: 'approve' and SendBackToRequesterPayload instead
+ */
 export interface ApproveDocumentPayload {
     id: string;
     comments?: string;
@@ -304,6 +509,9 @@ export interface ApproveDocumentPayload {
     e_stamp_public_id?: string;
 }
 
+/**
+ * @deprecated Use InternalApprovalPayload with action: 'reject' and SendBackToRequesterPayload instead
+ */
 export interface RejectDocumentPayload {
     id: string;
     reason: string;
@@ -312,6 +520,9 @@ export interface RejectDocumentPayload {
     rejected_by_name?: string;
 }
 
+/**
+ * @deprecated Use InternalApprovalPayload with action: 'request_changes' and SendBackToRequesterPayload instead
+ */
 export interface ReturnDocumentPayload {
     id: string;
     comments?: string;
@@ -448,6 +659,16 @@ export interface HelpdeskDocumentsState {
         bulkLink: boolean;
         bulkUpdate: boolean;
         stats: boolean;
+        // Two-step approval loading states
+        internalPreview: boolean;
+        internalApprove: boolean;
+        internalReject: boolean;
+        internalRequestChanges: boolean;
+        internalCancel: boolean;
+        sendBack: boolean;
+        resubmit: boolean;
+        pendingInternal: boolean;
+        requesterDashboard: boolean;
     };
     error: string | null;
     deletingId: string | null;
@@ -457,10 +678,30 @@ export interface HelpdeskDocumentsState {
             approving?: boolean;
             rejecting?: boolean;
             returning?: boolean;
+            previewing?: boolean;
+            internalApproving?: boolean;
+            internalRejecting?: boolean;
+            requestingChanges?: boolean;
+            sendingBack?: boolean;
+            resubmitting?: boolean;
+            cancelling?: boolean;
         };
     };
     stats: DocumentStats | null;
     summary: DocumentSummary | null;
+    // Two-step approval specific state
+    pendingInternalApprovals: {
+        documents: HelpdeskDocument[];
+        summary: PendingInternalApprovalsSummary | null;
+    };
+    requesterDocuments: {
+        documents: RequesterDocumentView[];
+        summary: {
+            total: number;
+            by_status: Record<string, number>;
+            can_resubmit: number;
+        } | null;
+    };
 }
 
 // ─── Document Statistics ──────────────────────────────────────────────────
@@ -486,6 +727,9 @@ export interface DocumentStats {
         user_name: string;
         created_at: string;
     }[];
+    // Two-step workflow stats
+    pending_internal: number;
+    ready_to_send_back: number;
 }
 
 export interface DocumentSummary {
@@ -498,6 +742,16 @@ export interface DocumentSummary {
     approved: number;
     rejected: number;
     returned: number;
+    // Two-step workflow summary
+    internal_approval_summary: {
+        pending: number;
+        previewed: number;
+        approved_internal: number;
+        rejected_internal: number;
+        changes_requested_internal: number;
+        changes_ready: number;
+    };
+    requester_status_summary: Record<RequesterVisibleStatus, number>;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -519,7 +773,7 @@ export const HELPEDSK_ENTITY_LABELS: Record<HelpdeskEntityType, string> = {
     consolidated_utility_memo: 'Consolidated Utility Memo',
     consolidated_fuel_memo: 'Consolidated Fuel Memo',
     aide: 'Aide Request',
-    sentry: 'Sentry Request', // ← ADDED
+    sentry: 'Sentry Request',
 };
 
 export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
@@ -539,7 +793,7 @@ export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
     consolidated_utility_memo: 'FileSpreadsheet',
     consolidated_fuel_memo: 'Fuel',
     aide: 'Shield',
-    sentry: 'Home', // ← ADDED
+    sentry: 'Home',
 };
 
 export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
@@ -559,7 +813,7 @@ export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
     consolidated_utility_memo: 'text-indigo-600 bg-indigo-50',
     consolidated_fuel_memo: 'text-orange-600 bg-orange-50',
     aide: 'text-blue-600 bg-blue-50',
-    sentry: 'text-emerald-600 bg-emerald-50', // ← ADDED
+    sentry: 'text-emerald-600 bg-emerald-50',
 };
 
 export const DOCUMENT_STATUS_LABELS: Record<HelpdeskDocumentStatus, string> = {
@@ -596,6 +850,59 @@ export const E_STAMP_STATUS_COLORS: Record<EStampStatus, string> = {
     pending: 'text-amber-600 bg-amber-50',
     stamped: 'text-emerald-600 bg-emerald-50',
     failed: 'text-red-600 bg-red-50',
+};
+
+// ─── Two-Step Approval Constants ────────────────────────────────────────────
+
+export const INTERNAL_APPROVAL_STATUS_LABELS: Record<InternalApprovalStatus, string> = {
+    pending: 'Pending Review',
+    previewed: 'Previewed',
+    approved_internal: 'Approved (Pending Send Back)',
+    rejected_internal: 'Rejected (Pending Send Back)',
+    changes_requested_internal: 'Changes Requested (Pending Send Back)',
+    changes_ready: 'Changes Ready for Re-review',
+};
+
+export const INTERNAL_APPROVAL_STATUS_COLORS: Record<InternalApprovalStatus, string> = {
+    pending: 'bg-amber-50 text-amber-700',
+    previewed: 'bg-blue-50 text-blue-700',
+    approved_internal: 'bg-emerald-50 text-emerald-700',
+    rejected_internal: 'bg-red-50 text-red-700',
+    changes_requested_internal: 'bg-orange-50 text-orange-700',
+    changes_ready: 'bg-purple-50 text-purple-700',
+};
+
+export const INTERNAL_APPROVAL_STATUS_ICONS: Record<InternalApprovalStatus, string> = {
+    pending: 'Clock',
+    previewed: 'Eye',
+    approved_internal: 'CheckCircle',
+    rejected_internal: 'XCircle',
+    changes_requested_internal: 'Pencil',
+    changes_ready: 'RefreshCw',
+};
+
+export const REQUESTER_VISIBLE_STATUS_LABELS: Record<RequesterVisibleStatus, string> = {
+    pending_approval: 'Pending Approval',
+    approved: 'Approved ✓',
+    rejected: 'Rejected ✗',
+    changes_requested: 'Changes Requested',
+    in_revision: 'In Revision',
+};
+
+export const REQUESTER_VISIBLE_STATUS_COLORS: Record<RequesterVisibleStatus, string> = {
+    pending_approval: 'bg-amber-50 text-amber-700',
+    approved: 'bg-emerald-50 text-emerald-700',
+    rejected: 'bg-red-50 text-red-700',
+    changes_requested: 'bg-orange-50 text-orange-700',
+    in_revision: 'bg-blue-50 text-blue-700',
+};
+
+export const REQUESTER_VISIBLE_STATUS_ICONS: Record<RequesterVisibleStatus, string> = {
+    pending_approval: 'Clock',
+    approved: 'CircleCheckBig',
+    rejected: 'CircleX',
+    changes_requested: 'Pencil',
+    in_revision: 'RefreshCw',
 };
 
 // ─── Aide Status Constants ──────────────────────────────────────────────────
@@ -713,6 +1020,162 @@ export function getEStampStatusColor(status: EStampStatus): string {
     return E_STAMP_STATUS_COLORS[status] || '';
 }
 
+// ─── Two-Step Approval Helper Functions ────────────────────────────────────
+
+export function getInternalApprovalStatusDisplayName(status: InternalApprovalStatus): string {
+    return INTERNAL_APPROVAL_STATUS_LABELS[status] || status;
+}
+
+export function getInternalApprovalStatusColor(status: InternalApprovalStatus): string {
+    return INTERNAL_APPROVAL_STATUS_COLORS[status] || '';
+}
+
+export function getInternalApprovalStatusIcon(status: InternalApprovalStatus): string {
+    return INTERNAL_APPROVAL_STATUS_ICONS[status] || 'File';
+}
+
+export function getRequesterVisibleStatusDisplayName(status: RequesterVisibleStatus): string {
+    return REQUESTER_VISIBLE_STATUS_LABELS[status] || status;
+}
+
+export function getRequesterVisibleStatusColor(status: RequesterVisibleStatus): string {
+    return REQUESTER_VISIBLE_STATUS_COLORS[status] || '';
+}
+
+export function getRequesterVisibleStatusIcon(status: RequesterVisibleStatus): string {
+    return REQUESTER_VISIBLE_STATUS_ICONS[status] || 'File';
+}
+
+export function isInternalApprovalPending(status: InternalApprovalStatus): boolean {
+    return ['pending', 'previewed'].includes(status);
+}
+
+export function isInternalApprovalComplete(status: InternalApprovalStatus): boolean {
+    return ['approved_internal', 'rejected_internal', 'changes_requested_internal'].includes(status);
+}
+
+export function canSendBackToRequester(status: InternalApprovalStatus): boolean {
+    return ['approved_internal', 'rejected_internal', 'changes_requested_internal'].includes(status);
+}
+
+export function canResubmitAfterChanges(status: RequesterVisibleStatus): boolean {
+    return ['changes_requested', 'rejected'].includes(status);
+}
+
+export function isDocumentVisibleToRequester(requesterStatus: RequesterVisibleStatus): boolean {
+    return ['approved', 'rejected', 'changes_requested', 'in_revision'].includes(requesterStatus);
+}
+
+export function isPreviewRequired(internalStatus: InternalApprovalStatus): boolean {
+    return ['pending', 'changes_ready'].includes(internalStatus);
+}
+
+/**
+ * Gets the next internal approval status based on super admin action
+ */
+export function getNextInternalStatus(
+    currentStatus: InternalApprovalStatus,
+    action: 'preview' | 'approve' | 'reject' | 'request_changes' | 'resubmit_changes' | 'cancel'
+): InternalApprovalStatus {
+    const transitions: Record<InternalApprovalStatus, Record<string, InternalApprovalStatus>> = {
+        pending: {
+            preview: 'previewed',
+            approve: 'approved_internal',
+            reject: 'rejected_internal',
+            request_changes: 'changes_requested_internal',
+            resubmit_changes: 'pending',
+            cancel: 'pending',
+        },
+        previewed: {
+            preview: 'previewed',
+            approve: 'approved_internal',
+            reject: 'rejected_internal',
+            request_changes: 'changes_requested_internal',
+            resubmit_changes: 'pending',
+            cancel: 'pending',
+        },
+        approved_internal: {
+            preview: 'approved_internal',
+            approve: 'approved_internal',
+            reject: 'rejected_internal',
+            request_changes: 'changes_requested_internal',
+            resubmit_changes: 'approved_internal',
+            cancel: 'pending',
+        },
+        rejected_internal: {
+            preview: 'rejected_internal',
+            approve: 'approved_internal',
+            reject: 'rejected_internal',
+            request_changes: 'changes_requested_internal',
+            resubmit_changes: 'pending',
+            cancel: 'pending',
+        },
+        changes_requested_internal: {
+            preview: 'changes_requested_internal',
+            approve: 'approved_internal',
+            reject: 'rejected_internal',
+            request_changes: 'changes_requested_internal',
+            resubmit_changes: 'changes_ready',
+            cancel: 'pending',
+        },
+        changes_ready: {
+            preview: 'previewed',
+            approve: 'approved_internal',
+            reject: 'rejected_internal',
+            request_changes: 'changes_requested_internal',
+            resubmit_changes: 'changes_ready',
+            cancel: 'pending',
+        },
+    };
+
+    return transitions[currentStatus]?.[action] || currentStatus;
+}
+
+/**
+ * Gets the requester visible status based on internal approval status and send-back action
+ */
+export function getRequesterVisibleStatus(
+    internalStatus: InternalApprovalStatus,
+    sendBackAction: 'approved' | 'rejected' | 'changes_requested'
+): RequesterVisibleStatus {
+    const mapping: Record<InternalApprovalStatus, Record<string, RequesterVisibleStatus>> = {
+        approved_internal: {
+            approved: 'approved',
+            rejected: 'rejected',
+            changes_requested: 'changes_requested',
+        },
+        rejected_internal: {
+            approved: 'approved',
+            rejected: 'rejected',
+            changes_requested: 'changes_requested',
+        },
+        changes_requested_internal: {
+            approved: 'approved',
+            rejected: 'rejected',
+            changes_requested: 'changes_requested',
+        },
+        changes_ready: {
+            approved: 'approved',
+            rejected: 'rejected',
+            changes_requested: 'changes_requested',
+        },
+        pending: {
+            approved: 'pending_approval',
+            rejected: 'pending_approval',
+            changes_requested: 'pending_approval',
+        },
+        previewed: {
+            approved: 'pending_approval',
+            rejected: 'pending_approval',
+            changes_requested: 'pending_approval',
+        },
+    };
+
+    return mapping[internalStatus]?.[sendBackAction] || 'pending_approval';
+}
+
+// ─── Request Type Helpers ────────────────────────────────────────────────────
+
 export function getRequestTypeLabel(requestType: RequestType): string {
     return REQUEST_TYPE_LABELS[requestType] || requestType;
 }
@@ -817,7 +1280,7 @@ export function isHelpdeskEntityType(value: string): value is HelpdeskEntityType
         'consolidated_utility_memo',
         'consolidated_fuel_memo',
         'aide',
-        'sentry'  // ← ADDED
+        'sentry'
     ].includes(value);
 }
 
@@ -827,6 +1290,27 @@ export function isHelpdeskDocumentStatus(value: string): value is HelpdeskDocume
 
 export function isEStampStatus(value: string): value is EStampStatus {
     return ['pending', 'stamped', 'failed'].includes(value);
+}
+
+export function isInternalApprovalStatus(value: string): value is InternalApprovalStatus {
+    return [
+        'pending',
+        'previewed',
+        'approved_internal',
+        'rejected_internal',
+        'changes_requested_internal',
+        'changes_ready'
+    ].includes(value);
+}
+
+export function isRequesterVisibleStatus(value: string): value is RequesterVisibleStatus {
+    return [
+        'pending_approval',
+        'approved',
+        'rejected',
+        'changes_requested',
+        'in_revision'
+    ].includes(value);
 }
 
 // ─── URL Helpers ─────────────────────────────────────────────────────────────

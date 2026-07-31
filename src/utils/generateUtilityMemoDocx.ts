@@ -256,10 +256,10 @@ export async function generateUtilityMemoDocx(data: UtilityMemoData): Promise<Bl
     );
   }
 
-  children.push(
-    new Paragraph({ spacing: { before: 600 }, children: [new TextRun({ text: data.signatoryName, bold: true, size: 22 })] }),
-  );
+  // ── Signature Block ──────────────────────────────────────────────────────
+  // ORDER: Signature image → Name → Designation
 
+  // 1. Signature image first (if available)
   if (signature) {
     children.push(
       new Paragraph({
@@ -275,12 +275,25 @@ export async function generateUtilityMemoDocx(data: UtilityMemoData): Promise<Bl
     );
   }
 
+  // 2. Signatory name second
   children.push(
     new Paragraph({
-      spacing: { before: 100 },
+      spacing: { before: 100, after: 60 },
+      children: [new TextRun({ text: data.signatoryName, bold: true, size: 22 })],
+    }),
+  );
+
+  // 3. Designation third (with underline)
+  children.push(
+    new Paragraph({
+      spacing: { before: 60, after: 100 },
       border: { bottom: { style: BorderStyle.SINGLE, size: 4, color: '000000', space: 2 } },
       children: [new TextRun({ text: data.from.toUpperCase(), bold: true, underline: {}, size: 22 })],
     }),
+  );
+
+  // ── Footer ────────────────────────────────────────────────────────────────
+  children.push(
     new Paragraph({
       spacing: { before: 600 },
       border: { top: { style: BorderStyle.SINGLE, size: 4, color: 'CCCCCC', space: 8 } },

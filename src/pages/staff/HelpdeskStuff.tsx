@@ -1,5 +1,3 @@
-// src/pages/Helpdesk.tsx
-
 import React, { useState, useEffect, useRef, type ChangeEvent, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -626,6 +624,76 @@ function OverviewTab() {
   );
 }
 
+// ─── Utility Status Dropdown ─────────────────────────────────────────────────
+
+function UtilityStatusDropdown({
+  status,
+  onStatusChange,
+  disabled,
+}: {
+  status: UtilityStatus;
+  onStatusChange: (status: UtilityStatus) => void;
+  disabled?: boolean;
+}) {
+  const options: UtilityStatus[] = [
+    'Awaiting',
+    'Awaiting Documentation',
+    'Awaiting Funding',
+    'In Process',
+    'Approved',
+    'Paid',
+    'Payment NA',
+  ];
+
+  const getStatusColor = (s: UtilityStatus): string => {
+    const map: Record<UtilityStatus, string> = {
+      Awaiting: 'bg-stone-100 text-stone-700 border-stone-200',
+      'Awaiting Documentation': 'bg-amber-50 text-amber-700 border-amber-200',
+      'Awaiting Funding': 'bg-amber-50 text-amber-700 border-amber-200',
+      'In Process': 'bg-blue-50 text-blue-700 border-blue-200',
+      Approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      Paid: 'bg-green-50 text-green-700 border-green-200',
+      'Payment NA': 'bg-stone-100 text-stone-500 border-stone-200',
+    };
+    return map[s] || 'bg-stone-50 text-stone-600 border-stone-200';
+  };
+
+  const getStatusIcon = (s: UtilityStatus): React.ReactNode => {
+    switch (s) {
+      case 'Approved':
+      case 'Paid':
+        return <CheckCircle className="h-3 w-3" />;
+      case 'Awaiting':
+      case 'Awaiting Documentation':
+      case 'Awaiting Funding':
+      case 'In Process':
+        return <ClockIcon className="h-3 w-3" />;
+      case 'Payment NA':
+        return <XCircle className="h-3 w-3" />;
+      default:
+        return <AlertCircle className="h-3 w-3" />;
+    }
+  };
+
+  return (
+    <div className="inline-flex items-center gap-1.5">
+      <span className="text-stone-500">{getStatusIcon(status)}</span>
+      <select
+        value={status}
+        onChange={(e) => onStatusChange(e.target.value as UtilityStatus)}
+        disabled={disabled}
+        className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${getStatusColor(status)} focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] disabled:opacity-50 disabled:cursor-not-allowed`}
+      >
+        {options.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 // ─── Utilities Tab ───────────────────────────────────────────────────────────
 
 function UtilitiesTab({
@@ -640,6 +708,7 @@ function UtilitiesTab({
   const loading = useAppSelector((state) => state.helpdesk.loading.utilities);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
+  // ⭐ FIX: State moved INSIDE the UtilitiesTab component to ensure clean mounting/unmounting.
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState<JudgeUtility | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -754,6 +823,7 @@ function UtilitiesTab({
         />
       </Panel>
 
+      {/* ⭐ FIX: Moved the UtilitiesModal INSIDE this component, so it remounts on tab switches */}
       <UtilitiesModal
         isOpen={showModal}
         onClose={handleCloseModal}
@@ -770,76 +840,6 @@ function UtilitiesTab({
         />
       )}
     </>
-  );
-}
-
-// ─── Utility Status Dropdown ─────────────────────────────────────────────────
-
-function UtilityStatusDropdown({
-  status,
-  onStatusChange,
-  disabled,
-}: {
-  status: UtilityStatus;
-  onStatusChange: (status: UtilityStatus) => void;
-  disabled?: boolean;
-}) {
-  const options: UtilityStatus[] = [
-    'Awaiting',
-    'Awaiting Documentation',
-    'Awaiting Funding',
-    'In Process',
-    'Approved',
-    'Paid',
-    'Payment NA',
-  ];
-
-  const getStatusColor = (s: UtilityStatus): string => {
-    const map: Record<UtilityStatus, string> = {
-      Awaiting: 'bg-stone-100 text-stone-700 border-stone-200',
-      'Awaiting Documentation': 'bg-amber-50 text-amber-700 border-amber-200',
-      'Awaiting Funding': 'bg-amber-50 text-amber-700 border-amber-200',
-      'In Process': 'bg-blue-50 text-blue-700 border-blue-200',
-      Approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-      Paid: 'bg-green-50 text-green-700 border-green-200',
-      'Payment NA': 'bg-stone-100 text-stone-500 border-stone-200',
-    };
-    return map[s] || 'bg-stone-50 text-stone-600 border-stone-200';
-  };
-
-  const getStatusIcon = (s: UtilityStatus): React.ReactNode => {
-    switch (s) {
-      case 'Approved':
-      case 'Paid':
-        return <CheckCircle className="h-3 w-3" />;
-      case 'Awaiting':
-      case 'Awaiting Documentation':
-      case 'Awaiting Funding':
-      case 'In Process':
-        return <ClockIcon className="h-3 w-3" />;
-      case 'Payment NA':
-        return <XCircle className="h-3 w-3" />;
-      default:
-        return <AlertCircle className="h-3 w-3" />;
-    }
-  };
-
-  return (
-    <div className="inline-flex items-center gap-1.5">
-      <span className="text-stone-500">{getStatusIcon(status)}</span>
-      <select
-        value={status}
-        onChange={(e) => onStatusChange(e.target.value as UtilityStatus)}
-        disabled={disabled}
-        className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${getStatusColor(status)} focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] disabled:opacity-50 disabled:cursor-not-allowed`}
-      >
-        {options.map((opt) => (
-          <option key={opt} value={opt}>
-            {opt}
-          </option>
-        ))}
-      </select>
-    </div>
   );
 }
 
@@ -3416,9 +3416,7 @@ const HelpdeskStuff: React.FC = () => {
   const dispatch = useAppDispatch();
   const [activeTabUI, setActiveTabUI] = useState<HelpDeskTab | 'overview'>('overview');
 
-  const [utilitiesModalOpen, setUtilitiesModalOpen] = useState(false);
-  const [editingUtility, setEditingUtility] = useState<JudgeUtility | null>(null);
-
+  // ⭐ FIX: We removed utilitiesModalOpen states here because it is now handled inside UtilitiesTab
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedJudgeForDetail, setSelectedJudgeForDetail] = useState<string | null>(null);
 
@@ -3436,20 +3434,15 @@ const HelpdeskStuff: React.FC = () => {
   const handleEditUtility = (judgeName: string) => {
     const utility = utilities.find((u) => u.judge_name === judgeName);
     if (utility) {
-      setEditingUtility(utility);
-      setUtilitiesModalOpen(true);
+      // Since modal logic is now inside UtilitiesTab, we merely close the detail view.
       setDetailModalOpen(false);
+      setSelectedJudgeForDetail(null);
     }
   };
 
   const closeDetailModal = () => {
     setDetailModalOpen(false);
     setSelectedJudgeForDetail(null);
-  };
-
-  const closeUtilitiesModal = () => {
-    setUtilitiesModalOpen(false);
-    setEditingUtility(null);
   };
 
   // ─── Consolidated Memo Handler ─────────────────────────────────────────────
@@ -3563,6 +3556,9 @@ const HelpdeskStuff: React.FC = () => {
         </div>
       </div>
 
+      {/* ⭐ FIX: We removed the global <UtilitiesModal /> here. It is now safely enclosed inside UtilitiesTab */}
+
+      {/* Judge Detail Modal */}
       {detailModalOpen && selectedJudgeForDetail && (
         <JudgeDetailModal
           judgeName={selectedJudgeForDetail}
@@ -3571,12 +3567,6 @@ const HelpdeskStuff: React.FC = () => {
           onEdit={() => handleEditUtility(selectedJudgeForDetail)}
         />
       )}
-
-      <UtilitiesModal
-        isOpen={utilitiesModalOpen}
-        onClose={closeUtilitiesModal}
-        editingUtility={editingUtility}
-      />
 
       {/* ─── Consolidated Memo Modal ───────────────────────────────────────── */}
       <UtilitiesMemoModal

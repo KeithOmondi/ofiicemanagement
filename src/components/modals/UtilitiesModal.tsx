@@ -1,5 +1,3 @@
-// src/components/Helpdesk/UtilitiesModal.tsx
-
 import React, { useState, useEffect, useRef, type ChangeEvent, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -98,36 +96,6 @@ const formatDateForAPI = (dateString: string): string | undefined => {
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return undefined;
   return date.toISOString().split('T')[0];
-};
-
-// Resolve the signed-in user's display name defensively. Different parts of
-// the app (and different API responses) have historically used different
-// field names for "the user's name" — full_name, name, display_name, or
-// separate first/last name fields. Rather than betting on one of them being
-// populated, try them in order and fall back to first+last concatenated.
-// This mirrors how names already arrive pre-resolved elsewhere in the app
-// (e.g. Tickets' created_by_name / user_name / from_user_name), except here
-// we don't control the API response shape, so we resolve it client-side.
-const resolveUserDisplayName = (
-  user:
-    | {
-        full_name?: string | null;
-        name?: string | null;
-        display_name?: string | null;
-        first_name?: string | null;
-        last_name?: string | null;
-      }
-    | null
-    | undefined
-): string => {
-  if (!user) return '';
-  return (
-    user.full_name?.trim() ||
-    user.name?.trim() ||
-    user.display_name?.trim() ||
-    [user.first_name, user.last_name].filter(Boolean).join(' ').trim() ||
-    ''
-  );
 };
 
 const documentStatusColor = (status: DocumentStatus): string => {
@@ -584,11 +552,10 @@ interface MemoModalProps {
   onClose: () => void;
   judges: JudgeUtility[];
   onMemoGenerated: (docId: string) => void;
-  entityId?: string; // for single judge utility memo (the judge utility ID)
-  isConsolidated?: boolean; // if true, we are generating a consolidated memo for multiple judges
-  entityType?: DocumentEntityType; // override for entity_type
-  entityIdOverride?: string; // override for entity_id (e.g., for consolidated monthly ID)
-  // ─── Consolidated judges list for bulk memo ──────────────────────
+  entityId?: string;
+  isConsolidated?: boolean;
+  entityType?: DocumentEntityType;
+  entityIdOverride?: string;
   allJudgesForConsolidated?: JudgeUtility[];
 }
 
@@ -624,7 +591,13 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
   // ─── Memo field state ──────────────────────────────────────────────────
   const [toField, setToField] = useState('DEPUTY DIRECTOR - DASS');
+  
+  // ⭐ FIXED: Always use this default signatory name - never override with user name
+  const SIGNATORY_NAME = 'HON. CLARA OTIENO-OMONDI';
+  
+  // ⭐ 'fromField' - the designation
   const [fromField, setFromField] = useState('REGISTRAR, HIGH COURT');
+
   const [refField] = useState(() => {
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
     return `RHC/UTILITY/${random}`;
@@ -637,6 +610,9 @@ const MemoModal: React.FC<MemoModalProps> = ({
   const fuelBody = `I hereby forward the fuel bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`;
 
   const utilityBody = `I hereby forward the utility bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`;
+
+  // ─── Additional notes textarea ────────────────────────────────────────
+  const [additionalNotes, setAdditionalNotes] = useState('');
 
   // ─── Initialise subject/body based on activeTab ──────────────────────
   const [subjectField, setSubjectField] = useState(
@@ -651,20 +627,10 @@ const MemoModal: React.FC<MemoModalProps> = ({
     setBodyText(tab === 'fuel' ? fuelBody : utilityBody);
   };
 
-  // The actual signed-in officer's name — shown above the designation in the
-  // signature block. Resolved defensively across the field names the user
-  // object might use (see resolveUserDisplayName above), since relying on a
-  // single field (e.g. full_name alone) left this blank whenever the user's
-  // name lived under a different key. May still be empty if the profile
-  // truly has no name set anywhere; the signature block below only renders
-  // this line when it's non-empty.
-  const signatoryName = resolveUserDisplayName(currentUser);
-
   const [downloadingFormat, setDownloadingFormat] = useState<DownloadFormat | null>(null);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
 
   // ─── Determine which judges to use ──────────────────────────────────────
-  // For consolidated memos, use all judges passed in; for single judge, use the judges array
   const effectiveJudges = useMemo(() => {
     if (isConsolidated && allJudgesForConsolidated && allJudgesForConsolidated.length > 0) {
       return allJudgesForConsolidated;
@@ -681,7 +647,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
   const currentEntityId = useMemo(() => {
     if (propEntityId) return propEntityId;
-    if (!isConsolidated) return entityId; // single judge utility ID
+    if (!isConsolidated) return entityId;
     return getConsolidatedMemoEntityId(activeTab);
   }, [propEntityId, isConsolidated, entityId, activeTab]);
 
@@ -760,7 +726,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
     ref: refField,
     date: dateField,
     subject: subjectField,
-    bodyText,
+    bodyText: bodyText + (additionalNotes ? `\n\n${additionalNotes}` : ''),
     rows: judgeTotals.map((r) => ({
       judge_name: r.judge_name,
       kplc: r.kplc,
@@ -773,7 +739,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
     grandWifi,
     grandTotal,
     amountInWords: formatCurrencyWords(grandTotal),
-    signatoryName,
+    signatoryName: SIGNATORY_NAME, // Always use the fixed signatory name
     crestUrl: JUDICIARY_CREST_SRC,
     footerEmblemUrl: FOOTER_EMBLEM_SRC,
     signatureUrl: currentUser?.signature_url || undefined,
@@ -909,7 +875,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
       toast.success(`${format.toUpperCase()} memo saved to the system.`);
 
-      // ─── If NOT consolidated AND entityId (single judge utility ID) is provided, link it ───
       if (!isConsolidated && entityId) {
         try {
           await dispatch(linkHelpdeskDocument({
@@ -923,7 +888,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
           toast.error('Memo saved, but could not link it automatically. You can link it manually.');
         }
       } else if (!isConsolidated && !entityId) {
-        // If it's a single judge memo but no entityId yet (new record), pass back the docId
         onMemoGenerated(result.id);
       }
 
@@ -962,12 +926,10 @@ const MemoModal: React.FC<MemoModalProps> = ({
   const showNonFuelColumns = activeTab === 'all';
   const showFuelColumn = activeTab === 'fuel';
 
-  // Modal title
   const modalTitle = isConsolidated
     ? (activeTab === 'fuel' ? 'Consolidated Fuel Memo' : 'Consolidated Utility Memo')
     : (activeTab === 'fuel' ? 'Fuel Memo' : 'Utility Memo');
 
-  // ─── Render ──────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
       <Toaster
@@ -989,7 +951,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
           </button>
         </div>
 
-        {/* Tabs (only show if there are judges) */}
+        {/* Tabs */}
         {effectiveJudges.length > 0 && (
           <div className="flex gap-2 border-b border-stone-200 px-4 py-2">
             <button
@@ -1064,12 +1026,37 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 </div>
               </div>
             )}
-            {!signatoryName && (
-              <p className="mt-2 text-[11px] text-amber-600 italic">
-                Your profile has no full name set, so the memo will only show the designation
-                ("{fromField || 'REGISTRAR, HIGH COURT'}") in the signature block, not your name.
-              </p>
-            )}
+            
+            {/* Display the signatory info - signature first, then name, then designation */}
+            <div className="mt-3 p-3 bg-white rounded border border-stone-200">
+              <div className="flex flex-col gap-2">
+                {/* Signature image first */}
+                {currentUser?.signature_url && (
+                  <div className="flex items-center gap-3">
+                    <img src={currentUser.signature_url} alt="Signature" className="max-h-12 w-auto object-contain" />
+                    <span className="text-xs text-stone-500">✓ Signature</span>
+                  </div>
+                )}
+                {!currentUser?.signature_url && (
+                  <p className="text-[10px] text-stone-400 italic">* No signature uploaded</p>
+                )}
+                
+                {/* Name second - ALWAYS show the fixed default name */}
+                <div>
+                  <p className="text-xs text-stone-500">Signatory Name</p>
+                  <p className="text-sm font-semibold text-stone-800">
+                    {SIGNATORY_NAME}
+                  </p>
+                  <p className="text-[10px] text-stone-400 italic">(fixed signatory for all memos)</p>
+                </div>
+                
+                {/* Designation third */}
+                <div>
+                  <p className="text-xs text-stone-500">Designation</p>
+                  <p className="text-sm font-medium text-stone-700">{fromField}</p>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* ─── Memo Preview ────────────────────────────────────────────── */}
@@ -1086,11 +1073,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 <p className="text-base font-bold uppercase leading-snug tracking-wide text-stone-800">
                   OFFICE OF THE REGISTRAR HIGH COURT
                 </p>
-                {currentUser?.full_name && (
-                  <p className="text-sm font-semibold uppercase text-stone-600 mt-0.5">
-                    {currentUser.full_name}
-                  </p>
-                )}
               </div>
               <div className="text-center mb-6">
                 <p className="text-base font-bold uppercase tracking-wide text-stone-800">
@@ -1103,8 +1085,15 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 <div className="flex">
                   <span className="w-24 shrink-0">FROM</span>
                   <span className="w-4 shrink-0">:</span>
-                  <input type="text" value={fromField} onChange={(e) => setFromField(e.target.value)}
-                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase" />
+                  <div className="flex-1 flex flex-col">
+                    <input 
+                      type="text" 
+                      value={fromField} 
+                      onChange={(e) => setFromField(e.target.value)}
+                      className="bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase font-bold" 
+                      placeholder="Designation" 
+                    />
+                  </div>
                 </div>
                 <div className="flex">
                   <span className="w-24 shrink-0">TO</span>
@@ -1198,24 +1187,48 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 </table>
               </div>
 
-              {/* ─── Signature block ────────────────────────────────────────
-                  The actual signed-in officer's name prints in bold above the
-                  designation line, but only when it's present — no more blank
-                  line when the profile has no full_name set. `signatoryName`
-                  is resolved defensively (see resolveUserDisplayName), so
-                  this now renders correctly regardless of which name field
-                  the user object actually populates. */}
-              <div className="mt-16 space-y-1">
-                {signatoryName && (
-                  <p className="text-sm font-bold text-black">{signatoryName}</p>
-                )}
+              {/* ─── Additional Notes Textarea ────────────────────────────── */}
+              <div className="mt-6">
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-stone-500">
+                  Additional Notes (Optional)
+                </label>
+                <textarea
+                  value={additionalNotes}
+                  onChange={(e) => setAdditionalNotes(e.target.value)}
+                  placeholder="Add any additional remarks, clarifications, or instructions..."
+                  rows={4}
+                  className="w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-800 placeholder:text-stone-400 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] resize-y"
+                />
+                <p className="mt-1 text-[10px] text-stone-400 italic">
+                  These notes will appear at the bottom of the memo, above the signature block.
+                </p>
+              </div>
+
+              {/* ─── Signature block ──────────────────────────────────────── */}
+              {/* ORDER: Signature image → Name → Designation */}
+              <div className="mt-16 space-y-2">
+                {/* 1. Signature image first (if uploaded) */}
                 {currentUser?.signature_url && (
-                  <div className="py-1">
+                  <div>
                     <img src={currentUser.signature_url} alt="Signature" className="max-h-12 w-auto object-contain" />
                   </div>
                 )}
-                <input type="text" value={fromField} onChange={(e) => setFromField(e.target.value)}
-                  className="block w-full bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none text-sm font-bold underline uppercase" />
+                
+                {/* 2. Signatory name second - ALWAYS show the fixed default name */}
+                <p className="text-sm font-bold text-black">
+                  {SIGNATORY_NAME}
+                </p>
+                
+                {/* 3. Designation third (with underline) */}
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="text" 
+                    value={fromField} 
+                    onChange={(e) => setFromField(e.target.value)}
+                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none text-sm font-bold uppercase" 
+                    placeholder="Enter designation"
+                  />
+                </div>
               </div>
 
               <div className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3">
@@ -1430,7 +1443,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
   editingUtility,
 }) => {
   const dispatch = useAppDispatch();
-//  const allJudges = useAppSelector(selectAllUtilities);
 
   const [judgeName, setJudgeName] = useState(() => editingUtility?.judge_name ?? '');
   const [items, setItems] = useState<UtilityItemFormState[]>(() => buildInitialItems(editingUtility));

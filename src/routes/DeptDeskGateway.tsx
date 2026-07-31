@@ -76,6 +76,7 @@ import StoreStock from '../pages/store/StoreStock';
 import HelpdeskAides from '../pages/helpdesk/HelpdeskAides';
 import JODocuments from '../pages/JO/JODocuments';
 import StuffHelpdeskDocs from '../pages/staff/StuffHelpDeskDoscs';
+import MemoandLetters from '../pages/admin/MemoandLetters';
 
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
@@ -204,30 +205,32 @@ const DeptDeskGateway: React.FC = () => {
     );
   }
 
-  // ── Helpdesk desk ────────────────────────────────────────────────────────────
-  if (deskKey === 'helpdesk') {
-    return (
-      <Routes>
-        <Route element={<HelpDeskLayout />}>
-          <Route index element={<Navigate to="dashboard" replace />} />
-          <Route path="dashboard" element={<HelpDeskDashboard />} />
-          <Route path="manage" element={<Helpdesk />} />
-          <Route path="messages" element={<HelpdeskMessages />} />
-          <Route path="notices" element={<HelpDeskNotices />} />
-          <Route path="calendar" element={<HelpdeskCalendar />} />
-          <Route path="tasks" element={<HelpdeskTasks />} />
-          <Route path="inventory" element={<HelpdeskInventory />} />
-          <Route path="documents" element={<HelpDeskDocuments />} />
-          <Route path="settings" element={<HelpdeskSettings />} />
-          <Route path="uploads" element={<HelpdeskDocs />} />
-          <Route path="reports" element={<HelpdeskReport />} />
-          <Route path="tickets" element={<HelpdeskTickets />} />
-          <Route path="aides" element={<HelpdeskAides />} />
-        </Route>
-        <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
-      </Routes>
-    );
-  }
+ // ── Helpdesk desk ────────────────────────────────────────────────────────────
+if (deskKey === 'helpdesk') {
+  return (
+    <Routes>
+      <Route element={<HelpDeskLayout />}>
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<HelpDeskDashboard />} />
+        <Route path="manage" element={<Helpdesk />} />
+        <Route path="messages" element={<HelpdeskMessages />} />
+        <Route path="notices" element={<HelpDeskNotices />} />
+        <Route path="calendar" element={<HelpdeskCalendar />} />
+        <Route path="tasks" element={<HelpdeskTasks />} />
+        <Route path="inventory" element={<HelpdeskInventory />} />
+        <Route path="documents" element={<HelpDeskDocuments />} />
+        <Route path="settings" element={<HelpdeskSettings />} />
+        <Route path="uploads" element={<HelpdeskDocs />} />
+        <Route path="reports" element={<HelpdeskReport />} />
+        <Route path="tickets" element={<HelpdeskTickets />} />
+        <Route path="aides" element={<HelpdeskAides />} />
+        {/* ─── Memos & Letters route ────────────────────────────────────────── */}
+        <Route path="memos" element={<MemoandLetters />} />
+      </Route>
+      <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+    </Routes>
+  );
+}
 
   if (deskKey === 'jo') {
   return (

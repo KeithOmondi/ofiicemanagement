@@ -78,20 +78,23 @@ import {
 import {
   fetchHelpdeskDocuments,
   uploadHelpdeskDocument,
-  updateDocumentFile, // ✅ Use updateDocumentFile instead of uploadHelpdeskDocument for approvals
+  updateDocumentFile,
   linkHelpdeskDocument,
-  //submitForApproval,
-  //approveDocument,
-  returnDocument,
-  rejectDocument,
+  cancelInternalApproval,
+  sendBackToRequester,
+  internalRequestChanges,
+  internalRejectDocument,
+  internalApproveDocument,
+  internalPreviewDocument,
   selectAllHelpdeskDocuments,
   selectDocumentsUploading,
-  //selectDocumentActionLoading,
   selectDocumentLinking,
   selectUnlinkedHelpdeskDocuments,
   type DocumentFormat,
   type DocumentStatus,
   type HelpdeskDocument,
+  type InternalApprovalStatus,
+  type RequesterVisibleStatus,
 } from '../../store/slices/helpdeskDocumentsSlice';
 
 // ─── User & Stamping ─────────────────────────────────────────────────────────
@@ -134,6 +137,8 @@ import {
   ArrowLeft,
   Clock,
   User,
+  RefreshCw,
+  Check,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
 import UtilitiesModal, { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
@@ -214,6 +219,54 @@ const getStatusIcon = (status: string): React.ReactNode => {
 
 const getStatusOptions = (): Status[] => {
   return ['Pending', 'Signed', 'Rejected', 'In Progress', 'Completed', 'Active', 'Resolved'];
+};
+
+// ─── Internal Approval Status Helpers ────────────────────────────────────────
+
+const getInternalStatusLabel = (status: InternalApprovalStatus): string => {
+  const map: Record<InternalApprovalStatus, string> = {
+    pending: 'Pending Review',
+    previewed: 'Previewed',
+    approved_internal: 'Approved (Internal)',
+    rejected_internal: 'Rejected (Internal)',
+    changes_requested_internal: 'Changes Requested',
+    changes_ready: 'Changes Ready',
+  };
+  return map[status] || status;
+};
+
+const getInternalStatusColor = (status: InternalApprovalStatus): string => {
+  const map: Record<InternalApprovalStatus, string> = {
+    pending: 'bg-amber-50 text-amber-700 border-amber-200',
+    previewed: 'bg-blue-50 text-blue-700 border-blue-200',
+    approved_internal: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    rejected_internal: 'bg-red-50 text-red-700 border-red-200',
+    changes_requested_internal: 'bg-orange-50 text-orange-700 border-orange-200',
+    changes_ready: 'bg-purple-50 text-purple-700 border-purple-200',
+  };
+  return map[status] || 'bg-stone-50 text-stone-600 border-stone-200';
+};
+
+const getRequesterStatusLabel = (status: RequesterVisibleStatus): string => {
+  const map: Record<RequesterVisibleStatus, string> = {
+    pending_approval: 'Pending Approval',
+    approved: 'Approved ✓',
+    rejected: 'Rejected ✗',
+    changes_requested: 'Changes Requested',
+    in_revision: 'In Revision',
+  };
+  return map[status] || status;
+};
+
+const getRequesterStatusColor = (status: RequesterVisibleStatus): string => {
+  const map: Record<RequesterVisibleStatus, string> = {
+    pending_approval: 'bg-amber-50 text-amber-700 border-amber-200',
+    approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    rejected: 'bg-red-50 text-red-700 border-red-200',
+    changes_requested: 'bg-orange-50 text-orange-700 border-orange-200',
+    in_revision: 'bg-blue-50 text-blue-700 border-blue-200',
+  };
+  return map[status] || 'bg-stone-50 text-stone-600 border-stone-200';
 };
 
 // ─── Document helpers ─────────────────────────────────────────────────────────
@@ -383,7 +436,7 @@ function GoldButton({
   type?: 'button' | 'submit';
   disabled?: boolean;
   onClick?: () => void;
-  variant?: 'default' | 'danger' | 'success' | 'outline' | 'warning';
+  variant?: 'default' | 'danger' | 'success' | 'outline' | 'warning' | 'info';
   size?: 'sm' | 'default';
 }) {
   const styles = {
@@ -391,6 +444,7 @@ function GoldButton({
     danger: 'bg-red-600 text-white hover:bg-red-700',
     success: 'bg-emerald-600 text-white hover:bg-emerald-700',
     warning: 'bg-amber-500 text-white hover:bg-amber-600',
+    info: 'bg-blue-600 text-white hover:bg-blue-700',
     outline: 'border border-[#c9a84c] text-[#1a3d1c] hover:bg-[#c9a84c]/10',
   };
   const sizes = {
@@ -620,7 +674,7 @@ function TableWithActions<T extends { id: string }>({
   );
 }
 
-// ─── Document Viewer Modal ──────────────────────────────────────────────────
+// ─── Document Viewer Modal with Two-Step Approval ──────────────────────────
 
 interface DocumentViewerModalProps {
   document: HelpdeskDocument;
@@ -632,22 +686,42 @@ interface DocumentViewerModalProps {
 
 const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   document,
-  //entityId,
-  //entityType,
   onClose,
   onActionComplete,
 }) => {
   const dispatch = useAppDispatch();
   const currentUser = useAppSelector(selectCurrentUser);
-  const actionsLoading = useAppSelector((state) => state.helpdesk.loading.mutating);
+  const isInternalApproving = useAppSelector((state) => 
+    state.helpdeskDocuments.actionLoading[document.id]?.internalApproving || false
+  );
+  const isInternalRejecting = useAppSelector((state) => 
+    state.helpdeskDocuments.actionLoading[document.id]?.internalRejecting || false
+  );
+  const isRequestingChanges = useAppSelector((state) => 
+    state.helpdeskDocuments.actionLoading[document.id]?.requestingChanges || false
+  );
+  const isPreviewing = useAppSelector((state) => 
+    state.helpdeskDocuments.actionLoading[document.id]?.previewing || false
+  );
+  const isSendingBack = useAppSelector((state) => 
+    state.helpdeskDocuments.actionLoading[document.id]?.sendingBack || false
+  );
 
   const [isStamping, setIsStamping] = useState(false);
-  const [showReturnForm, setShowReturnForm] = useState(false);
-  const [returnReason, setReturnReason] = useState('');
+  const [showSendBackPreview, setShowSendBackPreview] = useState(false);
+  const [sendBackStatus, setSendBackStatus] = useState<'approved' | 'rejected' | 'changes_requested'>('approved');
+  const [sendBackMessage, setSendBackMessage] = useState('');
 
-  // ✅ Super Admin can decide on both draft and pending_approval documents
-  const canDecide = document.status === 'pending_approval' || document.status === 'draft';
-  const canSendToRequester = document.status === 'approved';
+  // Determine what actions are available
+  const canPreview = document.status === 'pending_approval' && 
+    (document.internal_approval_status === 'pending' || document.internal_approval_status === 'changes_ready');
+
+  const canMakeInternalDecision = document.status === 'pending_approval' && 
+    (document.internal_approval_status === 'pending' || 
+     document.internal_approval_status === 'previewed' || 
+     document.internal_approval_status === 'changes_ready');
+
+  const canSendBack = document.is_internal_approval_complete && !document.is_sent_back_to_requester;
 
   useEffect(() => {
     if (!currentUser) {
@@ -655,7 +729,22 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
     }
   }, [dispatch, currentUser]);
 
-  const handleApproveAndStamp = async () => {
+  const handlePreview = async () => {
+    try {
+      await dispatch(internalPreviewDocument({
+        id: document.id,
+        previewed_by: currentUser?.id,
+        previewed_by_name: currentUser?.full_name,
+        comments: 'Document previewed by Super Admin',
+      })).unwrap();
+      toast.success('Document previewed successfully.');
+      onActionComplete();
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to preview document.');
+    }
+  };
+
+  const handleInternalApprove = async () => {
     setIsStamping(true);
     try {
       let signatureImageBytes: ArrayBuffer | undefined;
@@ -678,30 +767,40 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
 
       const safeRef = document.ref.replace(/[\\/:*?"<>|]/g, '-');
 
-      // ✅ UPDATE the existing document instead of creating a new one
+      // First, update the file with the stamped version
       await dispatch(
         updateDocumentFile({
           id: document.id,
           blob: stampedBlob,
           filename: `stamped-${safeRef}.pdf`,
-          status: 'approved',
+          status: 'pending_approval',
           e_stamp_status: 'stamped',
-          comments: 'Document approved and stamped.',
+          comments: 'Document stamped and approved internally.',
           approved_by: currentUser?.id,
         })
       ).unwrap();
 
-      toast.success('Document stamped and approved.');
+      // Then, perform internal approval
+      await dispatch(internalApproveDocument({
+        id: document.id,
+        action: 'approve',
+        approved_by: currentUser?.id,
+        approved_by_name: currentUser?.full_name,
+        comments: 'Document approved internally. Send back to requester when ready.',
+        generate_e_stamp: true,
+      })).unwrap();
+
+      toast.success('Document approved internally. Ready to send back to requester.');
       onActionComplete();
     } catch (err) {
-      console.error('Approve & stamp failed:', err);
-      toast.error(typeof err === 'string' ? err : 'Failed to approve and stamp the document.');
+      console.error('Internal approve failed:', err);
+      toast.error(typeof err === 'string' ? err : 'Failed to approve document internally.');
     } finally {
       setIsStamping(false);
     }
   };
 
-  const handleRejectDocument = async () => {
+  const handleInternalReject = async () => {
     const reason = prompt('Please provide a reason for rejecting this document:');
     if (reason === null) return;
     if (!reason.trim()) {
@@ -710,339 +809,558 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
     }
 
     try {
-      await dispatch(rejectDocument({ id: document.id, reason: reason.trim() })).unwrap();
-      toast.success('Document rejected.');
+      await dispatch(internalRejectDocument({
+        id: document.id,
+        action: 'reject',
+        rejection_reason: reason.trim(),
+        comments: `Rejected internally: ${reason.trim()}`,
+        approved_by: currentUser?.id,
+        approved_by_name: currentUser?.full_name,
+      })).unwrap();
+      toast.success('Document rejected internally. Send back to requester when ready.');
       onActionComplete();
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to reject document.');
+      toast.error(typeof err === 'string' ? err : 'Failed to reject document internally.');
     }
   };
 
-  const handleReturn = async () => {
-    if (!returnReason.trim()) {
-      toast.error('Please provide a reason for returning this document.');
+  const handleInternalRequestChanges = async () => {
+    const changes = prompt('Please list the changes requested (comma separated):');
+    if (changes === null) return;
+    if (!changes.trim()) {
+      toast.error('At least one change request is required.');
       return;
     }
+
+    const changesList = changes.split(',').map(c => c.trim()).filter(c => c.length > 0);
+    if (changesList.length === 0) {
+      toast.error('At least one valid change request is required.');
+      return;
+    }
+
     try {
-      await dispatch(returnDocument({ 
-        id: document.id, 
-        comments: returnReason.trim(),
-        instructions: returnReason.trim(),
+      await dispatch(internalRequestChanges({
+        id: document.id,
+        action: 'request_changes',
+        changes_requested: changesList,
+        comments: `Changes requested internally: ${changesList.join(', ')}`,
+        approved_by: currentUser?.id,
+        approved_by_name: currentUser?.full_name,
       })).unwrap();
-      toast.success('Document returned to the requester.');
+      toast.success('Changes requested internally. Send back to requester when ready.');
       onActionComplete();
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to return the document.');
+      toast.error(typeof err === 'string' ? err : 'Failed to request changes internally.');
     }
   };
 
-  const handleDeliverToRequester = async () => {
+  const handleSendBackToRequester = async () => {
     try {
-      toast.success('Stamped document ready for collection.');
+      await dispatch(sendBackToRequester({
+        id: document.id,
+        final_status: sendBackStatus,
+        sent_by: currentUser?.id,
+        sent_by_name: currentUser?.full_name,
+        comments: sendBackMessage || undefined,
+        notify_requester: true,
+      })).unwrap();
+
+      const statusMessages = {
+        approved: 'Document approved and sent back to requester.',
+        rejected: 'Document rejected and sent back to requester.',
+        changes_requested: 'Changes requested and sent back to requester.',
+      };
+
+      toast.success(statusMessages[sendBackStatus]);
+      setShowSendBackPreview(false);
       onActionComplete();
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to send the document to the requester.');
+      toast.error(typeof err === 'string' ? err : 'Failed to send document back to requester.');
     }
   };
+
+  const handleOpenSendBackPreview = (status: 'approved' | 'rejected' | 'changes_requested') => {
+    setSendBackStatus(status);
+    setSendBackMessage('');
+    setShowSendBackPreview(true);
+  };
+
+  const handleCancelDecision = () => {
+    if (window.confirm('Cancel the internal approval decision? This will reset the document to pending review.')) {
+      dispatch(cancelInternalApproval({
+        id: document.id,
+        cancelled_by: currentUser?.id,
+        cancelled_by_name: currentUser?.full_name,
+        reason: 'Decision cancelled by Super Admin',
+      })).unwrap()
+        .then(() => {
+          toast.success('Internal decision cancelled.');
+          onActionComplete();
+        })
+        .catch((err) => {
+          toast.error(typeof err === 'string' ? err : 'Failed to cancel decision.');
+        });
+    }
+  };
+
+  const isLoading = isInternalApproving || isInternalRejecting || isRequestingChanges || isPreviewing || isSendingBack || isStamping;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
-        {/* Header */}
-        <div className="flex items-start justify-between border-b border-stone-100 bg-stone-50 px-6 py-4">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-3 flex-wrap">
-              <h2 className="text-base font-semibold text-[#1a3d1c] truncate">
-                {document.subject}
-              </h2>
-              <DocumentStatusBadge status={document.status} />
+    <>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+          {/* Header */}
+          <div className="flex items-start justify-between border-b border-stone-100 bg-stone-50 px-6 py-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="text-base font-semibold text-[#1a3d1c] truncate">
+                  {document.subject}
+                </h2>
+                <DocumentStatusBadge status={document.status} />
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-3">
+                <p className="text-xs text-stone-400 font-mono">
+                  Ref: {document.ref} • {document.format.toUpperCase()} • {new Date(document.created_at).toLocaleDateString()}
+                </p>
+                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${getInternalStatusColor(document.internal_approval_status)}`}>
+                  Internal: {getInternalStatusLabel(document.internal_approval_status)}
+                </span>
+                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${getRequesterStatusColor(document.requester_status)}`}>
+                  Requester: {getRequesterStatusLabel(document.requester_status)}
+                </span>
+              </div>
             </div>
-            <p className="mt-1 text-xs text-stone-400 font-mono">
-              Ref: {document.ref} • {document.format.toUpperCase()} • {new Date(document.created_at).toLocaleDateString()}
-            </p>
+            <button
+              onClick={onClose}
+              className="rounded-full p-1.5 text-stone-400 transition hover:bg-stone-200 hover:text-stone-600"
+            >
+              <X size={18} />
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-full p-1.5 text-stone-400 transition hover:bg-stone-200 hover:text-stone-600"
-          >
-            <X size={18} />
-          </button>
-        </div>
 
-        <div className="max-h-[75vh] overflow-y-auto p-6">
-          {/* Document Info */}
-          <div className="grid grid-cols-2 gap-4 rounded-lg border border-stone-200 bg-stone-50 p-4 sm:grid-cols-3">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Reference</p>
-              <p className="mt-0.5 text-sm font-mono text-stone-800">{document.ref}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Format</p>
-              <p className="mt-0.5 text-sm font-semibold text-stone-800 uppercase">{document.format}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Entity Type</p>
-              <p className="mt-0.5 text-sm capitalize text-stone-800">{document.entity_type}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Uploaded On</p>
-              <p className="mt-0.5 text-sm text-stone-800">
-                {new Date(document.created_at).toLocaleString()}
-              </p>
-            </div>
-            {document.approved_at && (
+          <div className="max-h-[75vh] overflow-y-auto p-6">
+            {/* Document Info */}
+            <div className="grid grid-cols-2 gap-4 rounded-lg border border-stone-200 bg-stone-50 p-4 sm:grid-cols-3">
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Approved On</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Reference</p>
+                <p className="mt-0.5 text-sm font-mono text-stone-800">{document.ref}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Format</p>
+                <p className="mt-0.5 text-sm font-semibold text-stone-800 uppercase">{document.format}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Entity Type</p>
+                <p className="mt-0.5 text-sm capitalize text-stone-800">{document.entity_type}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Uploaded On</p>
                 <p className="mt-0.5 text-sm text-stone-800">
-                  {new Date(document.approved_at).toLocaleString()}
+                  {new Date(document.created_at).toLocaleString()}
                 </p>
               </div>
-            )}
-            {document.approved_by_name && (
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Approved By</p>
-                <p className="mt-0.5 text-sm text-stone-800">{document.approved_by_name}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Preview Count</p>
+                <p className="mt-0.5 text-sm text-stone-800">{document.internal_preview_count || 0}</p>
               </div>
-            )}
-            {document.e_stamp_status === 'stamped' && (
-              <div className="col-span-full">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-600">E-Stamp Status</p>
-                <p className="mt-0.5 text-sm font-medium text-emerald-600 flex items-center gap-2">
-                  <Stamp size={16} />
-                  Stamped ✓
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* E-Stamp Preview */}
-          {document.e_stamp_url && (
-            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Stamp size={20} className="text-emerald-600" />
-                  <h4 className="text-sm font-semibold text-emerald-800">E-Stamp</h4>
-                </div>
-                <div className="flex gap-2">
-                  <a
-                    href={document.e_stamp_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
-                  >
-                    <Eye size={14} />
-                    View Stamp
-                  </a>
-                  <a
-                    href={document.e_stamp_url}
-                    download={`e-stamp-${document.ref}.png`}
-                    className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
-                  >
-                    <Download size={14} />
-                    Download
-                  </a>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center gap-4 p-3 bg-white rounded border border-emerald-200">
-                <img
-                  src={document.e_stamp_url}
-                  alt="E-Stamp"
-                  className="max-h-16 w-auto object-contain"
-                />
-                <div className="text-xs text-stone-500">
-                  <p className="font-mono">{document.ref}</p>
-                  <p className="text-emerald-600">✓ Approved on {document.approved_at ? new Date(document.approved_at).toLocaleDateString() : 'N/A'}</p>
-                </div>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Resubmit Count</p>
+                <p className="mt-0.5 text-sm text-stone-800">{document.resubmit_count || 0}</p>
               </div>
             </div>
-          )}
 
-          {/* Download Stamped Document */}
-          {canSendToRequester && document.e_stamp_url && (
-            <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <FileText size={20} className="text-blue-600" />
-                  <h4 className="text-sm font-semibold text-blue-800">Stamped Document</h4>
-                </div>
-                <div className="flex gap-2">
-                  <a
-                    href={document.file_url}
-                    download={`stamped-${document.ref}.${document.format}`}
-                    className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                  >
-                    <Download size={16} />
-                    Download Stamped Document
-                  </a>
-                  <GoldButton
-                    variant="success"
-                    onClick={handleDeliverToRequester}
-                    disabled={actionsLoading}
-                    icon={actionsLoading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                  >
-                    {actionsLoading ? 'Sending…' : 'Send to Requester'}
-                  </GoldButton>
-                </div>
-              </div>
-              <p className="mt-2 text-xs text-blue-600">
-                This document has been approved and e-stamped. Send it back to the requester, or download it directly.
-              </p>
-            </div>
-          )}
-
-          {/* Approve / Return actions - Super Admin can decide on draft and pending_approval */}
-          {canDecide && (
-            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
-              <h4 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
-                <Clock size={16} />
-                {document.status === 'draft' ? 'Ready for Review' : 'Pending Your Decision'}
+            {/* Internal Approval Status Section */}
+            <div className="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-4">
+              <h4 className="text-sm font-semibold text-stone-700 flex items-center gap-2">
+                <Clock size={16} className="text-stone-400" />
+                Approval Status
               </h4>
-              <p className="mt-1 text-xs text-amber-700">
-                {document.status === 'draft'
-                  ? 'This document is in draft state. Review and approve it with a registrar stamp, or return it for changes.'
-                  : 'Approving will burn a blue registrar stamp into the PDF, upload the stamped version, and mark the document approved. Returning sends the document back to the requester unstamped.'
-                }
-              </p>
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                <GoldButton
-                  variant="success"
-                  onClick={handleApproveAndStamp}
-                  disabled={isStamping || actionsLoading || showReturnForm}
-                  icon={
-                    isStamping || actionsLoading ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : (
-                      <Stamp size={14} />
-                    )
-                  }
-                >
-                  {isStamping || actionsLoading ? 'Stamping…' : 'Approve & Stamp'}
-                </GoldButton>
-                <GoldButton
-                  variant="warning"
-                  onClick={handleRejectDocument}
-                  disabled={isStamping || actionsLoading || showReturnForm}
-                  icon={<XCircle size={14} />}
-                >
-                  Reject
-                </GoldButton>
-                <GoldButton
-                  variant="outline"
-                  onClick={() => setShowReturnForm((v) => !v)}
-                  disabled={isStamping || actionsLoading}
-                  icon={<ArrowLeft size={14} />}
-                >
-                  Return
-                </GoldButton>
-              </div>
-
-              {showReturnForm && (
-                <div className="mt-3 space-y-2">
-                  <textarea
-                    value={returnReason}
-                    onChange={(e) => setReturnReason(e.target.value)}
-                    placeholder="Reason for returning this document to the requester…"
-                    rows={3}
-                    className="w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] resize-none"
-                  />
-                  <div className="flex gap-2">
-                    <GoldButton
-                      variant="danger"
-                      size="sm"
-                      onClick={handleReturn}
-                      disabled={actionsLoading}
-                      icon={actionsLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                    >
-                      {actionsLoading ? 'Returning…' : 'Confirm Return'}
-                    </GoldButton>
-                    <GhostButton onClick={() => setShowReturnForm(false)} disabled={actionsLoading}>
-                      Cancel
-                    </GhostButton>
+              <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-stone-500">Internal Status:</span>
+                  <p className={`font-medium ${getInternalStatusColor(document.internal_approval_status)} inline-block px-2 py-0.5 rounded-full text-xs`}>
+                    {getInternalStatusLabel(document.internal_approval_status)}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-stone-500">Requester Status:</span>
+                  <p className={`font-medium ${getRequesterStatusColor(document.requester_status)} inline-block px-2 py-0.5 rounded-full text-xs`}>
+                    {getRequesterStatusLabel(document.requester_status)}
+                  </p>
+                </div>
+                {document.internal_approved_at && (
+                  <div>
+                    <span className="text-stone-500">Approved At:</span>
+                    <p className="font-medium">{new Date(document.internal_approved_at).toLocaleString()}</p>
                   </div>
+                )}
+                {document.requester_visible_at && (
+                  <div>
+                    <span className="text-stone-500">Sent Back At:</span>
+                    <p className="font-medium">{new Date(document.requester_visible_at).toLocaleString()}</p>
+                  </div>
+                )}
+              </div>
+              {document.internal_changes_requested && document.internal_changes_requested.length > 0 && (
+                <div className="mt-2">
+                  <span className="text-stone-500">Changes Requested:</span>
+                  <ul className="mt-1 list-disc list-inside text-sm text-stone-700">
+                    {document.internal_changes_requested.map((change, idx) => (
+                      <li key={idx}>{change}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {document.internal_rejection_reason && (
+                <div className="mt-2">
+                  <span className="text-stone-500">Rejection Reason:</span>
+                  <p className="text-sm text-red-600">{document.internal_rejection_reason}</p>
                 </div>
               )}
             </div>
-          )}
 
-          {/* Approval History */}
-          {document.approval_history && document.approval_history.length > 0 && (
-            <div className="mt-6">
-              <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
-                <Clock size={16} className="text-stone-400" />
-                Approval History
-              </h3>
-              <div className="mt-3 space-y-2">
-                {document.approval_history.map((entry, index) => (
-                  <div
-                    key={entry.id}
-                    className="relative flex items-start gap-3 rounded-lg border border-stone-100 bg-white p-3"
-                  >
-                    {index < document.approval_history.length - 1 && (
-                      <div className="absolute left-5 top-8 h-full w-0.5 bg-stone-200" />
-                    )}
-                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-stone-100">
-                      {entry.action === 'submitted' && <Send size={14} className="text-amber-600" />}
-                      {entry.action === 'approved' && <CheckCircle size={14} className="text-emerald-600" />}
-                      {entry.action === 'rejected' && <XCircle size={14} className="text-red-600" />}
-                      {entry.action === 'returned' && <ArrowLeft size={14} className="text-blue-600" />}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <p className="text-sm font-medium text-stone-800">
-                          {entry.action.charAt(0).toUpperCase() + entry.action.slice(1)}
-                        </p>
-                        <span className="text-xs text-stone-400">
-                          {new Date(entry.created_at).toLocaleString()}
-                        </span>
-                      </div>
-                      <p className="text-xs text-stone-500">
-                        By: {entry.from_user_name}
-                        {entry.to_user_name && ` → ${entry.to_user_name}`}
-                      </p>
-                      {entry.comments && (
-                        <p className="mt-1 text-xs text-stone-600 bg-stone-50 rounded p-2">
-                          {entry.comments}
-                        </p>
-                      )}
-                    </div>
+            {/* E-Stamp Preview */}
+            {document.e_stamp_url && document.e_stamp_status === 'stamped' && (
+              <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Stamp size={20} className="text-emerald-600" />
+                    <h4 className="text-sm font-semibold text-emerald-800">E-Stamp</h4>
                   </div>
-                ))}
+                  <div className="flex gap-2">
+                    <a
+                      href={document.e_stamp_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                    >
+                      <Eye size={14} />
+                      View Stamp
+                    </a>
+                    <a
+                      href={document.e_stamp_url}
+                      download={`e-stamp-${document.ref}.png`}
+                      className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                    >
+                      <Download size={14} />
+                      Download
+                    </a>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center gap-4 p-3 bg-white rounded border border-emerald-200">
+                  <img
+                    src={document.e_stamp_url}
+                    alt="E-Stamp"
+                    className="max-h-16 w-auto object-contain"
+                  />
+                  <div className="text-xs text-stone-500">
+                    <p className="font-mono">{document.ref}</p>
+                    <p className="text-emerald-600">✓ Approved internally on {document.internal_approved_at ? new Date(document.internal_approved_at).toLocaleDateString() : 'N/A'}</p>
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
 
-        {/* Footer */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 bg-stone-50 px-6 py-3">
-          <div className="flex gap-2">
-            <a
-              href={document.file_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
-            >
-              <ExternalLink size={14} />
-              View Document
-            </a>
-            <a
-              href={document.file_url}
-              download
-              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
-            >
-              <Download size={14} />
-              Download
-            </a>
+            {/* Preview Action */}
+            {canPreview && (
+              <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                <h4 className="text-sm font-semibold text-blue-800 flex items-center gap-2">
+                  <Eye size={16} />
+                  Preview Required
+                </h4>
+                <p className="mt-1 text-xs text-blue-700">
+                  Preview the document before making a decision. This will mark it as previewed.
+                </p>
+                <div className="mt-3">
+                  <GoldButton
+                    variant="info"
+                    onClick={handlePreview}
+                    disabled={isLoading}
+                    icon={isPreviewing ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
+                  >
+                    {isPreviewing ? 'Previewing…' : 'Preview Document'}
+                  </GoldButton>
+                </div>
+              </div>
+            )}
+
+            {/* Internal Decision Actions */}
+            {canMakeInternalDecision && (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                <h4 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
+                  <Clock size={16} />
+                  {document.internal_approval_status === 'previewed' ? 'Make Decision' : 'Pending Your Decision'}
+                </h4>
+                <p className="mt-1 text-xs text-amber-700">
+                  {document.internal_approval_status === 'previewed'
+                    ? 'You have previewed this document. Now make your decision: approve, reject, or request changes.'
+                    : 'Review the document and make a decision. Approving will stamp the document internally. Requester will not see this until you send it back.'
+                  }
+                </p>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <GoldButton
+                    variant="success"
+                    onClick={handleInternalApprove}
+                    disabled={isLoading}
+                    icon={isInternalApproving || isStamping ? <Loader2 size={14} className="animate-spin" /> : <Stamp size={14} />}
+                  >
+                    {isInternalApproving || isStamping ? 'Processing…' : 'Approve Internally'}
+                  </GoldButton>
+                  <GoldButton
+                    variant="danger"
+                    onClick={handleInternalReject}
+                    disabled={isLoading}
+                    icon={isInternalRejecting ? <Loader2 size={14} className="animate-spin" /> : <XCircle size={14} />}
+                  >
+                    {isInternalRejecting ? 'Rejecting…' : 'Reject Internally'}
+                  </GoldButton>
+                  <GoldButton
+                    variant="warning"
+                    onClick={handleInternalRequestChanges}
+                    disabled={isLoading}
+                    icon={isRequestingChanges ? <Loader2 size={14} className="animate-spin" /> : <Edit size={14} />}
+                  >
+                    {isRequestingChanges ? 'Requesting…' : 'Request Changes'}
+                  </GoldButton>
+                </div>
+              </div>
+            )}
+
+            {/* Send Back Section */}
+            {canSendBack && (
+              <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+                <h4 className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
+                  <Send size={16} />
+                  Decision Made - Send Back to Requester
+                </h4>
+                <p className="mt-1 text-xs text-emerald-700">
+                  You have made an internal decision. Send the document back to the requester to make it visible to them.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {document.internal_approval_status === 'approved_internal' && (
+                    <GoldButton
+                      variant="success"
+                      onClick={() => handleOpenSendBackPreview('approved')}
+                      disabled={isLoading}
+                      icon={<Check size={14} />}
+                    >
+                      Send Approved
+                    </GoldButton>
+                  )}
+                  {document.internal_approval_status === 'rejected_internal' && (
+                    <GoldButton
+                      variant="danger"
+                      onClick={() => handleOpenSendBackPreview('rejected')}
+                      disabled={isLoading}
+                      icon={<XCircle size={14} />}
+                    >
+                      Send Rejected
+                    </GoldButton>
+                  )}
+                  {document.internal_approval_status === 'changes_requested_internal' && (
+                    <GoldButton
+                      variant="warning"
+                      onClick={() => handleOpenSendBackPreview('changes_requested')}
+                      disabled={isLoading}
+                      icon={<Edit size={14} />}
+                    >
+                      Send Changes Requested
+                    </GoldButton>
+                  )}
+                  <GoldButton
+                    variant="outline"
+                    onClick={handleCancelDecision}
+                    disabled={isLoading}
+                    icon={<ArrowLeft size={14} />}
+                  >
+                    Cancel Decision
+                  </GoldButton>
+                </div>
+              </div>
+            )}
+
+            {/* Already Sent Back */}
+            {document.is_sent_back_to_requester && (
+              <div className="mt-4 rounded-lg border border-stone-200 bg-stone-50 p-4">
+                <h4 className="text-sm font-semibold text-stone-700 flex items-center gap-2">
+                  <CheckCircle size={16} className="text-emerald-600" />
+                  Sent Back to Requester
+                </h4>
+                <p className="mt-1 text-xs text-stone-600">
+                  This document has been sent back to the requester with status:{' '}
+                  <span className={`font-medium ${getRequesterStatusColor(document.requester_status)}`}>
+                    {getRequesterStatusLabel(document.requester_status)}
+                  </span>
+                </p>
+                {document.requester_visible_at && (
+                  <p className="mt-1 text-xs text-stone-500">
+                    Sent on: {new Date(document.requester_visible_at).toLocaleString()}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Approval History */}
+            {document.approval_history && document.approval_history.length > 0 && (
+              <div className="mt-6">
+                <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
+                  <Clock size={16} className="text-stone-400" />
+                  Approval History
+                </h3>
+                <div className="mt-3 space-y-2">
+                  {document.approval_history.map((entry, index) => (
+                    <div
+                      key={entry.id}
+                      className="relative flex items-start gap-3 rounded-lg border border-stone-100 bg-white p-3"
+                    >
+                      {index < document.approval_history.length - 1 && (
+                        <div className="absolute left-5 top-8 h-full w-0.5 bg-stone-200" />
+                      )}
+                      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-stone-100">
+                        {entry.action === 'submitted' && <Send size={14} className="text-amber-600" />}
+                        {entry.action === 'approved' && <CheckCircle size={14} className="text-emerald-600" />}
+                        {entry.action === 'rejected' && <XCircle size={14} className="text-red-600" />}
+                        {entry.action === 'returned' && <ArrowLeft size={14} className="text-blue-600" />}
+                        {entry.action === 'previewed' && <Eye size={14} className="text-blue-600" />}
+                        {entry.action === 'sent_back' && <Send size={14} className="text-purple-600" />}
+                        {entry.action === 'resubmitted' && <RefreshCw size={14} className="text-amber-600" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <p className="text-sm font-medium text-stone-800">
+                            {entry.action.charAt(0).toUpperCase() + entry.action.slice(1)}
+                            {entry.internal_action && (
+                              <span className="ml-2 text-xs text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded">
+                                Internal
+                              </span>
+                            )}
+                            {entry.requester_visible && (
+                              <span className="ml-2 text-xs text-emerald-400 bg-emerald-50 px-1.5 py-0.5 rounded">
+                                Visible
+                              </span>
+                            )}
+                          </p>
+                          <span className="text-xs text-stone-400">
+                            {new Date(entry.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="text-xs text-stone-500">
+                          By: {entry.from_user_name}
+                          {entry.to_user_name && ` → ${entry.to_user_name}`}
+                        </p>
+                        {entry.comments && (
+                          <p className="mt-1 text-xs text-stone-600 bg-stone-50 rounded p-2">
+                            {entry.comments}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-stone-300 px-4 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-50"
-          >
-            Close
-          </button>
+
+          {/* Footer */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 bg-stone-50 px-6 py-3">
+            <div className="flex gap-2">
+              <a
+                href={document.file_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
+              >
+                <ExternalLink size={14} />
+                View Document
+              </a>
+              <a
+                href={document.file_url}
+                download
+                className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
+              >
+                <Download size={14} />
+                Download
+              </a>
+            </div>
+            <button
+              onClick={onClose}
+              className="rounded-lg border border-stone-300 px-4 py-1.5 text-sm font-medium text-stone-700 hover:bg-stone-50"
+            >
+              Close
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* Send Back Preview Modal */}
+      {showSendBackPreview && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
+              <h3 className="text-lg font-semibold text-[#1a3d1c] flex items-center gap-2">
+                <Eye size={20} className="text-[#c9a84c]" />
+                Preview Send Back
+              </h3>
+              <button
+                onClick={() => setShowSendBackPreview(false)}
+                className="rounded-full p-1 text-stone-400 hover:bg-stone-100"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
+                <p className="text-sm text-stone-600">
+                  You are about to send this document back to the requester with status:
+                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ${getRequesterStatusColor(sendBackStatus)}`}>
+                    {sendBackStatus === 'approved' && <CheckCircle size={16} />}
+                    {sendBackStatus === 'rejected' && <XCircle size={16} />}
+                    {sendBackStatus === 'changes_requested' && <Edit size={16} />}
+                    {getRequesterStatusLabel(sendBackStatus)}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-stone-700">Message to Requester (Optional)</label>
+                <textarea
+                  value={sendBackMessage}
+                  onChange={(e) => setSendBackMessage(e.target.value)}
+                  placeholder="Add a message for the requester..."
+                  rows={3}
+                  className="mt-1 w-full rounded-md border border-stone-300 px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] resize-none"
+                />
+              </div>
+
+              <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                <AlertCircle size={16} className="text-blue-600 mt-0.5" />
+                <p className="text-xs text-blue-700">
+                  The requester will be notified via email and will see the updated status in their dashboard.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-stone-100 px-6 py-4">
+              <GhostButton onClick={() => setShowSendBackPreview(false)}>
+                Cancel
+              </GhostButton>
+              <GoldButton
+                variant="success"
+                onClick={handleSendBackToRequester}
+                disabled={isSendingBack}
+                icon={isSendingBack ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+              >
+                {isSendingBack ? 'Sending…' : 'Confirm Send Back'}
+              </GoldButton>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
@@ -1077,7 +1395,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
   );
   const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
   const documentsUploading = useAppSelector(selectDocumentsUploading);
-  //const documentActionLoading = useAppSelector(selectDocumentActionLoading);
   const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
   const isLinking = useAppSelector(selectDocumentLinking);
 
@@ -1146,8 +1463,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
       toast.error(typeof err === 'string' ? err : 'Failed to link document.');
     }
   };
-
-  
 
   const handleViewDocument = (doc: HelpdeskDocument) => {
     setSelectedDocForView(doc);
@@ -1289,7 +1604,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                         <ExternalLink size={12} />
                         Open
                       </a>
-                      {/* Super Admin can review draft documents too */}
                       {doc.status === 'draft' && (
                         <GhostButton
                           onClick={() => handleViewDocument(doc)}
@@ -2869,16 +3183,6 @@ function ClubTab() {
           onEdit={handleEdit}
           onDelete={(id) => setDeleteTarget(id)}
           mutating={mutating}
-          extraActions={(item: ClubMembership) => (
-            <button
-              onClick={() => console.log('View club:', item)}
-              disabled={mutating}
-              className="rounded p-1 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50"
-              title="View Details"
-            >
-              <Eye className="h-3.5 w-3.5" />
-            </button>
-          )}
         />
       </Panel>
 
@@ -3050,12 +3354,12 @@ function UtilitiesTab({
       )}
 
       <UtilitiesMemoModal
-  isOpen={showMemoModal}
-  onClose={() => setShowMemoModal(false)}
-  judges={data}
-  isConsolidated={true}
-  onMemoGenerated={handleMemoGenerated}
-/>
+        isOpen={showMemoModal}
+        onClose={() => setShowMemoModal(false)}
+        judges={data}
+        isConsolidated={true}
+        onMemoGenerated={handleMemoGenerated}
+      />
     </>
   );
 }

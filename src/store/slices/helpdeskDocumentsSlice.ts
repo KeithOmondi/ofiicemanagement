@@ -32,6 +32,23 @@ export type DocumentEntityType =
 export type DocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
 
+// ─── Two-Step Approval Types ──────────────────────────────────────────────────
+
+export type InternalApprovalStatus = 
+    | 'pending'
+    | 'previewed'
+    | 'approved_internal'
+    | 'rejected_internal'
+    | 'changes_requested_internal'
+    | 'changes_ready';
+
+export type RequesterVisibleStatus = 
+    | 'pending_approval'
+    | 'approved'
+    | 'rejected'
+    | 'changes_requested'
+    | 'in_revision';
+
 // ─── Unified Request Types ──────────────────────────────────────────────────
 
 export type RequestType =
@@ -93,13 +110,15 @@ export interface DocumentWithViewStatus {
 export interface ApprovalHistoryEntry {
     id: string;
     document_id: string;
-    action: 'submitted' | 'approved' | 'rejected' | 'returned';
+    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted';
     from_user_id: string;
     from_user_name: string;
     to_user_id?: string;
     to_user_name?: string;
     comments?: string;
     created_at: string;
+    internal_action?: boolean;
+    requester_visible?: boolean;
 }
 
 export interface Comment {
@@ -109,6 +128,23 @@ export interface Comment {
     user_name: string;
     comment: string;
     is_internal: boolean;
+    is_active: boolean;
+    created_at: string;
+}
+
+// ─── Document Preview History ──────────────────────────────────────────────
+
+export interface DocumentPreviewHistory {
+    id: string;
+    document_id: string;
+    previewed_by: string;
+    previewed_by_name?: string;
+    previewed_at: string;
+    comments?: string;
+    ip_address?: string;
+    user_agent?: string;
+    preview_duration_seconds?: number;
+    is_active: boolean;
     created_at: string;
 }
 
@@ -148,6 +184,36 @@ export interface HelpdeskDocument {
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
 
+    // ─── Two-Step Approval Workflow Fields ────────────────────────────────────
+    // Internal tracking (super admin only)
+    internal_approval_status: InternalApprovalStatus;
+    internal_approved_by?: string;
+    internal_approved_by_name?: string;
+    internal_approved_at?: string;
+    internal_comments?: string;
+    internal_changes_requested?: string[];
+    internal_rejection_reason?: string;
+    internal_preview_count: number;
+    internal_previewed_at?: string;
+    internal_previewed_by?: string;
+    internal_previewed_by_name?: string;
+    
+    // External/Requester visible status
+    requester_status: RequesterVisibleStatus;
+    requester_visible_at?: string;
+    requester_visible_by?: string;
+    requester_visible_by_name?: string;
+    
+    // Resubmit tracking
+    resubmit_count: number;
+    last_resubmitted_at?: string;
+    last_resubmitted_by?: string;
+    
+    // Flags
+    is_internal_approval_complete: boolean;
+    is_sent_back_to_requester: boolean;
+    is_requester_notified: boolean;
+
     // ─── Aide Request Fields ──────────────────────────────────────────────────
     officer_rank?: OfficerRank | null;
     officer_name?: string | null;
@@ -166,6 +232,42 @@ export interface HelpdeskDocument {
     rank?: string | null;
 }
 
+// ─── Requester Document View ─────────────────────────────────────────────────
+
+export interface RequesterDocumentView {
+    document_id: string;
+    ref: string;
+    subject: string;
+    status: RequesterVisibleStatus;
+    submitted_at: string;
+    last_updated_at: string;
+    comments?: string;
+    entity_type: DocumentEntityType;
+    entity_id?: string;
+    approved_rejected_at?: string;
+    approved_rejected_by?: string;
+    approved_rejected_by_name?: string;
+    changes_requested?: string[];
+    rejection_reason?: string;
+    can_resubmit: boolean;
+}
+
+// ─── Pending Internal Approvals Summary ──────────────────────────────────────
+
+export interface PendingInternalApprovalsSummary {
+    total_pending_internal: number;
+    pending_review: number;
+    previewed: number;
+    approved_internal: number;
+    rejected_internal: number;
+    changes_requested_internal: number;
+    ready_to_send_back: number;
+    by_entity_type: Record<DocumentEntityType, number>;
+    urgent_pending: number;
+    oldest_pending_days: number;
+    average_review_time_hours?: number;
+}
+
 // ─── Filters ─────────────────────────────────────────────────────────────────
 
 export interface HelpdeskDocumentFilters {
@@ -179,6 +281,14 @@ export interface HelpdeskDocumentFilters {
     uploaded_by?: string;
     pending_my_approval?: boolean;
     unlinked?: boolean;
+
+    // ─── Two-Step Approval Filters ──────────────────────────────────────────
+    internal_approval_status?: InternalApprovalStatus;
+    requester_status?: RequesterVisibleStatus;
+    is_sent_back_to_requester?: boolean;
+    pending_internal_approval?: boolean;
+    ready_to_send_back?: boolean;
+    my_requester_documents?: boolean;
 
     // Unified General Request filters
     request_type?: RequestType;
@@ -263,6 +373,58 @@ export interface SubmitForApprovalPayload {
     submitted_by_name?: string;
 }
 
+// ─── Two-Step Approval Payloads ──────────────────────────────────────────────
+
+export interface InternalPreviewPayload {
+    id: string;
+    previewed_by?: string;
+    previewed_by_name?: string;
+    comments?: string;
+    ip_address?: string;
+    user_agent?: string;
+}
+
+export interface InternalApprovalPayload {
+    id: string;
+    action: 'approve' | 'reject' | 'request_changes';
+    comments?: string;
+    changes_requested?: string[];
+    rejection_reason?: string;
+    approved_by?: string;
+    approved_by_name?: string;
+    generate_e_stamp?: boolean;
+}
+
+export interface SendBackToRequesterPayload {
+    id: string;
+    final_status: 'approved' | 'rejected' | 'changes_requested';
+    sent_by?: string;
+    sent_by_name?: string;
+    comments?: string;
+    requester_message?: string;
+    notify_requester?: boolean;
+}
+
+export interface ResubmitAfterChangesPayload {
+    id: string;
+    submitted_by?: string;
+    submitted_by_name?: string;
+    comments?: string;
+    file_update?: boolean;
+}
+
+export interface CancelInternalApprovalPayload {
+    id: string;
+    cancelled_by?: string;
+    cancelled_by_name?: string;
+    reason?: string;
+}
+
+// ─── Legacy Payloads (Deprecated) ───────────────────────────────────────────
+
+/**
+ * @deprecated Use InternalApprovalPayload with action: 'approve' and SendBackToRequesterPayload instead
+ */
 export interface ApproveDocumentPayload {
     id: string;
     comments?: string;
@@ -272,6 +434,9 @@ export interface ApproveDocumentPayload {
     e_stamp_public_id?: string;
 }
 
+/**
+ * @deprecated Use InternalApprovalPayload with action: 'reject' and SendBackToRequesterPayload instead
+ */
 export interface RejectDocumentPayload {
     id: string;
     reason: string;
@@ -280,6 +445,9 @@ export interface RejectDocumentPayload {
     rejected_by_name?: string;
 }
 
+/**
+ * @deprecated Use InternalApprovalPayload with action: 'request_changes' and SendBackToRequesterPayload instead
+ */
 export interface ReturnDocumentPayload {
     id: string;
     comments?: string;
@@ -400,6 +568,9 @@ export interface DocumentStats {
         user_name: string;
         created_at: string;
     }[];
+    // Two-step workflow stats
+    pending_internal: number;
+    ready_to_send_back: number;
 }
 
 export interface DocumentSummary {
@@ -412,11 +583,32 @@ export interface DocumentSummary {
     approved: number;
     rejected: number;
     returned: number;
+    // Two-step workflow summary
+    internal_approval_summary: {
+        pending: number;
+        previewed: number;
+        approved_internal: number;
+        rejected_internal: number;
+        changes_requested_internal: number;
+        changes_ready: number;
+    };
+    requester_status_summary: Record<RequesterVisibleStatus, number>;
 }
 
 // ── Action Loading Types ─────────────────────────────────────────────────────
 
-type ActionLoadingKey = 'submitting' | 'approving' | 'rejecting' | 'returning';
+type ActionLoadingKey = 
+    | 'submitting' 
+    | 'approving' 
+    | 'rejecting' 
+    | 'returning'
+    | 'previewing'
+    | 'internalApproving'
+    | 'internalRejecting'
+    | 'requestingChanges'
+    | 'sendingBack'
+    | 'resubmitting'
+    | 'cancelling';
 
 type ActionLoadingState = {
     [key in ActionLoadingKey]?: boolean;
@@ -441,6 +633,16 @@ interface HelpdeskDocumentsState {
         stats: boolean;
         hardDelete: boolean;
         updateFile: boolean;
+        // Two-step approval loading states
+        internalPreview: boolean;
+        internalApprove: boolean;
+        internalReject: boolean;
+        internalRequestChanges: boolean;
+        internalCancel: boolean;
+        sendBack: boolean;
+        resubmit: boolean;
+        pendingInternal: boolean;
+        requesterDashboard: boolean;
     };
     error: string | null;
     deletingId: string | null;
@@ -449,6 +651,19 @@ interface HelpdeskDocumentsState {
     };
     stats: DocumentStats | null;
     summary: DocumentSummary | null;
+    // Two-step approval specific state
+    pendingInternalApprovals: {
+        documents: HelpdeskDocument[];
+        summary: PendingInternalApprovalsSummary | null;
+    };
+    requesterDocuments: {
+        documents: RequesterDocumentView[];
+        summary: {
+            total: number;
+            by_status: Record<string, number>;
+            can_resubmit: number;
+        } | null;
+    };
 }
 
 const initialState: HelpdeskDocumentsState = {
@@ -470,12 +685,29 @@ const initialState: HelpdeskDocumentsState = {
         stats: false,
         hardDelete: false,
         updateFile: false,
+        internalPreview: false,
+        internalApprove: false,
+        internalReject: false,
+        internalRequestChanges: false,
+        internalCancel: false,
+        sendBack: false,
+        resubmit: false,
+        pendingInternal: false,
+        requesterDashboard: false,
     },
     error: null,
     deletingId: null,
     actionLoading: {},
     stats: null,
     summary: null,
+    pendingInternalApprovals: {
+        documents: [],
+        summary: null,
+    },
+    requesterDocuments: {
+        documents: [],
+        summary: null,
+    },
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -494,6 +726,14 @@ function buildParams(filters: HelpdeskDocumentFilters): Record<string, string> {
     if (filters.uploaded_by) params.uploaded_by = filters.uploaded_by;
     if (filters.pending_my_approval) params.pending_my_approval = String(filters.pending_my_approval);
     if (filters.unlinked) params.unlinked = String(filters.unlinked);
+
+    // Two-step approval filters
+    if (filters.internal_approval_status) params.internal_approval_status = filters.internal_approval_status;
+    if (filters.requester_status) params.requester_status = filters.requester_status;
+    if (filters.is_sent_back_to_requester) params.is_sent_back_to_requester = String(filters.is_sent_back_to_requester);
+    if (filters.pending_internal_approval) params.pending_internal_approval = String(filters.pending_internal_approval);
+    if (filters.ready_to_send_back) params.ready_to_send_back = String(filters.ready_to_send_back);
+    if (filters.my_requester_documents) params.my_requester_documents = String(filters.my_requester_documents);
 
     // Unified General Request filters
     if (filters.request_type) params.request_type = filters.request_type;
@@ -690,7 +930,6 @@ export const uploadHelpdeskDocument = createAsyncThunk<
                 },
             });
 
-            // Full, unabbreviated dump of the validation payload
             console.error('❌ Upload failed - full validation details:',
                 JSON.stringify(error.response?.data, null, 2)
             );
@@ -833,8 +1072,239 @@ export const fetchDocumentSummary = createAsyncThunk<
     }
 );
 
-// ─── Workflow Actions ──────────────────────────────────────────────────────
+// ─── TWO-STEP APPROVAL THUNKS ─────────────────────────────────────────────────
 
+/**
+ * Internal Preview - Super admin previews a document
+ * Requester does not see this action
+ */
+export const internalPreviewDocument = createAsyncThunk<
+    HelpdeskDocument,
+    InternalPreviewPayload,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/internalPreview',
+    async ({ id, previewed_by, previewed_by_name, comments, ip_address, user_agent }, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/internal/preview`, {
+                previewed_by,
+                previewed_by_name,
+                comments,
+                ip_address,
+                user_agent,
+            });
+            return data.data as HelpdeskDocument;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to preview document'));
+        }
+    }
+);
+
+/**
+ * Internal Approve - Super admin approves internally
+ * Requester still sees 'pending_approval' until send back
+ */
+export const internalApproveDocument = createAsyncThunk<
+    HelpdeskDocument,
+    InternalApprovalPayload,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/internalApprove',
+    async ({ id, comments, approved_by, approved_by_name, generate_e_stamp }, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/internal/approve`, {
+                comments,
+                approved_by,
+                approved_by_name,
+                generate_e_stamp,
+            });
+            return data.data as HelpdeskDocument;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to approve document internally'));
+        }
+    }
+);
+
+/**
+ * Internal Reject - Super admin rejects internally
+ * Requester still sees 'pending_approval' until send back
+ */
+export const internalRejectDocument = createAsyncThunk<
+    HelpdeskDocument,
+    InternalApprovalPayload,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/internalReject',
+    async ({ id, rejection_reason, comments, approved_by, approved_by_name }, { rejectWithValue }) => {
+        try {
+            if (!rejection_reason) {
+                return rejectWithValue('Rejection reason is required');
+            }
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/internal/reject`, {
+                rejection_reason,
+                comments,
+                rejected_by: approved_by,
+                rejected_by_name: approved_by_name,
+            });
+            return data.data as HelpdeskDocument;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to reject document internally'));
+        }
+    }
+);
+
+/**
+ * Internal Request Changes - Super admin requests changes internally
+ * Requester still sees 'pending_approval' until send back
+ */
+export const internalRequestChanges = createAsyncThunk<
+    HelpdeskDocument,
+    InternalApprovalPayload,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/internalRequestChanges',
+    async ({ id, changes_requested, comments, approved_by, approved_by_name }, { rejectWithValue }) => {
+        try {
+            if (!changes_requested || changes_requested.length === 0) {
+                return rejectWithValue('At least one change request is required');
+            }
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/internal/request-changes`, {
+                changes_requested,
+                comments,
+                requested_by: approved_by,
+                requested_by_name: approved_by_name,
+            });
+            return data.data as HelpdeskDocument;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to request changes internally'));
+        }
+    }
+);
+
+/**
+ * Cancel Internal Approval - Super admin cancels internal approval decision
+ * Resets document back to pending
+ */
+export const cancelInternalApproval = createAsyncThunk<
+    HelpdeskDocument,
+    CancelInternalApprovalPayload,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/cancelInternalApproval',
+    async ({ id, cancelled_by, cancelled_by_name, reason }, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/internal/cancel`, {
+                cancelled_by,
+                cancelled_by_name,
+                reason,
+            });
+            return data.data as HelpdeskDocument;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to cancel internal approval'));
+        }
+    }
+);
+
+/**
+ * Send Back to Requester - Super admin sends document back to requester
+ * THIS is when the requester finally sees the status change
+ */
+export const sendBackToRequester = createAsyncThunk<
+    HelpdeskDocument,
+    SendBackToRequesterPayload,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/sendBackToRequester',
+    async ({ id, final_status, sent_by, sent_by_name, comments, requester_message, notify_requester }, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/send-back`, {
+                final_status,
+                sent_by,
+                sent_by_name,
+                comments,
+                requester_message,
+                notify_requester,
+            });
+            return data.data as HelpdeskDocument;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to send document back to requester'));
+        }
+    }
+);
+
+/**
+ * Resubmit After Changes - Requester resubmits document after making changes
+ */
+export const resubmitDocument = createAsyncThunk<
+    HelpdeskDocument,
+    ResubmitAfterChangesPayload,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/resubmit',
+    async ({ id, submitted_by, submitted_by_name, comments, file_update }, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/resubmit`, {
+                submitted_by,
+                submitted_by_name,
+                comments,
+                file_update,
+            });
+            return data.data as HelpdeskDocument;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to resubmit document'));
+        }
+    }
+);
+
+// ─── Dashboard Thunks ─────────────────────────────────────────────────────────
+
+/**
+ * Get Pending Internal Approvals - Super admin dashboard
+ */
+export const fetchPendingInternalApprovals = createAsyncThunk<
+    { documents: HelpdeskDocument[]; summary: PendingInternalApprovalsSummary },
+    HelpdeskDocumentFilters,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/fetchPendingInternal',
+    async (filters = {}, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.get('/helpdesk/documents/pending-internal', {
+                params: buildParams(filters),
+            });
+            return data.data as { documents: HelpdeskDocument[]; summary: PendingInternalApprovalsSummary };
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to fetch pending internal approvals'));
+        }
+    }
+);
+
+/**
+ * Get Requester Dashboard - Requester dashboard
+ */
+export const fetchRequesterDashboard = createAsyncThunk<
+    { documents: RequesterDocumentView[]; summary: { total: number; by_status: Record<string, number>; can_resubmit: number } },
+    HelpdeskDocumentFilters,
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/fetchRequesterDashboard',
+    async (filters = {}, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.get('/helpdesk/documents/requester-dashboard', {
+                params: buildParams(filters),
+            });
+            return data.data as { documents: RequesterDocumentView[]; summary: { total: number; by_status: Record<string, number>; can_resubmit: number } };
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to fetch requester dashboard'));
+        }
+    }
+);
+
+// ─── Workflow Actions (Legacy - Deprecated) ──────────────────────────────────
+
+/**
+ * @deprecated Use internalApproveDocument() and sendBackToRequester() instead
+ */
 export const submitForApproval = createAsyncThunk<
     HelpdeskDocument,
     SubmitForApprovalPayload,
@@ -855,6 +1325,9 @@ export const submitForApproval = createAsyncThunk<
     }
 );
 
+/**
+ * @deprecated Use internalApproveDocument() and sendBackToRequester() instead
+ */
 export const approveDocument = createAsyncThunk<
     HelpdeskDocument,
     ApproveDocumentPayload,
@@ -877,6 +1350,9 @@ export const approveDocument = createAsyncThunk<
     }
 );
 
+/**
+ * @deprecated Use internalRejectDocument() and sendBackToRequester() instead
+ */
 export const rejectDocument = createAsyncThunk<
     HelpdeskDocument,
     RejectDocumentPayload,
@@ -898,6 +1374,9 @@ export const rejectDocument = createAsyncThunk<
     }
 );
 
+/**
+ * @deprecated Use internalRequestChanges() and sendBackToRequester() instead
+ */
 export const returnDocument = createAsyncThunk<
     HelpdeskDocument,
     ReturnDocumentPayload,
@@ -1120,6 +1599,18 @@ const helpdeskDocumentsSlice = createSlice({
             state.stats = null;
             state.summary = null;
         },
+        clearPendingInternal(state) {
+            state.pendingInternalApprovals = {
+                documents: [],
+                summary: null,
+            };
+        },
+        clearRequesterDocuments(state) {
+            state.requesterDocuments = {
+                documents: [],
+                summary: null,
+            };
+        },
         optimisticDelete(state, action: PayloadAction<string>) {
             state.items = state.items.filter(d => d.id !== action.payload);
             if (state.selectedDocument?.id === action.payload) {
@@ -1249,6 +1740,222 @@ const helpdeskDocumentsSlice = createSlice({
                 state.error = action.payload as string;
             });
 
+        // ── TWO-STEP APPROVAL REDUCERS ──────────────────────────────────────
+
+        // ── internalPreviewDocument ──────────────────────────────────────────
+        builder
+            .addCase(internalPreviewDocument.pending, (state, action) => {
+                state.loading.internalPreview = true;
+                state.error = null;
+                setActionLoading(state, action.meta.arg.id, 'previewing', true);
+            })
+            .addCase(internalPreviewDocument.fulfilled, (state, action: PayloadAction<HelpdeskDocument>) => {
+                state.loading.internalPreview = false;
+                setActionLoading(state, action.payload.id, 'previewing', false);
+                const index = state.items.findIndex(d => d.id === action.payload.id);
+                if (index !== -1) {
+                    state.items[index] = action.payload;
+                }
+                if (state.selectedDocument?.id === action.payload.id) {
+                    state.selectedDocument = action.payload;
+                }
+            })
+            .addCase(internalPreviewDocument.rejected, (state, action) => {
+                state.loading.internalPreview = false;
+                state.error = action.payload as string;
+                if (action.meta.arg) {
+                    setActionLoading(state, action.meta.arg.id, 'previewing', false);
+                }
+            });
+
+        // ── internalApproveDocument ──────────────────────────────────────────
+        builder
+            .addCase(internalApproveDocument.pending, (state, action) => {
+                state.loading.internalApprove = true;
+                state.error = null;
+                setActionLoading(state, action.meta.arg.id, 'internalApproving', true);
+            })
+            .addCase(internalApproveDocument.fulfilled, (state, action: PayloadAction<HelpdeskDocument>) => {
+                state.loading.internalApprove = false;
+                setActionLoading(state, action.payload.id, 'internalApproving', false);
+                const index = state.items.findIndex(d => d.id === action.payload.id);
+                if (index !== -1) {
+                    state.items[index] = action.payload;
+                }
+                if (state.selectedDocument?.id === action.payload.id) {
+                    state.selectedDocument = action.payload;
+                }
+            })
+            .addCase(internalApproveDocument.rejected, (state, action) => {
+                state.loading.internalApprove = false;
+                state.error = action.payload as string;
+                if (action.meta.arg) {
+                    setActionLoading(state, action.meta.arg.id, 'internalApproving', false);
+                }
+            });
+
+        // ── internalRejectDocument ───────────────────────────────────────────
+        builder
+            .addCase(internalRejectDocument.pending, (state, action) => {
+                state.loading.internalReject = true;
+                state.error = null;
+                setActionLoading(state, action.meta.arg.id, 'internalRejecting', true);
+            })
+            .addCase(internalRejectDocument.fulfilled, (state, action: PayloadAction<HelpdeskDocument>) => {
+                state.loading.internalReject = false;
+                setActionLoading(state, action.payload.id, 'internalRejecting', false);
+                const index = state.items.findIndex(d => d.id === action.payload.id);
+                if (index !== -1) {
+                    state.items[index] = action.payload;
+                }
+                if (state.selectedDocument?.id === action.payload.id) {
+                    state.selectedDocument = action.payload;
+                }
+            })
+            .addCase(internalRejectDocument.rejected, (state, action) => {
+                state.loading.internalReject = false;
+                state.error = action.payload as string;
+                if (action.meta.arg) {
+                    setActionLoading(state, action.meta.arg.id, 'internalRejecting', false);
+                }
+            });
+
+        // ── internalRequestChanges ───────────────────────────────────────────
+        builder
+            .addCase(internalRequestChanges.pending, (state, action) => {
+                state.loading.internalRequestChanges = true;
+                state.error = null;
+                setActionLoading(state, action.meta.arg.id, 'requestingChanges', true);
+            })
+            .addCase(internalRequestChanges.fulfilled, (state, action: PayloadAction<HelpdeskDocument>) => {
+                state.loading.internalRequestChanges = false;
+                setActionLoading(state, action.payload.id, 'requestingChanges', false);
+                const index = state.items.findIndex(d => d.id === action.payload.id);
+                if (index !== -1) {
+                    state.items[index] = action.payload;
+                }
+                if (state.selectedDocument?.id === action.payload.id) {
+                    state.selectedDocument = action.payload;
+                }
+            })
+            .addCase(internalRequestChanges.rejected, (state, action) => {
+                state.loading.internalRequestChanges = false;
+                state.error = action.payload as string;
+                if (action.meta.arg) {
+                    setActionLoading(state, action.meta.arg.id, 'requestingChanges', false);
+                }
+            });
+
+        // ── cancelInternalApproval ───────────────────────────────────────────
+        builder
+            .addCase(cancelInternalApproval.pending, (state, action) => {
+                state.loading.internalCancel = true;
+                state.error = null;
+                setActionLoading(state, action.meta.arg.id, 'cancelling', true);
+            })
+            .addCase(cancelInternalApproval.fulfilled, (state, action: PayloadAction<HelpdeskDocument>) => {
+                state.loading.internalCancel = false;
+                setActionLoading(state, action.payload.id, 'cancelling', false);
+                const index = state.items.findIndex(d => d.id === action.payload.id);
+                if (index !== -1) {
+                    state.items[index] = action.payload;
+                }
+                if (state.selectedDocument?.id === action.payload.id) {
+                    state.selectedDocument = action.payload;
+                }
+            })
+            .addCase(cancelInternalApproval.rejected, (state, action) => {
+                state.loading.internalCancel = false;
+                state.error = action.payload as string;
+                if (action.meta.arg) {
+                    setActionLoading(state, action.meta.arg.id, 'cancelling', false);
+                }
+            });
+
+        // ── sendBackToRequester ──────────────────────────────────────────────
+        builder
+            .addCase(sendBackToRequester.pending, (state, action) => {
+                state.loading.sendBack = true;
+                state.error = null;
+                setActionLoading(state, action.meta.arg.id, 'sendingBack', true);
+            })
+            .addCase(sendBackToRequester.fulfilled, (state, action: PayloadAction<HelpdeskDocument>) => {
+                state.loading.sendBack = false;
+                setActionLoading(state, action.payload.id, 'sendingBack', false);
+                const index = state.items.findIndex(d => d.id === action.payload.id);
+                if (index !== -1) {
+                    state.items[index] = action.payload;
+                }
+                if (state.selectedDocument?.id === action.payload.id) {
+                    state.selectedDocument = action.payload;
+                }
+            })
+            .addCase(sendBackToRequester.rejected, (state, action) => {
+                state.loading.sendBack = false;
+                state.error = action.payload as string;
+                if (action.meta.arg) {
+                    setActionLoading(state, action.meta.arg.id, 'sendingBack', false);
+                }
+            });
+
+        // ── resubmitDocument ──────────────────────────────────────────────────
+        builder
+            .addCase(resubmitDocument.pending, (state, action) => {
+                state.loading.resubmit = true;
+                state.error = null;
+                setActionLoading(state, action.meta.arg.id, 'resubmitting', true);
+            })
+            .addCase(resubmitDocument.fulfilled, (state, action: PayloadAction<HelpdeskDocument>) => {
+                state.loading.resubmit = false;
+                setActionLoading(state, action.payload.id, 'resubmitting', false);
+                const index = state.items.findIndex(d => d.id === action.payload.id);
+                if (index !== -1) {
+                    state.items[index] = action.payload;
+                }
+                if (state.selectedDocument?.id === action.payload.id) {
+                    state.selectedDocument = action.payload;
+                }
+            })
+            .addCase(resubmitDocument.rejected, (state, action) => {
+                state.loading.resubmit = false;
+                state.error = action.payload as string;
+                if (action.meta.arg) {
+                    setActionLoading(state, action.meta.arg.id, 'resubmitting', false);
+                }
+            });
+
+        // ── fetchPendingInternalApprovals ─────────────────────────────────────
+        builder
+            .addCase(fetchPendingInternalApprovals.pending, (state) => {
+                state.loading.pendingInternal = true;
+                state.error = null;
+            })
+            .addCase(fetchPendingInternalApprovals.fulfilled, (state, action) => {
+                state.loading.pendingInternal = false;
+                state.pendingInternalApprovals = action.payload;
+            })
+            .addCase(fetchPendingInternalApprovals.rejected, (state, action) => {
+                state.loading.pendingInternal = false;
+                state.error = action.payload as string;
+            });
+
+        // ── fetchRequesterDashboard ───────────────────────────────────────────
+        builder
+            .addCase(fetchRequesterDashboard.pending, (state) => {
+                state.loading.requesterDashboard = true;
+                state.error = null;
+            })
+            .addCase(fetchRequesterDashboard.fulfilled, (state, action) => {
+                state.loading.requesterDashboard = false;
+                state.requesterDocuments = action.payload;
+            })
+            .addCase(fetchRequesterDashboard.rejected, (state, action) => {
+                state.loading.requesterDashboard = false;
+                state.error = action.payload as string;
+            });
+
+        // ── LEGACY WORKFLOW REDUCERS (Deprecated) ─────────────────────────────
+
         // ── submitForApproval ────────────────────────────────────────────────
         builder
             .addCase(submitForApproval.pending, (state, action) => {
@@ -1328,7 +2035,7 @@ const helpdeskDocumentsSlice = createSlice({
                 state.error = action.payload as string;
             });
 
-        // ── approveDocument ──────────────────────────────────────────────────
+        // ── approveDocument (Legacy) ──────────────────────────────────────────
         builder
             .addCase(approveDocument.pending, (state, action) => {
                 state.loading.approve = true;
@@ -1354,7 +2061,7 @@ const helpdeskDocumentsSlice = createSlice({
                 }
             });
 
-        // ── rejectDocument ───────────────────────────────────────────────────
+        // ── rejectDocument (Legacy) ───────────────────────────────────────────
         builder
             .addCase(rejectDocument.pending, (state, action) => {
                 state.loading.reject = true;
@@ -1380,7 +2087,7 @@ const helpdeskDocumentsSlice = createSlice({
                 }
             });
 
-        // ── returnDocument ───────────────────────────────────────────────────
+        // ── returnDocument (Legacy) ───────────────────────────────────────────
         builder
             .addCase(returnDocument.pending, (state, action) => {
                 state.loading.return = true;
@@ -1523,6 +2230,8 @@ export const {
     clearSelectedDocument,
     clearActionLoading,
     clearStats,
+    clearPendingInternal,
+    clearRequesterDocuments,
     optimisticDelete,
     restoreDocument,
 } = helpdeskDocumentsSlice.actions;
@@ -1538,6 +2247,17 @@ export const selectDocumentHardDeleting = (state: RootState) => state.helpdeskDo
 export const selectDeletingDocumentId = (state: RootState) => state.helpdeskDocuments.deletingId;
 export const selectDocumentError = (state: RootState) => state.helpdeskDocuments.error;
 export const selectDocumentActionLoading = (state: RootState) => state.helpdeskDocuments.actionLoading;
+export const selectDocumentUpdatingFile = (state: RootState) => state.helpdeskDocuments.loading.updateFile;
+
+// ─── Two-Step Approval Selectors ─────────────────────────────────────────────
+
+export const selectPendingInternalApprovals = (state: RootState) => state.helpdeskDocuments.pendingInternalApprovals;
+export const selectPendingInternalSummary = (state: RootState) => state.helpdeskDocuments.pendingInternalApprovals.summary;
+export const selectRequesterDocuments = (state: RootState) => state.helpdeskDocuments.requesterDocuments;
+export const selectRequesterDocumentsSummary = (state: RootState) => state.helpdeskDocuments.requesterDocuments.summary;
+
+// ─── Document Action Loading Selectors ───────────────────────────────────────
+
 export const selectIsSubmitting = (state: RootState, id: string) =>
     state.helpdeskDocuments.actionLoading[id]?.submitting || false;
 export const selectIsApproving = (state: RootState, id: string) =>
@@ -1546,7 +2266,23 @@ export const selectIsRejecting = (state: RootState, id: string) =>
     state.helpdeskDocuments.actionLoading[id]?.rejecting || false;
 export const selectIsReturning = (state: RootState, id: string) =>
     state.helpdeskDocuments.actionLoading[id]?.returning || false;
-export const selectDocumentUpdatingFile = (state: RootState) => state.helpdeskDocuments.loading.updateFile;
+
+// ─── Two-Step Approval Action Loading Selectors ─────────────────────────────
+
+export const selectIsPreviewing = (state: RootState, id: string) =>
+    state.helpdeskDocuments.actionLoading[id]?.previewing || false;
+export const selectIsInternalApproving = (state: RootState, id: string) =>
+    state.helpdeskDocuments.actionLoading[id]?.internalApproving || false;
+export const selectIsInternalRejecting = (state: RootState, id: string) =>
+    state.helpdeskDocuments.actionLoading[id]?.internalRejecting || false;
+export const selectIsRequestingChanges = (state: RootState, id: string) =>
+    state.helpdeskDocuments.actionLoading[id]?.requestingChanges || false;
+export const selectIsSendingBack = (state: RootState, id: string) =>
+    state.helpdeskDocuments.actionLoading[id]?.sendingBack || false;
+export const selectIsResubmitting = (state: RootState, id: string) =>
+    state.helpdeskDocuments.actionLoading[id]?.resubmitting || false;
+export const selectIsCancelling = (state: RootState, id: string) =>
+    state.helpdeskDocuments.actionLoading[id]?.cancelling || false;
 
 // ─── Entity Selectors ──────────────────────────────────────────────────────
 
@@ -1573,6 +2309,24 @@ export const selectDocumentLinking = (state: RootState) => state.helpdeskDocumen
 
 export const selectUnlinkedHelpdeskDocuments = (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => !d.entity_id);
+
+// ─── Internal Approval Status Selectors ─────────────────────────────────────
+
+export const selectDocumentsByInternalStatus = (status: InternalApprovalStatus) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.internal_approval_status === status);
+
+export const selectDocumentsByRequesterStatus = (status: RequesterVisibleStatus) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.requester_status === status);
+
+export const selectDocumentsReadyToSendBack = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => 
+        d.is_internal_approval_complete && !d.is_sent_back_to_requester
+    );
+
+export const selectDocumentsPendingInternalReview = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => 
+        d.internal_approval_status === 'pending' || d.internal_approval_status === 'previewed'
+    );
 
 // ─── Consolidated Memo Selectors ──────────────────────────────────────────
 
@@ -1661,5 +2415,15 @@ export const selectRejectedDocumentsCount = (state: RootState) =>
 
 export const selectDraftDocumentsCount = (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.status === 'draft').length;
+
+export const selectPendingInternalCount = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => 
+        d.internal_approval_status === 'pending' || d.internal_approval_status === 'previewed'
+    ).length;
+
+export const selectReadyToSendBackCount = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => 
+        d.is_internal_approval_complete && !d.is_sent_back_to_requester
+    ).length;
 
 export default helpdeskDocumentsSlice.reducer;

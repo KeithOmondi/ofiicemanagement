@@ -241,10 +241,12 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
   // @ts-expect-error - lastAutoTable is attached by the plugin at runtime
   y = doc.lastAutoTable.finalY + 20;
 
-  // ── Signature block ──────────────────────────────────────────────────────
+  // ── Signature Block ──────────────────────────────────────────────────────
+  // ORDER: Signature image → Name → Designation
+  
   const nameLineH = data.signatoryName ? 18 : 0;
   const sigImgH = signatureDataUrl ? 42 + 8 : 14;
-  const sigBlockH = nameLineH + sigImgH + 14 + 11;
+  const sigBlockH = sigImgH + nameLineH + 14 + 11;
 
   // Sit the signature right below the table content, not pinned to the footer.
   const sigGapAboveContent = 36;
@@ -257,14 +259,7 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
   }
   y = sigY;
 
-  // Actual signatory name, bold, above the designation.
-  if (data.signatoryName) {
-    doc.setFont('times', 'bold');
-    doc.setFontSize(11.5);
-    doc.text(data.signatoryName, marginX, y);
-    y += nameLineH;
-  }
-
+  // 1. Signature image first (if available)
   if (signatureDataUrl) {
     try {
       const sigW = 110;
@@ -278,10 +273,15 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
     y += 12;
   }
 
-  doc.setLineWidth(1);
-  doc.setDrawColor(0, 0, 0);
-  doc.line(marginX, y, marginX + 180, y);
-  y += 15;
+  // 2. Signatory name second (bold) - NO underline line after
+  if (data.signatoryName) {
+    doc.setFont('times', 'bold');
+    doc.setFontSize(11.5);
+    doc.text(data.signatoryName, marginX, y);
+    y += nameLineH;
+  }
+
+  // 3. Designation third (no underline, just the text)
   doc.setFont('times', 'bold');
   doc.setFontSize(11);
   doc.text(data.from.toUpperCase(), marginX, y);
