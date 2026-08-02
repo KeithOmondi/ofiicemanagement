@@ -1,6 +1,7 @@
 // src/components/helpdesk/HelpdeskDocs.tsx
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { toast, Toaster } from 'react-hot-toast';
 import { 
   selectAllHelpdeskDocuments, 
   selectDocumentsFetchLoading,
@@ -29,16 +30,19 @@ import { useAppDispatch, useAppSelector } from '../../store/hook';
 import { 
   X, Loader2, Upload, FileText, Download, Trash2, Eye, 
   CheckCircle, XCircle, Clock, ArrowLeft, Send, 
-  FileCheck, Stamp, MessageSquare,
-   File,
-  ExternalLink, Check,
+  FileCheck, Stamp, MessageSquare, File,
+  Check, User, Maximize2, Minimize2,
 } from 'lucide-react';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+type UserRole = 'dept_head' | 'super_admin' | 'staff';
+
 interface HelpdeskDocsProps {
   entityType?: DocumentEntityType;
   entityId?: string;
+  userRole?: UserRole;
+  showAllDocuments?: boolean;
 }
 
 interface UploadFormData {
@@ -103,20 +107,360 @@ const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => {
   );
 };
 
+// ─── Document Preview Modal ──────────────────────────────────────────────────
+
+interface DocumentPreviewModalProps {
+  document: HelpdeskDocument;
+  onClose: () => void;
+  onDownload: () => void;
+}
+
+const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
+  document,
+  onClose,
+  onDownload,
+}) => {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  const fileUrl = document.file_url;
+
+  const getFileExtension = useCallback((url: string): string => {
+    const ext = url.split('.').pop()?.toLowerCase() || '';
+    return ext;
+  }, []);
+
+  const isPDF = useCallback((url: string): boolean => {
+    const ext = getFileExtension(url);
+    return ext === 'pdf' || url.includes('.pdf') || url.includes('/pdf/');
+  }, [getFileExtension]);
+
+  const isImage = useCallback((url: string): boolean => {
+    const ext = getFileExtension(url);
+    return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext);
+  }, [getFileExtension]);
+
+  const isWord = useCallback((url: string): boolean => {
+    const ext = getFileExtension(url);
+    return ext === 'docx' || ext === 'doc' || url.includes('.docx') || url.includes('/docx/');
+  }, [getFileExtension]);
+
+  const isExcel = useCallback((url: string): boolean => {
+    const ext = getFileExtension(url);
+    return ext === 'xlsx' || ext === 'xls' || url.includes('.xlsx') || url.includes('/xlsx/');
+  }, [getFileExtension]);
+
+  const getFileTypeLabel = useCallback((url: string): string => {
+    const ext = getFileExtension(url).toUpperCase();
+    if (isPDF(url)) return 'PDF Document';
+    if (isImage(url)) return 'Image';
+    if (isWord(url)) return 'Word Document';
+    if (isExcel(url)) return 'Excel Spreadsheet';
+    return ext ? `${ext} File` : 'Document';
+  }, [getFileExtension, isPDF, isImage, isWord, isExcel]);
+
+  const isPDFFile = isPDF(fileUrl);
+  const isImageFile = isImage(fileUrl);
+  const isWordFile = isWord(fileUrl);
+  const isExcelFile = isExcel(fileUrl);
+  const fileTypeLabel = getFileTypeLabel(fileUrl);
+  const blobUrlRef = useRef<string | null>(null);
+
+  // ─── Fetch PDF as blob ────────────────────────────────────────────────────
+  useEffect(() => {
+    const fetchDocument = async () => {
+      if (!isPDFFile || !fileUrl) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(fileUrl, {
+          headers: { Authorization: token ? `Bearer ${token}` : '' },
+        });
+
+        if (!response.ok) throw new Error('Failed to fetch document');
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        blobUrlRef.current = url;
+        setBlobUrl(url);
+      } catch (err) {
+        console.error('Failed to fetch document for preview:', err);
+        setError('Unable to preview this document. Please download the file to view it.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchDocument();
+
+    return () => {
+      if (blobUrlRef.current?.startsWith('blob:')) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+    };
+  }, [fileUrl, isPDFFile]);
+
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
+  };
+
+  const getDownloadUrl = useCallback(() => {
+    if (fileUrl.includes('download=true') || fileUrl.includes('attachment=true')) {
+      return fileUrl;
+    }
+    const separator = fileUrl.includes('?') ? '&' : '?';
+    return `${fileUrl}${separator}download=true`;
+  }, [fileUrl]);
+
+  const getPreviewUrl = useCallback(() => {
+    if (blobUrl && blobUrl.startsWith('blob:')) {
+      return blobUrl;
+    }
+    if (isPDFFile) {
+      return `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
+    }
+    return fileUrl;
+  }, [blobUrl, fileUrl, isPDFFile]);
+
+  const handleIframeLoad = () => {
+    setIsLoading(false);
+  };
+
+  const handleIframeError = () => {
+    setIsLoading(false);
+    setError('Unable to preview this document in the browser. Please download the file to view it.');
+  };
+
+  // ─── Render content based on file type ────────────────────────────────────
+  const renderPreviewContent = () => {
+    if (error) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center max-w-sm px-4">
+            <div className="text-5xl mb-4">⚠️</div>
+            <p className="text-sm text-red-600 mb-2">{error}</p>
+            <button
+              onClick={onDownload}
+              className="inline-flex items-center gap-2 rounded-lg bg-[#c9a84c] px-4 py-2 text-sm font-semibold text-[#1a3d1c] hover:bg-[#b8973f] transition"
+            >
+              <Download size={16} />
+              Download File
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center">
+            <Loader2 size={40} className="animate-spin text-[#c9a84c] mx-auto mb-3" />
+            <p className="text-sm text-stone-500">Loading document preview...</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (isImageFile) {
+      return (
+        <div className="flex items-center justify-center h-full p-4">
+          <img
+            src={fileUrl}
+            alt={document.subject}
+            className="max-w-full max-h-full object-contain"
+            onLoad={() => setIsLoading(false)}
+            onError={() => {
+              setIsLoading(false);
+              setError('Failed to load image. Please download the file.');
+            }}
+          />
+        </div>
+      );
+    }
+
+    if (isPDFFile) {
+      const previewUrl = getPreviewUrl();
+      const isGoogleViewer = previewUrl.includes('docs.google.com/viewer');
+
+      return (
+        <div className="w-full h-full relative">
+          {isGoogleViewer && (
+            <div className="absolute top-2 left-2 z-10 bg-amber-50 text-amber-700 text-xs px-2 py-1 rounded border border-amber-200">
+              <span className="font-medium">ℹ️</span> Using Google Docs Viewer
+            </div>
+          )}
+          <div className="w-full h-full relative">
+  <iframe
+    src={previewUrl}
+    className="absolute inset-0 w-full h-full border-0"
+    title={document.subject}
+    onLoad={handleIframeLoad}
+    onError={handleIframeError}
+  />
+</div>
+        </div>
+      );
+    }
+
+    if (isWordFile || isExcelFile) {
+      const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
+      return (
+        <div className="w-full h-full relative">
+          <div className="absolute top-2 left-2 z-10 bg-amber-50 text-amber-700 text-xs px-2 py-1 rounded border border-amber-200">
+            <span className="font-medium">ℹ️</span> Using Google Docs Viewer
+          </div>
+          <iframe
+            src={viewerUrl}
+            className="w-full h-full border-0"
+            title={document.subject}
+            onLoad={handleIframeLoad}
+            onError={handleIframeError}
+            sandbox="allow-scripts allow-same-origin allow-modals allow-forms"
+            allow="autoplay; encrypted-media"
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center max-w-sm px-4">
+          <div className="text-5xl mb-4">📄</div>
+          <p className="text-sm text-stone-600 mb-2">
+            This file type ({fileTypeLabel}) cannot be previewed in the browser.
+          </p>
+          <button
+            onClick={onDownload}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#c9a84c] px-4 py-2 text-sm font-semibold text-[#1a3d1c] hover:bg-[#b8973f] transition"
+          >
+            <Download size={16} />
+            Download File
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className={`fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-all duration-300 ${
+      isFullscreen ? 'p-0' : ''
+    }`}>
+      <div className={`bg-white rounded-xl shadow-2xl flex flex-col transition-all duration-300 ${
+  isFullscreen 
+    ? 'w-full h-full rounded-none' 
+    : 'w-full max-w-6xl h-[90vh]'   // h- not max-h-
+}`}>
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 bg-stone-50/50 rounded-t-xl flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="rounded-lg bg-[#c9a84c]/10 p-2 flex-shrink-0">
+              <FileText size={18} className="text-[#c9a84c]" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold text-stone-800 truncate">{document.subject}</h3>
+              <div className="flex items-center gap-2 text-xs text-stone-500">
+                <span className="font-mono">{document.ref}</span>
+                <span className="text-stone-300">•</span>
+                <span>{fileTypeLabel}</span>
+                {document.file_size && (
+                  <>
+                    <span className="text-stone-300">•</span>
+                    <span>{(document.file_size / 1024).toFixed(1)} KB</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={toggleFullscreen}
+              className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-200 hover:text-stone-600"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+            >
+              {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+            </button>
+            <button
+              onClick={onDownload}
+              className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-200 hover:text-stone-600"
+              title="Download"
+            >
+              <Download size={18} />
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-200 hover:text-stone-600"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Preview Body - Increased height */}
+       {/* Preview Body */}
+<div className="flex-1 min-h-0 overflow-hidden bg-stone-100 relative">
+  {renderPreviewContent()}
+</div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between border-t border-stone-100 px-4 py-2.5 bg-stone-50/50 rounded-b-xl flex-shrink-0">
+          <div className="flex items-center gap-2 text-xs text-stone-500">
+            <span>Status:</span>
+            <StatusBadge status={document.status} />
+            {document.uploaded_by_name && (
+              <>
+                <span className="text-stone-300">•</span>
+                <span className="flex items-center gap-1">
+                  <User size={12} />
+                  {document.uploaded_by_name}
+                </span>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-3 py-1 text-sm text-stone-600 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition"
+            >
+              Close
+            </button>
+            <a
+              href={getDownloadUrl()}
+              download
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#c9a84c] px-3 py-1.5 text-sm font-semibold text-[#1a3d1c] transition hover:bg-[#b8973f]"
+            >
+              <Download size={14} />
+              Download
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Document Detail Modal ──────────────────────────────────────────────────
 
 interface DocumentDetailModalProps {
   document: HelpdeskDocument;
   onClose: () => void;
   onRefresh: () => void;
-  currentUserRole: 'dept_head' | 'super_admin' | 'staff';
+  userRole: UserRole;
+  onPreview: () => void;
 }
 
 const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
   document,
   onClose,
   onRefresh,
-  currentUserRole,
+  userRole,
+  onPreview,
 }) => {
   const dispatch = useAppDispatch();
   const actionLoading = useAppSelector(selectDocumentActionLoading);
@@ -160,7 +504,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
 
   const handleReject = async () => {
     if (!rejectReason.trim()) {
-      alert('Please provide a rejection reason.');
+      toast.error('Please provide a rejection reason.');
       return;
     }
     setIsSubmitting(true);
@@ -188,7 +532,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
       setReturnComments('');
       onRefresh();
       toast.success('Document returned');
-    } catch  {
+    } catch {
       toast.error('Failed to return document');
     } finally {
       setIsSubmitting(false);
@@ -212,10 +556,11 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
     }
   };
 
-  const canSubmit = document.status === 'draft' && currentUserRole === 'dept_head';
-  const canApprove = document.status === 'pending_approval' && currentUserRole === 'super_admin';
-  const canReject = document.status === 'pending_approval' && currentUserRole === 'super_admin';
-  const canReturn = document.status === 'approved' && currentUserRole === 'super_admin';
+  // Role-based permissions
+  const canSubmit = document.status === 'draft' && userRole === 'dept_head';
+  const canApprove = document.status === 'pending_approval' && userRole === 'super_admin';
+  const canReject = document.status === 'pending_approval' && userRole === 'super_admin';
+  const canReturn = document.status === 'approved' && userRole === 'super_admin';
   const canDownloadStamped = document.status === 'approved' && document.e_stamp_url;
 
   return (
@@ -245,23 +590,13 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
         <div className="max-h-[75vh] overflow-y-auto p-6">
           {/* ── Quick Actions ────────────────────────────────────────────── */}
           <div className="mb-4 flex flex-wrap gap-2">
-            <a
-              href={document.file_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
+            <button
+              onClick={onPreview}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#c9a84c] px-3 py-1.5 text-xs font-semibold text-[#1a3d1c] transition hover:bg-[#b8973f]"
             >
-              <ExternalLink size={14} />
-              View Document
-            </a>
-            <a
-              href={document.file_url}
-              download
-              className="inline-flex items-center gap-1.5 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50"
-            >
-              <Download size={14} />
-              Download
-            </a>
+              <Eye size={14} />
+              Preview Document
+            </button>
             {canSubmit && (
               <button
                 onClick={handleSubmitForApproval}
@@ -635,9 +970,16 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => {
+const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ 
+  entityType, 
+  entityId,
+  userRole = 'staff',
+  showAllDocuments = false,
+}) => {
   const dispatch = useAppDispatch();
-  const documents = useAppSelector(selectAllHelpdeskDocuments);
+  const currentUser = useAppSelector((state) => state.auth.user);
+  
+  const allDocuments = useAppSelector(selectAllHelpdeskDocuments);
   const selectedDocument = useAppSelector(selectSelectedHelpdeskDocument);
   const isLoading = useAppSelector(selectDocumentsFetchLoading);
   const isUploading = useAppSelector(selectDocumentsUploading);
@@ -646,6 +988,7 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
 
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadFormData, setUploadFormData] = useState<UploadFormData>({
     ref: '',
@@ -655,9 +998,40 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Current User Role ─────────────────────────────────────────────────────
-  // TODO: Get this from your auth state
-  const currentUserRole: 'dept_head' | 'super_admin' | 'staff' = 'dept_head';
+  // ── Filter documents based on user role ──────────────────────────────
+  const documents = useMemo(() => {
+    if (!currentUser) {
+      return [];
+    }
+    
+    // Super admin sees all documents
+    if (userRole === 'super_admin' || showAllDocuments) {
+      return allDocuments;
+    }
+    
+    // For dept_head and staff, only show documents they uploaded
+    const userId = currentUser.id;
+    const userFullName = (currentUser.full_name || '').toLowerCase().trim();
+    
+    const filtered = allDocuments.filter(doc => {
+      // Match by user ID
+      if (doc.uploaded_by && doc.uploaded_by === userId) {
+        return true;
+      }
+      
+      // Match by full name (case insensitive)
+      if (doc.uploaded_by_name) {
+        const docName = doc.uploaded_by_name.toLowerCase().trim();
+        if (docName === userFullName) return true;
+        if (userFullName && docName.includes(userFullName)) return true;
+        if (userFullName && userFullName.includes(docName)) return true;
+      }
+      
+      return false;
+    });
+    
+    return filtered;
+  }, [allDocuments, currentUser, userRole, showAllDocuments]);
 
   // ── Effects ──────────────────────────────────────────────────────────────
 
@@ -735,6 +1109,16 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
     setShowDetailModal(true);
   };
 
+  const handlePreviewDocument = () => {
+    setShowPreviewModal(true);
+  };
+
+  const handleDownloadDocument = () => {
+    if (selectedDocument?.file_url) {
+      window.open(selectedDocument.file_url, '_blank');
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this document?')) {
       try {
@@ -755,6 +1139,7 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
 
   const handleCloseDetail = () => {
     setShowDetailModal(false);
+    setShowPreviewModal(false);
     dispatch(clearSelectedDocument());
   };
 
@@ -798,36 +1183,51 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
+  const isSuperAdmin = userRole === 'super_admin';
+  const title = isSuperAdmin ? 'All Documents' : 'My Documents';
+
   return (
     <div className="space-y-4">
+      <Toaster position="top-right" />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-stone-800">Documents</h2>
+          <h2 className="text-lg font-semibold text-stone-800">{title}</h2>
           <p className="text-xs text-stone-500">
             {documents.length} document{documents.length !== 1 ? 's' : ''} found
           </p>
         </div>
-        <button
-          onClick={() => setShowUploadModal(true)}
-          disabled={isUploading}
-          className="inline-flex items-center gap-2 rounded-lg bg-[#c9a84c] px-4 py-2 text-sm font-semibold text-[#1a3d1c] transition hover:bg-[#b8973f] disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isUploading ? (
-            <Loader2 size={16} className="animate-spin" />
-          ) : (
-            <Upload size={16} />
-          )}
-          {isUploading ? 'Uploading...' : 'Upload Document'}
-        </button>
+        {(userRole === 'dept_head' || userRole === 'staff') && (
+          <button
+            onClick={() => setShowUploadModal(true)}
+            disabled={isUploading}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#c9a84c] px-4 py-2 text-sm font-semibold text-[#1a3d1c] transition hover:bg-[#b8973f] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isUploading ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Upload size={16} />
+            )}
+            {isUploading ? 'Uploading...' : 'Upload Document'}
+          </button>
+        )}
       </div>
 
-      {/* Document List */}
+      {/* Document List - Removed Download button */}
       {documents.length === 0 ? (
         <div className="rounded-lg border-2 border-dashed border-stone-200 bg-stone-50 p-12 text-center">
           <FileText size={48} className="mx-auto text-stone-300" />
-          <p className="mt-2 text-sm text-stone-500">No documents uploaded yet.</p>
-          <p className="text-xs text-stone-400">Upload your first document using the button above.</p>
+          <p className="mt-2 text-sm text-stone-500">
+            {isSuperAdmin 
+              ? 'No documents found in the system.' 
+              : 'No documents uploaded yet.'}
+          </p>
+          <p className="text-xs text-stone-400">
+            {isSuperAdmin 
+              ? 'Documents will appear here once uploaded by department heads.' 
+              : 'Upload your first document using the button above.'}
+          </p>
         </div>
       ) : (
         <div className="grid gap-3">
@@ -863,6 +1263,12 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
                         Stamped
                       </span>
                     )}
+                    {doc.uploaded_by_name && (
+                      <span className="inline-flex items-center gap-1 text-stone-400">
+                        <User size={12} />
+                        {doc.uploaded_by_name}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -874,27 +1280,20 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
                 >
                   <Eye size={18} />
                 </button>
-                <a
-                  href={doc.file_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-lg p-2 text-stone-400 transition hover:bg-stone-100 hover:text-stone-600"
-                  title="Download document"
-                >
-                  <Download size={16} />
-                </a>
-                <button
-                  onClick={() => handleDelete(doc.id)}
-                  disabled={deletingId === doc.id}
-                  className="rounded-lg p-2 text-stone-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Delete document"
-                >
-                  {deletingId === doc.id ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <Trash2 size={16} />
-                  )}
-                </button>
+                {doc.uploaded_by === currentUser?.id && (
+                  <button
+                    onClick={() => handleDelete(doc.id)}
+                    disabled={deletingId === doc.id}
+                    className="rounded-lg p-2 text-stone-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Delete document"
+                  >
+                    {deletingId === doc.id ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Trash2 size={16} />
+                    )}
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -902,7 +1301,7 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
       )}
 
       {/* Upload Modal */}
-      {showUploadModal && (
+      {(userRole === 'dept_head' || userRole === 'staff') && showUploadModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
@@ -916,7 +1315,6 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
             </div>
 
             <div className="p-6 space-y-4">
-              {/* File Input */}
               <div>
                 <label className="mb-1 block text-xs font-medium text-stone-600">
                   File *
@@ -935,7 +1333,6 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
                 )}
               </div>
 
-              {/* Reference */}
               <div>
                 <label className="mb-1 block text-xs font-medium text-stone-600">
                   Reference *
@@ -950,7 +1347,6 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
                 />
               </div>
 
-              {/* Subject */}
               <div>
                 <label className="mb-1 block text-xs font-medium text-stone-600">
                   Subject *
@@ -965,7 +1361,6 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
                 />
               </div>
 
-              {/* Format */}
               <div>
                 <label className="mb-1 block text-xs font-medium text-stone-600">
                   Format *
@@ -984,14 +1379,12 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
                 </select>
               </div>
 
-              {/* Error */}
               {uploadError && (
                 <div className="rounded-md bg-red-50 p-3">
                   <p className="text-xs text-red-700">{uploadError}</p>
                 </div>
               )}
 
-              {/* Actions */}
               <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   onClick={handleCloseModal}
@@ -1028,26 +1421,21 @@ const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }
           document={selectedDocument}
           onClose={handleCloseDetail}
           onRefresh={handleRefresh}
-          currentUserRole={currentUserRole}
+          userRole={userRole}
+          onPreview={handlePreviewDocument}
+        />
+      )}
+
+      {/* Document Preview Modal */}
+      {showPreviewModal && selectedDocument && (
+        <DocumentPreviewModal
+          document={selectedDocument}
+          onClose={() => setShowPreviewModal(false)}
+          onDownload={handleDownloadDocument}
         />
       )}
     </div>
   );
 };
 
-// ─── Toast helper ────────────────────────────────────────────────────────────
-
-// Simple toast implementation - you can replace with your preferred toast library
-const toast = {
-  success: (message: string) => {
-    // You can replace this with react-hot-toast or your preferred toast library
-    console.log('✅', message);
-    alert(message);
-  },
-  error: (message: string) => {
-    console.log('❌', message);
-    alert(message);
-  },
-};
-
-export default StuffHelpdeskDocs;
+export default HelpdeskDocs;

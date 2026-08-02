@@ -1,4 +1,4 @@
-// src/components/AnyDoDashboard.tsx (or SuperAdminToDo.tsx)
+// src/components/AnyDoDashboard.tsx
 import { useState, useEffect, useCallback } from "react";
 import { useAppDispatch, useAppSelector } from "../../store/hook";
 import {
@@ -29,6 +29,7 @@ import type {
   TaskDay,
   TaskStatus,
   TaskAttachment,
+  Subtask,
 } from "../../types/tasks.types";
 import {
   Sun,
@@ -90,6 +91,7 @@ interface TaskDetailContentProps {
   users: User[];
   onAssigneeChange: (userId: string | null) => void;
   onAttachmentUpload: (files: FileList | null) => void;
+  onNotesChange?: (notes: string) => void;
 }
 
 // ─── TaskDetailContent ─────────────────────────────────────────────────
@@ -112,7 +114,24 @@ const TaskDetailContent = ({
   users,
   onAssigneeChange,
   onAttachmentUpload,
+  onNotesChange,
 }: TaskDetailContentProps) => {
+  const [notes, setNotes] = useState(task.notes || "");
+  const [notesTaskId, setNotesTaskId] = useState(task.id);
+
+if (task.id !== notesTaskId) {
+    setNotesTaskId(task.id);
+    setNotes(task.notes || "");
+  }
+
+  const handleNotesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const value = e.target.value;
+    setNotes(value);
+    if (onNotesChange) {
+      onNotesChange(value);
+    }
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">{task.title}</h1>
@@ -257,7 +276,8 @@ const TaskDetailContent = ({
         <textarea
           placeholder="Insert your notes here"
           rows={2}
-          defaultValue={task.notes || ""}
+          value={notes}
+          onChange={handleNotesChange}
           className="w-full text-xs text-slate-700 placeholder-slate-300 bg-transparent outline-none resize-none"
         />
       </div>
@@ -271,7 +291,7 @@ const TaskDetailContent = ({
           <button className="text-slate-400 hover:text-slate-600"><MoreVertical className="w-4 h-4" /></button>
         </div>
         <div className="space-y-2">
-          {task.subtasks?.map((st) => (
+          {task.subtasks?.map((st: Subtask) => (
             <div key={st.id} className="flex items-center space-x-2 text-xs">
               <button onClick={() => toggleSubtask(st.id)}>
                 <Circle className={`w-4 h-4 ${st.completed ? "fill-emerald-600 text-emerald-600" : "text-slate-300"}`} />
@@ -312,8 +332,8 @@ const TaskDetailContent = ({
             <div className="mt-3 w-full space-y-1">
               {task.attachments.map((att: TaskAttachment) => (
                 <div key={att.id} className="flex items-center justify-between text-xs bg-slate-50 p-2 rounded-lg">
-                  <span className="truncate">{att.file_name}</span>
-                  <a href={att.file_url} target="_blank" rel="noopener noreferrer" className="text-sky-500 hover:underline">View</a>
+                  <span className="truncate">{att.filename}</span>
+                  <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-sky-500 hover:underline">View</a>
                 </div>
               ))}
             </div>
@@ -351,15 +371,11 @@ const AnyDoDashboard = () => {
   // Auth & users – fixed selector without 'any'
   const user = useAppSelector((state) => state.auth.user);
   const users = useAppSelector((state): User[] => {
-    // Cast the whole state to unknown, then to our local interface
     const usersState = (state as unknown as RootStateWithUsers).users;
-    // If it's an array directly, return it
     if (Array.isArray(usersState)) return usersState;
-    // If it's an object with a 'list' property that is an array, return that
     if (usersState && typeof usersState === 'object' && 'list' in usersState && Array.isArray(usersState.list)) {
       return usersState.list;
     }
-    // Fallback to empty array
     return [];
   });
 
@@ -402,6 +418,12 @@ const AnyDoDashboard = () => {
   }, [loadData]);
 
   // ── Sync local state with currentTask ────────────────────────────────
+  // NOTE: this runs during render (not inside a useEffect). React detects the
+  // setState calls below change state during render and immediately re-renders
+  // with the corrected values before committing anything to the screen, so
+  // there's no extra flash and no "setState inside an effect" cascade warning.
+  // This is the pattern React's docs recommend for "adjusting state when a
+  // prop changes" (see https://react.dev/learn/you-might-not-need-an-effect).
   if (currentTask && currentTask.id !== syncedTaskId) {
     setSyncedTaskId(currentTask.id);
     setReminderDate(currentTask.reminder_date || new Date().toISOString().split('T')[0]);
@@ -461,7 +483,7 @@ const AnyDoDashboard = () => {
     if (!currentTask || !newSubtaskInput.trim()) return;
     dispatch(createSubtask({
       taskId: currentTask.id,
-      data: { task_id: currentTask.id, title: newSubtaskInput.trim() }
+      data: { title: newSubtaskInput.trim() }
     })).then(() => {
       dispatch(fetchTaskById(currentTask.id));
     });
@@ -562,7 +584,7 @@ const AnyDoDashboard = () => {
         <Menu className="w-5 h-5 text-slate-600" />
       </button>
 
-      {/* Sidebar (unchanged) */}
+      {/* Sidebar */}
       <aside
         className={`
           bg-white border-r border-slate-200 flex flex-col justify-between p-3 shrink-0 transition-all duration-300 relative z-40
@@ -789,68 +811,79 @@ const AnyDoDashboard = () => {
               )}
             </div>
 
-            <div className="relative z-10 space-y-4 my-4 sm:my-6 flex-1 max-w-4xl">
-              <div className="bg-white/80 backdrop-blur-md border border-white/60 rounded-3xl p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center space-y-3 sm:space-y-0 sm:space-x-6">
-                <div className="flex flex-col items-center justify-center pr-0 sm:pr-6 border-r-0 sm:border-r border-slate-200/80 w-full sm:w-auto">
-                  <span className="text-[10px] font-bold font-serif text-slate-400 uppercase tracking-widest">MON</span>
-                  <span className="text-2xl sm:text-3xl font-black font-serif text-slate-800 leading-none my-0.5">27</span>
-                  <span className="text-xs font-semibold font-serif text-slate-500">July</span>
-                </div>
-                <div className="space-y-1.5 flex-1">
-                  <h4 className="text-xs font-bold font-serif text-slate-700">Join video meetings with one tap</h4>
-                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-semibold">
-                    <button className="flex items-center space-x-1 text-sky-600 hover:underline">
-                      <span>🗓️</span><span>Google</span>
-                    </button>
-                    <button className="flex items-center space-x-1 text-sky-600 hover:underline">
-                      <span>📫</span><span>Outlook</span>
-                    </button>
-                    <button className="flex items-center space-x-1 text-sky-600 hover:underline">
-                      <span>☁️</span><span>iCloud</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
+           <div className="relative z-10 space-y-4 my-4 sm:my-6 flex-1 max-w-4xl">
+  <div className="bg-white/80 backdrop-blur-md border border-white/60 rounded-3xl p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center space-y-3 sm:space-y-0 sm:space-x-6">
+    <div className="flex flex-col items-center justify-center pr-0 sm:pr-6 border-r-0 sm:border-r border-slate-200/80 w-full sm:w-auto">
+      <span className="text-[10px] font-bold font-serif text-slate-400 uppercase tracking-widest">
+        {new Date().toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()}
+      </span>
+      <span className="text-2xl sm:text-3xl font-black font-serif text-slate-800 leading-none my-0.5">
+        {new Date().getDate()}
+      </span>
+      <span className="text-xs font-semibold font-serif text-slate-500">
+        {new Date().toLocaleDateString('en-US', { month: 'long' })}
+      </span>
+    </div>
+    <div className="space-y-1.5 flex-1">
+      <h4 className="text-xs font-bold font-serif text-slate-700">Join video meetings with one tap</h4>
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs font-semibold">
+        <button className="flex items-center space-x-1 text-sky-600 hover:underline">
+          <span>🗓️</span><span>Google</span>
+        </button>
+        <button className="flex items-center space-x-1 text-sky-600 hover:underline">
+          <span>📫</span><span>Outlook</span>
+        </button>
+        <button className="flex items-center space-x-1 text-sky-600 hover:underline">
+          <span>☁️</span><span>iCloud</span>
+        </button>
+      </div>
+    </div>
+  </div>
 
-              <div className="space-y-2">
-                {myDayTasks.map((task) => (
-                  <div
-                    key={task.id}
-                    onClick={() => {
-                      handleSelectTask(task.id);
-                      setIsReminderOpen(false);
-                    }}
-                    className="bg-white/90 backdrop-blur-md border border-white/80 rounded-2xl p-3 sm:p-4 shadow-2xs flex items-center space-x-3 group transition hover:shadow-xs cursor-pointer"
-                  >
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleTaskCompletion(task.id);
-                      }}
-                      className="text-slate-300 hover:text-emerald-600 transition"
-                    >
-                      <Circle className={`w-5 h-5 ${task.status === 'completed' ? "fill-emerald-600 text-emerald-600" : ""}`} />
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-1 text-[10px] sm:text-[11px] font-medium text-slate-400 mb-0.5">
-                        <Lock className="w-3 h-3 text-slate-300" />
-                        <span>My lists</span>
-                        <ChevronRight className="w-3 h-3 text-slate-300" />
-                        <span className="text-slate-500 font-semibold truncate">{task.list_name || 'Personal'}</span>
-                      </div>
-                      <h3 className={`text-sm font-semibold truncate ${task.status === 'completed' ? "line-through text-slate-400" : "text-slate-800"}`}>
-                        {task.title}
-                      </h3>
-                      {task.assigned_to && (
-                        <div className="text-[10px] text-slate-500 mt-0.5">
-                          Assigned to: {users.find(u => u.id === task.assigned_to)?.full_name || 'Unknown'}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+  <div className="space-y-2">
+    {myDayTasks.map((task) => (
+      <div
+        key={task.id}
+        onClick={() => {
+          handleSelectTask(task.id);
+          setIsReminderOpen(false);
+        }}
+        className="bg-white/90 backdrop-blur-md border border-white/80 rounded-2xl p-3 sm:p-4 shadow-2xs flex items-center space-x-3 group transition hover:shadow-xs cursor-pointer"
+      >
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleTaskCompletion(task.id);
+          }}
+          className="text-slate-300 hover:text-emerald-600 transition"
+        >
+          <Circle className={`w-5 h-5 ${task.status === 'completed' ? "fill-emerald-600 text-emerald-600" : ""}`} />
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center space-x-1 text-[10px] sm:text-[11px] font-medium text-slate-400 mb-0.5">
+            <Lock className="w-3 h-3 text-slate-300" />
+            <span>My lists</span>
+            <ChevronRight className="w-3 h-3 text-slate-300" />
+            <span className="text-slate-500 font-semibold truncate">{task.list_name || 'Personal'}</span>
+          </div>
+          <h3 className={`text-sm font-semibold truncate ${task.status === 'completed' ? "line-through text-slate-400" : "text-slate-800"}`}>
+            {task.title}
+          </h3>
+          {task.assigned_to && (
+            <div className="text-[10px] text-slate-500 mt-0.5">
+              Assigned to: {users.find(u => u.id === task.assigned_to)?.full_name || 'Unknown'}
             </div>
+          )}
+        </div>
+      </div>
+    ))}
+    {myDayTasks.length === 0 && (
+      <div className="text-center py-8 text-xs font-medium text-slate-400">
+        No tasks in My Day yet. Add one below.
+      </div>
+    )}
+  </div>
+</div>
 
             <div className="relative z-10 flex items-center space-x-3 max-w-4xl">
               <div className="flex-1 bg-white/90 backdrop-blur-md border border-white/80 rounded-2xl px-3 sm:px-4 py-2 sm:py-3 shadow-sm flex items-center space-x-2.5">
@@ -870,7 +903,7 @@ const AnyDoDashboard = () => {
             </div>
           </div>
         ) : activeTab === "Next 7 days" ? (
-          /* Next 7 days Kanban (unchanged) */
+          /* Next 7 days Kanban */
           <div className="flex-1 flex flex-col overflow-hidden relative bg-[#f4f5f7]">
             <div className="absolute -right-20 -top-20 w-[600px] h-[600px] bg-sky-500/80 rounded-full blur-3xl pointer-events-none" />
             <div className="absolute right-0 top-1/4 w-[500px] h-[500px] bg-blue-600/80 rounded-full blur-2xl pointer-events-none" />

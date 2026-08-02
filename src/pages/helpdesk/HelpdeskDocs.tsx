@@ -1,6 +1,6 @@
 // src/components/helpdesk/HelpdeskDocs.tsx
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { toast, Toaster } from 'react-hot-toast';
 import {
   selectAllHelpdeskDocuments,
@@ -44,8 +44,11 @@ import {
   Stamp,
   MessageSquare,
   File,
-  ExternalLink,
   Check,
+  User,
+  Folder,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -53,6 +56,7 @@ import {
 interface HelpdeskDocsProps {
   entityType?: DocumentEntityType;
   entityId?: string;
+  groupBySender?: boolean;
 }
 
 interface UploadFormData {
@@ -120,6 +124,499 @@ const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => {
   );
 };
 
+// ─── Document Preview Modal ──────────────────────────────────────────────────
+
+interface DocumentPreviewModalProps {
+  document: HelpdeskDocument;
+  onClose: () => void;
+  onDownload: () => void;
+}
+
+const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
+  document,
+  onClose,
+  onDownload,
+}) => {
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+
+  const fileUrl = document.file_url;
+
+  const getFileExtension = useCallback((url: string): string => {
+    const ext = url.split('.').pop()?.toLowerCase() || '';
+    return ext;
+  }, []);
+
+  const isPDF = useCallback((url: string): boolean => {
+    const ext = getFileExtension(url);
+    return ext === 'pdf' || url.includes('.pdf') || url.includes('/pdf/');
+  }, [getFileExtension]);
+
+  const isImage = useCallback((url: string): boolean => {
+    const ext = getFileExtension(url);
+    return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext);
+  }, [getFileExtension]);
+
+  const isWord = useCallback((url: string): boolean => {
+    const ext = getFileExtension(url);
+    return ext === 'docx' || ext === 'doc' || url.includes('.docx') || url.includes('/docx/');
+  }, [getFileExtension]);
+
+  const isExcel = useCallback((url: string): boolean => {
+    const ext = getFileExtension(url);
+    return ext === 'xlsx' || ext === 'xls' || url.includes('.xlsx') || url.includes('/xlsx/');
+  }, [getFileExtension]);
+
+  const getFileTypeLabel = useCallback((url: string): string => {
+    const ext = getFileExtension(url).toUpperCase();
+    if (isPDF(url)) return 'PDF Document';
+    if (isImage(url)) return 'Image';
+    if (isWord(url)) return 'Word Document';
+    if (isExcel(url)) return 'Excel Spreadsheet';
+    return ext ? `${ext} File` : 'Document';
+  }, [getFileExtension, isPDF, isImage, isWord, isExcel]);
+
+  const isPDFFile = isPDF(fileUrl);
+  const isImageFile = isImage(fileUrl);
+  const isWordFile = isWord(fileUrl);
+  const isExcelFile = isExcel(fileUrl);
+  const fileTypeLabel = getFileTypeLabel(fileUrl);
+  const blobUrlRef = useRef<string | null>(null);
+
+  // ─── Fetch PDF as blob ────────────────────────────────────────────────────
+  useEffect(() => {
+    const fetchDocument = async () => {
+      if (!isPDFFile || !fileUrl) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch(fileUrl, {
+          headers: { Authorization: token ? `Bearer ${token}` : '' },
+        });
+
+        if (!response.ok) throw new Error('Failed to fetch document');
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        blobUrlRef.current = url;
+        setBlobUrl(url);
+      } catch (err) {
+        console.error('Failed to fetch document for preview:', err);
+        setError('Unable to preview this document. Please download the file to view it.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchDocument();
+
+    return () => {
+      if (blobUrlRef.current?.startsWith('blob:')) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+    };
+  }, [fileUrl, isPDFFile]);
+
+  const toggleFullscreen = () => {
+    setIsFullscreen(!isFullscreen);
+  };
+
+  const getDownloadUrl = useCallback(() => {
+    if (fileUrl.includes('download=true') || fileUrl.includes('attachment=true')) {
+      return fileUrl;
+    }
+    const separator = fileUrl.includes('?') ? '&' : '?';
+    return `${fileUrl}${separator}download=true`;
+  }, [fileUrl]);
+
+  const getPreviewUrl = useCallback(() => {
+    if (blobUrl && blobUrl.startsWith('blob:')) {
+      return blobUrl;
+    }
+    if (isPDFFile) {
+      return `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
+    }
+    return fileUrl;
+  }, [blobUrl, fileUrl, isPDFFile]);
+
+  const handleIframeLoad = () => {
+    setIsLoading(false);
+  };
+
+  const handleIframeError = () => {
+    setIsLoading(false);
+    setError('Unable to preview this document in the browser. Please download the file to view it.');
+  };
+
+  // ─── Render content based on file type ────────────────────────────────────
+  const renderPreviewContent = () => {
+    if (error) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center max-w-sm px-4">
+            <div className="text-5xl mb-4">⚠️</div>
+            <p className="text-sm text-red-600 mb-2">{error}</p>
+            <button
+              onClick={onDownload}
+              className="inline-flex items-center gap-2 rounded-lg bg-[#c9a84c] px-4 py-2 text-sm font-semibold text-[#1a3d1c] hover:bg-[#b8973f] transition"
+            >
+              <Download size={16} />
+              Download File
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <div className="text-center">
+            <Loader2 size={40} className="animate-spin text-[#c9a84c] mx-auto mb-3" />
+            <p className="text-sm text-stone-500">Loading document preview...</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (isImageFile) {
+      return (
+        <div className="flex items-center justify-center h-full p-4">
+          <img
+            src={fileUrl}
+            alt={document.subject}
+            className="max-w-full max-h-full object-contain"
+            onLoad={() => setIsLoading(false)}
+            onError={() => {
+              setIsLoading(false);
+              setError('Failed to load image. Please download the file.');
+            }}
+          />
+        </div>
+      );
+    }
+
+    if (isPDFFile) {
+      const previewUrl = getPreviewUrl();
+      const isGoogleViewer = previewUrl.includes('docs.google.com/viewer');
+
+      return (
+        <div className="w-full h-full relative">
+          {isGoogleViewer && (
+            <div className="absolute top-2 left-2 z-10 bg-amber-50 text-amber-700 text-xs px-2 py-1 rounded border border-amber-200">
+              <span className="font-medium">ℹ️</span> Using Google Docs Viewer
+            </div>
+          )}
+          <iframe
+            src={previewUrl}
+            className="w-full h-full border-0"
+            title={document.subject}
+            onLoad={handleIframeLoad}
+            onError={handleIframeError}
+          />
+        </div>
+      );
+    }
+
+    if (isWordFile || isExcelFile) {
+      const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
+      return (
+        <div className="w-full h-full relative">
+          <div className="absolute top-2 left-2 z-10 bg-amber-50 text-amber-700 text-xs px-2 py-1 rounded border border-amber-200">
+            <span className="font-medium">ℹ️</span> Using Google Docs Viewer
+          </div>
+          <iframe
+            src={viewerUrl}
+            className="w-full h-full border-0"
+            title={document.subject}
+            onLoad={handleIframeLoad}
+            onError={handleIframeError}
+            sandbox="allow-scripts allow-same-origin allow-modals allow-forms"
+            allow="autoplay; encrypted-media"
+          />
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center max-w-sm px-4">
+          <div className="text-5xl mb-4">📄</div>
+          <p className="text-sm text-stone-600 mb-2">
+            This file type ({fileTypeLabel}) cannot be previewed in the browser.
+          </p>
+          <button
+            onClick={onDownload}
+            className="inline-flex items-center gap-2 rounded-lg bg-[#c9a84c] px-4 py-2 text-sm font-semibold text-[#1a3d1c] hover:bg-[#b8973f] transition"
+          >
+            <Download size={16} />
+            Download File
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className={`fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-all duration-300 ${
+      isFullscreen ? 'p-0' : ''
+    }`}>
+      <div className={`bg-white rounded-xl shadow-2xl flex flex-col transition-all duration-300 ${
+        isFullscreen 
+          ? 'w-full h-full rounded-none' 
+          : 'w-full max-w-6xl h-[90vh]'
+      }`}>
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 bg-stone-50/50 rounded-t-xl flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="rounded-lg bg-[#c9a84c]/10 p-2 flex-shrink-0">
+              <FileText size={18} className="text-[#c9a84c]" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold text-stone-800 truncate">{document.subject}</h3>
+              <div className="flex items-center gap-2 text-xs text-stone-500">
+                <span className="font-mono">{document.ref}</span>
+                <span className="text-stone-300">•</span>
+                <span>{fileTypeLabel}</span>
+                {document.file_size && (
+                  <>
+                    <span className="text-stone-300">•</span>
+                    <span>{(document.file_size / 1024).toFixed(1)} KB</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              onClick={toggleFullscreen}
+              className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-200 hover:text-stone-600"
+              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+            >
+              {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+            </button>
+            <button
+              onClick={onDownload}
+              className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-200 hover:text-stone-600"
+              title="Download"
+            >
+              <Download size={18} />
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded-lg p-1.5 text-stone-400 transition hover:bg-stone-200 hover:text-stone-600"
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {/* Preview Body */}
+        <div className="flex-1 min-h-0 overflow-hidden bg-stone-100 relative">
+          {renderPreviewContent()}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between border-t border-stone-100 px-4 py-2.5 bg-stone-50/50 rounded-b-xl flex-shrink-0">
+          <div className="flex items-center gap-2 text-xs text-stone-500">
+            <span>Status:</span>
+            <StatusBadge status={document.status} />
+            {document.uploaded_by_name && (
+              <>
+                <span className="text-stone-300">•</span>
+                <span className="flex items-center gap-1">
+                  <User size={12} />
+                  {document.uploaded_by_name}
+                </span>
+              </>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="px-3 py-1 text-sm text-stone-600 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition"
+            >
+              Close
+            </button>
+            <a
+              href={getDownloadUrl()}
+              download
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#c9a84c] px-3 py-1.5 text-sm font-semibold text-[#1a3d1c] transition hover:bg-[#b8973f]"
+            >
+              <Download size={14} />
+              Download
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── Document Card Component ──────────────────────────────────────────────
+
+interface DocumentCardProps {
+  doc: HelpdeskDocument;
+  onView: (id: string) => void;
+  onPreview: (id: string) => void;
+  onDelete: (id: string) => void;
+  deletingId: string | null;
+}
+
+const DocumentCard: React.FC<DocumentCardProps> = ({ doc, onPreview, onDelete, deletingId }) => {
+  return (
+    <div className="relative flex flex-col bg-white rounded-xl border border-slate-200 p-4 transition hover:shadow-md hover:border-slate-300">
+      {/* Document Icon */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="rounded-lg bg-slate-100 p-2.5">
+          <FileText size={24} className="text-slate-600" />
+        </div>
+        <StatusBadge status={doc.status} />
+      </div>
+
+      {/* Document Info */}
+      <div className="flex-1">
+        <h3 className="font-medium text-slate-800 truncate mb-1">{doc.subject}</h3>
+        <p className="text-xs font-mono text-slate-500 mb-2">Ref: {doc.ref}</p>
+        
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <span className="inline-block rounded bg-slate-100 px-2 py-0.5 font-mono uppercase">
+            {doc.format}
+          </span>
+          <span>{new Date(doc.created_at).toLocaleDateString()}</span>
+          {doc.file_size && <span>{(doc.file_size / 1024).toFixed(1)} KB</span>}
+        </div>
+
+        {doc.e_stamp_status === 'stamped' && (
+          <div className="mt-2 inline-flex items-center gap-1 text-xs text-emerald-600">
+            <Stamp size={12} />
+            E-Stamped
+          </div>
+        )}
+
+        {/* Sender Info */}
+        <div className="mt-3 pt-3 border-t border-slate-100">
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <User size={12} />
+            <span className="truncate">{doc.uploaded_by_name || 'Unknown Sender'}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Action Buttons - Removed Download button */}
+      <div className="flex items-center justify-end gap-1 mt-4 pt-3 border-t border-slate-100">
+        <button
+          onClick={() => onPreview(doc.id)}
+          className="rounded-lg p-2 text-[#8B6914] transition hover:bg-[#8B6914]/10 hover:text-[#7A5E12]"
+          title="Preview document"
+        >
+          <Eye size={18} />
+        </button>
+        <button
+          onClick={() => onDelete(doc.id)}
+          disabled={deletingId === doc.id}
+          className="rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Delete document"
+        >
+          {deletingId === doc.id ? (
+            <Loader2 size={16} className="animate-spin" />
+          ) : (
+            <Trash2 size={16} />
+          )}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── Sender Folder Section Component ─────────────────────────────────────
+
+interface SenderFolderSectionProps {
+  senderName: string;
+  documents: HelpdeskDocument[];
+  onView: (id: string) => void;
+  onPreview: (id: string) => void;
+  onDelete: (id: string) => void;
+  deletingId: string | null;
+}
+
+const SenderFolderSection: React.FC<SenderFolderSectionProps> = ({
+  senderName,
+  documents,
+  onView,
+  onPreview,
+  onDelete,
+  deletingId,
+}) => {
+  const displayName = senderName || 'Unknown Sender';
+  const isUnknown = displayName === 'Unknown Sender';
+  const totalDocs = documents.length;
+  const approvedDocs = documents.filter(d => d.status === 'approved').length;
+
+  const formattedDate = documents[0]?.created_at
+    ? new Date(documents[0].created_at).toLocaleDateString()
+    : null;
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition">
+      {/* Section Header */}
+      <div className="flex items-center justify-between p-4 bg-slate-50/50 border-b border-slate-200">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="rounded-lg bg-[#8B6914]/10 p-2">
+            <Folder size={20} className="text-[#8B6914]" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium text-slate-800 truncate">{displayName}</span>
+              {!isUnknown && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#8B6914]/10 px-2 py-0.5 text-xs text-[#8B6914] flex-shrink-0">
+                  <User size={12} />
+                  Sender
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
+              <span>{totalDocs} document{totalDocs !== 1 ? 's' : ''}</span>
+              {approvedDocs > 0 && (
+                <span className="text-emerald-600">
+                  ✓ {approvedDocs} approved
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+        {formattedDate && (
+          <div className="text-xs text-slate-400 flex-shrink-0">
+            {formattedDate}
+          </div>
+        )}
+      </div>
+
+      {/* Document Grid */}
+      <div className="p-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {documents.map((doc) => (
+            <DocumentCard
+              key={doc.id}
+              doc={doc}
+              onView={onView}
+              onPreview={onPreview}
+              onDelete={onDelete}
+              deletingId={deletingId}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Document Detail Modal ──────────────────────────────────────────────────
 
 interface DocumentDetailModalProps {
@@ -127,6 +624,7 @@ interface DocumentDetailModalProps {
   onClose: () => void;
   onRefresh: () => void;
   currentUserRole: 'dept_head' | 'super_admin' | 'staff';
+  onPreview: () => void;
 }
 
 const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
@@ -134,6 +632,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
   onClose,
   onRefresh,
   currentUserRole,
+  onPreview,
 }) => {
   const dispatch = useAppDispatch();
   const actionLoading = useAppSelector(selectDocumentActionLoading);
@@ -265,23 +764,13 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
         <div className="flex-1 overflow-y-auto px-6 py-4 bg-slate-50">
           {/* ── Quick Actions ────────────────────────────────────────────── */}
           <div className="mb-4 flex flex-wrap gap-2">
-            <a
-              href={document.file_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            <button
+              onClick={onPreview}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#8B6914] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#7A5E12]"
             >
-              <ExternalLink size={14} />
-              View Document
-            </a>
-            <a
-              href={document.file_url}
-              download
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-            >
-              <Download size={14} />
-              Download
-            </a>
+              <Eye size={14} />
+              Preview Document
+            </button>
             {canSubmit && (
               <button
                 onClick={handleSubmitForApproval}
@@ -661,7 +1150,11 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => {
+const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ 
+  entityType, 
+  entityId, 
+  groupBySender = true 
+}) => {
   const dispatch = useAppDispatch();
   const documents = useAppSelector(selectAllHelpdeskDocuments);
   const selectedDocument = useAppSelector(selectSelectedHelpdeskDocument);
@@ -672,6 +1165,7 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
 
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadFormData, setUploadFormData] = useState<UploadFormData>({
     ref: '',
@@ -682,7 +1176,6 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Current User Role ─────────────────────────────────────────────────────
-  // TODO: Get this from your auth state
   const currentUserRole: 'dept_head' | 'super_admin' | 'staff' = 'dept_head';
 
   // ── Effects ──────────────────────────────────────────────────────────────
@@ -695,6 +1188,24 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
       })
     );
   }, [dispatch, entityType, entityId]);
+
+  // ── Group documents by sender ────────────────────────────────────────────
+
+  const groupDocumentsBySender = () => {
+    const groups = new Map<string, HelpdeskDocument[]>();
+    
+    documents.forEach((doc) => {
+      const sender = doc.uploaded_by_name || 'Unknown Sender';
+      if (!groups.has(sender)) {
+        groups.set(sender, []);
+      }
+      groups.get(sender)!.push(doc);
+    });
+
+    return new Map([...groups.entries()].sort());
+  };
+
+  const groupedDocuments = groupBySender ? groupDocumentsBySender() : null;
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -765,6 +1276,16 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
     setShowDetailModal(true);
   };
 
+  const handlePreviewDocument = () => {
+    setShowPreviewModal(true);
+  };
+
+  const handleDownloadDocument = () => {
+    if (selectedDocument?.file_url) {
+      window.open(selectedDocument.file_url, '_blank');
+    }
+  };
+
   const handleDelete = async (id: string) => {
     if (window.confirm('Are you sure you want to delete this document?')) {
       try {
@@ -785,6 +1306,7 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
 
   const handleCloseDetail = () => {
     setShowDetailModal(false);
+    setShowPreviewModal(false);
     dispatch(clearSelectedDocument());
   };
 
@@ -832,11 +1354,16 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
       <Toaster position="top-right" />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3 bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
         <div>
           <h2 className="text-sm font-medium text-slate-900">Documents</h2>
           <p className="text-xs text-slate-500">
             {documents.length} document{documents.length !== 1 ? 's' : ''} found
+            {groupBySender && groupedDocuments && (
+              <span className="ml-2 text-[#8B6914]">
+                • {groupedDocuments.size} sender{groupedDocuments.size !== 1 ? 's' : ''}
+              </span>
+            )}
           </p>
         </div>
         <button
@@ -860,70 +1387,37 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
           <p className="mt-2 text-sm text-slate-500">No documents uploaded yet.</p>
           <p className="text-xs text-slate-400">Upload your first document using the button above.</p>
         </div>
+      ) : groupBySender && groupedDocuments ? (
+        <div className="space-y-6">
+          {Array.from(groupedDocuments.entries()).map(([sender, docs]) => (
+            <SenderFolderSection
+              key={sender}
+              senderName={sender}
+              documents={docs}
+              onView={handleViewDocument}
+              onPreview={(id) => {
+                handleViewDocument(id);
+                setTimeout(() => handlePreviewDocument(), 100);
+              }}
+              onDelete={handleDelete}
+              deletingId={deletingId}
+            />
+          ))}
+        </div>
       ) : (
-        <div className="grid gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {documents.map((doc) => (
-            <div
+            <DocumentCard
               key={doc.id}
-              className="group flex items-center justify-between bg-white p-4 transition hover:bg-slate-50 cursor-pointer"
-              onClick={() => handleViewDocument(doc.id)}
-            >
-              <div className="flex items-start gap-4 min-w-0 flex-1">
-                <div className="rounded-lg bg-slate-100 p-2 flex-shrink-0 group-hover:bg-[#8B6914]/10">
-                  <FileText size={20} className="text-slate-600 group-hover:text-[#8B6914]" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-medium text-slate-800 truncate">{doc.subject}</h3>
-                    <StatusBadge status={doc.status} />
-                  </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                    <span className="font-mono">Ref: {doc.ref}</span>
-                    <span className="inline-block rounded bg-slate-100 px-2 py-0.5 font-mono uppercase">
-                      {doc.format}
-                    </span>
-                    <span>{new Date(doc.created_at).toLocaleDateString()}</span>
-                    {doc.file_size && <span>{(doc.file_size / 1024).toFixed(1)} KB</span>}
-                    {doc.e_stamp_status === 'stamped' && (
-                      <span className="inline-flex items-center gap-1 text-emerald-600">
-                        <Stamp size={12} />
-                        Stamped
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 ml-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                <button
-                  onClick={() => handleViewDocument(doc.id)}
-                  className="rounded-lg p-2 text-[#8B6914] transition hover:bg-[#8B6914]/10 hover:text-[#7A5E12]"
-                  title="View & manage document"
-                >
-                  <Eye size={18} />
-                </button>
-                <a
-                  href={doc.file_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                  title="Download document"
-                >
-                  <Download size={16} />
-                </a>
-                <button
-                  onClick={() => handleDelete(doc.id)}
-                  disabled={deletingId === doc.id}
-                  className="rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Delete document"
-                >
-                  {deletingId === doc.id ? (
-                    <Loader2 size={16} className="animate-spin" />
-                  ) : (
-                    <Trash2 size={16} />
-                  )}
-                </button>
-              </div>
-            </div>
+              doc={doc}
+              onView={handleViewDocument}
+              onPreview={(id) => {
+                handleViewDocument(id);
+                setTimeout(() => handlePreviewDocument(), 100);
+              }}
+              onDelete={handleDelete}
+              deletingId={deletingId}
+            />
           ))}
         </div>
       )}
@@ -933,7 +1427,7 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <h3 className="text-lg font-medium text-slate-900">Upload Document</h3>
+              <h3 className="text-lg font-semibold text-slate-900">Upload Document</h3>
               <button
                 onClick={handleCloseModal}
                 className="text-slate-400 hover:text-slate-600 transition"
@@ -1011,10 +1505,10 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
               )}
 
               {/* Actions */}
-              <div className="flex items-center justify-end gap-3 pt-2 border-t border-slate-200">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
                 <button
                   onClick={handleCloseModal}
-                  className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
+                  className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
                 >
                   Cancel
                 </button>
@@ -1048,6 +1542,16 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ entityType, entityId }) => 
           onClose={handleCloseDetail}
           onRefresh={handleRefresh}
           currentUserRole={currentUserRole}
+          onPreview={handlePreviewDocument}
+        />
+      )}
+
+      {/* Document Preview Modal */}
+      {showPreviewModal && selectedDocument && (
+        <DocumentPreviewModal
+          document={selectedDocument}
+          onClose={() => setShowPreviewModal(false)}
+          onDownload={handleDownloadDocument}
         />
       )}
     </div>

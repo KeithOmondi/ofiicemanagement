@@ -18,17 +18,24 @@ import {
   selectIsCreatingProject,
   setTaskFilters,
 } from "../../store/slices/projectsSlice";
+import {
+  fetchUsers,
+  selectAllUsers,
+  selectUsersListLoading,
+} from "../../store/slices/userSlice";
 import SuperAdminToDo from "./SuperAdminToDo";
 import { X } from "lucide-react";
 import type {
   CreateProjectInput,
   ProjectPriority,
+  CreateProjectTaskInput,
+  ProjectTaskStatus,
 } from "../../types/projects.types";
+import StandaloneTasks from "./StandaloneTasks";
 
 // ─── Types (re-export from slice) ────────────────────────────────────────────
 type TaskStatus = import("../../types/projects.types").ProjectTaskStatus;
 type Priority = import("../../types/projects.types").ProjectPriority;
-type TaskType = import("../../types/projects.types").ProjectTaskType;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmtDate = (dateStr: string): string => {
@@ -41,14 +48,8 @@ const fmtDate = (dateStr: string): string => {
   });
 };
 
-// Backend expects a full ISO 8601 datetime (e.g. z.string().datetime()),
-// not a plain YYYY-MM-DD date. `<input type="date">` values and
-// `.toISOString().split("T")[0]` both produce date-only strings, which the
-// API rejects with {"success":false,"error":"Invalid ISO datetime"} (400).
-// Run any deadline through this before sending it to the API.
 const toISODateTime = (dateOnly: string): string => {
   if (!dateOnly) return dateOnly;
-  // Already a full ISO datetime (contains a "T") — leave it alone.
   if (dateOnly.includes("T")) return dateOnly;
   return new Date(`${dateOnly}T00:00:00.000Z`).toISOString();
 };
@@ -177,6 +178,209 @@ const deadlineTag = (dateStr: string, status: TaskStatus) => {
   return <span className="text-slate-500 font-medium">{label}</span>;
 };
 
+// ─── Add Task Modal Component ────────────────────────────────────────────────
+const AddTaskModal: React.FC<{
+  onClose: () => void;
+  onSave: (input: CreateProjectTaskInput) => void;
+  projectId: string;
+  projectTitle: string;
+  isSaving: boolean;
+  initialData?: Partial<CreateProjectTaskInput>;
+}> = ({ onClose, onSave, projectId, projectTitle, isSaving, initialData }) => {
+  const dispatch = useAppDispatch();
+  const users = useAppSelector(selectAllUsers);
+  const usersLoading = useAppSelector(selectUsersListLoading);
+  
+  const [formData, setFormData] = useState<CreateProjectTaskInput>({
+    project_id: projectId,
+    title: initialData?.title || "",
+    description: initialData?.description || null,
+    status: initialData?.status || "todo",
+    priority: initialData?.priority || "normal",
+    assignee: initialData?.assignee || null,
+    deadline: initialData?.deadline || "",
+  });
+
+  // Fetch users when modal opens
+  useEffect(() => {
+    dispatch(fetchUsers({}));
+  }, [dispatch]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.title.trim()) return;
+    
+    const deadline = formData.deadline 
+      ? (formData.deadline.includes("T") ? formData.deadline : new Date(`${formData.deadline}T00:00:00.000Z`).toISOString())
+      : undefined;
+    
+    onSave({
+      ...formData,
+      deadline,
+    });
+  };
+
+  return (
+    <div className="bg-white rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold text-slate-800">
+          Add Task to {projectTitle}
+        </h2>
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Task Title *
+          </label>
+          <input
+            type="text"
+            value={formData.title}
+            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+            placeholder="Enter task title"
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Description
+          </label>
+          <textarea
+            value={formData.description || ""}
+            onChange={(e) =>
+              setFormData({ ...formData, description: e.target.value })
+            }
+            placeholder="Enter task description"
+            rows={3}
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 resize-none"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              Priority
+            </label>
+            <select
+              value={formData.priority}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  priority: e.target.value as ProjectPriority,
+                })
+              }
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+            >
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              Status
+            </label>
+            <select
+              value={formData.status}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  status: e.target.value as ProjectTaskStatus,
+                })
+              }
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+            >
+              <option value="todo">To Do</option>
+              <option value="inprogress">In Progress</option>
+              <option value="done">Done</option>
+              <option value="overdue">Overdue</option>
+              <option value="pending_approval">Pending Approval</option>
+              <option value="blocked">Blocked</option>
+              <option value="review">Review</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Assignee
+          </label>
+          <select
+            value={formData.assignee || ""}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                assignee: e.target.value || null,
+              })
+            }
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+            disabled={usersLoading}
+          >
+            <option value="">Unassigned</option>
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.full_name} {user.pj_number ? `(${user.pj_number})` : ""}
+              </option>
+            ))}
+          </select>
+          {usersLoading && (
+            <span className="text-xs text-slate-400">Loading users...</span>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Deadline
+          </label>
+          <input
+            type="date"
+            value={formData.deadline ? formData.deadline.split("T")[0] : ""}
+            onChange={(e) =>
+              setFormData({ ...formData, deadline: e.target.value })
+            }
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+          />
+        </div>
+
+        <div className="flex gap-2 pt-2 border-t border-slate-100">
+          <button
+            type="submit"
+            disabled={isSaving || !formData.title.trim()}
+            className="flex-1 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-semibold hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSaving ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Creating...
+              </span>
+            ) : (
+              "Create Task"
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
 // ─── Add Project Modal Component ─────────────────────────────────────────────
 const AddProjectModal: React.FC<{
   onClose: () => void;
@@ -197,8 +401,6 @@ const AddProjectModal: React.FC<{
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.title.trim()) return;
-    // `<input type="date">` gives us "YYYY-MM-DD" — widen to a full ISO
-    // datetime here so the API's Zod validation doesn't reject it.
     onSave({
       ...formData,
       deadline: formData.deadline ? toISODateTime(formData.deadline) : formData.deadline,
@@ -235,7 +437,6 @@ const AddProjectModal: React.FC<{
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Title */}
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">
             Project Title *
@@ -250,7 +451,6 @@ const AddProjectModal: React.FC<{
           />
         </div>
 
-        {/* Description */}
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">
             Description
@@ -266,7 +466,6 @@ const AddProjectModal: React.FC<{
           />
         </div>
 
-        {/* Priority */}
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">
             Priority
@@ -289,7 +488,6 @@ const AddProjectModal: React.FC<{
           </select>
         </div>
 
-        {/* Deadline */}
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">
             Deadline
@@ -304,7 +502,6 @@ const AddProjectModal: React.FC<{
           />
         </div>
 
-        {/* Tags */}
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">
             Tags
@@ -352,10 +549,8 @@ const AddProjectModal: React.FC<{
           )}
         </div>
 
-        {/* Member IDs - Hidden for now, can be extended later */}
         <input type="hidden" name="member_ids" value="" />
 
-        {/* Actions */}
         <div className="flex gap-2 pt-2 border-t border-slate-100">
           <button
             type="submit"
@@ -428,10 +623,6 @@ const ToDoModal: React.FC<{
           {priorityBadge(task.priority)}
         </div>
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-slate-500 w-20">Type:</span>
-          <span className="text-slate-700">{task.type}</span>
-        </div>
-        <div className="flex items-center gap-2 text-sm">
           <span className="text-slate-500 w-20">Assignee:</span>
           <span className="text-slate-700">
             {task.assignee_name || "Unassigned"}
@@ -441,21 +632,6 @@ const ToDoModal: React.FC<{
           <span className="text-slate-500 w-20">Deadline:</span>
           <span className="text-slate-700">{fmtDate(task.deadline)}</span>
         </div>
-        {task.tags && task.tags.length > 0 && (
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-slate-500 w-20">Tags:</span>
-            <div className="flex gap-1 flex-wrap">
-              {task.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded"
-                >
-                  #{tag}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="mt-6 flex gap-2">
@@ -479,7 +655,6 @@ const ProjectsView: React.FC = () => {
   const tasks = useAppSelector(selectAllTasks);
   const isCreatingProject = useAppSelector(selectIsCreatingProject);
 
-  // Local UI state
   const [selectedTask, setSelectedTask] = useState<
     import("../../types/projects.types").ProjectTask | null
   >(null);
@@ -491,22 +666,18 @@ const ProjectsView: React.FC = () => {
   const [filterAssignee, setFilterAssignee] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<TaskStatus | "">("");
   const [filterPriority, setFilterPriority] = useState<Priority | "">("");
-  const [filterType, setFilterType] = useState<TaskType | "">("");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
-  // Fetch all tasks on mount (and when filters change)
   useEffect(() => {
     dispatch(fetchTasks({}));
   }, [dispatch]);
 
-  // When filters change, update Redux filters and refetch
   useEffect(() => {
     dispatch(
       setTaskFilters({
         assignee: filterAssignee || undefined,
         status: filterStatus || undefined,
         priority: filterPriority || undefined,
-        type: filterType || undefined,
         search: searchQuery || undefined,
       }),
     );
@@ -516,7 +687,6 @@ const ProjectsView: React.FC = () => {
     filterAssignee,
     filterStatus,
     filterPriority,
-    filterType,
     searchQuery,
   ]);
 
@@ -535,7 +705,12 @@ const ProjectsView: React.FC = () => {
     setShowAddProjectModal(false);
   };
 
-  // Build a users map from project members for avatars
+  const handleCreateTask = (input: CreateProjectTaskInput) => {
+    dispatch(createTask(input));
+    setShowAddTaskModal(false);
+    setSelectedProject(null);
+  };
+
   const usersMap = React.useMemo(() => {
     const map: Record<
       string,
@@ -553,83 +728,106 @@ const ProjectsView: React.FC = () => {
     return map;
   }, [projects]);
 
-  const renderTaskRow = (task: import("../../types/projects.types").ProjectTask) => {
-    const status = getStatus(task);
-    const assigneeUser = task.assignee ? usersMap[task.assignee] : null;
+  const renderTaskTable = (
+    projTasks: import("../../types/projects.types").ProjectTask[],
+  ) => {
+    if (projTasks.length === 0) {
+      return (
+        <div className="px-6 py-8 text-sm text-slate-400 text-center bg-slate-50/20">
+          No tasks match the current filters.
+        </div>
+      );
+    }
     return (
-      <div
-        key={task.id}
-        className="flex items-center gap-4 px-6 py-3.5 border-b border-slate-100 cursor-pointer transition-all duration-150 group hover:bg-slate-50"
-        onClick={() => setSelectedTask(task)}
-      >
-        <div
-          className={`w-5 h-5 rounded-md flex items-center justify-center text-white text-[10px] font-bold cursor-pointer flex-shrink-0 border-2 transition-all duration-200 ${
-            task.status === "done"
-              ? "bg-emerald-500 border-emerald-500 shadow-sm shadow-emerald-200"
-              : "border-slate-300 bg-white group-hover:border-slate-400"
-          }`}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleTaskDone(task.id);
-          }}
-        >
-          {task.status === "done" && "✓"}
-        </div>
-
-        <div
-          className="w-1.5 h-7 rounded-full flex-shrink-0"
-          style={{
-            background:
-              task.priority === "critical" || task.priority === "urgent"
-                ? "#ef4444"
-                : task.priority === "high"
-                  ? "#f59e0b"
-                  : task.priority === "normal"
-                    ? "#10b981"
-                    : "#94a3b8",
-          }}
-        />
-
-        <div className="flex-1 min-w-0">
-          <h5
-            className={`text-sm font-medium truncate ${task.status === "done" ? "line-through text-slate-400" : "text-slate-700"}`}
-          >
-            {task.title}
-          </h5>
-          {task.description && (
-            <p className="text-xs text-slate-400 truncate mt-0.5">
-              {task.description}
-            </p>
-          )}
-          <div className="flex gap-1 mt-1 flex-wrap">
-            {task.type && (
-              <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">
-                {task.type}
-              </span>
-            )}
-            {task.tags &&
-              task.tags.slice(0, 3).map((tag) => (
-                <span
-                  key={tag}
-                  className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded"
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="bg-slate-50/80 border-b border-slate-200">
+              <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Task
+              </th>
+              <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Priority
+              </th>
+              <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Status
+              </th>
+              <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Assignee
+              </th>
+              <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-28">
+                Deadline
+              </th>
+              <th className="px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-14">
+                Done
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {projTasks.map((task) => {
+              const status = getStatus(task);
+              const assigneeUser = task.assignee ? usersMap[task.assignee] : null;
+              return (
+                <tr
+                  key={task.id}
+                  className="border-b border-slate-100 hover:bg-slate-50/50 cursor-pointer transition-colors"
+                  onClick={() => setSelectedTask(task)}
                 >
-                  #{tag}
-                </span>
-              ))}
-          </div>
-        </div>
-
-        <div className="flex flex-shrink-0 pl-2">
-          {assigneeUser ? (
-            memberAvatar(assigneeUser, 24)
-          ) : (
-            <span className="text-xs text-slate-400">—</span>
-          )}
-        </div>
-
-        <div className="text-xs font-mono flex-shrink-0 w-24 text-right">
-          {deadlineTag(task.deadline, status)}
-        </div>
+                  <td className="px-3 py-2.5">
+                    <div
+                      className={`font-medium ${status === "done" ? "line-through text-slate-400" : "text-slate-700"}`}
+                    >
+                      {task.title}
+                    </div>
+                    {task.description && (
+                      <div className="text-xs text-slate-400 truncate max-w-[220px]">
+                        {task.description}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5">{priorityBadge(task.priority)}</td>
+                  <td className="px-3 py-2.5">
+                    <span
+                      className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${
+                        status === "done"
+                          ? "text-emerald-700 ring-emerald-600/20 bg-emerald-50"
+                          : status === "overdue"
+                            ? "text-rose-700 ring-rose-600/20 bg-rose-50"
+                            : status === "inprogress"
+                              ? "text-amber-700 ring-amber-600/20 bg-amber-50"
+                              : "text-slate-600 ring-slate-500/10 bg-slate-50"
+                      }`}
+                    >
+                      {status === "inprogress"
+                        ? "In Progress"
+                        : status.charAt(0).toUpperCase() + status.slice(1)}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-2">
+                      {assigneeUser ? memberAvatar(assigneeUser, 20) : null}
+                      <span className="text-xs text-slate-600 whitespace-nowrap">
+                        {task.assignee_name || assigneeUser?.full_name || "—"}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-xs font-mono whitespace-nowrap">
+                    {deadlineTag(task.deadline, status)}
+                  </td>
+                  <td className="px-3 py-2.5 text-center">
+                    <input
+                      type="checkbox"
+                      checked={task.status === "done"}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={() => toggleTaskDone(task.id)}
+                      className="w-4 h-4 rounded border-slate-300 text-slate-800 focus:ring-slate-900/20 cursor-pointer"
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     );
   };
@@ -682,25 +880,6 @@ const ProjectsView: React.FC = () => {
           {["low", "normal", "high", "urgent", "critical"].map((p) => (
             <option key={p} value={p}>
               {p.charAt(0).toUpperCase() + p.slice(1)}
-            </option>
-          ))}
-        </select>
-        <select
-          className="px-3 py-1.5 text-xs font-medium border border-slate-200 rounded-xl bg-white text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value as TaskType | "")}
-        >
-          <option value="">All Types</option>
-          {[
-            "task",
-            "bug",
-            "feature",
-            "improvement",
-            "support",
-            "maintenance",
-          ].map((type) => (
-            <option key={type} value={type}>
-              {type.charAt(0).toUpperCase() + type.slice(1)}
             </option>
           ))}
         </select>
@@ -770,11 +949,6 @@ const ProjectsView: React.FC = () => {
                       <span className="text-xs text-slate-400">
                         {prog}% complete · {projTasks.length} tasks
                       </span>
-                      {proj.tags && proj.tags.length > 0 && (
-                        <span className="text-xs text-slate-400">
-                          🏷️ {proj.tags.join(", ")}
-                        </span>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -808,14 +982,7 @@ const ProjectsView: React.FC = () => {
                     + Add Task
                   </button>
                 </div>
-                <div>
-                  {projTasks.length === 0 && (
-                    <div className="px-6 py-8 text-sm text-slate-400 text-center bg-slate-50/20">
-                      No tasks match the current filters.
-                    </div>
-                  )}
-                  {projTasks.map((t) => renderTaskRow(t))}
-                </div>
+                {renderTaskTable(projTasks)}
                 <div className="px-6 py-3 flex items-center gap-3 border-t border-dashed border-slate-200 bg-slate-50/30">
                   <span className="text-slate-400 text-lg font-light select-none">
                     +
@@ -833,14 +1000,9 @@ const ProjectsView: React.FC = () => {
                               title: input.value.trim(),
                               status: "todo",
                               priority: "normal",
-                              type: "task",
-                              // Keep the full ISO datetime — do NOT
-                              // .split("T")[0] this, or the API will
-                              // reject it with "Invalid ISO datetime".
                               deadline: new Date(
                                 Date.now() + 7 * 86400000,
                               ).toISOString(),
-                              tags: [],
                             }),
                           );
                           input.value = "";
@@ -880,23 +1042,17 @@ const ProjectsView: React.FC = () => {
             setSelectedProject(null);
           }}
         >
-          <div
-            className="bg-white rounded-2xl p-6 max-w-md w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-bold mb-4">
-              Add Task to {selectedProject.title}
-            </h2>
-            <p className="text-slate-500 mb-4">Task form would go here</p>
-            <button
-              onClick={() => {
+          <div onClick={(e) => e.stopPropagation()}>
+            <AddTaskModal
+              onClose={() => {
                 setShowAddTaskModal(false);
                 setSelectedProject(null);
               }}
-              className="px-4 py-2 bg-slate-800 text-white rounded-lg"
-            >
-              Close
-            </button>
+              onSave={handleCreateTask}
+              projectId={selectedProject.id}
+              projectTitle={selectedProject.title}
+              isSaving={false}
+            />
           </div>
         </div>
       )}
@@ -1069,196 +1225,8 @@ const BoardView: React.FC = () => {
 };
 
 // ─── STANDALONE VIEW ──────────────────────────────────────────────────────────
-const StandaloneView: React.FC = () => {
-  const dispatch = useAppDispatch();
-  const tasks = useAppSelector(selectAllTasks);
-  const projects = useAppSelector(selectAllProjects);
-  const [selectedTask, setSelectedTask] = useState<
-    import("../../types/projects.types").ProjectTask | null
-  >(null);
-  const [showAddModal, setShowAddModal] = useState(false);
-
-  useEffect(() => {
-    dispatch(fetchTasks({}));
-  }, [dispatch]);
-
-  const standaloneTasks = tasks.filter((t) => !t.project_id);
-
-  const usersMap = React.useMemo(() => {
-    const map: Record<
-      string,
-      { id: string; full_name: string; pj_number?: string }
-    > = {};
-    projects.forEach((p) => {
-      p.members?.forEach((m) => {
-        map[m.id] = {
-          id: m.id,
-          full_name: m.full_name,
-          pj_number: m.pj_number,
-        };
-      });
-    });
-    return map;
-  }, [projects]);
-
-  const toggleTaskDone = (taskId: string) => {
-    const task = tasks.find((t) => t.id === taskId);
-    if (task) {
-      const newStatus = task.status === "done" ? "todo" : "done";
-      dispatch(updateTask({ id: taskId, input: { status: newStatus } }));
-    }
-  };
-
-  const renderTaskRow = (task: import("../../types/projects.types").ProjectTask) => {
-    const status = getStatus(task);
-    const assigneeUser = task.assignee ? usersMap[task.assignee] : null;
-    return (
-      <div
-        key={task.id}
-        className="flex items-center gap-4 px-6 py-3.5 border-b border-slate-100 cursor-pointer transition-all duration-150 group hover:bg-slate-50"
-        onClick={() => setSelectedTask(task)}
-      >
-        <div
-          className={`w-5 h-5 rounded-md flex items-center justify-center text-white text-[10px] font-bold cursor-pointer flex-shrink-0 border-2 transition-all duration-200 ${
-            task.status === "done"
-              ? "bg-emerald-500 border-emerald-500 shadow-sm shadow-emerald-200"
-              : "border-slate-300 bg-white group-hover:border-slate-400"
-          }`}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleTaskDone(task.id);
-          }}
-        >
-          {task.status === "done" && "✓"}
-        </div>
-
-        <div
-          className="w-1.5 h-7 rounded-full flex-shrink-0"
-          style={{
-            background:
-              task.priority === "critical" || task.priority === "urgent"
-                ? "#ef4444"
-                : task.priority === "high"
-                  ? "#f59e0b"
-                  : task.priority === "normal"
-                    ? "#10b981"
-                    : "#94a3b8",
-          }}
-        />
-
-        <div className="flex-1 min-w-0">
-          <h5
-            className={`text-sm font-medium truncate ${task.status === "done" ? "line-through text-slate-400" : "text-slate-700"}`}
-          >
-            {task.title}
-          </h5>
-          {task.description && (
-            <p className="text-xs text-slate-400 truncate mt-0.5">
-              {task.description}
-            </p>
-          )}
-          <div className="flex gap-1 mt-1 flex-wrap">
-            {task.type && (
-              <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">
-                {task.type}
-              </span>
-            )}
-            {task.tags &&
-              task.tags.slice(0, 3).map((tag) => (
-                <span
-                  key={tag}
-                  className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded"
-                >
-                  #{tag}
-                </span>
-              ))}
-          </div>
-        </div>
-
-        <div className="flex flex-shrink-0 pl-2">
-          {assigneeUser ? (
-            memberAvatar(assigneeUser, 24)
-          ) : (
-            <span className="text-xs text-slate-400">—</span>
-          )}
-        </div>
-
-        <div className="text-xs font-mono flex-shrink-0 w-24 text-right">
-          {deadlineTag(task.deadline, status)}
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h3 className="text-base font-bold text-slate-800 tracking-tight">
-          Standalone Tasks
-        </h3>
-        <button
-          className="px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 transition-colors cursor-pointer"
-          onClick={() => setShowAddModal(true)}
-        >
-          + Add Task
-        </button>
-      </div>
-
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 ring-1 ring-slate-100 overflow-hidden">
-        <div>
-          {standaloneTasks.length === 0 ? (
-            <div className="p-12 text-center text-sm text-slate-400">
-              No standalone tasks currently registered.
-            </div>
-          ) : (
-            standaloneTasks.map((t) => renderTaskRow(t))
-          )}
-        </div>
-      </div>
-
-      {showAddModal && (
-        <div
-          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[1000] backdrop-blur-sm"
-          onClick={() => setShowAddModal(false)}
-        >
-          <div
-            className="bg-white rounded-2xl p-6 max-w-md w-full"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 className="text-xl font-bold mb-4">Add Standalone Task</h2>
-            <p className="text-slate-500 mb-4">
-              Standalone task form would go here
-            </p>
-            <button
-              onClick={() => setShowAddModal(false)}
-              className="px-4 py-2 bg-slate-800 text-white rounded-lg"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
-
-      {selectedTask && (
-        <div
-          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[1000] backdrop-blur-sm"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setSelectedTask(null);
-            }
-          }}
-        >
-          <div className="bg-white rounded-2xl w-[92%] max-w-[560px] max-h-[85vh] overflow-hidden shadow-2xl border border-slate-100">
-            <ToDoModal
-              task={selectedTask}
-              onClose={() => setSelectedTask(null)}
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
+// This view is now replaced by the StandaloneTasks component
+// The StandaloneTasks component is imported and rendered in the main component
 
 // ─── TODO VIEW ────────────────────────────────────────────────────────────────
 const TodoView: React.FC = () => {
@@ -1269,13 +1237,13 @@ const TodoView: React.FC = () => {
 const SuperAdminTaskM: React.FC = () => {
   const dispatch = useAppDispatch();
   const [currentView, setCurrentView] = useState<
-    "projects" | "board" | "independent" | "todo"
+    "projects" | "board" | "independent" | "standalone" | "todo"
   >("projects");
   const stats = useAppSelector(selectProjectStats);
 
   useEffect(() => {
     dispatch(fetchProjects({}));
-    dispatch(fetchTaskStats(""));
+    dispatch(fetchTaskStats(undefined));
   }, [dispatch]);
 
   const todo = stats?.todo || 0;
@@ -1347,11 +1315,11 @@ const SuperAdminTaskM: React.FC = () => {
         <>
           {renderStats()}
 
-          <div className="flex bg-slate-100 rounded-xl p-1 gap-1 self-start shadow-inner mb-6">
+          <div className="flex bg-slate-100 rounded-xl p-1 gap-1 self-start shadow-inner mb-6 flex-wrap">
             {[
               { key: "projects", label: "📂 Projects" },
               { key: "board", label: "🗂 Board" },
-              { key: "independent", label: "⚡ Standalone" },
+              { key: "standalone", label: "📋 Standalone Tasks" },
               { key: "todo", label: "📋 To-Do" },
             ].map((view) => (
               <button
@@ -1371,7 +1339,7 @@ const SuperAdminTaskM: React.FC = () => {
           <div className="transition-all duration-200">
             {currentView === "projects" && <ProjectsView />}
             {currentView === "board" && <BoardView />}
-            {currentView === "independent" && <StandaloneView />}
+            {currentView === "standalone" && <StandaloneTasks />}
           </div>
         </>
       )}

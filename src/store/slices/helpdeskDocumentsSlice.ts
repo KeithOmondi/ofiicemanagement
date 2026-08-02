@@ -110,7 +110,7 @@ export interface DocumentWithViewStatus {
 export interface ApprovalHistoryEntry {
     id: string;
     document_id: string;
-    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted';
+    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted' | 'signed';
     from_user_id: string;
     from_user_name: string;
     to_user_id?: string;
@@ -176,6 +176,7 @@ export interface HelpdeskDocument {
     approved_by_name?: string;
     returned_at?: string;
     returned_by?: string;
+    returned_by_name?: string;
     rejection_reason?: string;
 
     // Unified General Request fields
@@ -214,6 +215,16 @@ export interface HelpdeskDocument {
     is_sent_back_to_requester: boolean;
     is_requester_notified: boolean;
 
+    // ─── Signature Fields ──────────────────────────────────────────────────────
+    is_signed: boolean;
+    signed_by?: string;
+    signed_by_name?: string;
+    signed_at?: string;
+    signature_position_x?: number | null;
+    signature_position_y?: number | null;
+    signature_position_width?: number | null;
+    signature_position_height?: number | null;
+
     // ─── Aide Request Fields ──────────────────────────────────────────────────
     officer_rank?: OfficerRank | null;
     officer_name?: string | null;
@@ -250,6 +261,10 @@ export interface RequesterDocumentView {
     changes_requested?: string[];
     rejection_reason?: string;
     can_resubmit: boolean;
+    // ─── Signature info ──────────────────────────────────────────────────────
+    is_signed: boolean;
+    signed_by_name?: string;
+    signed_at?: string;
 }
 
 // ─── Pending Internal Approvals Summary ──────────────────────────────────────
@@ -364,6 +379,11 @@ export interface UpdateDocumentFilePayload {
     rejection_reason?: string;
     returned_by?: string;
     returned_by_name?: string;
+    // ─── Signature fields ──────────────────────────────────────────────────────
+    is_signed?: boolean;
+    signed_by?: string;
+    signed_by_name?: string;
+    signed_at?: string;
 }
 
 export interface SubmitForApprovalPayload {
@@ -393,6 +413,11 @@ export interface InternalApprovalPayload {
     approved_by?: string;
     approved_by_name?: string;
     generate_e_stamp?: boolean;
+    // ─── Signature position ─────────────────────────────────────────────────
+    signature_position_x?: number;
+    signature_position_y?: number;
+    signature_position_width?: number;
+    signature_position_height?: number;
 }
 
 export interface SendBackToRequesterPayload {
@@ -593,6 +618,7 @@ export interface DocumentSummary {
         changes_ready: number;
     };
     requester_status_summary: Record<RequesterVisibleStatus, number>;
+    signed_count: number;
 }
 
 // ── Action Loading Types ─────────────────────────────────────────────────────
@@ -978,6 +1004,11 @@ export const updateDocumentFile = createAsyncThunk<
             if (payload.rejection_reason) formData.append('rejection_reason', payload.rejection_reason);
             if (payload.returned_by) formData.append('returned_by', payload.returned_by);
             if (payload.returned_by_name) formData.append('returned_by_name', payload.returned_by_name);
+            // ─── Signature fields ──────────────────────────────────────────────
+            if (payload.is_signed !== undefined) formData.append('is_signed', String(payload.is_signed));
+            if (payload.signed_by) formData.append('signed_by', payload.signed_by);
+            if (payload.signed_by_name) formData.append('signed_by_name', payload.signed_by_name);
+            if (payload.signed_at) formData.append('signed_at', payload.signed_at);
 
             console.log('📤 Updating document file:', {
                 id: payload.id,
@@ -986,6 +1017,7 @@ export const updateDocumentFile = createAsyncThunk<
                 status: payload.status,
                 hasEStamp: !!payload.e_stamp_url,
                 hasComments: !!payload.comments,
+                is_signed: payload.is_signed,
             });
 
             const { data } = await axiosClient.patch(`/helpdesk/documents/${payload.id}/file`, formData, {
@@ -1101,7 +1133,7 @@ export const internalPreviewDocument = createAsyncThunk<
 );
 
 /**
- * Internal Approve - Super admin approves internally
+ * Internal Approve - Super admin approves internally with signature embedding
  * Requester still sees 'pending_approval' until send back
  */
 export const internalApproveDocument = createAsyncThunk<
@@ -1110,17 +1142,60 @@ export const internalApproveDocument = createAsyncThunk<
     { rejectValue: string }
 >(
     'helpdeskDocuments/internalApprove',
-    async ({ id, comments, approved_by, approved_by_name, generate_e_stamp }, { rejectWithValue }) => {
+    async ({ id, comments, approved_by, approved_by_name, generate_e_stamp, signature_position_x, signature_position_y, signature_position_width, signature_position_height }, { rejectWithValue }) => {
         try {
-            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/internal/approve`, {
-                comments,
-                approved_by,
-                approved_by_name,
-                generate_e_stamp,
-            });
+            const payload: Record<string, unknown> = {
+                document_id: id,
+                action: 'approve' as const,
+                comments: comments || '',
+                approved_by: approved_by || '',
+                approved_by_name: approved_by_name || '',
+                generate_e_stamp: generate_e_stamp ?? true,
+            };
+
+            // Add signature position if provided
+            if (signature_position_x !== undefined) payload.signature_position_x = signature_position_x;
+            if (signature_position_y !== undefined) payload.signature_position_y = signature_position_y;
+            if (signature_position_width !== undefined) payload.signature_position_width = signature_position_width;
+            if (signature_position_height !== undefined) payload.signature_position_height = signature_position_height;
+
+            console.log('📤 Internal approve payload:', JSON.stringify(payload, null, 2));
+
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/internal/approve`, payload);
             return data.data as HelpdeskDocument;
         } catch (err) {
-            return rejectWithValue(getErrorMessage(err, 'Failed to approve document internally'));
+            const error = err as AxiosError<{ message?: string; errors?: Record<string, string[]> }>;
+            
+            console.error('❌ Internal approve error details:', {
+                status: error.response?.status,
+                statusText: error.response?.statusText,
+                data: error.response?.data,
+            });
+            
+            let errorMessage = 'Failed to approve document internally';
+            const responseData = error.response?.data;
+            
+            if (responseData) {
+                if (typeof responseData === 'object' && 'message' in responseData && typeof responseData.message === 'string') {
+                    errorMessage = responseData.message;
+                } else if (typeof responseData === 'object' && 'errors' in responseData && responseData.errors) {
+                    const errors = responseData.errors;
+                    if (typeof errors === 'object' && errors !== null) {
+                        const errorStrings = Object.entries(errors).map(([key, value]) => {
+                            if (Array.isArray(value)) {
+                                return `${key}: ${value.join(', ')}`;
+                            }
+                            if (typeof value === 'string') {
+                                return `${key}: ${value}`;
+                            }
+                            return `${key}: ${JSON.stringify(value)}`;
+                        });
+                        errorMessage = errorStrings.join('; ');
+                    }
+                }
+            }
+            
+            return rejectWithValue(errorMessage);
         }
     }
 );
@@ -1141,6 +1216,7 @@ export const internalRejectDocument = createAsyncThunk<
                 return rejectWithValue('Rejection reason is required');
             }
             const { data } = await axiosClient.post(`/helpdesk/documents/${id}/internal/reject`, {
+                document_id: id,
                 rejection_reason,
                 comments,
                 rejected_by: approved_by,
@@ -1169,6 +1245,7 @@ export const internalRequestChanges = createAsyncThunk<
                 return rejectWithValue('At least one change request is required');
             }
             const { data } = await axiosClient.post(`/helpdesk/documents/${id}/internal/request-changes`, {
+                document_id: id,
                 changes_requested,
                 comments,
                 requested_by: approved_by,
@@ -1194,6 +1271,7 @@ export const cancelInternalApproval = createAsyncThunk<
     async ({ id, cancelled_by, cancelled_by_name, reason }, { rejectWithValue }) => {
         try {
             const { data } = await axiosClient.post(`/helpdesk/documents/${id}/internal/cancel`, {
+                document_id: id,
                 cancelled_by,
                 cancelled_by_name,
                 reason,
@@ -1218,6 +1296,7 @@ export const sendBackToRequester = createAsyncThunk<
     async ({ id, final_status, sent_by, sent_by_name, comments, requester_message, notify_requester }, { rejectWithValue }) => {
         try {
             const { data } = await axiosClient.post(`/helpdesk/documents/${id}/send-back`, {
+                document_id: id,
                 final_status,
                 sent_by,
                 sent_by_name,

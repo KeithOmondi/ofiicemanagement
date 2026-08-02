@@ -593,7 +593,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
   const [toField, setToField] = useState('DEPUTY DIRECTOR - DASS');
   
   // ⭐ FIXED: Always use this default signatory name - never override with user name
-  const SIGNATORY_NAME = 'HON. CLARA OTIENO-OMONDI';
+  const SIGNATORY_NAME = 'CLARA OTIENO-OMONDI';
   
   // ⭐ 'fromField' - the designation
   const [fromField, setFromField] = useState('REGISTRAR, HIGH COURT');
@@ -609,7 +609,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
   // ─── Body texts ────────────────────────────────────────────────────────
   const fuelBody = `I hereby forward the fuel bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`;
 
-  const utilityBody = `I hereby forward the utility bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`;
+  const utilityBody = `I hereby forward the utility bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.`;
 
   // ─── Additional notes textarea ────────────────────────────────────────
   const [additionalNotes, setAdditionalNotes] = useState('');

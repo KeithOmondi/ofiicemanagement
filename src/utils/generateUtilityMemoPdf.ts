@@ -52,9 +52,14 @@ const formatAmount = (amount: number): string =>
 // ─── Main export ────────────────────────────────────────────────────────────
 
 export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blob> {
-  const [crestDataUrl, signatureDataUrl, footerEmblemDataUrl] = await Promise.all([
+  // ─── NOTE: signature image is intentionally NOT fetched or drawn here ────
+  // The two-step approval workflow stamps the real signature onto the PDF
+  // via embedSignatureIntoPDF on the backend, which anchors on the
+  // "REGISTRAR, HIGH COURT" designation text. This generator reserves the
+  // blank space + prints the name/designation/enclosure; nothing is "signed"
+  // until a super admin approves it internally.
+  const [crestDataUrl, footerEmblemDataUrl] = await Promise.all([
     fetchImageDataUrl(data.crestUrl),
-    data.signatureUrl ? fetchImageDataUrl(data.signatureUrl) : Promise.resolve(null),
     fetchImageDataUrl(FOOTER_EMBLEM_SRC),
   ]);
 
@@ -64,18 +69,12 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
   const marginX = 48;
   let y = 44;
 
-  // Reserve space at the bottom of every page for the footer (divider,
-  // emblem, address, tagline) so table pagination and signature placement
-  // both know to stop above it instead of overlapping it.
-  const footerY = pageHeight - 78;
-  const footerBlockH = 70;
-  const footerReserveHeight = pageHeight - footerY + footerBlockH + 12; // gap above the divider line too
+  // Reserve space at the bottom of every page for the footer
+  const footerY = pageHeight - 85;
+  const footerBlockH = 75;
+  const footerReserveHeight = pageHeight - footerY + footerBlockH + 12;
 
   // ── Crest ────────────────────────────────────────────────────────────────
-  // The crest is a wide side-by-side lockup (Kenya coat of arms + Judiciary
-  // emblem with a vertical divider), not a square mark. We size it by target
-  // width and derive the height from its true aspect ratio so it never gets
-  // squashed or stretched.
   if (crestDataUrl) {
     const crestTargetWidth = 190;
     const crestW = crestTargetWidth;
@@ -241,39 +240,27 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
   // @ts-expect-error - lastAutoTable is attached by the plugin at runtime
   y = doc.lastAutoTable.finalY + 20;
 
-  // ── Signature Block ──────────────────────────────────────────────────────
-  // ORDER: Signature image → Name → Designation
-  
+  // ── Signature & Enclosure Block ──────────────────────────────────────────
+  const RESERVED_SIGNATURE_SPACE = 50; // pt — matches backend signature height
   const nameLineH = data.signatoryName ? 18 : 0;
-  const sigImgH = signatureDataUrl ? 42 + 8 : 14;
-  const sigBlockH = sigImgH + nameLineH + 14 + 11;
+  const hasEncls = Boolean(data.preparerInitials);
+  const enclsBlockH = hasEncls ? 27 : 0;
+  const sigBlockH = RESERVED_SIGNATURE_SPACE + nameLineH + 14 + 11 + enclsBlockH;
 
-  // Sit the signature right below the table content, not pinned to the footer.
   const sigGapAboveContent = 36;
   let sigY = y + sigGapAboveContent;
 
-  // Only push to a new page if it genuinely won't fit above the footer.
+  // Only push to a new page if it won't fit above the footer reserve height
   if (sigY + sigBlockH + 20 > footerY) {
     doc.addPage();
     sigY = 60;
   }
   y = sigY;
 
-  // 1. Signature image first (if available)
-  if (signatureDataUrl) {
-    try {
-      const sigW = 110;
-      const sigH = 42;
-      doc.addImage(signatureDataUrl, 'PNG', marginX, y, sigW, sigH);
-      y += sigH + 8;
-    } catch {
-      y += 12;
-    }
-  } else {
-    y += 12;
-  }
+  // 1. Reserved Space for Backend Stamp Signature
+  y += RESERVED_SIGNATURE_SPACE;
 
-  // 2. Signatory name second (bold) - NO underline line after
+  // 2. Signatory Name (Bold)
   if (data.signatoryName) {
     doc.setFont('times', 'bold');
     doc.setFontSize(11.5);
@@ -281,34 +268,58 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
     y += nameLineH;
   }
 
-  // 3. Designation third (no underline, just the text)
+  // 3. Designation (BOLD + UNDERLINE)
+  const desigText = data.from.toUpperCase();
   doc.setFont('times', 'bold');
   doc.setFontSize(11);
-  doc.text(data.from.toUpperCase(), marginX, y);
+  doc.text(desigText, marginX, y);
 
-  // ── Footer (drawn on every page) ────────────────────────────────────────
-  // Pre-compute the emblem's render size once — it's identical on every
-  // page, so there's no need to re-measure it inside the loop below.
-  const footerLogoW = 64; // fallback width if the emblem's natural size can't be read
-  const footerLogoTargetH = 64;
-  let footerRenderW = footerLogoW;
-  let footerRenderH = footerLogoTargetH;
+  // Underline designation line explicitly
+  const desigWidth = doc.getTextWidth(desigText);
+  doc.setLineWidth(1);
+  doc.setDrawColor(0, 0, 0);
+  doc.line(marginX, y + 2, marginX + desigWidth, y + 2);
+  y += 24;
+
+  // 4. Enclosure / Initials Reference (e.g. Encls. Coo/ko)
+  if (data.preparerInitials) {
+    const signatoryInit = data.signatoryInitials || 'Coo';
+    const preparerInit = data.preparerInitials; // e.g. "ko" or "KO"
+
+    doc.setFont('times', 'bolditalic');
+    doc.setFontSize(10.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Encls.', marginX, y);
+    y += 13;
+
+    doc.setFont('times', 'italic');
+    doc.setFontSize(9.5);
+    doc.text(`${signatoryInit}/${preparerInit}`, marginX, y);
+    y += 14;
+  }
+
+  // ── Footer (rendered on the final page) ──────────────────────────────────
+  let footerRenderW = 100;
+  let footerRenderH = 35;
 
   const footerNaturalSize = footerEmblemDataUrl
     ? await getImageNaturalSize(footerEmblemDataUrl)
     : null;
   if (footerNaturalSize && footerNaturalSize.height > 0) {
     const aspectRatio = footerNaturalSize.width / footerNaturalSize.height;
-    footerRenderW = footerLogoTargetH * aspectRatio;
-    footerRenderH = footerLogoTargetH;
+    footerRenderH = 35;
+    footerRenderW = footerRenderH * aspectRatio;
   }
 
   const drawPageFooter = () => {
+    // Gold Divider Line
     doc.setLineWidth(1);
-    doc.setDrawColor(180, 180, 180);
+    doc.setDrawColor(...GOLD);
     doc.line(marginX, footerY, pageWidth - marginX, footerY);
 
-    const logoTopY = footerY + (footerBlockH - footerRenderH) / 2;
+    const logoTopY = footerY + 12;
+
+    // Left Emblem
     if (footerEmblemDataUrl) {
       doc.addImage(
         footerEmblemDataUrl,
@@ -316,48 +327,52 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
         marginX,
         logoTopY,
         footerRenderW,
-        footerRenderH,
+        footerRenderH
       );
     }
 
-    const footerTextX = marginX + footerRenderW + 20;
+    // Right Text Block
+    const rightMargin = pageWidth - marginX;
+    let textY = footerY + 16;
 
-    // Address + contact lines, stacked tightly.
+    // Top Tagline (Dark Green, Bold)
+    doc.setFont('times', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(...DARK_GREEN);
+    doc.text('Social Transformation through Access to Justice', rightMargin, textY, { align: 'right' });
+
+    // Address Line
+    textY += 13;
     doc.setFont('times', 'normal');
-    doc.setFontSize(9.5);
+    doc.setFontSize(8.5);
     doc.setTextColor(60, 60, 60);
-
-    const footerTextLineHeight = 13;
-    const addressBlockH = footerTextLineHeight * 2;
-    const footerTextStartY = logoTopY + (footerRenderH - addressBlockH) / 2 + 4;
-
     doc.text(
       'Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi',
-      footerTextX,
-      footerTextStartY,
-    );
-    doc.text(
-      'Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke',
-      footerTextX,
-      footerTextStartY + footerTextLineHeight,
+      rightMargin,
+      textY,
+      { align: 'right' }
     );
 
-    // Tagline: rendered noticeably larger and bolder than the address lines
-    // so it reads as a standout line, matching the source styling.
-    doc.setFont('times', 'bold');
-    doc.setTextColor(...DARK_GREEN);
-    doc.setFontSize(12.5);
+    // Contact Line
+    textY += 11.5;
     doc.text(
-      'Justice Be Our Shield and Defender',
-      footerTextX,
-      footerTextStartY + footerTextLineHeight * 2 + 6,
+      'Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke',
+      rightMargin,
+      textY,
+      { align: 'right' }
     );
+
+    // Bottom Tagline (Dark Green, Bold)
+    textY += 14;
+    doc.setFont('times', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(...DARK_GREEN);
+    doc.text('Justice Be Our Shield and Defender', rightMargin, textY, { align: 'right' });
 
     doc.setTextColor(0, 0, 0);
     doc.setDrawColor(0, 0, 0);
   };
 
-  // Draw the footer once, on the final page only.
   drawPageFooter();
 
   return doc.output('blob');

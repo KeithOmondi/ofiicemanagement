@@ -120,7 +120,7 @@ export type SentryStatus = 'pending' | 'active' | 'resolved' | 'rejected';
 export interface ApprovalHistoryEntry {
     id: string;
     document_id: string;
-    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted';
+    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted' | 'signed';
     from_user_id: string;
     from_user_name: string;
     to_user_id?: string;
@@ -259,6 +259,16 @@ export interface HelpdeskDocument {
     is_sent_back_to_requester: boolean; // Document has been sent back to requester
     is_requester_notified: boolean; // Requester has been notified
 
+    // ─── Signature Fields ──────────────────────────────────────────────────────
+    is_signed: boolean;                    // Whether the document has been signed
+    signed_by?: string;                    // ID of the user who signed
+    signed_by_name?: string;               // Name of the user who signed
+    signed_at?: string;                    // When the document was signed
+    signature_position_x?: number | null;  // X position of signature on PDF
+    signature_position_y?: number | null;  // Y position of signature on PDF
+    signature_position_width?: number | null;  // Width of signature on PDF
+    signature_position_height?: number | null; // Height of signature on PDF
+
     // ─── Aide Request Fields ──────────────────────────────────────────────────
     officer_rank?: OfficerRank | null;
     officer_name?: string | null;
@@ -302,6 +312,10 @@ export interface RequesterDocumentView {
     rejection_reason?: string;
     // Show if resubmit is allowed
     can_resubmit: boolean;
+    // ─── Signature info ──────────────────────────────────────────────────────
+    is_signed: boolean;
+    signed_by_name?: string;
+    signed_at?: string;
 }
 
 // ─── Pending Internal Approvals Summary ──────────────────────────────────────
@@ -433,6 +447,11 @@ export interface InternalApprovalPayload {
     approved_by?: string;
     approved_by_name?: string;
     generate_e_stamp?: boolean;
+    // ─── Signature position ─────────────────────────────────────────────────
+    signature_position_x?: number;
+    signature_position_y?: number;
+    signature_position_width?: number;
+    signature_position_height?: number;
 }
 
 /**
@@ -486,6 +505,11 @@ export interface UpdateDocumentFilePayload {
     rejection_reason?: string;
     returned_by?: string;
     returned_by_name?: string;
+    // ─── Signature fields ──────────────────────────────────────────────────────
+    is_signed?: boolean;
+    signed_by?: string;
+    signed_by_name?: string;
+    signed_at?: string;
 }
 
 export interface SubmitForApprovalPayload {
@@ -752,6 +776,7 @@ export interface DocumentSummary {
         changes_ready: number;
     };
     requester_status_summary: Record<RequesterVisibleStatus, number>;
+    signed_count: number;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────

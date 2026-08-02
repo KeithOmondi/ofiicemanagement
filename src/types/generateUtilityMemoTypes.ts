@@ -25,5 +25,9 @@ export interface UtilityMemoData {
   crestUrl: string;
   footerEmblemUrl: string;
   signatureUrl?: string;
-  memoType: 'all' | 'fuel';    // ✅ added
+  memoType: 'all' | 'fuel';
+  
+  // ✅ Added optional initials properties to resolve ts(2339)
+  signatoryInitials?: string; // e.g., 'Coo'
+  preparerInitials?: string;  // e.g., 'ko' or 'KO'
 }

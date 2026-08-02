@@ -74,6 +74,7 @@ import {
   type UtilityStatus,
   type RequestType,
   type RemarkType,
+  type UtilityItem,
 } from '../../store/slices/helpdeskSlice';
 
 // ─── Helpdesk Documents imports ───────────────────────────────────────────────
@@ -131,6 +132,7 @@ import {
   ExternalLink,
   Send,
   ArrowLeft,
+  Info,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
 import UtilitiesModal from '../../components/modals/UtilitiesModal';
@@ -458,6 +460,7 @@ function ConfirmDialog({
 
 // ─── Status Dropdown ────────────────────────────────────────────────────────────
 
+
 function StatusDropdown({
   status,
   onStatusChange,
@@ -471,12 +474,12 @@ function StatusDropdown({
 }) {
   return (
     <div className="inline-flex items-center gap-1.5">
-      <span className="text-stone-500">{getStatusIcon(status)}</span>
+      <span className="text-stone-400">{getStatusIcon(status)}</span>
       <select
         value={status}
         onChange={(e) => onStatusChange(e.target.value as Status)}
         disabled={disabled}
-        className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${getStatusColor(status)} focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] disabled:opacity-50 disabled:cursor-not-allowed`}
+        className={`rounded-full border-0 px-3 py-1 text-xs font-medium transition-all duration-150 ${getStatusColor(status)} focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]/20 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-sm`}
       >
         {options.map((opt) => (
           <option key={opt} value={opt}>
@@ -490,16 +493,19 @@ function StatusDropdown({
 
 // ─── Reusable Table with Actions ────────────────────────────────────────────
 
+// ─── Reusable Table with Actions ────────────────────────────────────────────
+
 interface TableWithActionsProps<T> {
   data: T[];
   loading: boolean;
-  columns: { key: string; label: string; align?: 'left' | 'right' | 'center' }[];
+  columns: { key: string; label: string; align?: 'left' | 'right' | 'center'; width?: string }[];
   renderRow: (item: T) => React.ReactNode;
   onEdit: (item: T) => void;
   onDelete: (id: string) => void;
   mutating: boolean;
   onView?: (item: T) => void;
   extraActions?: (item: T) => React.ReactNode;
+  rowClick?: (item: T) => void;
 }
 
 function TableWithActions<T extends { id: string }>({
@@ -512,6 +518,7 @@ function TableWithActions<T extends { id: string }>({
   mutating,
   onView,
   extraActions,
+  rowClick,
 }: TableWithActionsProps<T>) {
   if (loading) {
     return (
@@ -526,52 +533,64 @@ function TableWithActions<T extends { id: string }>({
   }
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto rounded-lg border border-stone-200 bg-white">
       <table className="w-full text-left text-sm">
         <thead>
-          <tr className="border-b border-stone-200 text-xs uppercase text-stone-400">
+          <tr className="bg-stone-50/80 border-b border-stone-200">
             {columns.map((col) => (
               <th
                 key={col.key}
-                className={`px-3 py-2 font-medium ${col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : ''}`}
+                className={`px-4 py-3 text-xs font-semibold uppercase tracking-wider text-stone-500 ${
+                  col.align === 'right' ? 'text-right' : 
+                  col.align === 'center' ? 'text-center' : 'text-left'
+                }`}
+                style={col.width ? { minWidth: col.width } : undefined}
               >
                 {col.label}
               </th>
             ))}
-            <th className="px-3 py-2 text-center">Actions</th>
+            <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider text-stone-500">
+              Actions
+            </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-stone-100">
           {data.map((item) => (
-            <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+            <tr 
+              key={item.id} 
+              className={`hover:bg-stone-50/70 transition-colors duration-150 ${
+                rowClick ? 'cursor-pointer' : ''
+              }`}
+              onClick={() => rowClick && rowClick(item)}
+            >
               {renderRow(item)}
-              <td className="px-3 py-2 text-center">
+              <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center justify-center gap-1">
                   {onView && (
                     <button
                       onClick={() => onView(item)}
                       disabled={mutating}
-                      className="rounded p-1 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50"
+                      className="rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50 transition-all duration-150 disabled:opacity-50 hover:scale-105"
                       title="View Details"
                     >
-                      <Eye className="h-3.5 w-3.5" />
+                      <Eye className="h-4 w-4" />
                     </button>
                   )}
                   <button
                     onClick={() => onEdit(item)}
                     disabled={mutating}
-                    className="rounded p-1 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50"
+                    className="rounded-md p-1.5 text-blue-600 hover:bg-blue-50 transition-all duration-150 disabled:opacity-50 hover:scale-105"
                     title="Edit"
                   >
-                    <Edit className="h-3.5 w-3.5" />
+                    <Edit className="h-4 w-4" />
                   </button>
                   <button
                     onClick={() => onDelete(item.id)}
                     disabled={mutating}
-                    className="rounded p-1 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                    className="rounded-md p-1.5 text-red-600 hover:bg-red-50 transition-all duration-150 disabled:opacity-50 hover:scale-105"
                     title="Delete"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <Trash2 className="h-4 w-4" />
                   </button>
                   {extraActions && extraActions(item)}
                 </div>
@@ -626,6 +645,30 @@ function OverviewTab() {
   );
 }
 
+// Helper component for Utility Type pill badges
+function UtilityTypeBadge({ type }: { type: string }) {
+  const normalized = type.toLowerCase();
+  
+  let style = "bg-stone-100 text-stone-700 border-stone-200";
+  if (normalized.includes("internet") || normalized.includes("wifi")) {
+    style = "bg-blue-50 text-blue-700 border-blue-200/60";
+  } else if (normalized.includes("airtime") || normalized.includes("phone")) {
+    style = "bg-purple-50 text-purple-700 border-purple-200/60";
+  } else if (normalized.includes("electricity") || normalized.includes("power")) {
+    style = "bg-amber-50 text-amber-700 border-amber-200/60";
+  } else if (normalized.includes("water")) {
+    style = "bg-cyan-50 text-cyan-700 border-cyan-200/60";
+  } else if (normalized.includes("fuel")) {
+    style = "bg-emerald-50 text-emerald-700 border-emerald-200/60";
+  }
+
+  return (
+    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border ${style}`}>
+      {type}
+    </span>
+  );
+}
+
 // ─── Utilities Tab ───────────────────────────────────────────────────────────
 
 function UtilitiesTab({
@@ -659,12 +702,18 @@ function UtilitiesTab({
     setEditingItem(null);
   };
 
-  const handleStatusChange = async (utilityId: string, itemId: string, status: UtilityStatus) => {
-    await dispatch(updateUtilityItem({
-      id: utilityId,
-      itemId: itemId,
-      updates: { status }
-    }));
+  const handleStatusChange = async (
+    utilityId: string,
+    itemId: string,
+    status: UtilityStatus
+  ) => {
+    await dispatch(
+      updateUtilityItem({
+        id: utilityId,
+        itemId: itemId,
+        updates: { status },
+      })
+    );
     await dispatch(fetchUtilities({}));
     await dispatch(fetchHelpDeskStats());
   };
@@ -683,14 +732,52 @@ function UtilitiesTab({
     }
   };
 
+  // ─── Group items by judge ──────────────────────────────────────────────────
+  const groupedData = useMemo(() => {
+    const groups: Array<{
+      judgeId: string;
+      judgeName: string;
+      items: Array<{
+        id: string;
+        item: UtilityItem;
+      }>;
+    }> = [];
+
+    data.forEach((utility) => {
+      if (utility.items.length === 0) {
+        groups.push({
+          judgeId: utility.id,
+          judgeName: utility.judge_name,
+          items: [],
+        });
+      } else {
+        groups.push({
+          judgeId: utility.id,
+          judgeName: utility.judge_name,
+          items: utility.items.map((item) => ({
+            id: item.id,
+            item: item,
+          })),
+        });
+      }
+    });
+
+    return groups;
+  }, [data]);
+
+  // ─── Calculate total items ──────────────────────────────────────────────────
+  const totalItems = groupedData.reduce((sum, g) => sum + g.items.length, 0);
+
   return (
     <>
       <Panel
         title="Judge Utilities"
-        icon={<Wallet className="h-4 w-4" />}
+        icon={<Wallet className="h-4 w-4 text-[#c9a84c]" />}
         action={
-          <div className="flex gap-2">
-            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
+          <div className="flex items-center gap-2 flex-wrap">
+            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>
+              Export
+            </GhostButton>
             {onConsolidatedMemo && (
               <GoldOutlineButton
                 icon={<FileText className="h-3.5 w-3.5" />}
@@ -699,59 +786,225 @@ function UtilitiesTab({
                 Consolidated Memo
               </GoldOutlineButton>
             )}
-            <GoldOutlineButton icon={<Plus className="h-3.5 w-3.5" />} onClick={handleAdd}>
+            <GoldOutlineButton
+              icon={<Plus className="h-3.5 w-3.5" />}
+              onClick={handleAdd}
+            >
               Add Utility
             </GoldOutlineButton>
           </div>
         }
       >
-        <TableWithActions
-          data={data}
-          loading={loading}
-          columns={[
-            { key: 'judge_name', label: 'Judge' },
-            { key: 'requisition', label: 'Requisition #' },
-            { key: 'utility_type', label: 'Type' },
-            { key: 'amount', label: 'Amount', align: 'right' },
-            { key: 'period', label: 'Period' },
-            { key: 'status', label: 'Status', align: 'center' },
-          ]}
-          renderRow={(utility: JudgeUtility) => {
-            const firstItem = utility.items?.[0];
-            return (
-              <>
-                <td className="px-3 py-2 font-medium text-stone-800">{utility.judge_name}</td>
-                <td className="px-3 py-2 text-stone-600">
-                  {firstItem?.requisition_number || '—'}
-                </td>
-                <td className="px-3 py-2 text-stone-600">
-                  {firstItem?.utility_type || '—'}
-                </td>
-                <td className="px-3 py-2 text-right text-stone-600">
-                  {firstItem ? formatCurrency(firstItem.amount) : '—'}
-                </td>
-                <td className="px-3 py-2 text-stone-600">
-                  {firstItem?.period || '—'}
-                </td>
-                <td className="px-3 py-2 text-center">
-                  {firstItem ? (
-                    <UtilityStatusDropdown
-                      status={firstItem.status}
-                      onStatusChange={(s) => handleStatusChange(utility.id, firstItem.id, s)}
-                      disabled={mutating}
-                    />
-                  ) : (
-                    <span className="text-xs text-stone-400">No items</span>
-                  )}
-                </td>
-              </>
-            );
-          }}
-          onEdit={handleEdit}
-          onDelete={(id) => setDeleteTarget(id)}
-          mutating={mutating}
-          onView={handleView}
-        />
+        <div className="overflow-x-auto rounded-xl border border-stone-200/80 bg-white shadow-sm">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="bg-stone-50/90 border-b border-stone-200/80">
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  Judge
+                </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  Type
+                </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  Requisition #
+                </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500 text-right">
+                  Amount (KES)
+                </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  Period
+                </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  Description
+                </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  Received
+                </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  Fwd DASS
+                </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  Paid
+                </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500 text-center">
+                  Status
+                </th>
+                <th className="px-3.5 py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {loading ? (
+                <tr>
+                  <td colSpan={11} className="px-3 py-16 text-center">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c]" />
+                      <span className="text-xs text-stone-400">Loading utility records...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : groupedData.length === 0 || totalItems === 0 ? (
+                <tr>
+                  <td colSpan={11} className="px-3 py-16 text-center">
+                    <div className="flex flex-col items-center justify-center gap-1">
+                      <Info className="h-5 w-5 text-stone-300" />
+                      <span className="text-sm font-medium text-stone-600">No records found</span>
+                      <span className="text-xs text-stone-400">
+                        Click 'Add Utility' to create a new entry for a judge.
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                groupedData.map((group) => {
+                  const rowCount = group.items.length;
+
+                  return group.items.map((row, itemIndex) => {
+                    const isFirstRow = itemIndex === 0;
+                    const isLastRowInGroup = itemIndex === rowCount - 1;
+
+                    return (
+                      <tr
+                        key={row.id}
+                        className={`hover:bg-amber-50/30 transition-colors duration-150 ${
+                          isLastRowInGroup ? "border-b-2 border-stone-200/60" : ""
+                        }`}
+                      >
+                        {/* Judge Name (Sticky Rowspan Cell) */}
+                        {isFirstRow && (
+                          <td
+                            rowSpan={rowCount}
+                            className="px-3.5 py-3 font-semibold text-stone-800 align-top border-r border-stone-200/60 bg-stone-50/30"
+                          >
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => {
+                                  const utility = data.find(
+                                    (u) => u.id === group.judgeId
+                                  );
+                                  if (utility) handleView(utility);
+                                }}
+                                className="hover:text-[#c9a84c] hover:underline text-left transition-colors"
+                              >
+                                {group.judgeName}
+                              </button>
+                              <span className="inline-flex items-center justify-center rounded-full bg-stone-200/70 px-2 py-0.5 text-[10px] font-bold text-stone-600">
+                                {rowCount}
+                              </span>
+                            </div>
+                          </td>
+                        )}
+
+                        {/* Utility Type Badge */}
+                        <td className="px-3.5 py-3 whitespace-nowrap">
+                          <UtilityTypeBadge type={row.item.utility_type} />
+                        </td>
+
+                        {/* Requisition Number */}
+                        <td className="px-3.5 py-3 font-mono text-[11px] text-stone-600 whitespace-nowrap">
+                          {row.item.requisition_number ? (
+                            <span className="bg-stone-100 px-1.5 py-0.5 rounded text-stone-700">
+                              {row.item.requisition_number}
+                            </span>
+                          ) : (
+                            <span className="text-stone-300">—</span>
+                          )}
+                        </td>
+
+                        {/* Amount */}
+                        <td className="px-3.5 py-3 text-right font-semibold text-stone-800 whitespace-nowrap">
+                          {formatCurrency(row.item.amount)}
+                        </td>
+
+                        {/* Period */}
+                        <td className="px-3.5 py-3 text-stone-600 whitespace-nowrap font-medium">
+                          {row.item.period}
+                        </td>
+
+                        {/* Description */}
+                        <td
+                          className="px-3.5 py-3 text-stone-500 max-w-[180px] truncate"
+                          title={row.item.description || ""}
+                        >
+                          {row.item.description || <span className="text-stone-300">—</span>}
+                        </td>
+
+                        {/* Dates */}
+                        <td className="px-3.5 py-3 text-stone-600 whitespace-nowrap">
+                          {formatDate(row.item.date_received) || <span className="text-stone-300">—</span>}
+                        </td>
+                        <td className="px-3.5 py-3 text-stone-600 whitespace-nowrap">
+                          {formatDate(row.item.date_forwarded_dass) || <span className="text-stone-300">—</span>}
+                        </td>
+                        <td className="px-3.5 py-3 text-stone-600 whitespace-nowrap">
+                          {formatDate(row.item.date_paid) || <span className="text-stone-300">—</span>}
+                        </td>
+
+                        {/* Status Dropdown */}
+                        <td
+                          className="px-3.5 py-3 text-center whitespace-nowrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <UtilityStatusDropdown
+                            status={row.item.status}
+                            onStatusChange={(s) =>
+                              handleStatusChange(group.judgeId, row.id, s)
+                            }
+                            disabled={mutating}
+                          />
+                        </td>
+
+                        {/* Inline Actions */}
+                        <td
+                          className="px-3.5 py-3 text-center whitespace-nowrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => {
+                                const utility = data.find(
+                                  (u) => u.id === group.judgeId
+                                );
+                                if (utility) handleView(utility);
+                              }}
+                              disabled={mutating}
+                              className="rounded-lg p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-100 transition-all duration-150 disabled:opacity-40"
+                              title="View Details"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                const utility = data.find(
+                                  (u) => u.id === group.judgeId
+                                );
+                                if (utility) handleEdit(utility);
+                              }}
+                              disabled={mutating}
+                              className="rounded-lg p-1.5 text-stone-500 hover:text-blue-600 hover:bg-blue-50 transition-all duration-150 disabled:opacity-40"
+                              title="Edit"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(group.judgeId)}
+                              disabled={mutating}
+                              className="rounded-lg p-1.5 text-stone-500 hover:text-red-600 hover:bg-red-50 transition-all duration-150 disabled:opacity-40"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  });
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </Panel>
 
       <UtilitiesModal
@@ -774,6 +1027,7 @@ function UtilitiesTab({
 }
 
 // ─── Utility Status Dropdown ─────────────────────────────────────────────────
+
 
 function UtilityStatusDropdown({
   status,
@@ -826,12 +1080,12 @@ function UtilityStatusDropdown({
 
   return (
     <div className="inline-flex items-center gap-1.5">
-      <span className="text-stone-500">{getStatusIcon(status)}</span>
+      <span className="text-stone-400">{getStatusIcon(status)}</span>
       <select
         value={status}
         onChange={(e) => onStatusChange(e.target.value as UtilityStatus)}
         disabled={disabled}
-        className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${getStatusColor(status)} focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] disabled:opacity-50 disabled:cursor-not-allowed`}
+        className={`rounded-full border-0 px-3 py-1 text-xs font-medium transition-all duration-150 ${getStatusColor(status)} focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]/20 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-sm`}
       >
         {options.map((opt) => (
           <option key={opt} value={opt}>

@@ -21,7 +21,10 @@ import type {
     ProjectUser,
     ProjectPriority,
     ProjectTaskStatus,
-    ProjectTaskType,
+    ChecklistStatus,
+    ChecklistTask,
+    ChecklistStats,
+    ChecklistFilters,
 } from '../../types/projects.types';
 import axiosClient from '../../api/api';
 
@@ -62,6 +65,17 @@ interface ProjectsState {
     // Members
     projectMembers: ProjectUser[];
 
+    // Checklist
+    checklistTasks: ChecklistTask[];
+    checklistStats: ChecklistStats | null;
+    checklistCategories: string[];
+    checklistPagination: {
+        total: number;
+        page: number;
+        limit: number;
+        totalPages: number;
+    } | null;
+
     // UI State
     loading: boolean;
     error: string | null;
@@ -87,6 +101,13 @@ interface ProjectsState {
         creatingComment?: string;
         updatingComment?: string;
         deletingComment?: string;
+        // Checklist
+        fetchingChecklistTasks?: boolean;
+        fetchingChecklistStats?: boolean;
+        updatingChecklistStatus?: string;
+        bulkUpdatingChecklist?: boolean;
+        reorderingChecklist?: boolean;
+        fetchingChecklistCategories?: boolean;
     };
 
     // Filters
@@ -96,6 +117,7 @@ interface ProjectsState {
         page?: number;
         limit?: number;
     };
+    checklistFilters: ChecklistFilters;
 
     // Selected
     selectedProjectId: string | null;
@@ -104,6 +126,7 @@ interface ProjectsState {
     // Request tracking
     latestProjectsRequestId: string | null;
     latestTasksRequestId: string | null;
+    latestChecklistRequestId: string | null;
 }
 
 /* ============================================================
@@ -121,6 +144,10 @@ const initialState: ProjectsState = {
     comments: {},
     stats: null,
     projectMembers: [],
+    checklistTasks: [],
+    checklistStats: null,
+    checklistCategories: [],
+    checklistPagination: null,
     loading: false,
     error: null,
     success: false,
@@ -135,10 +162,12 @@ const initialState: ProjectsState = {
         page: 1,
         limit: 20,
     },
+    checklistFilters: {},
     selectedProjectId: null,
     selectedTaskId: null,
     latestProjectsRequestId: null,
     latestTasksRequestId: null,
+    latestChecklistRequestId: null,
 };
 
 /* ============================================================
@@ -325,8 +354,6 @@ export const deleteTask = createAsyncThunk(
     }
 );
 
-// src/store/slices/projectsSlice.ts
-
 export const fetchTaskStats = createAsyncThunk(
     'projects/fetchTaskStats',
     async (projectId: string | undefined, { rejectWithValue }) => {
@@ -441,6 +468,104 @@ export const deleteComment = createAsyncThunk(
 );
 
 /* ============================================================
+   ASYNC THUNKS - CHECKLIST
+============================================================ */
+
+export const fetchChecklistTasks = createAsyncThunk(
+    'projects/fetchChecklistTasks',
+    async (filters: ChecklistFilters = {}, { rejectWithValue }) => {
+        try {
+            const response = await axiosClient.get<{ success: boolean; data: { data: ChecklistTask[]; total: number; page: number; limit: number; totalPages: number } }>(
+                '/projects/checklist/tasks',
+                { params: filters }
+            );
+            return response.data.data;
+        } catch (err) {
+            return rejectWithValue(extractErrorMessage(err));
+        }
+    }
+);
+
+export const fetchChecklistStats = createAsyncThunk(
+    'projects/fetchChecklistStats',
+    async (params: { projectId?: string; category?: string } = {}, { rejectWithValue }) => {
+        try {
+            const response = await axiosClient.get<{ success: boolean; data: ChecklistStats }>(
+                '/projects/checklist/stats',
+                { params }
+            );
+            return response.data.data;
+        } catch (err) {
+            return rejectWithValue(extractErrorMessage(err));
+        }
+    }
+);
+
+export const updateChecklistStatus = createAsyncThunk(
+    'projects/updateChecklistStatus',
+    async (
+        { taskId, checklist_status, next_steps, team_lead }: 
+        { taskId: string; checklist_status: ChecklistStatus; next_steps?: string | null; team_lead?: string | null },
+        { rejectWithValue }
+    ) => {
+        try {
+            const response = await axiosClient.patch<{ success: boolean; data: ProjectTask }>(
+                `/projects/checklist/${taskId}/status`,
+                { checklist_status, next_steps, team_lead }
+            );
+            return response.data.data;
+        } catch (err) {
+            return rejectWithValue(extractErrorMessage(err));
+        }
+    }
+);
+
+export const bulkUpdateChecklist = createAsyncThunk(
+    'projects/bulkUpdateChecklist',
+    async (
+        tasks: Array<{ task_id: string; checklist_status?: ChecklistStatus; next_steps?: string | null; team_lead?: string | null; serial_number?: number | null }>,
+        { rejectWithValue }
+    ) => {
+        try {
+            await axiosClient.patch('/projects/checklist/bulk', { tasks });
+            return tasks;
+        } catch (err) {
+            return rejectWithValue(extractErrorMessage(err));
+        }
+    }
+);
+
+export const reorderChecklist = createAsyncThunk(
+    'projects/reorderChecklist',
+    async (
+        { tasks, category }: { tasks: Array<{ task_id: string; serial_number: number }>; category?: string | null },
+        { rejectWithValue }
+    ) => {
+        try {
+            await axiosClient.patch('/projects/checklist/reorder', { tasks, category });
+            return { tasks, category };
+        } catch (err) {
+            return rejectWithValue(extractErrorMessage(err));
+        }
+    }
+);
+
+export const fetchChecklistCategories = createAsyncThunk(
+    'projects/fetchChecklistCategories',
+    async ({ projectId }: { projectId?: string } = {}, { rejectWithValue }) => {
+        try {
+            const response = await axiosClient.get<{ success: boolean; data: string[] }>(
+                '/projects/checklist/categories',
+                { params: { projectId } }
+            );
+            return response.data.data;
+        } catch (err) {
+            return rejectWithValue(extractErrorMessage(err));
+        }
+    }
+);
+
+/* ============================================================
    SLICE
 ============================================================ */
 
@@ -462,6 +587,12 @@ const projectsSlice = createSlice({
                 sort_by: 'created_at',
                 sort_order: 'DESC',
             };
+        },
+        setChecklistFilters(state, action: PayloadAction<Partial<ChecklistFilters>>) {
+            state.checklistFilters = { ...state.checklistFilters, ...action.payload };
+        },
+        resetChecklistFilters(state) {
+            state.checklistFilters = {};
         },
 
         // ── Selection ──────────────────────────────────────────────────────
@@ -503,15 +634,51 @@ const projectsSlice = createSlice({
             if (state.currentTask?.id === action.payload.id) {
                 state.currentTask = { ...state.currentTask, ...action.payload.updates };
             }
+            // Also update in checklist tasks if present
+            const checklistIndex = state.checklistTasks.findIndex(ct => ct.task_id === action.payload.id);
+            if (checklistIndex !== -1) {
+                const task = state.tasks[index] || state.currentTask;
+                if (task) {
+                    state.checklistTasks[checklistIndex] = {
+                        ...state.checklistTasks[checklistIndex],
+                        status: task.checklist_status || state.checklistTasks[checklistIndex].status,
+                        next_steps: task.next_steps || state.checklistTasks[checklistIndex].next_steps,
+                        team_lead: task.team_lead || state.checklistTasks[checklistIndex].team_lead,
+                    };
+                }
+            }
         },
         removeTaskLocally(state, action: PayloadAction<string>) {
             state.tasks = state.tasks.filter(t => t.id !== action.payload);
+            state.checklistTasks = state.checklistTasks.filter(ct => ct.task_id !== action.payload);
             if (state.currentTask?.id === action.payload) {
                 state.currentTask = null;
             }
         },
         addTaskLocally(state, action: PayloadAction<ProjectTask>) {
             state.tasks.unshift(action.payload);
+            // If it's a checklist task, add to checklistTasks too
+            if (action.payload.checklist_status) {
+                state.checklistTasks.unshift({
+                    task_id: action.payload.id,
+                    serial_number: action.payload.serial_number || 0,
+                    activity: action.payload.title,
+                    status: action.payload.checklist_status,
+                    next_steps: action.payload.next_steps || null,
+                    team_lead: action.payload.team_lead || null,
+                    category: action.payload.category || null,
+                    description: action.payload.description,
+                    deadline: action.payload.deadline,
+                    priority: action.payload.priority,
+                    assignee_name: action.payload.assignee_name,
+                });
+            }
+        },
+        updateChecklistTaskLocally(state, action: PayloadAction<{ taskId: string; updates: Partial<ChecklistTask> }>) {
+            const index = state.checklistTasks.findIndex(ct => ct.task_id === action.payload.taskId);
+            if (index !== -1) {
+                state.checklistTasks[index] = { ...state.checklistTasks[index], ...action.payload.updates };
+            }
         },
     },
     extraReducers: (builder) => {
@@ -750,6 +917,22 @@ const projectsSlice = createSlice({
                     state.tasksPagination.total += 1;
                     state.tasksPagination.totalPages = Math.ceil(state.tasksPagination.total / state.tasksPagination.limit);
                 }
+                // If it's a checklist task, add to checklistTasks too
+                if (action.payload.checklist_status) {
+                    state.checklistTasks.unshift({
+                        task_id: action.payload.id,
+                        serial_number: action.payload.serial_number || 0,
+                        activity: action.payload.title,
+                        status: action.payload.checklist_status,
+                        next_steps: action.payload.next_steps || null,
+                        team_lead: action.payload.team_lead || null,
+                        category: action.payload.category || null,
+                        description: action.payload.description,
+                        deadline: action.payload.deadline,
+                        priority: action.payload.priority,
+                        assignee_name: action.payload.assignee_name,
+                    });
+                }
             })
             .addCase(createTask.rejected, (state, action) => {
                 state.loading = false;
@@ -779,6 +962,22 @@ const projectsSlice = createSlice({
                 if (action.payload.comments) {
                     state.comments[action.payload.id] = action.payload.comments;
                 }
+                // Update checklist task if present
+                const checklistIndex = state.checklistTasks.findIndex(ct => ct.task_id === action.payload.id);
+                if (checklistIndex !== -1 && action.payload.checklist_status) {
+                    state.checklistTasks[checklistIndex] = {
+                        ...state.checklistTasks[checklistIndex],
+                        status: action.payload.checklist_status,
+                        next_steps: action.payload.next_steps || state.checklistTasks[checklistIndex].next_steps,
+                        team_lead: action.payload.team_lead || state.checklistTasks[checklistIndex].team_lead,
+                        activity: action.payload.title || state.checklistTasks[checklistIndex].activity,
+                        category: action.payload.category || state.checklistTasks[checklistIndex].category,
+                        description: action.payload.description || state.checklistTasks[checklistIndex].description,
+                        deadline: action.payload.deadline || state.checklistTasks[checklistIndex].deadline,
+                        priority: action.payload.priority || state.checklistTasks[checklistIndex].priority,
+                        assignee_name: action.payload.assignee_name || state.checklistTasks[checklistIndex].assignee_name,
+                    };
+                }
             })
             .addCase(updateTask.rejected, (state, action) => {
                 state.loading = false;
@@ -800,6 +999,7 @@ const projectsSlice = createSlice({
                 state.success = true;
                 state.actionInProgress.deletingTask = undefined;
                 state.tasks = state.tasks.filter(t => t.id !== action.payload);
+                state.checklistTasks = state.checklistTasks.filter(ct => ct.task_id !== action.payload);
                 if (state.tasksPagination) {
                     state.tasksPagination.total -= 1;
                     state.tasksPagination.totalPages = Math.ceil(state.tasksPagination.total / state.tasksPagination.limit);
@@ -987,6 +1187,154 @@ const projectsSlice = createSlice({
                 state.success = false;
                 state.actionInProgress.deletingComment = undefined;
             });
+
+        /* ---------- FETCH CHECKLIST TASKS ---------- */
+        builder
+            .addCase(fetchChecklistTasks.pending, (state, action) => {
+                state.loading = true;
+                state.error = null;
+                state.actionInProgress.fetchingChecklistTasks = true;
+                state.latestChecklistRequestId = action.meta.requestId;
+            })
+            .addCase(fetchChecklistTasks.fulfilled, (state, action) => {
+                state.loading = false;
+                state.actionInProgress.fetchingChecklistTasks = false;
+                if (state.latestChecklistRequestId && action.meta.requestId !== state.latestChecklistRequestId) return;
+                state.checklistTasks = action.payload.data;
+                state.checklistPagination = {
+                    total: action.payload.total,
+                    page: action.payload.page,
+                    limit: action.payload.limit,
+                    totalPages: action.payload.totalPages,
+                };
+            })
+            .addCase(fetchChecklistTasks.rejected, (state, action) => {
+                state.loading = false;
+                state.error = action.payload as string;
+                state.actionInProgress.fetchingChecklistTasks = false;
+                if (state.latestChecklistRequestId && action.meta.requestId !== state.latestChecklistRequestId) return;
+            });
+
+        /* ---------- FETCH CHECKLIST STATS ---------- */
+        builder
+            .addCase(fetchChecklistStats.pending, (state) => {
+                state.loading = true;
+                state.error = null;
+                state.actionInProgress.fetchingChecklistStats = true;
+            })
+            .addCase(fetchChecklistStats.fulfilled, (state, action: PayloadAction<ChecklistStats>) => {
+                state.loading = false;
+                state.actionInProgress.fetchingChecklistStats = false;
+                state.checklistStats = action.payload;
+            })
+            .addCase(fetchChecklistStats.rejected, (state, action) => {
+                state.loading = false;
+                state.error = action.payload as string;
+                state.actionInProgress.fetchingChecklistStats = false;
+            });
+
+        /* ---------- UPDATE CHECKLIST STATUS ---------- */
+        builder
+            .addCase(updateChecklistStatus.pending, (state, action) => {
+                state.loading = true;
+                state.error = null;
+                state.success = false;
+                state.actionInProgress.updatingChecklistStatus = action.meta.arg.taskId;
+            })
+            .addCase(updateChecklistStatus.fulfilled, (state, action: PayloadAction<ProjectTask>) => {
+                state.loading = false;
+                state.success = true;
+                state.actionInProgress.updatingChecklistStatus = undefined;
+                // Update in tasks list
+                const taskIndex = state.tasks.findIndex(t => t.id === action.payload.id);
+                if (taskIndex !== -1) state.tasks[taskIndex] = action.payload;
+                if (state.currentTask?.id === action.payload.id) state.currentTask = action.payload;
+                // Update in checklist tasks
+                const checklistIndex = state.checklistTasks.findIndex(ct => ct.task_id === action.payload.id);
+                if (checklistIndex !== -1 && action.payload.checklist_status) {
+                    state.checklistTasks[checklistIndex] = {
+                        ...state.checklistTasks[checklistIndex],
+                        status: action.payload.checklist_status,
+                        next_steps: action.payload.next_steps || state.checklistTasks[checklistIndex].next_steps,
+                        team_lead: action.payload.team_lead || state.checklistTasks[checklistIndex].team_lead,
+                    };
+                }
+            })
+            .addCase(updateChecklistStatus.rejected, (state, action) => {
+                state.loading = false;
+                state.error = action.payload as string;
+                state.success = false;
+                state.actionInProgress.updatingChecklistStatus = undefined;
+            });
+
+        /* ---------- BULK UPDATE CHECKLIST ---------- */
+        builder
+            .addCase(bulkUpdateChecklist.pending, (state) => {
+                state.loading = true;
+                state.error = null;
+                state.success = false;
+                state.actionInProgress.bulkUpdatingChecklist = true;
+            })
+            .addCase(bulkUpdateChecklist.fulfilled, (state) => {
+                state.loading = false;
+                state.success = true;
+                state.actionInProgress.bulkUpdatingChecklist = false;
+                // The tasks will be updated via fetchChecklistTasks or updateChecklistStatus
+            })
+            .addCase(bulkUpdateChecklist.rejected, (state, action) => {
+                state.loading = false;
+                state.error = action.payload as string;
+                state.success = false;
+                state.actionInProgress.bulkUpdatingChecklist = false;
+            });
+
+        /* ---------- REORDER CHECKLIST ---------- */
+        builder
+            .addCase(reorderChecklist.pending, (state) => {
+                state.loading = true;
+                state.error = null;
+                state.success = false;
+                state.actionInProgress.reorderingChecklist = true;
+            })
+            .addCase(reorderChecklist.fulfilled, (state, action) => {
+                state.loading = false;
+                state.success = true;
+                state.actionInProgress.reorderingChecklist = false;
+                // Update serial numbers locally
+                const { tasks } = action.payload;
+                for (const item of tasks) {
+                    const index = state.checklistTasks.findIndex(ct => ct.task_id === item.task_id);
+                    if (index !== -1) {
+                        state.checklistTasks[index].serial_number = item.serial_number;
+                    }
+                }
+                // Sort checklist tasks by serial number
+                state.checklistTasks.sort((a, b) => (a.serial_number || 0) - (b.serial_number || 0));
+            })
+            .addCase(reorderChecklist.rejected, (state, action) => {
+                state.loading = false;
+                state.error = action.payload as string;
+                state.success = false;
+                state.actionInProgress.reorderingChecklist = false;
+            });
+
+        /* ---------- FETCH CHECKLIST CATEGORIES ---------- */
+        builder
+            .addCase(fetchChecklistCategories.pending, (state) => {
+                state.loading = true;
+                state.error = null;
+                state.actionInProgress.fetchingChecklistCategories = true;
+            })
+            .addCase(fetchChecklistCategories.fulfilled, (state, action: PayloadAction<string[]>) => {
+                state.loading = false;
+                state.actionInProgress.fetchingChecklistCategories = false;
+                state.checklistCategories = action.payload;
+            })
+            .addCase(fetchChecklistCategories.rejected, (state, action) => {
+                state.loading = false;
+                state.error = action.payload as string;
+                state.actionInProgress.fetchingChecklistCategories = false;
+            });
     },
 });
 
@@ -998,6 +1346,8 @@ export const {
     setProjectFilters,
     setTaskFilters,
     resetTaskFilters,
+    setChecklistFilters,
+    resetChecklistFilters,
     selectProject,
     selectTask,
     clearCurrentProject,
@@ -1010,6 +1360,7 @@ export const {
     updateTaskLocally,
     removeTaskLocally,
     addTaskLocally,
+    updateChecklistTaskLocally,
 } = projectsSlice.actions;
 
 /* ============================================================
@@ -1032,6 +1383,14 @@ export const selectTaskFilters = (state: { projects: ProjectsState }) => state.p
 export const selectProjectFilters = (state: { projects: ProjectsState }) => state.projects.projectFilters;
 export const selectSelectedProjectId = (state: { projects: ProjectsState }) => state.projects.selectedProjectId;
 export const selectSelectedTaskId = (state: { projects: ProjectsState }) => state.projects.selectedTaskId;
+
+// ── Checklist Selectors ─────────────────────────────────────────────────────
+
+export const selectChecklistTasks = (state: { projects: ProjectsState }) => state.projects.checklistTasks;
+export const selectChecklistStats = (state: { projects: ProjectsState }) => state.projects.checklistStats;
+export const selectChecklistCategories = (state: { projects: ProjectsState }) => state.projects.checklistCategories;
+export const selectChecklistPagination = (state: { projects: ProjectsState }) => state.projects.checklistPagination;
+export const selectChecklistFilters = (state: { projects: ProjectsState }) => state.projects.checklistFilters;
 
 // ── Loading Selectors ────────────────────────────────────────────────────────
 
@@ -1077,6 +1436,26 @@ export const selectIsUpdatingComment = (state: { projects: ProjectsState }, comm
 export const selectIsDeletingComment = (state: { projects: ProjectsState }, commentId: string) =>
     state.projects.actionInProgress.deletingComment === commentId;
 
+// ── Checklist Action In Progress Selectors ─────────────────────────────────
+
+export const selectIsFetchingChecklistTasks = (state: { projects: ProjectsState }) =>
+    state.projects.actionInProgress.fetchingChecklistTasks || false;
+
+export const selectIsFetchingChecklistStats = (state: { projects: ProjectsState }) =>
+    state.projects.actionInProgress.fetchingChecklistStats || false;
+
+export const selectIsUpdatingChecklistStatus = (state: { projects: ProjectsState }, taskId: string) =>
+    state.projects.actionInProgress.updatingChecklistStatus === taskId;
+
+export const selectIsBulkUpdatingChecklist = (state: { projects: ProjectsState }) =>
+    state.projects.actionInProgress.bulkUpdatingChecklist || false;
+
+export const selectIsReorderingChecklist = (state: { projects: ProjectsState }) =>
+    state.projects.actionInProgress.reorderingChecklist || false;
+
+export const selectIsFetchingChecklistCategories = (state: { projects: ProjectsState }) =>
+    state.projects.actionInProgress.fetchingChecklistCategories || false;
+
 // ── Derived Selectors ──────────────────────────────────────────────────────
 
 export const selectProjectById = (state: { projects: ProjectsState }, projectId: string) =>
@@ -1099,9 +1478,6 @@ export const selectTasksByStatus = (state: { projects: ProjectsState }, status: 
 
 export const selectTasksByPriority = (state: { projects: ProjectsState }, priority: ProjectPriority) =>
     state.projects.tasks.filter(t => t.priority === priority);
-
-export const selectTasksByType = (state: { projects: ProjectsState }, type: ProjectTaskType) =>
-    state.projects.tasks.filter(t => t.type === type);
 
 export const selectTodoTasks = (state: { projects: ProjectsState }) =>
     state.projects.tasks.filter(t => t.status === 'todo');
@@ -1129,7 +1505,8 @@ export const selectFilteredTasks = (state: { projects: ProjectsState }) => {
         result = result.filter(t => t.priority === taskFilters.priority);
     }
     if (taskFilters.type) {
-        result = result.filter(t => t.type === taskFilters.type);
+        const typeLower = taskFilters.type.toLowerCase();
+        result = result.filter(t => t.type && t.type.toLowerCase().includes(typeLower));
     }
     if (taskFilters.assignee) {
         result = result.filter(t => t.assignee === taskFilters.assignee);
@@ -1160,6 +1537,32 @@ export const selectFilteredProjects = (state: { projects: ProjectsState }) => {
         result = result.filter(p =>
             p.title.toLowerCase().includes(search) ||
             (p.description && p.description.toLowerCase().includes(search))
+        );
+    }
+
+    return result;
+};
+
+export const selectFilteredChecklistTasks = (state: { projects: ProjectsState }) => {
+    const { checklistTasks, checklistFilters } = state.projects;
+    let result = [...checklistTasks];
+
+    if (checklistFilters.category) {
+        result = result.filter(ct => ct.category === checklistFilters.category);
+    }
+    if (checklistFilters.status) {
+        result = result.filter(ct => ct.status === checklistFilters.status);
+    }
+    if (checklistFilters.team_lead) {
+        const search = checklistFilters.team_lead.toLowerCase();
+        result = result.filter(ct => ct.team_lead && ct.team_lead.toLowerCase().includes(search));
+    }
+    if (checklistFilters.search) {
+        const search = checklistFilters.search.toLowerCase();
+        result = result.filter(ct =>
+            ct.activity.toLowerCase().includes(search) ||
+            (ct.description && ct.description.toLowerCase().includes(search)) ||
+            (ct.next_steps && ct.next_steps.toLowerCase().includes(search))
         );
     }
 

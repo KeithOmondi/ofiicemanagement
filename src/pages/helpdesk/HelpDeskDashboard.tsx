@@ -39,7 +39,6 @@ import {
 
 // Icons
 import {
-  LayoutDashboard,
   FileText,
   Calendar,
   Plane,
@@ -52,8 +51,6 @@ import {
   Globe,
   FileCheck,
   ArrowRight,
-  RefreshCw,
-  Bell,
   Plus,
   ChevronRight,
   Sparkles,
@@ -276,11 +273,7 @@ const HelpDeskDashboard: React.FC = () => {
   const [isUtilitiesModalOpen, setIsUtilitiesModalOpen] = useState(false);
   const [editingUtility, setEditingUtility] = useState<JudgeUtility | null>(null);
 
-  // ─── Local state ──────────────────────────────────────────────────────────
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState<
-    "today" | "week" | "month"
-  >("week");
+ 
 
   // ─── Data Loading ────────────────────────────────────────────────────────
 
@@ -322,11 +315,7 @@ const HelpDeskDashboard: React.FC = () => {
 
   // ─── Handlers ────────────────────────────────────────────────────────────
 
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    await loadDashboardData();
-    setIsRefreshing(false);
-  };
+ 
 
   const navigateToTab = (tab: HelpDeskTab) => {
     dispatch(setActiveTab(tab));
@@ -400,61 +389,7 @@ const HelpDeskDashboard: React.FC = () => {
   return (
     <>
       <div className="min-h-screen bg-gray-50">
-        {/* ─── Header ────────────────────────────────────────────────────── */}
-        <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex items-center justify-between h-16">
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center space-x-3">
-                  <div className="p-2 bg-indigo-50 rounded-lg">
-                    <LayoutDashboard className="w-6 h-6 text-indigo-600" />
-                  </div>
-                  <div>
-                    <h1 className="text-xl font-bold text-gray-900">
-                      Help Desk Dashboard
-                    </h1>
-                    <p className="text-xs text-gray-500">
-                      Overview of all judicial support activities
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center space-x-3">
-                <div className="flex rounded-lg border border-gray-200 p-1 bg-gray-50">
-                  {(["today", "week", "month"] as const).map((period) => (
-                    <button
-                      key={period}
-                      onClick={() => setSelectedPeriod(period)}
-                      className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                        selectedPeriod === period
-                          ? "bg-white shadow-sm text-gray-900"
-                          : "text-gray-500 hover:text-gray-700"
-                      }`}
-                    >
-                      {period.charAt(0).toUpperCase() + period.slice(1)}
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  onClick={handleRefresh}
-                  disabled={isRefreshing}
-                  className="p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-gray-100"
-                >
-                  <RefreshCw
-                    className={`w-5 h-5 ${isRefreshing ? "animate-spin" : ""}`}
-                  />
-                </button>
-
-                <button className="relative p-2 text-gray-400 hover:text-gray-600 transition-colors rounded-lg hover:bg-gray-100">
-                  <Bell className="w-5 h-5" />
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        
 
         {/* ─── Main Content ────────────────────────────────────────────────── */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">

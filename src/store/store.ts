@@ -29,7 +29,8 @@ import aiReportsReducer from './slices/aiReportsSlice';
 import aidesReducer from './slices/aidesSlice';
 import sentryReducer from './slices/sentrySlice';
 import dashboardReducer from './slices/dashboardSlice';
-import projectsReducer from "./slices/projectsSlice"
+import projectsReducer from "./slices/projectsSlice";
+import standaloneReducer from "./slices/standaloneSlice"
 
 export const store = configureStore({
   reducer: {
@@ -61,7 +62,8 @@ export const store = configureStore({
     aides: aidesReducer,
     sentry: sentryReducer,
     dashboard: dashboardReducer,
-    projects: projectsReducer
+    projects: projectsReducer,
+    standalone: standaloneReducer
   },
 });
 

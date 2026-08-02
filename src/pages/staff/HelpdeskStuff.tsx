@@ -694,6 +694,32 @@ function UtilityStatusDropdown({
   );
 }
 
+// Helper component for Utility Type visual pill tags
+function UtilityTypeBadge({ type }: { type?: string }) {
+  if (!type) return <span className="text-stone-300">—</span>;
+
+  const normalized = type.toLowerCase();
+  
+  let style = "bg-stone-100 text-stone-700 border-stone-200/80";
+  if (normalized.includes("internet") || normalized.includes("wifi")) {
+    style = "bg-blue-50 text-blue-700 border-blue-200/60";
+  } else if (normalized.includes("airtime") || normalized.includes("phone")) {
+    style = "bg-purple-50 text-purple-700 border-purple-200/60";
+  } else if (normalized.includes("electricity") || normalized.includes("power")) {
+    style = "bg-amber-50 text-amber-700 border-amber-200/60";
+  } else if (normalized.includes("water")) {
+    style = "bg-cyan-50 text-cyan-700 border-cyan-200/60";
+  } else if (normalized.includes("fuel")) {
+    style = "bg-emerald-50 text-emerald-700 border-emerald-200/60";
+  }
+
+  return (
+    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border ${style}`}>
+      {type}
+    </span>
+  );
+}
+
 // ─── Utilities Tab ───────────────────────────────────────────────────────────
 
 function UtilitiesTab({
@@ -708,7 +734,6 @@ function UtilitiesTab({
   const loading = useAppSelector((state) => state.helpdesk.loading.utilities);
   const mutating = useAppSelector(selectHelpDeskMutating);
 
-  // ⭐ FIX: State moved INSIDE the UtilitiesTab component to ensure clean mounting/unmounting.
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState<JudgeUtility | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -756,10 +781,12 @@ function UtilitiesTab({
     <>
       <Panel
         title="Judge Utilities"
-        icon={<Wallet className="h-4 w-4" />}
+        icon={<Wallet className="h-4 w-4 text-[#c9a84c]" />}
         action={
-          <div className="flex gap-2">
-            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
+          <div className="flex items-center gap-2 flex-wrap">
+            <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>
+              Export
+            </GhostButton>
             {onConsolidatedMemo && (
               <GoldOutlineButton
                 icon={<FileText className="h-3.5 w-3.5" />}
@@ -774,56 +801,84 @@ function UtilitiesTab({
           </div>
         }
       >
-        <TableWithActions
-          data={data}
-          loading={loading}
-          columns={[
-            { key: 'judge_name', label: 'Judge' },
-            { key: 'requisition', label: 'Requisition #' },
-            { key: 'utility_type', label: 'Type' },
-            { key: 'amount', label: 'Amount', align: 'right' },
-            { key: 'period', label: 'Period' },
-            { key: 'status', label: 'Status', align: 'center' },
-          ]}
-          renderRow={(utility: JudgeUtility) => {
-            const firstItem = utility.items?.[0];
-            return (
-              <>
-                <td className="px-3 py-2 font-medium text-stone-800">{utility.judge_name}</td>
-                <td className="px-3 py-2 text-stone-600">
-                  {firstItem?.requisition_number || '—'}
-                </td>
-                <td className="px-3 py-2 text-stone-600">
-                  {firstItem?.utility_type || '—'}
-                </td>
-                <td className="px-3 py-2 text-right text-stone-600">
-                  {firstItem ? formatCurrency(firstItem.amount) : '—'}
-                </td>
-                <td className="px-3 py-2 text-stone-600">
-                  {firstItem?.period || '—'}
-                </td>
-                <td className="px-3 py-2 text-center">
-                  {firstItem ? (
-                    <UtilityStatusDropdown
-                      status={firstItem.status}
-                      onStatusChange={(s) => handleStatusChange(utility.id, firstItem.id, s)}
-                      disabled={mutating}
-                    />
-                  ) : (
-                    <span className="text-xs text-stone-400">No items</span>
-                  )}
-                </td>
-              </>
-            );
-          }}
-          onEdit={handleEdit}
-          onDelete={(id) => setDeleteTarget(id)}
-          mutating={mutating}
-          onView={handleView}
-        />
+        <div className="rounded-xl border border-stone-200/80 bg-white overflow-hidden shadow-sm">
+          <TableWithActions
+            data={data}
+            loading={loading}
+            columns={[
+              { key: 'judge_name', label: 'Judge' },
+              { key: 'requisition', label: 'Requisition #' },
+              { key: 'utility_type', label: 'Type' },
+              { key: 'amount', label: 'Amount (KES)', align: 'right' },
+              { key: 'period', label: 'Period' },
+              { key: 'status', label: 'Status', align: 'center' },
+            ]}
+            renderRow={(utility: JudgeUtility) => {
+              const firstItem = utility.items?.[0];
+
+              return (
+                <>
+                  {/* Judge Name Column */}
+                  <td className="px-3.5 py-3 font-semibold text-stone-800 whitespace-nowrap">
+                    <button
+                      onClick={() => handleView(utility)}
+                      className="hover:text-[#c9a84c] hover:underline text-left transition-colors"
+                    >
+                      {utility.judge_name}
+                    </button>
+                  </td>
+
+                  {/* Requisition Number Column */}
+                  <td className="px-3.5 py-3 text-stone-600 font-mono text-xs whitespace-nowrap">
+                    {firstItem?.requisition_number ? (
+                      <span className="bg-stone-100 border border-stone-200/60 px-2 py-0.5 rounded text-stone-700">
+                        {firstItem.requisition_number}
+                      </span>
+                    ) : (
+                      <span className="text-stone-300">—</span>
+                    )}
+                  </td>
+
+                  {/* Utility Type Badge Column */}
+                  <td className="px-3.5 py-3 whitespace-nowrap">
+                    <UtilityTypeBadge type={firstItem?.utility_type} />
+                  </td>
+
+                  {/* Amount Column */}
+                  <td className="px-3.5 py-3 text-right font-semibold text-stone-800 whitespace-nowrap">
+                    {firstItem ? formatCurrency(firstItem.amount) : <span className="text-stone-300">—</span>}
+                  </td>
+
+                  {/* Period Column */}
+                  <td className="px-3.5 py-3 text-stone-600 font-medium whitespace-nowrap">
+                    {firstItem?.period || <span className="text-stone-300">—</span>}
+                  </td>
+
+                  {/* Status Dropdown Column */}
+                  <td className="px-3.5 py-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                    {firstItem ? (
+                      <UtilityStatusDropdown
+                        status={firstItem.status}
+                        onStatusChange={(s) => handleStatusChange(utility.id, firstItem.id, s)}
+                        disabled={mutating}
+                      />
+                    ) : (
+                      <span className="inline-flex items-center rounded-md bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-400">
+                        No items
+                      </span>
+                    )}
+                  </td>
+                </>
+              );
+            }}
+            onEdit={handleEdit}
+            onDelete={(id) => setDeleteTarget(id)}
+            mutating={mutating}
+            onView={handleView}
+          />
+        </div>
       </Panel>
 
-      {/* ⭐ FIX: Moved the UtilitiesModal INSIDE this component, so it remounts on tab switches */}
       <UtilitiesModal
         isOpen={showModal}
         onClose={handleCloseModal}
