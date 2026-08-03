@@ -229,7 +229,7 @@ export interface HelpdeskDocument {
     signature_position_width?: number | null;
     signature_position_height?: number | null;
 
-    // ─── NEW: Stamp Fields ──────────────────────────────────────────────────────
+    // ─── Stamp Fields ──────────────────────────────────────────────────────
     is_stamped: boolean;
     stamped_by?: string;
     stamped_by_name?: string;
@@ -239,6 +239,11 @@ export interface HelpdeskDocument {
     stamp_position_y?: number | null;
     stamp_position_width?: number | null;
     stamp_position_height?: number | null;
+
+    // 🔴 NEW: Final generated PDF URL (For displaying the stamped document to the requester)
+    stamped_file_url?: string | null;
+    stamped_file_public_id?: string | null;
+    stamped_file_size?: number | null;
 
     // ─── Aide Request Fields ──────────────────────────────────────────────────
     officer_rank?: OfficerRank | null;
@@ -280,11 +285,13 @@ export interface RequesterDocumentView {
     is_signed: boolean;
     signed_by_name?: string;
     signed_at?: string;
-    // ─── NEW: Stamp info ──────────────────────────────────────────────────────
+    // ─── Stamp info ──────────────────────────────────────────────────────
     is_stamped: boolean;
     stamped_by_name?: string;
     stamped_at?: string;
     stamp_type?: StampType;
+    // 🔴 NEW: Final stamped file URL for the requester's dashboard/viewer
+    stamped_file_url?: string | null;
 }
 
 // ─── Pending Internal Approvals Summary ──────────────────────────────────────
@@ -404,7 +411,7 @@ export interface UpdateDocumentFilePayload {
     signed_by?: string;
     signed_by_name?: string;
     signed_at?: string;
-    // ─── NEW: Stamp fields ────────────────────────────────────────────────────
+    // ─── Stamp fields ────────────────────────────────────────────────────
     is_stamped?: boolean;
     stamped_by?: string;
     stamped_by_name?: string;
@@ -448,6 +455,12 @@ export interface InternalApprovalPayload {
     signature_position_y?: number;
     signature_position_width?: number;
     signature_position_height?: number;
+    // 🔴 NEW: Add stamp positioning fields to match the backend
+    stamp_position_x?: number;
+    stamp_position_y?: number;
+    stamp_position_width?: number;
+    stamp_position_height?: number;
+    stamp_type?: StampType;
 }
 
 export interface SendBackToRequesterPayload {
@@ -1196,7 +1209,22 @@ export const internalApproveDocument = createAsyncThunk<
     { rejectValue: string }
 >(
     'helpdeskDocuments/internalApprove',
-    async ({ id, comments, approved_by, approved_by_name, generate_e_stamp, signature_position_x, signature_position_y, signature_position_width, signature_position_height }, { rejectWithValue }) => {
+    async ({ 
+        id, 
+        comments, 
+        approved_by, 
+        approved_by_name, 
+        generate_e_stamp, 
+        signature_position_x, 
+        signature_position_y, 
+        signature_position_width, 
+        signature_position_height,
+        stamp_position_x,
+        stamp_position_y,
+        stamp_position_width,
+        stamp_position_height,
+        stamp_type
+    }, { rejectWithValue }) => {
         try {
             const payload: Record<string, unknown> = {
                 document_id: id,
@@ -1212,6 +1240,13 @@ export const internalApproveDocument = createAsyncThunk<
             if (signature_position_y !== undefined) payload.signature_position_y = signature_position_y;
             if (signature_position_width !== undefined) payload.signature_position_width = signature_position_width;
             if (signature_position_height !== undefined) payload.signature_position_height = signature_position_height;
+
+            // 🔴 NEW: Add stamp position and type if provided
+            if (stamp_position_x !== undefined) payload.stamp_position_x = stamp_position_x;
+            if (stamp_position_y !== undefined) payload.stamp_position_y = stamp_position_y;
+            if (stamp_position_width !== undefined) payload.stamp_position_width = stamp_position_width;
+            if (stamp_position_height !== undefined) payload.stamp_position_height = stamp_position_height;
+            if (stamp_type !== undefined) payload.stamp_type = stamp_type;
 
             console.log('📤 Internal approve payload:', JSON.stringify(payload, null, 2));
 

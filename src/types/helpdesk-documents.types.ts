@@ -273,7 +273,7 @@ export interface HelpdeskDocument {
     signature_position_width?: number | null;  // Width of signature on PDF
     signature_position_height?: number | null; // Height of signature on PDF
 
-    // ─── NEW: Stamp Fields ──────────────────────────────────────────────────────
+    // ─── Stamp Fields ──────────────────────────────────────────────────────
     is_stamped: boolean;                   // Whether the document has been officially stamped
     stamped_by?: string;                   // ID of the user who applied the stamp
     stamped_by_name?: string;              // Name of the user who applied the stamp
@@ -283,6 +283,11 @@ export interface HelpdeskDocument {
     stamp_position_y?: number | null;      // Y position of stamp on PDF
     stamp_position_width?: number | null;  // Width of stamp on PDF
     stamp_position_height?: number | null; // Height of stamp on PDF
+
+    // 🔴 NEW: Final generated PDF URL (For displaying the stamped document to the requester)
+    stamped_file_url?: string | null;      // The fully generated PDF containing both signature and stamp
+    stamped_file_public_id?: string | null;
+    stamped_file_size?: number | null;
 
     // ─── Aide Request Fields ──────────────────────────────────────────────────
     officer_rank?: OfficerRank | null;
@@ -331,11 +336,13 @@ export interface RequesterDocumentView {
     is_signed: boolean;
     signed_by_name?: string;
     signed_at?: string;
-    // ─── NEW: Stamp info ──────────────────────────────────────────────────────
+    // ─── Stamp info ──────────────────────────────────────────────────────
     is_stamped: boolean;
     stamped_by_name?: string;
     stamped_at?: string;
     stamp_type?: StampType;
+    // 🔴 NEW: Final generated stamped file URL for the requester's dashboard/viewer
+    stamped_file_url?: string | null;
 }
 
 // ─── Pending Internal Approvals Summary ──────────────────────────────────────
@@ -472,6 +479,12 @@ export interface InternalApprovalPayload {
     signature_position_y?: number;
     signature_position_width?: number;
     signature_position_height?: number;
+    // 🔴 FIX: Add stamp position fields here to match the backend schema
+    stamp_position_x?: number;
+    stamp_position_y?: number;
+    stamp_position_width?: number;
+    stamp_position_height?: number;
+    stamp_type?: StampType;
 }
 
 /**
@@ -530,7 +543,7 @@ export interface UpdateDocumentFilePayload {
     signed_by?: string;
     signed_by_name?: string;
     signed_at?: string;
-    // ─── NEW: Stamp fields ────────────────────────────────────────────────────
+    // ─── Stamp fields ────────────────────────────────────────────────────
     is_stamped?: boolean;
     stamped_by?: string;
     stamped_by_name?: string;

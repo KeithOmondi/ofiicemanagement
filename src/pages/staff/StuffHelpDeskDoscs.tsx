@@ -170,7 +170,8 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
   const [showStampOverlay, setShowStampOverlay] = useState(true);
   const [isStampImageLoaded, setIsStampImageLoaded] = useState(false);
 
-  const fileUrl = document.file_url;
+  // 🔴 FIX: Use stamped_file_url for final approved/stamped documents, otherwise fallback to file_url
+  const fileUrl = document.stamped_file_url || document.file_url;
   const isStamped = document.is_stamped && document.e_stamp_url;
   const isSigned = document.is_signed && !document.is_stamped;
   const isApproved = document.status === 'approved' && document.is_sent_back_to_requester;
@@ -575,7 +576,7 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
             {/* View stamped PDF button */}
             {isStamped && isApproved && (
               <a
-                href={document.file_url}
+                href={fileUrl} // 🔴 FIX: fileUrl already points to stamped_file_url
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
@@ -638,6 +639,9 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
   const isStamped = document.is_stamped && document.e_stamp_url;
   const isSigned = document.is_signed;
   const isApprovedAndVisible = document.status === 'approved' && document.is_sent_back_to_requester;
+
+  // 🔴 FIX: Use stamped_file_url for final approved/stamped documents
+  const finalFileUrl = document.stamped_file_url || document.file_url;
 
   const handleSubmitForApproval = async () => {
     if (!window.confirm('Submit this document for approval?')) return;
@@ -1037,7 +1041,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
                     View Stamped Document
                   </button>
                   <a
-                    href={document.file_url}
+                    href={finalFileUrl} // 🔴 FIX: Use the final stamped file URL
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
@@ -1154,7 +1158,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             </div>
           )}
 
-          {/* ── Comments ────────────────────────────────────────────────── */}
+          {/* ─── Comments ────────────────────────────────────────────────── */}
           <div className="mt-6">
             <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
               <MessageSquare size={16} className="text-stone-400" />
@@ -1478,7 +1482,9 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
 
   const handleDownloadDocument = () => {
     if (selectedDocument?.file_url) {
-      window.open(selectedDocument.file_url, '_blank');
+      // 🔴 FIX: If stamped_file_url exists, use that instead
+      const downloadUrl = selectedDocument.stamped_file_url || selectedDocument.file_url;
+      window.open(downloadUrl, '_blank');
     }
   };
 

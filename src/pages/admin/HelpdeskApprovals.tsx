@@ -15,6 +15,7 @@ import {
   type RequesterVisibleStatus,
   type DocumentStatus as HelpdeskDocumentStatus,
   type DocumentEntityType,
+  fetchHelpdeskDocumentById,
 } from "../../store/slices/helpdeskDocumentsSlice";
 import { fetchCurrentUser, selectCurrentUser } from "../../store/slices/userSlice";
 import { hasRole } from "../../store/slices/authSlice";
@@ -330,6 +331,9 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
   
   const signatoryTitle = "Registrar, High Court";
 
+  // 🔴 FIX: Use stamped_file_url if available (for requester view), otherwise use original file_url
+  const previewUrl = document.stamped_file_url || document.file_url;
+
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">
       {/* Header */}
@@ -356,7 +360,7 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
           <a
-            href={document.file_url}
+            href={previewUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors whitespace-nowrap"
@@ -367,7 +371,7 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
             View
           </a>
           <a
-            href={document.file_url}
+            href={previewUrl}
             download
             className="inline-flex items-center gap-1 rounded-md border border-stone-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-stone-700 hover:bg-stone-50 transition-colors whitespace-nowrap"
           >
@@ -525,7 +529,7 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
           </div>
           <div className="p-4 min-h-[200px] flex items-center justify-center bg-stone-50">
             <iframe
-              src={`${document.file_url}#toolbar=0`}
+              src={`${previewUrl}#toolbar=0`}
               title={document.subject}
               className="w-full h-[400px] border-0 rounded"
             />
@@ -894,33 +898,7 @@ const HelpdeskApprovals: React.FC = () => {
     return await response.arrayBuffer();
   };
 
-  // Helper function to upload stamped document
-  const uploadStampedDocument = async (blob: Blob): Promise<string> => {
-    // This is a placeholder - implement based on your storage setup
-    // For example, if using Supabase storage:
-    /*
-    const fileName = `stamped_${Date.now()}.pdf`;
-    const { data, error } = await supabase.storage
-      .from('helpdesk-documents')
-      .upload(fileName, blob);
-    
-    if (error) throw error;
-    
-    const { data: { publicUrl } } = supabase.storage
-      .from('helpdesk-documents')
-      .getPublicUrl(fileName);
-    
-    return publicUrl;
-    */
-    
-    // For now, create an object URL for demo purposes
-    // In production, this should upload to your storage service
-    return URL.createObjectURL(blob);
-  };
-
-  // ─── Action Handlers ──────────────────────────────────────────────────────
-
-  // Handler for Stamp & Approve - REQUIRES real signature from currentUser
+   // Handler for Stamp & Approve - REQUIRES real signature from currentUser
   const handleStampAndApprove = async (doc: HelpdeskDocument) => {
     if (!isSuperAdmin) return;
     
@@ -963,8 +941,8 @@ const HelpdeskApprovals: React.FC = () => {
         approverTitle: 'Registrar, High Court',
       };
 
-      // First, approve the document internally
-      const approvedDoc = await dispatch(internalApproveDocument({
+      // 🔴 REMOVED: `approvedDoc` variable. We don't need to store it.
+      await dispatch(internalApproveDocument({
         id: doc.id,
         action: 'approve',
         approved_by: activeUser.id,
@@ -973,22 +951,11 @@ const HelpdeskApprovals: React.FC = () => {
         generate_e_stamp: true,
       })).unwrap();
 
-      // Apply the stamp to the PDF with the real signature
-      const stampedPdfBlob = await stampPdfFromUrl(doc.file_url, stampOptions);
+      // 🔴 REMOVED: `stampedPdfBlob` variable. The backend handles the stamping and upload.
+      await stampPdfFromUrl(doc.file_url, stampOptions);
       
-      // Upload the stamped PDF back to storage
-      const stampedFileUrl = await uploadStampedDocument(stampedPdfBlob);
-
-      // Update the document with the stamped file URL
-      const updatedDoc = {
-        ...approvedDoc,
-        file_url: stampedFileUrl,
-        e_stamp_url: stampedFileUrl,
-        e_stamp_status: 'stamped' as const,
-        is_signed: true,
-        signed_at: new Date().toISOString(),
-        signed_by_name: activeUser.full_name || 'Super Admin',
-      };
+      // Fetch the updated document from the backend (which now contains the stamped_file_url)
+      const updatedDoc = await dispatch(fetchHelpdeskDocumentById(doc.id)).unwrap();
 
       // Update the selected document
       setSelectedDocument(updatedDoc);
@@ -1114,67 +1081,43 @@ const HelpdeskApprovals: React.FC = () => {
     }
   };
 
-const handleSendBack = async (doc: HelpdeskDocument, finalStatus: 'approved' | 'rejected' | 'changes_requested') => {
-  if (!isSuperAdmin) return;
-  
-  setLoadingAction(prev => ({ ...prev, sendBack: doc.id }));
-  
-  try {
-    // Capture ALL stamp and signature related fields BEFORE sending back
-    const preservedFields = {
-      file_url: doc.file_url,
-      e_stamp_url: doc.e_stamp_url,
-      e_stamp_status: doc.e_stamp_status,
-      is_signed: doc.is_signed,
-      signed_at: doc.signed_at,
-      signed_by_name: doc.signed_by_name,
-      is_stamped: doc.is_stamped,
-      stamped_at: doc.stamped_at,
-      stamped_by_name: doc.stamped_by_name,
-      stamp_type: doc.stamp_type,
-      signature_position_x: doc.signature_position_x,
-      signature_position_y: doc.signature_position_y,
-      signature_position_width: doc.signature_position_width,
-      signature_position_height: doc.signature_position_height,
-      stamp_position_x: doc.stamp_position_x,
-      stamp_position_y: doc.stamp_position_y,
-      stamp_position_width: doc.stamp_position_width,
-      stamp_position_height: doc.stamp_position_height,
-    };
+  const handleSendBack = async (doc: HelpdeskDocument, finalStatus: 'approved' | 'rejected' | 'changes_requested') => {
+    if (!isSuperAdmin) return;
     
-    // Send back to requester
-    const result = await dispatch(sendBackToRequester({
-      id: doc.id,
-      final_status: finalStatus,
-      sent_by: currentUser?.id || '',
-      sent_by_name: currentUser?.full_name,
-      comments: `Document sent back to requester with status: ${finalStatus}`,
-      notify_requester: true,
-    })).unwrap();
+    setLoadingAction(prev => ({ ...prev, sendBack: doc.id }));
     
-    // Restore ALL stamp and signature fields that might have been lost
-    const updatedDoc = {
-      ...result,
-      ...preservedFields,
-    };
-    
-    const statusMessages = {
-      approved: 'Document approved and sent back to requester with signature.',
-      rejected: 'Document rejected and sent back to requester.',
-      changes_requested: 'Changes requested and sent back to requester.',
-    };
-    
-    toast.success(statusMessages[finalStatus]);
-    setSelectedDocument(updatedDoc);
-    await refreshDocuments();
-    
-  } catch (err) {
-    const errorMessage = typeof err === 'string' ? err : 'Failed to send document back to requester.';
-    toast.error(errorMessage);
-  } finally {
-    setLoadingAction(prev => ({ ...prev, sendBack: undefined }));
-  }
-};
+    try {
+      // 🔴 FIX: REMOVED preserving fields manually.
+      // The backend now persists everything (file_url, e_stamp_url, is_signed, is_stamped, stamped_file_url).
+      // Sending back simply updates the requester_visible_status and returns the fully preserved object.
+      
+      // Send back to requester
+      const result = await dispatch(sendBackToRequester({
+        id: doc.id,
+        final_status: finalStatus,
+        sent_by: currentUser?.id || '',
+        sent_by_name: currentUser?.full_name,
+        comments: `Document sent back to requester with status: ${finalStatus}`,
+        notify_requester: true,
+      })).unwrap();
+      
+      const statusMessages = {
+        approved: 'Document approved and sent back to requester with signature.',
+        rejected: 'Document rejected and sent back to requester.',
+        changes_requested: 'Changes requested and sent back to requester.',
+      };
+      
+      toast.success(statusMessages[finalStatus]);
+      setSelectedDocument(result);
+      await refreshDocuments();
+      
+    } catch (err) {
+      const errorMessage = typeof err === 'string' ? err : 'Failed to send document back to requester.';
+      toast.error(errorMessage);
+    } finally {
+      setLoadingAction(prev => ({ ...prev, sendBack: undefined }));
+    }
+  };
 
   const handleCancelDecision = async (doc: HelpdeskDocument) => {
     if (!isSuperAdmin) return;

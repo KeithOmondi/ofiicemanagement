@@ -1982,8 +1982,9 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
+                      {/* 🔴 FIX: Use stamped_file_url if available, otherwise fallback to file_url */}
                       <a
-                        href={doc.file_url}
+                        href={doc.stamped_file_url || doc.file_url}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
@@ -4442,8 +4443,9 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
+                      {/* 🔴 FIX: Use stamped_file_url if available, otherwise fallback to file_url */}
                       <a
-                        href={doc.file_url}
+                        href={doc.stamped_file_url || doc.file_url}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
