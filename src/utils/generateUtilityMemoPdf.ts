@@ -52,12 +52,11 @@ const formatAmount = (amount: number): string =>
 // ─── Main export ────────────────────────────────────────────────────────────
 
 export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blob> {
-  // ─── NOTE: signature image is intentionally NOT fetched or drawn here ────
+  // ─── NOTE: The signature block is intentionally NOT handled here ────────
   // The two-step approval workflow stamps the real signature onto the PDF
-  // via embedSignatureIntoPDF on the backend, which anchors on the
-  // "REGISTRAR, HIGH COURT" designation text. This generator reserves the
-  // blank space + prints the name/designation/enclosure; nothing is "signed"
-  // until a super admin approves it internally.
+  // via embedSignatureIntoPDF on the backend. This generator only creates
+  // the memo content with a placeholder space where the signature will go.
+  
   const [crestDataUrl, footerEmblemDataUrl] = await Promise.all([
     fetchImageDataUrl(data.crestUrl),
     fetchImageDataUrl(FOOTER_EMBLEM_SRC),
@@ -75,10 +74,11 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
   const footerReserveHeight = pageHeight - footerY + footerBlockH + 12;
 
   // ── Crest ────────────────────────────────────────────────────────────────
+  // ✅ Keep the crest logo
   if (crestDataUrl) {
     const crestTargetWidth = 190;
     const crestW = crestTargetWidth;
-    let crestH = crestTargetWidth * 0.5; // fallback ~2:1 if dimensions can't be read
+    let crestH = crestTargetWidth * 0.5;
 
     const naturalSize = await getImageNaturalSize(crestDataUrl);
     if (naturalSize && naturalSize.width > 0) {
@@ -97,7 +97,8 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
     y += crestH + 18;
   }
 
-  // ── Title block ──────────────────────────────────────────────────────────
+  // ─── Title block ──────────────────────────────────────────────────────────
+  // ✅ "OFFICE OF THE REGISTRAR HIGH COURT" above "INTERNAL MEMO"
   doc.setFont('times', 'bold');
   doc.setFontSize(16);
   doc.setTextColor(0, 0, 0);
@@ -146,7 +147,7 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
 
   const sharedTableStyle = {
     theme: 'grid' as const,
-    showFoot: 'lastPage' as const, // don't repeat the grand-total row on every page
+    showFoot: 'lastPage' as const,
     styles: {
       font: 'times',
       fontSize: 10,
@@ -183,7 +184,7 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
     const rows = data.rows.map((row, index) => [
       String(index + 1),
       row.judge_name,
-      formatAmount(row.total), // total is the fuel amount
+      formatAmount(row.total),
     ]);
 
     autoTable(doc, {
@@ -240,63 +241,25 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
   // @ts-expect-error - lastAutoTable is attached by the plugin at runtime
   y = doc.lastAutoTable.finalY + 20;
 
-  // ── Signature & Enclosure Block ──────────────────────────────────────────
-  const RESERVED_SIGNATURE_SPACE = 50; // pt — matches backend signature height
-  const nameLineH = data.signatoryName ? 18 : 0;
-  const hasEncls = Boolean(data.preparerInitials);
-  const enclsBlockH = hasEncls ? 27 : 0;
-  const sigBlockH = RESERVED_SIGNATURE_SPACE + nameLineH + 14 + 11 + enclsBlockH;
-
+  // ─── Signature Block Placeholder ────────────────────────────────────────
+  // This space is reserved for the backend to embed the actual signature.
+  // The backend uses embedSignatureBlockIntoPDF to add the signature image,
+  // signatory name, designation, and date.
+  
+  const RESERVED_SIGNATURE_SPACE = 60; // pt — space for backend signature
   const sigGapAboveContent = 36;
   let sigY = y + sigGapAboveContent;
 
   // Only push to a new page if it won't fit above the footer reserve height
-  if (sigY + sigBlockH + 20 > footerY) {
+  if (sigY + RESERVED_SIGNATURE_SPACE + 40 > footerY) {
     doc.addPage();
     sigY = 60;
   }
   y = sigY;
 
-  // 1. Reserved Space for Backend Stamp Signature
+  // Reserve space for the backend signature block
+  // The backend will embed: signature image → signatory name → designation → date
   y += RESERVED_SIGNATURE_SPACE;
-
-  // 2. Signatory Name (Bold)
-  if (data.signatoryName) {
-    doc.setFont('times', 'bold');
-    doc.setFontSize(11.5);
-    doc.text(data.signatoryName, marginX, y);
-    y += nameLineH;
-  }
-
-  // 3. Designation (BOLD + UNDERLINE)
-  const desigText = data.from.toUpperCase();
-  doc.setFont('times', 'bold');
-  doc.setFontSize(11);
-  doc.text(desigText, marginX, y);
-
-  // Underline designation line explicitly
-  const desigWidth = doc.getTextWidth(desigText);
-  doc.setLineWidth(1);
-  doc.setDrawColor(0, 0, 0);
-  doc.line(marginX, y + 2, marginX + desigWidth, y + 2);
-  y += 24;
-
-  // 4. Enclosure / Initials Reference (e.g. Encls. Coo/ko)
-  if (data.preparerInitials) {
-    const signatoryInit = data.signatoryInitials || 'Coo';
-    const preparerInit = data.preparerInitials; // e.g. "ko" or "KO"
-
-    doc.setFont('times', 'bolditalic');
-    doc.setFontSize(10.5);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Encls.', marginX, y);
-    y += 13;
-
-    doc.setFont('times', 'italic');
-    doc.setFontSize(9.5);
-    doc.text(`${signatoryInit}/${preparerInit}`, marginX, y);
-    y += 14;
-  }
 
   // ── Footer (rendered on the final page) ──────────────────────────────────
   let footerRenderW = 100;

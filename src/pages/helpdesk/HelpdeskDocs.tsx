@@ -10,14 +10,17 @@ import {
   selectDeletingDocumentId,
   selectSelectedHelpdeskDocument,
   selectDocumentActionLoading,
+  //selectDocumentLinking,
+  //selectUnlinkedHelpdeskDocuments,
   fetchHelpdeskDocuments,
   fetchHelpdeskDocumentById,
   uploadHelpdeskDocument,
   deleteHelpdeskDocument,
-  submitForApproval,
-  approveDocument,
-  rejectDocument,
-  returnDocument,
+  // ─── New Two-Step Approval Actions ──────────────────────────────────────
+  internalApproveDocument,
+  internalRejectDocument,
+  internalRequestChanges,
+  sendBackToRequester,
   addComment,
   clearDocumentError,
   clearSelectedDocument,
@@ -25,6 +28,8 @@ import {
   type DocumentFormat,
   type DocumentStatus,
   type HelpdeskDocument,
+  //type InternalApprovalStatus,
+  //type RequesterVisibleStatus,
 } from '../../store/slices/helpdeskDocumentsSlice';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -108,6 +113,11 @@ const ACTION_LABELS: Record<string, string> = {
   approved: 'Approved',
   rejected: 'Rejected',
   returned: 'Returned',
+  previewed: 'Previewed',
+  sent_back: 'Sent Back to Requester',
+  resubmitted: 'Resubmitted',
+  signed: 'Signed',
+  stamped: 'Stamped',
 };
 
 // ─── Status Badge Component ────────────────────────────────────────────────
@@ -509,7 +519,7 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, onPreview, onDelete, d
         </div>
       </div>
 
-      {/* Action Buttons - Removed Download button */}
+      {/* Action Buttons */}
       <div className="flex items-center justify-end gap-1 mt-4 pt-3 border-t border-slate-100">
         <button
           onClick={() => onPreview(doc.id)}
@@ -639,75 +649,121 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
   const [newComment, setNewComment] = useState('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-  const [showReturnModal, setShowReturnModal] = useState(false);
-  const [returnComments, setReturnComments] = useState('');
+  //const [showReturnModal, setShowReturnModal] = useState(false);
+  //const [returnComments, setReturnComments] = useState('');
+  const [showChangesModal, setShowChangesModal] = useState(false);
+  const [changesRequested, setChangesRequested] = useState<string[]>([]);
+  const [changeInput, setChangeInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const docId = document.id;
   const isLoading = actionLoading[docId] || {};
 
-  const handleSubmitForApproval = async () => {
-    if (!window.confirm('Submit this document for approval?')) return;
+  // Check if super admin has made an internal decision
+  const hasInternalDecision = document.is_internal_approval_complete;
+  const isReadyToSendBack = hasInternalDecision && !document.is_sent_back_to_requester;
+
+  // ─── Two-Step Approval Handlers ──────────────────────────────────────────
+
+  const handleSendBackToRequester = async () => {
+    // Determine the final status based on internal approval status
+    let finalStatus: 'approved' | 'rejected' | 'changes_requested';
+    switch (document.internal_approval_status) {
+      case 'approved_internal':
+        finalStatus = 'approved';
+        break;
+      case 'rejected_internal':
+        finalStatus = 'rejected';
+        break;
+      case 'changes_requested_internal':
+        finalStatus = 'changes_requested';
+        break;
+      default:
+        toast.error('No internal decision has been made yet.');
+        return;
+    }
+
+    if (!window.confirm(`Send this document back to the requester as "${finalStatus}"?`)) return;
+    
     setIsSubmitting(true);
     try {
-      await dispatch(submitForApproval({ id: docId })).unwrap();
+      await dispatch(sendBackToRequester({
+        id: docId,
+        final_status: finalStatus,
+        comments: 'Document processed and sent back to requester.',
+        notify_requester: true,
+      })).unwrap();
       onRefresh();
-      toast.success('Document submitted for approval');
-    } catch {
-      toast.error('Failed to submit for approval');
+      toast.success(`Document sent back to requester as ${finalStatus}`);
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to send back to requester');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleApprove = async () => {
-    if (!window.confirm('Approve this document and apply e-stamp?')) return;
+  const handleInternalApprove = async () => {
     setIsSubmitting(true);
     try {
-      await dispatch(approveDocument({ id: docId })).unwrap();
+      await dispatch(internalApproveDocument({
+        id: docId,
+        action: 'approve',
+        comments: 'Document approved internally.',
+        generate_e_stamp: true,
+      })).unwrap();
       onRefresh();
-      toast.success('Document approved and e-stamped');
-    } catch {
-      toast.error('Failed to approve document');
+      toast.success('Document approved internally. Click "Send Back to Requester" to notify them.');
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to approve document internally');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleReject = async () => {
+  const handleInternalReject = async () => {
     if (!rejectReason.trim()) {
       toast.error('Please provide a rejection reason.');
       return;
     }
     setIsSubmitting(true);
     try {
-      await dispatch(rejectDocument({ id: docId, reason: rejectReason.trim() })).unwrap();
+      await dispatch(internalRejectDocument({
+        id: docId,
+        action: 'reject',
+        rejection_reason: rejectReason.trim(),
+        comments: `Rejected internally: ${rejectReason.trim()}`,
+      })).unwrap();
       setShowRejectModal(false);
       setRejectReason('');
       onRefresh();
-      toast.success('Document rejected');
-    } catch {
-      toast.error('Failed to reject document');
+      toast.success('Document rejected internally. Click "Send Back to Requester" to notify them.');
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to reject document internally');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleReturn = async () => {
+  const handleInternalRequestChanges = async () => {
+    if (changesRequested.length === 0) {
+      toast.error('Please specify at least one change request.');
+      return;
+    }
     setIsSubmitting(true);
     try {
-      await dispatch(
-        returnDocument({
-          id: docId,
-          comments: returnComments.trim() || undefined,
-        })
-      ).unwrap();
-      setShowReturnModal(false);
-      setReturnComments('');
+      await dispatch(internalRequestChanges({
+        id: docId,
+        action: 'request_changes',
+        changes_requested: changesRequested,
+        comments: `Changes requested internally: ${changesRequested.join('; ')}`,
+      })).unwrap();
+      setShowChangesModal(false);
+      setChangesRequested([]);
+      setChangeInput('');
       onRefresh();
-      toast.success('Document returned');
-    } catch {
-      toast.error('Failed to return document');
+      toast.success('Changes requested internally. Click "Send Back to Requester" to notify them.');
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to request changes internally');
     } finally {
       setIsSubmitting(false);
     }
@@ -717,26 +773,60 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
     if (!newComment.trim()) return;
     setIsSubmitting(true);
     try {
-      await dispatch(
-        addComment({
-          id: docId,
-          comment: newComment.trim(),
-        })
-      ).unwrap();
+      await dispatch(addComment({
+        id: docId,
+        comment: newComment.trim(),
+        is_internal: currentUserRole === 'super_admin',
+      })).unwrap();
       setNewComment('');
       onRefresh();
-    } catch {
-      toast.error('Failed to add comment');
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to add comment');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const canSubmit = document.status === 'draft' && currentUserRole === 'dept_head';
-  const canApprove = document.status === 'pending_approval' && currentUserRole === 'super_admin';
-  const canReject = document.status === 'pending_approval' && currentUserRole === 'super_admin';
-  const canReturn = document.status === 'approved' && currentUserRole === 'super_admin';
+  const addChangeRequest = () => {
+    if (changeInput.trim()) {
+      setChangesRequested([...changesRequested, changeInput.trim()]);
+      setChangeInput('');
+    }
+  };
+
+  const removeChangeRequest = (index: number) => {
+    setChangesRequested(changesRequested.filter((_, i) => i !== index));
+  };
+
+  // ─── Permission Checks ──────────────────────────────────────────────────
+
+  // Department Head can only submit for approval (but we're using internal workflow)
+  // In the new workflow, we need to check if the document is in draft and user is dept_head
+  //const canSubmit = document.status === 'draft' && currentUserRole === 'dept_head';
+  
+  // Super admin actions
+  const canInternalApprove = 
+    currentUserRole === 'super_admin' && 
+    document.internal_approval_status === 'pending' &&
+    !document.is_internal_approval_complete;
+  
+  const canInternalReject = 
+    currentUserRole === 'super_admin' && 
+    document.internal_approval_status === 'pending' &&
+    !document.is_internal_approval_complete;
+  
+  const canInternalRequestChanges = 
+    currentUserRole === 'super_admin' && 
+    document.internal_approval_status === 'pending' &&
+    !document.is_internal_approval_complete;
+  
+  const canSendBack = 
+    currentUserRole === 'super_admin' && 
+    isReadyToSendBack;
+
   const canDownloadStamped = document.status === 'approved' && document.e_stamp_url;
+
+  // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
@@ -747,10 +837,24 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             <div className="flex items-center gap-3 flex-wrap">
               <h3 className="text-lg font-medium text-slate-900 truncate">{document.subject}</h3>
               <StatusBadge status={document.status} />
+              {document.is_internal_approval_complete && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+                  Internal Decision Made
+                </span>
+              )}
+              {document.is_sent_back_to_requester && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                  Sent to Requester
+                </span>
+              )}
             </div>
             <p className="mt-1 text-sm text-slate-500 font-mono">
               Ref: {document.ref} • {document.format.toUpperCase()} •{' '}
               {new Date(document.created_at).toLocaleDateString()}
+            </p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Internal Status: {document.internal_approval_status} • 
+              Requester Status: {document.requester_status}
             </p>
           </div>
           <button
@@ -771,60 +875,65 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
               <Eye size={14} />
               Preview Document
             </button>
-            {canSubmit && (
+
+            {/* Super Admin Actions */}
+            {canInternalApprove && (
               <button
-                onClick={handleSubmitForApproval}
-                disabled={isSubmitting || isLoading.submitting}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
-              >
-                {isSubmitting || isLoading.submitting ? (
-                  <Loader2 size={14} className="animate-spin" />
-                ) : (
-                  <Send size={14} />
-                )}
-                Submit for Approval
-              </button>
-            )}
-            {canApprove && (
-              <button
-                onClick={handleApprove}
-                disabled={isSubmitting || isLoading.approving}
+                onClick={handleInternalApprove}
+                disabled={isSubmitting || isLoading.internalApproving}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
               >
-                {isSubmitting || isLoading.approving ? (
+                {isSubmitting || isLoading.internalApproving ? (
                   <Loader2 size={14} className="animate-spin" />
                 ) : (
                   <Stamp size={14} />
                 )}
-                Approve & Stamp
+                Approve Internally
               </button>
             )}
-            {canReject && (
+
+            {canInternalReject && (
               <button
                 onClick={() => setShowRejectModal(true)}
-                disabled={isSubmitting || isLoading.rejecting}
+                disabled={isSubmitting || isLoading.internalRejecting}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-700 disabled:opacity-50"
               >
-                {isSubmitting || isLoading.rejecting ? (
+                {isSubmitting || isLoading.internalRejecting ? (
                   <Loader2 size={14} className="animate-spin" />
                 ) : (
                   <XCircle size={14} />
                 )}
-                Reject
+                Reject Internally
               </button>
             )}
-            {canReturn && (
+
+            {canInternalRequestChanges && (
               <button
-                onClick={() => setShowReturnModal(true)}
-                disabled={isSubmitting || isLoading.returning}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                onClick={() => setShowChangesModal(true)}
+                disabled={isSubmitting || isLoading.requestingChanges}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50"
               >
-                {isSubmitting || isLoading.returning ? (
+                {isSubmitting || isLoading.requestingChanges ? (
                   <Loader2 size={14} className="animate-spin" />
                 ) : (
                   <ArrowLeft size={14} />
                 )}
-                Return
+                Request Changes
+              </button>
+            )}
+
+            {canSendBack && (
+              <button
+                onClick={handleSendBackToRequester}
+                disabled={isSubmitting || isLoading.sendingBack}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+              >
+                {isSubmitting || isLoading.sendingBack ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Send size={14} />
+                )}
+                Send Back to Requester
               </button>
             )}
           </div>
@@ -967,11 +1076,26 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
                       {entry.action === 'approved' && <CheckCircle size={14} className="text-emerald-600" />}
                       {entry.action === 'rejected' && <XCircle size={14} className="text-red-600" />}
                       {entry.action === 'returned' && <ArrowLeft size={14} className="text-blue-600" />}
+                      {entry.action === 'previewed' && <Eye size={14} className="text-indigo-600" />}
+                      {entry.action === 'sent_back' && <Send size={14} className="text-blue-600" />}
+                      {entry.action === 'resubmitted' && <RefreshCw size={14} className="text-amber-600" />}
+                      {entry.action === 'signed' && <FileCheck size={14} className="text-emerald-600" />}
+                      {entry.action === 'stamped' && <Stamp size={14} className="text-emerald-600" />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
                         <p className="text-sm font-medium text-slate-800">
                           {ACTION_LABELS[entry.action] || entry.action}
+                          {entry.internal_action && (
+                            <span className="ml-2 inline-block text-[10px] font-semibold uppercase tracking-wide text-amber-600">
+                              (Internal)
+                            </span>
+                          )}
+                          {entry.requester_visible === false && (
+                            <span className="ml-2 inline-block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                              (Hidden from Requester)
+                            </span>
+                          )}
                         </p>
                         <span className="text-xs text-slate-400">
                           {new Date(entry.created_at).toLocaleString()}
@@ -1055,6 +1179,18 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             ) : (
               <span>E-Stamp: {document.e_stamp_status || 'Pending'}</span>
             )}
+            {document.is_signed && (
+              <span className="ml-3 flex items-center gap-1 text-emerald-600">
+                <FileCheck size={14} />
+                Signed ✓
+              </span>
+            )}
+            {document.is_stamped && (
+              <span className="ml-3 flex items-center gap-1 text-emerald-600">
+                <Stamp size={14} />
+                Stamped ✓
+              </span>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -1092,11 +1228,11 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
                     Cancel
                   </button>
                   <button
-                    onClick={handleReject}
+                    onClick={handleInternalReject}
                     disabled={!rejectReason.trim() || isSubmitting}
                     className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700 transition disabled:opacity-50"
                   >
-                    {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : 'Reject'}
+                    {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : 'Reject Internally'}
                   </button>
                 </div>
               </div>
@@ -1104,39 +1240,67 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
           </div>
         )}
 
-        {/* ── Return Modal ────────────────────────────────────────────────── */}
-        {showReturnModal && (
+        {/* ── Request Changes Modal ──────────────────────────────────────── */}
+        {showChangesModal && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
             <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
               <div className="p-6">
-                <h3 className="text-lg font-medium text-slate-900">Return Document</h3>
+                <h3 className="text-lg font-medium text-slate-900">Request Changes</h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Add any instructions or comments for the department head.
+                  Specify what changes are required for this document.
                 </p>
-                <textarea
-                  value={returnComments}
-                  onChange={(e) => setReturnComments(e.target.value)}
-                  placeholder="Enter return instructions (optional)..."
-                  rows={4}
-                  className="mt-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  autoFocus
-                />
+                
+                <div className="mt-4 flex gap-2">
+                  <input
+                    type="text"
+                    value={changeInput}
+                    onChange={(e) => setChangeInput(e.target.value)}
+                    placeholder="Enter a change request..."
+                    className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    onKeyDown={(e) => e.key === 'Enter' && addChangeRequest()}
+                  />
+                  <button
+                    onClick={addChangeRequest}
+                    disabled={!changeInput.trim()}
+                    className="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-md hover:bg-amber-700 transition disabled:opacity-50"
+                  >
+                    Add
+                  </button>
+                </div>
+
+                {changesRequested.length > 0 && (
+                  <div className="mt-3 space-y-1 max-h-32 overflow-y-auto">
+                    {changesRequested.map((change, index) => (
+                      <div key={index} className="flex items-center justify-between bg-amber-50 rounded-lg px-3 py-2">
+                        <span className="text-sm text-amber-800">{change}</span>
+                        <button
+                          onClick={() => removeChangeRequest(index)}
+                          className="text-amber-500 hover:text-amber-700"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div className="mt-4 flex justify-end gap-3">
                   <button
                     onClick={() => {
-                      setShowReturnModal(false);
-                      setReturnComments('');
+                      setShowChangesModal(false);
+                      setChangesRequested([]);
+                      setChangeInput('');
                     }}
                     className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
                   >
                     Cancel
                   </button>
                   <button
-                    onClick={handleReturn}
-                    disabled={isSubmitting}
-                    className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition disabled:opacity-50"
+                    onClick={handleInternalRequestChanges}
+                    disabled={changesRequested.length === 0 || isSubmitting}
+                    className="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-md hover:bg-amber-700 transition disabled:opacity-50"
                   >
-                    {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : 'Return'}
+                    {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : 'Request Changes'}
                   </button>
                 </div>
               </div>
@@ -1557,5 +1721,9 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
     </div>
   );
 };
+
+// ─── Missing Import ──────────────────────────────────────────────────────────
+
+import { RefreshCw } from 'lucide-react';
 
 export default HelpdeskDocs;

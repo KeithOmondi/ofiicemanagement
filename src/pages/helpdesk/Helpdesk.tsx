@@ -1,5 +1,3 @@
-// src/pages/Helpdesk.tsx
-
 import React, { useState, useEffect, useRef, type ChangeEvent, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -82,7 +80,8 @@ import {
   fetchHelpdeskDocuments,
   uploadHelpdeskDocument,
   linkHelpdeskDocument,
-  submitForApproval,
+  internalApproveDocument,
+  sendBackToRequester,
   selectAllHelpdeskDocuments,
   selectDocumentsUploading,
   selectDocumentActionLoading,
@@ -460,7 +459,6 @@ function ConfirmDialog({
 
 // ─── Status Dropdown ────────────────────────────────────────────────────────────
 
-
 function StatusDropdown({
   status,
   onStatusChange,
@@ -490,8 +488,6 @@ function StatusDropdown({
     </div>
   );
 }
-
-// ─── Reusable Table with Actions ────────────────────────────────────────────
 
 // ─── Reusable Table with Actions ────────────────────────────────────────────
 
@@ -1028,7 +1024,6 @@ function UtilitiesTab({
 
 // ─── Utility Status Dropdown ─────────────────────────────────────────────────
 
-
 function UtilityStatusDropdown({
   status,
   onStatusChange,
@@ -1395,14 +1390,29 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
 
   const handleSendForApproval = async (docId: string) => {
     try {
-      await dispatch(submitForApproval({ id: docId })).unwrap();
-      toast.success('Document sent to the super admin for approval.');
+      // Step 1: Approve internally
+      const approvedDoc = await dispatch(internalApproveDocument({
+        id: docId,
+        action: 'approve',
+        comments: `Document approved for ${title}.`,
+        generate_e_stamp: true,
+      })).unwrap();
+
+      // Step 2: Send back to requester
+      await dispatch(sendBackToRequester({
+        id: approvedDoc.id,
+        final_status: 'approved',
+        comments: 'Document approved and sent back to requester.',
+        notify_requester: true,
+      })).unwrap();
+
+      toast.success('Document approved and sent back to requester.');
       dispatch(fetchHelpdeskDocuments({ 
         entity_type: entityType, 
         entity_id: item.id 
       }));
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to submit for approval.');
+      toast.error(typeof err === 'string' ? err : 'Failed to process document approval.');
     }
   };
 
@@ -3410,8 +3420,23 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
 
   const handleSendForApproval = async (docId: string) => {
     try {
-      await dispatch(submitForApproval({ id: docId })).unwrap();
-      toast.success('Document sent to the super admin for approval.');
+      // Step 1: Approve internally
+      const approvedDoc = await dispatch(internalApproveDocument({
+        id: docId,
+        action: 'approve',
+        comments: `Document approved for ${judgeName}.`,
+        generate_e_stamp: true,
+      })).unwrap();
+
+      // Step 2: Send back to requester
+      await dispatch(sendBackToRequester({
+        id: approvedDoc.id,
+        final_status: 'approved',
+        comments: 'Document approved and sent back to requester.',
+        notify_requester: true,
+      })).unwrap();
+
+      toast.success('Document approved and sent back to requester.');
       utilityIds.forEach(id => {
         dispatch(fetchHelpdeskDocuments({ 
           entity_type: 'utility_memo', 
@@ -3419,7 +3444,7 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
         }));
       });
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to submit for approval.');
+      toast.error(typeof err === 'string' ? err : 'Failed to process document approval.');
     }
   };
 

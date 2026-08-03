@@ -21,13 +21,13 @@ export interface UtilityMemoData {
   grandWifi: number;
   grandTotal: number;
   amountInWords: string;
-  signatoryName: string;
+  signatoryName?: string; // ✅ Made optional - backend handles this
   crestUrl: string;
   footerEmblemUrl: string;
   signatureUrl?: string;
   memoType: 'all' | 'fuel';
   
-  // ✅ Added optional initials properties to resolve ts(2339)
+  // ✅ Added optional initials properties
   signatoryInitials?: string; // e.g., 'Coo'
   preparerInitials?: string;  // e.g., 'ko' or 'KO'
 }

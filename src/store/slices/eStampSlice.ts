@@ -7,7 +7,8 @@ import type { RootState } from '../store';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type EStampType = 'approved' | 'received';
+// 🔴 FIX: Added 'official' to match the backend EStampType
+export type EStampType = 'approved' | 'received' | 'official';
 export type EStampStatus = 'pending' | 'stamped' | 'failed' | 'revoked';
 
 export interface EStamp {
@@ -52,7 +53,8 @@ export interface EStamp {
 export interface GenerateEStampInput {
     document_id: string;
     stamp_type: EStampType;
-    signature_url: string;
+    original_pdf_url: string;
+    signature_url?: string | null;
     metadata?: {
         ip_address?: string;
         user_agent?: string;
@@ -73,11 +75,13 @@ export interface EStampVerificationResult {
 export const E_STAMP_TYPE_LABELS: Record<EStampType, string> = {
     approved: 'Approved',
     received: 'Received',
+    official: 'Official', // 🔴 Added 'official'
 };
 
 export const E_STAMP_TYPE_COLORS: Record<EStampType, string> = {
     approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
     received: 'bg-blue-50 text-blue-700 border-blue-200',
+    official: 'bg-purple-50 text-purple-700 border-purple-200', // 🔴 Added 'official'
 };
 
 export const E_STAMP_STATUS_LABELS: Record<EStampStatus, string> = {
@@ -126,6 +130,13 @@ function getErrorMessage(err: unknown, fallback: string): string {
 
 // ─── Thunks ───────────────────────────────────────────────────────────────────
 
+/**
+ * ⚠️ DEPRECATED: This thunk is kept for internal/admin testing only.
+ * In production, E-Stamps are generated automatically by the 
+ * HelpdeskDocumentsService.internalApprove() flow.
+ * 
+ * Frontend should NOT dispatch this directly.
+ */
 export const generateEStamp = createAsyncThunk<
     EStamp,
     GenerateEStampInput,
@@ -133,6 +144,14 @@ export const generateEStamp = createAsyncThunk<
 >(
     'eStamp/generate',
     async (payload, { rejectWithValue }) => {
+        // 🔴 PROTECTION: Explicitly prevent accidental use in production
+        if (process.env.NODE_ENV === 'production') {
+            return rejectWithValue(
+                'Direct E-Stamp generation is disabled in production. ' +
+                'Use the Helpdesk approval flow instead.'
+            );
+        }
+
         try {
             const { data } = await axiosClient.post('/e-stamp/generate', payload);
             return data.data as EStamp;

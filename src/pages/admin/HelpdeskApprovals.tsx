@@ -11,9 +11,6 @@ import {
   cancelInternalApproval,
   selectPendingInternalApprovals,
   type HelpdeskDocument,
-  type InternalApprovalStatus,
-  type RequesterVisibleStatus,
-  type DocumentStatus as HelpdeskDocumentStatus,
   type DocumentEntityType,
   fetchHelpdeskDocumentById,
 } from "../../store/slices/helpdeskDocumentsSlice";
@@ -22,7 +19,6 @@ import { hasRole } from "../../store/slices/authSlice";
 import type { UserMetadata } from "../../store/slices/authSlice";
 import type { User } from "../../store/slices/userSlice";
 import toast from "react-hot-toast";
-import { stampPdfFromUrl, type StampOptions } from "../../utils/pdfStamp";
 
 // ─── Type guard to check if a user has a signature_url ──────────────────────
 function hasSignatureUrl(user: User | UserMetadata | null): user is User {
@@ -40,81 +36,66 @@ const Spinner: React.FC<{ className?: string }> = ({
   </svg>
 );
 
-// ─── Status Badges ──────────────────────────────────────────────────────────
+// ─── SINGLE UNIFIED STATUS BADGE ──────────────────────────────────────────
+// This replaces all three separate badges with ONE clean status
 
-const HELPEDSK_STATUS_STYLES: Record<HelpdeskDocumentStatus, string> = {
-  draft: "bg-stone-100 text-stone-500 border border-stone-200",
-  pending_approval: "bg-amber-50 text-amber-700 border border-amber-100",
-  approved: "bg-emerald-50 text-emerald-700 border border-emerald-100",
-  rejected: "bg-red-50 text-red-700 border border-red-100",
-  returned: "bg-blue-50 text-blue-700 border border-blue-100",
+type UnifiedStatus = 'pending_review' | 'approved' | 'rejected' | 'changes_requested' | 'ready_to_send';
+
+const UNIFIED_STATUS_STYLES: Record<UnifiedStatus, string> = {
+  pending_review: "bg-amber-50 text-amber-700 border border-amber-200",
+  approved: "bg-emerald-50 text-emerald-700 border border-emerald-200",
+  rejected: "bg-red-50 text-red-700 border border-red-200",
+  changes_requested: "bg-orange-50 text-orange-700 border border-orange-200",
+  ready_to_send: "bg-blue-50 text-blue-700 border border-blue-200",
 };
 
-const HELPEDSK_STATUS_LABELS: Record<HelpdeskDocumentStatus, string> = {
-  draft: "DRAFT",
-  pending_approval: "PENDING APPROVAL",
+const UNIFIED_STATUS_LABELS: Record<UnifiedStatus, string> = {
+  pending_review: "PENDING",
   approved: "APPROVED ✓",
   rejected: "REJECTED ✗",
-  returned: "RETURNED",
+  changes_requested: "CHANGES",
+  ready_to_send: "READY",
 };
 
-const HelpdeskStatusBadge: React.FC<{ status: HelpdeskDocumentStatus }> = ({ status }) => (
-  <span
-    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${HELPEDSK_STATUS_STYLES[status]}`}
-  >
-    {HELPEDSK_STATUS_LABELS[status]}
-  </span>
-);
+// ─── Helper to determine unified status ──────────────────────────────────
+function getUnifiedStatus(doc: HelpdeskDocument): UnifiedStatus {
+  // If already sent back to requester, show the requester status
+  if (doc.is_sent_back_to_requester) {
+    if (doc.requester_status === 'approved') return 'approved';
+    if (doc.requester_status === 'rejected') return 'rejected';
+    if (doc.requester_status === 'changes_requested') return 'changes_requested';
+  }
+  
+  // If internally approved but not sent back yet, show as "READY"
+  if (doc.internal_approval_status === 'approved_internal' && !doc.is_sent_back_to_requester) {
+    return 'ready_to_send';
+  }
+  
+  // If changes were requested internally but not sent back
+  if (doc.internal_approval_status === 'changes_requested_internal' && !doc.is_sent_back_to_requester) {
+    return 'changes_requested';
+  }
+  
+  // If rejected internally but not sent back
+  if (doc.internal_approval_status === 'rejected_internal' && !doc.is_sent_back_to_requester) {
+    return 'rejected';
+  }
+  
+  // Default: pending review
+  return 'pending_review';
+}
 
-const INTERNAL_STATUS_STYLES: Record<InternalApprovalStatus, string> = {
-  pending: "bg-amber-50 text-amber-700 border border-amber-100",
-  previewed: "bg-blue-50 text-blue-700 border border-blue-100",
-  approved_internal: "bg-emerald-50 text-emerald-700 border border-emerald-100",
-  rejected_internal: "bg-red-50 text-red-700 border border-red-100",
-  changes_requested_internal: "bg-orange-50 text-orange-700 border border-orange-100",
-  changes_ready: "bg-purple-50 text-purple-700 border border-purple-100",
+// ─── Unified Status Badge ──────────────────────────────────────────────────
+const UnifiedStatusBadge: React.FC<{ document: HelpdeskDocument }> = ({ document }) => {
+  const status = getUnifiedStatus(document);
+  return (
+    <span
+      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${UNIFIED_STATUS_STYLES[status]}`}
+    >
+      {UNIFIED_STATUS_LABELS[status]}
+    </span>
+  );
 };
-
-const INTERNAL_STATUS_LABELS: Record<InternalApprovalStatus, string> = {
-  pending: "PENDING REVIEW",
-  previewed: "PREVIEWED",
-  approved_internal: "APPROVED (INTERNAL)",
-  rejected_internal: "REJECTED (INTERNAL)",
-  changes_requested_internal: "CHANGES REQUESTED",
-  changes_ready: "CHANGES READY",
-};
-
-const InternalStatusBadge: React.FC<{ status: InternalApprovalStatus }> = ({ status }) => (
-  <span
-    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${INTERNAL_STATUS_STYLES[status]}`}
-  >
-    {INTERNAL_STATUS_LABELS[status]}
-  </span>
-);
-
-const REQUESTER_STATUS_STYLES: Record<RequesterVisibleStatus, string> = {
-  pending_approval: "bg-amber-50 text-amber-700 border border-amber-100",
-  approved: "bg-emerald-50 text-emerald-700 border border-emerald-100",
-  rejected: "bg-red-50 text-red-700 border border-red-100",
-  changes_requested: "bg-orange-50 text-orange-700 border border-orange-100",
-  in_revision: "bg-blue-50 text-blue-700 border border-blue-100",
-};
-
-const REQUESTER_STATUS_LABELS: Record<RequesterVisibleStatus, string> = {
-  pending_approval: "PENDING APPROVAL",
-  approved: "APPROVED ✓",
-  rejected: "REJECTED ✗",
-  changes_requested: "CHANGES REQUESTED",
-  in_revision: "IN REVISION",
-};
-
-const RequesterStatusBadge: React.FC<{ status: RequesterVisibleStatus }> = ({ status }) => (
-  <span
-    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${REQUESTER_STATUS_STYLES[status]}`}
-  >
-    {REQUESTER_STATUS_LABELS[status]}
-  </span>
-);
 
 // ─── Helper: Format Document Type Display ──────────────────────────────────
 
@@ -164,7 +145,14 @@ const HelpdeskListItem: React.FC<HelpdeskListItemProps> = ({
   onSelect,
 }) => {
   const entityLabel = getHelpdeskEntityDisplay(document.entity_type);
+  const unifiedStatus = getUnifiedStatus(document);
   
+  // Show additional indicators
+  const showStampIndicator = document.e_stamp_status === 'stamped';
+  const showSignedIndicator = document.is_signed;
+  const isPending = unifiedStatus === 'pending_review';
+  const isReady = unifiedStatus === 'ready_to_send';
+
   return (
     <div
       onClick={onSelect}
@@ -188,10 +176,8 @@ const HelpdeskListItem: React.FC<HelpdeskListItemProps> = ({
             {document.subject}
           </p>
           <div className="flex items-center gap-1 flex-shrink-0">
-            <span className="text-[9px] text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded">
-              {entityLabel}
-            </span>
-            <HelpdeskStatusBadge status={document.status} />
+            {/* ─── SINGLE STATUS BADGE ──────────────────────────────── */}
+            <UnifiedStatusBadge document={document} />
           </div>
         </div>
 
@@ -204,15 +190,30 @@ const HelpdeskListItem: React.FC<HelpdeskListItemProps> = ({
         </div>
 
         <div className="mt-0.5 flex items-center gap-1.5 flex-wrap">
-          <InternalStatusBadge status={document.internal_approval_status} />
-          <RequesterStatusBadge status={document.requester_status} />
-          {document.e_stamp_status === 'stamped' && (
-            <span className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-700 border border-emerald-200">
+          <span className="text-[9px] text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded">
+            {entityLabel}
+          </span>
+          
+          {isPending && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 border border-amber-200">
+              ⏳ Awaiting review
+            </span>
+          )}
+          
+          {isReady && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-blue-100 px-1.5 py-0.5 text-[9px] font-medium text-blue-700 border border-blue-200">
+              📤 Ready to send
+            </span>
+          )}
+          
+          {showStampIndicator && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-medium text-emerald-700 border border-emerald-200">
               📜 Stamped
             </span>
           )}
-          {document.is_signed && (
-            <span className="inline-flex items-center gap-0.5 rounded bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold text-blue-700 border border-blue-200">
+          
+          {showSignedIndicator && (
+            <span className="inline-flex items-center gap-0.5 rounded bg-blue-100 px-1.5 py-0.5 text-[9px] font-medium text-blue-700 border border-blue-200">
               ✍️ Signed
             </span>
           )}
@@ -289,6 +290,7 @@ interface HelpdeskDocumentDetailProps {
   onSendBack: (doc: HelpdeskDocument, status: 'approved' | 'rejected' | 'changes_requested') => Promise<void>;
   onCancelDecision: (doc: HelpdeskDocument) => Promise<void>;
   onStampAndApprove: (doc: HelpdeskDocument) => Promise<void>;
+  onSignOnly: (doc: HelpdeskDocument) => Promise<void>;
   isApproving?: boolean;
   isRejecting?: boolean;
   isRequestingChanges?: boolean;
@@ -301,12 +303,12 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
   document,
   onBack,
   isSuperAdmin,
-  onApprove,
   onReject,
   onRequestChanges,
   onSendBack,
   onCancelDecision,
   onStampAndApprove,
+  onSignOnly,
   isApproving = false,
   isRejecting = false,
   isRequestingChanges = false,
@@ -331,8 +333,10 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
   
   const signatoryTitle = "Registrar, High Court";
 
-  // 🔴 FIX: Use stamped_file_url if available (for requester view), otherwise use original file_url
+  // Use stamped_file_url if available (for requester view), otherwise use original file_url
   const previewUrl = document.stamped_file_url || document.file_url;
+  
+  const unifiedStatus = getUnifiedStatus(document);
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-white">
@@ -351,7 +355,8 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
           <span className="text-sm font-semibold text-stone-900 truncate">
             {document.subject}
           </span>
-          <HelpdeskStatusBadge status={document.status} />
+          {/* ─── SINGLE STATUS BADGE ──────────────────────────────────────── */}
+          <UnifiedStatusBadge document={document} />
           {document.is_signed && (
             <span className="inline-flex items-center gap-0.5 rounded bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold text-blue-700 border border-blue-200">
               ✍️ Signed
@@ -424,63 +429,43 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
           </div>
         </div>
 
-        {/* Approval Status Section */}
-        <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
-          <h4 className="text-sm font-semibold text-stone-700 flex items-center gap-2">
-            <svg className="h-4 w-4 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" />
-              <polyline points="12 6 12 12 16 14" />
-            </svg>
-            Approval Status
-          </h4>
-          <div className="mt-2 grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <span className="text-stone-500">Internal Status:</span>
-              <div className="mt-1">
-                <InternalStatusBadge status={document.internal_approval_status} />
-              </div>
-            </div>
-            <div>
-              <span className="text-stone-500">Requester Status:</span>
-              <div className="mt-1">
-                <RequesterStatusBadge status={document.requester_status} />
-              </div>
-            </div>
-            {document.internal_approved_at && (
-              <div>
-                <span className="text-stone-500">Approved At:</span>
-                <p className="font-medium">{new Date(document.internal_approved_at).toLocaleString()}</p>
-              </div>
-            )}
-            {document.requester_visible_at && (
-              <div>
-                <span className="text-stone-500">Sent Back At:</span>
-                <p className="font-medium">{new Date(document.requester_visible_at).toLocaleString()}</p>
-              </div>
-            )}
-            {document.is_signed && document.signed_at && (
-              <div>
-                <span className="text-stone-500">Signed At:</span>
-                <p className="font-medium">{new Date(document.signed_at).toLocaleString()}</p>
-              </div>
-            )}
+        {/* ─── Status Summary ───────────────────────────────────────────── */}
+        <div className="rounded-lg border border-stone-200 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-stone-700 flex items-center gap-2">
+              <svg className="h-4 w-4 text-stone-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+              Status Summary
+            </h4>
+            <UnifiedStatusBadge document={document} />
           </div>
-          {document.internal_changes_requested && document.internal_changes_requested.length > 0 && (
-            <div className="mt-2">
-              <span className="text-stone-500">Changes Requested:</span>
-              <ul className="mt-1 list-disc list-inside text-sm text-stone-700">
-                {document.internal_changes_requested.map((change, idx) => (
-                  <li key={idx}>{change}</li>
-                ))}
-              </ul>
+          
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+            <div className="rounded bg-stone-50 p-2">
+              <span className="text-stone-500">Internal</span>
+              <p className="font-medium text-stone-800 capitalize">
+                {document.internal_approval_status.replace(/_/g, ' ')}
+              </p>
             </div>
-          )}
-          {document.internal_rejection_reason && (
-            <div className="mt-2">
-              <span className="text-stone-500">Rejection Reason:</span>
-              <p className="text-sm text-red-600">{document.internal_rejection_reason}</p>
+            <div className="rounded bg-stone-50 p-2">
+              <span className="text-stone-500">Requester</span>
+              <p className="font-medium text-stone-800 capitalize">
+                {document.requester_status.replace(/_/g, ' ')}
+              </p>
             </div>
-          )}
+            <div className="rounded bg-stone-50 p-2">
+              <span className="text-stone-500">Overall</span>
+              <p className="font-medium text-stone-800">
+                {unifiedStatus === 'pending_review' && 'Awaiting Review'}
+                {unifiedStatus === 'ready_to_send' && 'Ready to Send Back'}
+                {unifiedStatus === 'approved' && 'Approved ✓'}
+                {unifiedStatus === 'rejected' && 'Rejected ✗'}
+                {unifiedStatus === 'changes_requested' && 'Changes Requested'}
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* E-Stamp Preview */}
@@ -577,7 +562,7 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
               {/* Approve & Sign Button - Adds signature block only */}
               {isPending && (
                 <button
-                  onClick={() => onApprove(document)}
+                  onClick={() => onSignOnly(document)}
                   disabled={isApproving}
                   className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                   title="Add signature block on a separate page (no stamp)"
@@ -692,7 +677,7 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
             </h4>
             <p className="mt-1 text-xs text-stone-600">
               This document has been sent back to the requester with status:{' '}
-              <RequesterStatusBadge status={document.requester_status} />
+              <span className="font-medium capitalize">{document.requester_status.replace(/_/g, ' ')}</span>
             </p>
             {document.requester_visible_at && (
               <p className="mt-1 text-xs text-stone-500">
@@ -831,7 +816,7 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
 const HelpdeskApprovals: React.FC = () => {
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
-  const { documents: helpdeskDocuments, summary } = useAppSelector(selectPendingInternalApprovals);
+  const { documents: helpdeskDocuments } = useAppSelector(selectPendingInternalApprovals);
   const currentUser = useAppSelector(selectCurrentUser);
   const isLoading = useAppSelector((state) => state.helpdeskDocuments.loading.pendingInternal);
 
@@ -888,21 +873,11 @@ const HelpdeskApprovals: React.FC = () => {
     }
   }, [dispatch, isSuperAdmin]);
 
-  // ─── Helper function to fetch signature bytes ──────────────────────────────
+  // ─── Handler for Stamp & Approve ──────────────────────────────────────────
 
-  const fetchSignatureBytes = async (signatureUrl: string): Promise<ArrayBuffer> => {
-    const response = await fetch(signatureUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch signature: ${response.status}`);
-    }
-    return await response.arrayBuffer();
-  };
-
-   // Handler for Stamp & Approve - REQUIRES real signature from currentUser
   const handleStampAndApprove = async (doc: HelpdeskDocument) => {
     if (!isSuperAdmin) return;
     
-    // Use activeUser for user details (id, full_name)
     const activeUser = user || currentUser;
     
     if (!activeUser?.id) {
@@ -910,8 +885,6 @@ const HelpdeskApprovals: React.FC = () => {
       return;
     }
 
-    // Signature MUST be checked on currentUser (userSlice), which has signature_url
-    // user from authSlice (UserMetadata) does NOT have signature_url
     const hasSignature = hasSignatureUrl(currentUser);
     
     if (!hasSignature) {
@@ -926,22 +899,6 @@ const HelpdeskApprovals: React.FC = () => {
     setLoadingAction(prev => ({ ...prev, stamp: doc.id }));
     
     try {
-      // Fetch signature bytes from currentUser (which has signature_url)
-      const signatureBytes = await fetchSignatureBytes(currentUser!.signature_url!);
-
-      // Prepare stamp options with the real signature
-      const stampOptions: StampOptions = {
-        label: 'APPROVED',
-        issuer: 'REGISTRAR HIGH COURT',
-        signatureImageBytes: signatureBytes,
-        date: new Date(),
-        verticalAnchorFraction: 0.16,
-        angle: -16,
-        approverName: activeUser.full_name || 'Super Admin',
-        approverTitle: 'Registrar, High Court',
-      };
-
-      // 🔴 REMOVED: `approvedDoc` variable. We don't need to store it.
       await dispatch(internalApproveDocument({
         id: doc.id,
         action: 'approve',
@@ -951,18 +908,10 @@ const HelpdeskApprovals: React.FC = () => {
         generate_e_stamp: true,
       })).unwrap();
 
-      // 🔴 REMOVED: `stampedPdfBlob` variable. The backend handles the stamping and upload.
-      await stampPdfFromUrl(doc.file_url, stampOptions);
-      
-      // Fetch the updated document from the backend (which now contains the stamped_file_url)
       const updatedDoc = await dispatch(fetchHelpdeskDocumentById(doc.id)).unwrap();
-
-      // Update the selected document
       setSelectedDocument(updatedDoc);
       
       toast.success('Document approved and stamped with official court stamp!');
-      
-      // Refresh the list
       await refreshDocuments();
       
     } catch (err) {
@@ -984,7 +933,6 @@ const HelpdeskApprovals: React.FC = () => {
       return;
     }
     
-    // Signature check should also use currentUser for consistency
     const hasSignature = hasSignatureUrl(currentUser);
     
     if (!hasSignature) {
@@ -1013,6 +961,48 @@ const HelpdeskApprovals: React.FC = () => {
       const errorMessage = typeof err === 'string' ? err : 'Failed to approve document.';
       toast.error(errorMessage);
       console.error('Approve error:', err);
+    } finally {
+      setLoadingAction(prev => ({ ...prev, approve: undefined }));
+    }
+  };
+
+  const handleSignOnly = async (doc: HelpdeskDocument) => {
+    if (!isSuperAdmin) return;
+    
+    const activeUser = user || currentUser;
+    
+    if (!activeUser?.id) {
+      toast.error('User not found. Please log in again.');
+      return;
+    }
+    
+    const hasSignature = hasSignatureUrl(currentUser);
+    if (!hasSignature) {
+      toast('⚠️ No signature uploaded. The document will be approved but without your signature.', {
+        duration: 5000,
+        icon: '⚠️',
+      });
+    }
+    
+    setLoadingAction(prev => ({ ...prev, approve: doc.id }));
+    try {
+      const result = await dispatch(internalApproveDocument({
+        id: doc.id,
+        action: 'approve',
+        approved_by: activeUser.id,
+        approved_by_name: activeUser.full_name || 'Super Admin',
+        comments: 'Document signed internally.',
+        generate_e_stamp: false,
+      })).unwrap();
+      
+      toast.success('Document signed. Click "Send Back" to notify the requester.');
+      setSelectedDocument(result);
+      await refreshDocuments();
+      
+    } catch (err) {
+      const errorMessage = typeof err === 'string' ? err : 'Failed to sign document.';
+      toast.error(errorMessage);
+      console.error('Sign error:', err);
     } finally {
       setLoadingAction(prev => ({ ...prev, approve: undefined }));
     }
@@ -1087,11 +1077,6 @@ const HelpdeskApprovals: React.FC = () => {
     setLoadingAction(prev => ({ ...prev, sendBack: doc.id }));
     
     try {
-      // 🔴 FIX: REMOVED preserving fields manually.
-      // The backend now persists everything (file_url, e_stamp_url, is_signed, is_stamped, stamped_file_url).
-      // Sending back simply updates the requester_visible_status and returns the fully preserved object.
-      
-      // Send back to requester
       const result = await dispatch(sendBackToRequester({
         id: doc.id,
         final_status: finalStatus,
@@ -1153,16 +1138,14 @@ const HelpdeskApprovals: React.FC = () => {
     );
   }
 
-  // Count includes both pending review and internally approved (ready to send back)
-  const pendingCount =
-    summary?.pending_review ??
-    helpdeskDocuments.filter(
-      d => d.status === 'pending_approval' &&
-           (d.internal_approval_status === 'pending' ||
-            d.internal_approval_status === 'previewed' ||
-            d.internal_approval_status === 'changes_ready' ||
-            d.internal_approval_status === 'approved_internal')
-    ).length;
+  // Count uses unified status
+  const pendingCount = helpdeskDocuments.filter(
+    d => getUnifiedStatus(d) === 'pending_review'
+  ).length;
+
+  const readyCount = helpdeskDocuments.filter(
+    d => getUnifiedStatus(d) === 'ready_to_send'
+  ).length;
 
   return (
     <div className="flex flex-col h-full">
@@ -1175,11 +1158,19 @@ const HelpdeskApprovals: React.FC = () => {
             Review and manage helpdesk documents pending your approval
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
-            <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-            {pendingCount} pending
-          </span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+              <span className="inline-block h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+              Pending: {pendingCount}
+            </span>
+            {readyCount > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-700">
+                <span className="inline-block h-2 w-2 rounded-full bg-blue-500" />
+                Ready: {readyCount}
+              </span>
+            )}
+          </div>
           <button
             onClick={refreshDocuments}
             disabled={isLoading}
@@ -1269,6 +1260,7 @@ const HelpdeskApprovals: React.FC = () => {
               onSendBack={handleSendBack}
               onCancelDecision={handleCancelDecision}
               onStampAndApprove={handleStampAndApprove}
+              onSignOnly={handleSignOnly}
               isApproving={loadingAction.approve === selectedDocument.id}
               isRejecting={loadingAction.reject === selectedDocument.id}
               isRequestingChanges={loadingAction.requestChanges === selectedDocument.id}

@@ -1,5 +1,3 @@
-// src/components/modals/ClubModal.tsx
-
 import React, { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -21,7 +19,8 @@ import {
   fetchHelpdeskDocuments,
   uploadHelpdeskDocument,
   linkHelpdeskDocument,
-  submitForApproval,
+  internalApproveDocument,
+  sendBackToRequester,
   selectAllHelpdeskDocuments,
   selectDocumentsUploading,
   selectDocumentActionLoading,
@@ -430,8 +429,6 @@ const ClubDetailsForm: React.FC<ClubDetailsFormProps> = ({ form, onChange }) => 
 
 // ─── Step 2: Memo Preview ─────────────────────────────────────────────────────
 
-// ─── Step 2: Memo Preview ─────────────────────────────────────────────────────
-
 interface ClubMemoPreviewProps {
   form: CreateClubMembershipInput;
   onEdit: () => void;
@@ -480,7 +477,6 @@ const ClubMemoPreview: React.FC<ClubMemoPreviewProps> = ({
     `I hereby forward the club membership request for the judge listed below for processing and action.\n\nPlease note that this request has been submitted with the requisite supporting documentation for your review and approval.`
   );
 
-  // ✅ Add state for signatory name so it can be edited
   const [signatoryName, setSignatoryName] = useState(() => currentUser?.full_name || '');
 
   useEffect(() => {
@@ -580,11 +576,26 @@ const ClubMemoPreview: React.FC<ClubMemoPreviewProps> = ({
 
   const handleSendDocumentForApproval = async (docId: string) => {
     try {
-      await dispatch(submitForApproval({ id: docId })).unwrap();
-      toast.success('Document sent for approval.');
+      // Step 1: Approve internally
+      const approvedDoc = await dispatch(internalApproveDocument({
+        id: docId,
+        action: 'approve',
+        comments: 'Document approved via club memo.',
+        generate_e_stamp: true,
+      })).unwrap();
+
+      // Step 2: Send back to requester
+      await dispatch(sendBackToRequester({
+        id: approvedDoc.id,
+        final_status: 'approved',
+        comments: 'Document approved and sent back to requester.',
+        notify_requester: true,
+      })).unwrap();
+
+      toast.success('Document approved and sent back to requester.');
       dispatch(fetchHelpdeskDocuments({ entity_type: CLUB_ENTITY_TYPE, entity_id: entityId }));
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
+      toast.error(typeof err === 'string' ? err : 'Failed to process document approval.');
     }
   };
 

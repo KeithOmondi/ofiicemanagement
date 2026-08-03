@@ -16,16 +16,11 @@ import {
   type JudgeUtility,
 } from '../../store/slices/helpdeskSlice';
 import {
-  selectCurrentUser,
-  selectUsersSignatureLoading,
-  uploadSignature,
-  deleteSignature,
-} from '../../store/slices/userSlice';
-import {
   fetchHelpdeskDocuments,
   uploadHelpdeskDocument,
   linkHelpdeskDocument,
-  submitForApproval,
+  internalApproveDocument,
+  sendBackToRequester,
   selectAllHelpdeskDocuments,
   selectDocumentsUploading,
   selectDocumentActionLoading,
@@ -55,7 +50,6 @@ import {
   Banknote,
   FileText,
   ChevronDown,
-  Image,
   Upload,
   Hash,
   Paperclip,
@@ -495,6 +489,8 @@ const UtilityItemRow: React.FC<UtilityItemRowProps> = ({
 
 // ─── Memo Modal ──────────────────────────────────────────────────────────
 
+// ─── Memo Modal ──────────────────────────────────────────────────────────
+
 interface JudgeTotals {
   judge_name: string;
   kplc: number;
@@ -573,8 +569,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
   allJudgesForConsolidated,
 }) => {
   const dispatch = useAppDispatch();
-  const currentUser = useAppSelector(selectCurrentUser);
-  const signatureLoading = useAppSelector(selectUsersSignatureLoading);
 
   const allDocuments = useAppSelector(selectAllHelpdeskDocuments);
   const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
@@ -591,12 +585,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
   // ─── Memo field state ──────────────────────────────────────────────────
   const [toField, setToField] = useState('DEPUTY DIRECTOR - DASS');
-  
-  // ⭐ FIXED: Always use this default signatory name - never override with user name
-  const SIGNATORY_NAME = 'CLARA OTIENO-OMONDI';
-  
-  // ⭐ 'fromField' - the designation
-  const [fromField, setFromField] = useState('REGISTRAR, HIGH COURT');
+  const [fromField, setFromField] = useState('OFFICE OF THE REGISTRAR');
 
   const [refField] = useState(() => {
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
@@ -620,7 +609,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
   );
   const [bodyText, setBodyText] = useState(activeTab === 'fuel' ? fuelBody : utilityBody);
 
-  // ─── Tab change handler (resets subject & body) ──────────────────────
+  // ─── Tab change handler ──────────────────────────────────────────────
   const handleTabChange = (tab: 'all' | 'fuel') => {
     setActiveTab(tab);
     setSubjectField(tab === 'fuel' ? 'FUEL BILL CLAIMS' : 'UTILITY BILL CLAIMS');
@@ -666,26 +655,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
       dispatch(fetchHelpdeskDocuments({ unlinked: true }));
     }
   }, [dispatch, showLinkPicker]);
-
-  // ─── Signature handlers ────────────────────────────────────────────────
-  const handleSignatureUpload = async (file: File) => {
-    try {
-      await dispatch(uploadSignature(file)).unwrap();
-      toast.success('Signature uploaded successfully.');
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to upload signature.');
-    }
-  };
-
-  const handleSignatureRemove = async () => {
-    if (!currentUser?.signature_url) return;
-    try {
-      await dispatch(deleteSignature()).unwrap();
-      toast.success('Signature removed successfully.');
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to remove signature.');
-    }
-  };
 
   // ─── Formatting ────────────────────────────────────────────────────────
   const formatAmount = (amount: number) =>
@@ -739,10 +708,10 @@ const MemoModal: React.FC<MemoModalProps> = ({
     grandWifi,
     grandTotal,
     amountInWords: formatCurrencyWords(grandTotal),
-    signatoryName: SIGNATORY_NAME, // Always use the fixed signatory name
+    // ❌ signatoryName removed - handled by backend
     crestUrl: JUDICIARY_CREST_SRC,
     footerEmblemUrl: FOOTER_EMBLEM_SRC,
-    signatureUrl: currentUser?.signature_url || undefined,
+    // ❌ signatureUrl removed - handled by backend
     memoType: activeTab,
   });
 
@@ -819,14 +788,27 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
   const handleSendDocumentForApproval = async (docId: string) => {
     try {
-      await dispatch(submitForApproval({ id: docId })).unwrap();
-      toast.success('Document sent for approval.');
+      const approvedDoc = await dispatch(internalApproveDocument({
+        id: docId,
+        action: 'approve',
+        comments: 'Document approved via utility memo.',
+        generate_e_stamp: true,
+      })).unwrap();
+
+      await dispatch(sendBackToRequester({
+        id: approvedDoc.id,
+        final_status: 'approved',
+        comments: 'Document approved and sent back to requester.',
+        notify_requester: true,
+      })).unwrap();
+
+      toast.success('Document approved and sent back to requester.');
       dispatch(fetchHelpdeskDocuments({
         entity_type: currentEntityType,
         entity_id: currentEntityId
       }));
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
+      toast.error(typeof err === 'string' ? err : 'Failed to process document approval.');
     }
   };
 
@@ -978,87 +960,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
         )}
 
         <div className="max-h-[70vh] overflow-y-auto p-4 space-y-4">
-          {/* Signature Section */}
-          <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Image size={16} className="text-[#c9a84c]" />
-                <h4 className="text-sm font-semibold text-stone-800">Digital Signature</h4>
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleSignatureUpload(file);
-                    e.target.value = '';
-                  }}
-                  className="hidden"
-                  id="memo-signature-upload"
-                  disabled={signatureLoading}
-                />
-                <label
-                  htmlFor="memo-signature-upload"
-                  className="inline-flex items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50 cursor-pointer disabled:opacity-50"
-                >
-                  {signatureLoading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                  {signatureLoading ? 'Uploading…' : 'Upload Signature'}
-                </label>
-                {currentUser?.signature_url && (
-                  <GhostButton onClick={handleSignatureRemove} disabled={signatureLoading} icon={<Trash2 size={14} />}>
-                    Remove
-                  </GhostButton>
-                )}
-              </div>
-            </div>
-            {currentUser?.signature_url ? (
-              <div className="flex items-center gap-4 p-3 bg-white rounded border border-stone-200">
-                <img src={currentUser.signature_url} alt="Your signature" className="max-h-16 w-auto object-contain" />
-                <span className="text-xs text-stone-500">✓ Signature uploaded</span>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3 p-3 bg-white rounded border border-dashed border-stone-300">
-                <Image size={20} className="text-stone-400" />
-                <div>
-                  <p className="text-sm text-stone-600">No signature uploaded</p>
-                  <p className="text-xs text-stone-400">Upload your signature to include it in the memo</p>
-                </div>
-              </div>
-            )}
-            
-            {/* Display the signatory info - signature first, then name, then designation */}
-            <div className="mt-3 p-3 bg-white rounded border border-stone-200">
-              <div className="flex flex-col gap-2">
-                {/* Signature image first */}
-                {currentUser?.signature_url && (
-                  <div className="flex items-center gap-3">
-                    <img src={currentUser.signature_url} alt="Signature" className="max-h-12 w-auto object-contain" />
-                    <span className="text-xs text-stone-500">✓ Signature</span>
-                  </div>
-                )}
-                {!currentUser?.signature_url && (
-                  <p className="text-[10px] text-stone-400 italic">* No signature uploaded</p>
-                )}
-                
-                {/* Name second - ALWAYS show the fixed default name */}
-                <div>
-                  <p className="text-xs text-stone-500">Signatory Name</p>
-                  <p className="text-sm font-semibold text-stone-800">
-                    {SIGNATORY_NAME}
-                  </p>
-                  <p className="text-[10px] text-stone-400 italic">(fixed signatory for all memos)</p>
-                </div>
-                
-                {/* Designation third */}
-                <div>
-                  <p className="text-xs text-stone-500">Designation</p>
-                  <p className="text-sm font-medium text-stone-700">{fromField}</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* ─── Memo Preview ────────────────────────────────────────────── */}
           {effectiveJudges.length > 0 ? (
             <div className="border border-stone-300 bg-white p-10 shadow-sm font-sans text-black">
@@ -1085,15 +986,13 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 <div className="flex">
                   <span className="w-24 shrink-0">FROM</span>
                   <span className="w-4 shrink-0">:</span>
-                  <div className="flex-1 flex flex-col">
-                    <input 
-                      type="text" 
-                      value={fromField} 
-                      onChange={(e) => setFromField(e.target.value)}
-                      className="bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase font-bold" 
-                      placeholder="Designation" 
-                    />
-                  </div>
+                  <input 
+                    type="text" 
+                    value={fromField} 
+                    onChange={(e) => setFromField(e.target.value)}
+                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase font-bold" 
+                    placeholder="Department/Office" 
+                  />
                 </div>
                 <div className="flex">
                   <span className="w-24 shrink-0">TO</span>
@@ -1204,31 +1103,11 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 </p>
               </div>
 
-              {/* ─── Signature block ──────────────────────────────────────── */}
-              {/* ORDER: Signature image → Name → Designation */}
-              <div className="mt-16 space-y-2">
-                {/* 1. Signature image first (if uploaded) */}
-                {currentUser?.signature_url && (
-                  <div>
-                    <img src={currentUser.signature_url} alt="Signature" className="max-h-12 w-auto object-contain" />
-                  </div>
-                )}
-                
-                {/* 2. Signatory name second - ALWAYS show the fixed default name */}
-                <p className="text-sm font-bold text-black">
-                  {SIGNATORY_NAME}
+              {/* ─── Signature block placeholder ──────────────────────────── */}
+              <div className="mt-16">
+                <p className="text-xs text-stone-400 italic">
+                  Signature block will be added by the system when the document is processed.
                 </p>
-                
-                {/* 3. Designation third (with underline) */}
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="text" 
-                    value={fromField} 
-                    onChange={(e) => setFromField(e.target.value)}
-                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none text-sm font-bold uppercase" 
-                    placeholder="Enter designation"
-                  />
-                </div>
               </div>
 
               <div className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3">
@@ -1428,6 +1307,37 @@ const MemoModal: React.FC<MemoModalProps> = ({
     </div>
   );
 };
+
+
+
+interface MemoModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  judges: JudgeUtility[];
+  onMemoGenerated: (docId: string) => void;
+  entityId?: string;
+  isConsolidated?: boolean;
+  entityType?: DocumentEntityType;
+  entityIdOverride?: string;
+  allJudgesForConsolidated?: JudgeUtility[];
+}
+
+
+
+
+interface MemoModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  judges: JudgeUtility[];
+  onMemoGenerated: (docId: string) => void;
+  entityId?: string;
+  isConsolidated?: boolean;
+  entityType?: DocumentEntityType;
+  entityIdOverride?: string;
+  allJudgesForConsolidated?: JudgeUtility[];
+}
+
+
 
 // ─── Main UtilitiesModal ──────────────────────────────────────────────────
 

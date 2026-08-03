@@ -1321,7 +1321,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ 
+const StuffHelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ 
   entityType, 
   entityId,
   userRole = 'staff',
@@ -1840,4 +1840,4 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
   );
 };
 
-export default HelpdeskDocs;
+export default StuffHelpdeskDocs;
