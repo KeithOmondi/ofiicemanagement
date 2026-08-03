@@ -4,7 +4,7 @@ import type { UtilityMemoData } from '../types/generateUtilityMemoTypes';
 export function generateUtilityMemoExcel(data: UtilityMemoData): Blob {
   const sheetRows: (string | number)[][] = [];
 
-  // Header block (unchanged)
+  // Header block
   sheetRows.push(['OFFICE OF THE REGISTRAR HIGH COURT']);
   sheetRows.push(['INTERNAL MEMO']);
   sheetRows.push([]);
@@ -64,9 +64,8 @@ export function generateUtilityMemoExcel(data: UtilityMemoData): Blob {
   }
 
   // ─── Footer ────────────────────────────────────────────────────────────
-  sheetRows.push([]);
-  sheetRows.push([data.signatoryName]);
-  sheetRows.push([data.from.toUpperCase()]);
+  // ✅ REMOVED: signatoryName and signature block - handled by backend
+  // Only the footer address remains
   sheetRows.push([]);
   sheetRows.push(['Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi']);
   sheetRows.push(['Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke']);
@@ -93,10 +92,6 @@ export function generateUtilityMemoExcel(data: UtilityMemoData): Blob {
   }
 
   // ─── Bold formatting ──────────────────────────────────────────────────
-  // We need to know the row indices of table header and grand total row
-  // Table header row index: after header block + body paragraphs + blank rows
-  // We can approximate by finding where the header is placed.
-  // For simplicity, we'll scan the sheet rows to find 'S/NO.' and 'GRAND TOTAL'.
   let headerRowIndex = -1;
   let grandTotalRowIndex = -1;
   for (let i = 0; i < sheetRows.length; i++) {
