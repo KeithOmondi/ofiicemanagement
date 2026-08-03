@@ -32,6 +32,10 @@ export type DocumentEntityType =
 export type DocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
 
+// ─── Stamp Types ──────────────────────────────────────────────────────────────
+
+export type StampType = 'approved' | 'received' | 'official';
+
 // ─── Two-Step Approval Types ──────────────────────────────────────────────────
 
 export type InternalApprovalStatus = 
@@ -110,7 +114,7 @@ export interface DocumentWithViewStatus {
 export interface ApprovalHistoryEntry {
     id: string;
     document_id: string;
-    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted' | 'signed';
+    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted' | 'signed' | 'stamped';
     from_user_id: string;
     from_user_name: string;
     to_user_id?: string;
@@ -225,6 +229,17 @@ export interface HelpdeskDocument {
     signature_position_width?: number | null;
     signature_position_height?: number | null;
 
+    // ─── NEW: Stamp Fields ──────────────────────────────────────────────────────
+    is_stamped: boolean;
+    stamped_by?: string;
+    stamped_by_name?: string;
+    stamped_at?: string;
+    stamp_type?: StampType;
+    stamp_position_x?: number | null;
+    stamp_position_y?: number | null;
+    stamp_position_width?: number | null;
+    stamp_position_height?: number | null;
+
     // ─── Aide Request Fields ──────────────────────────────────────────────────
     officer_rank?: OfficerRank | null;
     officer_name?: string | null;
@@ -265,6 +280,11 @@ export interface RequesterDocumentView {
     is_signed: boolean;
     signed_by_name?: string;
     signed_at?: string;
+    // ─── NEW: Stamp info ──────────────────────────────────────────────────────
+    is_stamped: boolean;
+    stamped_by_name?: string;
+    stamped_at?: string;
+    stamp_type?: StampType;
 }
 
 // ─── Pending Internal Approvals Summary ──────────────────────────────────────
@@ -384,6 +404,16 @@ export interface UpdateDocumentFilePayload {
     signed_by?: string;
     signed_by_name?: string;
     signed_at?: string;
+    // ─── NEW: Stamp fields ────────────────────────────────────────────────────
+    is_stamped?: boolean;
+    stamped_by?: string;
+    stamped_by_name?: string;
+    stamped_at?: string;
+    stamp_type?: StampType;
+    stamp_position_x?: number;
+    stamp_position_y?: number;
+    stamp_position_width?: number;
+    stamp_position_height?: number;
 }
 
 export interface SubmitForApprovalPayload {
@@ -596,6 +626,10 @@ export interface DocumentStats {
     // Two-step workflow stats
     pending_internal: number;
     ready_to_send_back: number;
+    // ─── NEW: Stamp stats ──────────────────────────────────────────────────────
+    stamped_count: number;
+    signed_count: number;
+    signed_and_stamped_count: number;
 }
 
 export interface DocumentSummary {
@@ -619,6 +653,9 @@ export interface DocumentSummary {
     };
     requester_status_summary: Record<RequesterVisibleStatus, number>;
     signed_count: number;
+    // ─── NEW: Stamp summary ────────────────────────────────────────────────────
+    stamped_count: number;
+    signed_and_stamped_count: number;
 }
 
 // ── Action Loading Types ─────────────────────────────────────────────────────
@@ -634,7 +671,8 @@ type ActionLoadingKey =
     | 'requestingChanges'
     | 'sendingBack'
     | 'resubmitting'
-    | 'cancelling';
+    | 'cancelling'
+    | 'stamping';
 
 type ActionLoadingState = {
     [key in ActionLoadingKey]?: boolean;
@@ -669,6 +707,9 @@ interface HelpdeskDocumentsState {
         resubmit: boolean;
         pendingInternal: boolean;
         requesterDashboard: boolean;
+        // ─── NEW: Stamp loading states ─────────────────────────────────────
+        stamp: boolean;
+        sign: boolean;
     };
     error: string | null;
     deletingId: string | null;
@@ -720,6 +761,8 @@ const initialState: HelpdeskDocumentsState = {
         resubmit: false,
         pendingInternal: false,
         requesterDashboard: false,
+        stamp: false,
+        sign: false,
     },
     error: null,
     deletingId: null,
@@ -1009,6 +1052,16 @@ export const updateDocumentFile = createAsyncThunk<
             if (payload.signed_by) formData.append('signed_by', payload.signed_by);
             if (payload.signed_by_name) formData.append('signed_by_name', payload.signed_by_name);
             if (payload.signed_at) formData.append('signed_at', payload.signed_at);
+            // ─── NEW: Stamp fields ──────────────────────────────────────────────
+            if (payload.is_stamped !== undefined) formData.append('is_stamped', String(payload.is_stamped));
+            if (payload.stamped_by) formData.append('stamped_by', payload.stamped_by);
+            if (payload.stamped_by_name) formData.append('stamped_by_name', payload.stamped_by_name);
+            if (payload.stamped_at) formData.append('stamped_at', payload.stamped_at);
+            if (payload.stamp_type) formData.append('stamp_type', payload.stamp_type);
+            if (payload.stamp_position_x !== undefined) formData.append('stamp_position_x', String(payload.stamp_position_x));
+            if (payload.stamp_position_y !== undefined) formData.append('stamp_position_y', String(payload.stamp_position_y));
+            if (payload.stamp_position_width !== undefined) formData.append('stamp_position_width', String(payload.stamp_position_width));
+            if (payload.stamp_position_height !== undefined) formData.append('stamp_position_height', String(payload.stamp_position_height));
 
             console.log('📤 Updating document file:', {
                 id: payload.id,
@@ -1018,6 +1071,7 @@ export const updateDocumentFile = createAsyncThunk<
                 hasEStamp: !!payload.e_stamp_url,
                 hasComments: !!payload.comments,
                 is_signed: payload.is_signed,
+                is_stamped: payload.is_stamped,
             });
 
             const { data } = await axiosClient.patch(`/helpdesk/documents/${payload.id}/file`, formData, {
@@ -2504,5 +2558,25 @@ export const selectReadyToSendBackCount = (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => 
         d.is_internal_approval_complete && !d.is_sent_back_to_requester
     ).length;
+
+// ─── Stamp Selectors ─────────────────────────────────────────────────────────
+
+export const selectStampedDocuments = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.is_stamped === true);
+
+export const selectSignedDocuments = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.is_signed === true);
+
+export const selectSignedAndStampedDocuments = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.is_signed === true && d.is_stamped === true);
+
+export const selectStampedCount = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.is_stamped === true).length;
+
+export const selectSignedCount = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.is_signed === true).length;
+
+export const selectSignedAndStampedCount = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.is_signed === true && d.is_stamped === true).length;
 
 export default helpdeskDocumentsSlice.reducer;

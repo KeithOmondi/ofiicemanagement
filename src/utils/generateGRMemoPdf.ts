@@ -21,16 +21,16 @@ export interface GRMemoCopyToEntry {
 
 export interface GRMemoParams {
   to: string;              // full address block, newline-separated
-  from: string;             // e.g. "REGISTRAR, HIGH COURT"
-  ref: string;               // e.g. "RHC/10"
-  date: string;              // e.g. "18th July 2026"
-  subject: string;          // rendered after "RE: ", uppercased
-  bodyText: string;         // may include **bold** markers for judge/officer names
+  from: string;            // e.g. "REGISTRAR, HIGH COURT"
+  ref: string;             // e.g. "RHC/10"
+  date: string;            // e.g. "18th July 2026"
+  subject: string;         // rendered after "RE: ", uppercased
+  bodyText: string;        // may include **bold** markers for judge/officer names
   copyTo: GRMemoCopyToEntry[];
   signatoryName: string;
   crestUrl: string;
   signatureUrl?: string;
-  fromDepartment?: string;  // defaults to `from` if omitted
+  fromDepartment?: string; // defaults to `from` if omitted
 }
 
 async function urlToDataUrl(url: string): Promise<string | null> {
@@ -302,50 +302,71 @@ export async function generateGRMemoPdf(params: GRMemoParams): Promise<Blob> {
   }
 
   // ── Footer — emblem + address, anchored to page bottom ──────────────────
-  const footerLogoW = 48;
-  const footerLogoH = 36;
-  const footerBlockH = 52;
-  const footerY = pageHeight - footerBlockH - 8;
+  const footerBlockH = 50;
+  const footerY = pageHeight - footerBlockH - 24;
 
+  // Horizontal separating line
   doc.setLineWidth(0.5);
   doc.setDrawColor(180, 180, 180);
   doc.line(margin, footerY, pageWidth - margin, footerY);
 
+  // Left Emblem / Logo
   const footerEmblemDataUrl = await urlToDataUrl(FOOTER_EMBLEM_SRC);
   if (footerEmblemDataUrl) {
-    const logoTopY = footerY + (footerBlockH - footerLogoH) / 2;
+    const footerLogoW = 90;
+    const footerLogoH = 26;
     doc.addImage(
       footerEmblemDataUrl,
       detectImageFormat(footerEmblemDataUrl),
       margin,
-      logoTopY,
+      footerY + 8,
       footerLogoW,
       footerLogoH,
     );
   }
 
+  // Right Block Line 1: Social Transformation Motto
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text(
+    'Social Transformation through Access to Justice',
+    pageWidth - margin,
+    footerY + 12,
+    { align: 'right' },
+  );
+
+  // Right Block Line 2: Physical Address
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(12);
-  doc.setTextColor(80, 80, 80);
+  doc.setFontSize(8);
+  doc.setTextColor(90, 90, 90);
   doc.text(
     'Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi',
     pageWidth - margin,
-    footerY + 14,
+    footerY + 23,
     { align: 'right' },
   );
+
+  // Right Block Line 3: Contact Details
   doc.text(
     'Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke',
     pageWidth - margin,
-    footerY + 28,
+    footerY + 33,
     { align: 'right' },
   );
 
+  // Right Block Line 4: National Anthem / Motto (Green)
   doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
   doc.setTextColor(26, 61, 28);
-  doc.text('Justice Be Our Shield and Defender', pageWidth - margin, footerY + 38, {
-    align: 'right',
-  });
+  doc.text(
+    'Justice Be Our Shield and Defender',
+    pageWidth - margin,
+    footerY + 44,
+    { align: 'right' },
+  );
 
+  // Reset document context defaults
   doc.setTextColor(0, 0, 0);
   doc.setDrawColor(0, 0, 0);
 

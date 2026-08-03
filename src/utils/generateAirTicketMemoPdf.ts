@@ -199,11 +199,9 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
   const finalY = autoTableResult?.finalY || cursorY;
   cursorY = finalY + 24;
 
-  // ── Footer — emblem + address, anchored to page bottom ──────────────────
-  const footerLogoW = 60;
-  const footerLogoH = 45;
-  const footerBlockH = 60;
-  const footerY = pageHeight - footerBlockH - 10;
+  // ── Footer layout properties ─────────────────────────────────────────────
+  const footerBlockH = 50;
+  const footerY = pageHeight - footerBlockH - 24;
 
   // ── Signature block ──────────────────────────────────────────────────────
   const signatureDataUrl = params.signatureUrl
@@ -250,58 +248,68 @@ export async function generateAirTicketMemoPdf(params: AirTicketMemoParams): Pro
   doc.line(margin, sigCursorY + 2, margin + fromWidth, sigCursorY + 2);
 
   // ── Separator line ────────────────────────────────────────────────────────
-  doc.setLineWidth(0.7);
+  doc.setLineWidth(0.5);
   doc.setDrawColor(180, 180, 180);
   doc.line(margin, footerY, pageWidth - margin, footerY);
 
   // ── Footer emblem (left side) ────────────────────────────────────────────
   const footerEmblemDataUrl = await urlToDataUrl(FOOTER_EMBLEM_SRC);
-  const logoTopY = footerY + (footerBlockH - footerLogoH) / 2;
   if (footerEmblemDataUrl) {
+    const footerLogoW = 90;
+    const footerLogoH = 26;
     doc.addImage(
       footerEmblemDataUrl,
       detectImageFormat(footerEmblemDataUrl),
       margin,
-      logoTopY,
+      footerY + 8,
       footerLogoW,
       footerLogoH,
     );
   }
 
-  // ── Footer text (right-aligned, vertically centered against the emblem) ──
-  const footerTextLineHeight = 12;
-  const footerTextBlockH = footerTextLineHeight * 2; // span between 1st and 3rd baseline
-  const footerTextStartY = logoTopY + (footerLogoH - footerTextBlockH) / 2 + 6;
+  // ── Footer text (right-aligned) ─────────────────────────────────────────
+  // Line 1: Social Transformation Motto
+  doc.setFont('Times-Roman', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text(
+    'Social Transformation through Access to Justice',
+    pageWidth - margin,
+    footerY + 12,
+    { align: 'right' },
+  );
 
+  // Line 2: Physical Address
   doc.setFont('Times-Roman', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(80, 80, 80);
+  doc.setFontSize(8);
+  doc.setTextColor(90, 90, 90);
   doc.text(
     'Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi',
     pageWidth - margin,
-    footerTextStartY,
-    { align: 'right' },
-  );
-  
-  doc.text(
-    'Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke',
-    pageWidth - margin,
-    footerTextStartY + footerTextLineHeight,
+    footerY + 23,
     { align: 'right' },
   );
 
-  // Motto in dark green + bold
+  // Line 3: Contact Details
+  doc.text(
+    'Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke',
+    pageWidth - margin,
+    footerY + 33,
+    { align: 'right' },
+  );
+
+  // Line 4: Motto in green + bold
   doc.setFont('Times-Roman', 'bold');
-  doc.setFontSize(9.5);
+  doc.setFontSize(8.5);
   doc.setTextColor(26, 61, 28);
   doc.text(
     'Justice Be Our Shield and Defender',
     pageWidth - margin,
-    footerTextStartY + footerTextLineHeight * 2,
+    footerY + 44,
     { align: 'right' },
   );
 
-  // Reset colours
+  // Reset colors
   doc.setTextColor(0, 0, 0);
   doc.setDrawColor(0, 0, 0);
 

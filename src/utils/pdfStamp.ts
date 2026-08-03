@@ -1,21 +1,8 @@
 // src/utils/pdfStamp.ts
-//
-// Client-side PDF stamping utility. Burns a rotated official-style stamp
-// directly into the PDF bytes, positioned in the horizontal middle of the
-// page, on the same vertical band as the signatory block.
-//
-// Stamp contents: "REGISTRAR HIGH COURT" / "APPROVED" / a time stamp line /
-// a signature mark (either a real signature image you supply, or a generated
-// signature-style squiggle as a fallback).
-//
-// Requires: npm install pdf-lib
 
 import { PDFDocument, rgb, degrees, StandardFonts, type PDFFont, type PDFPage } from 'pdf-lib';
 
 export interface StampOptions {
-  /** Name of the person approving (kept for API compatibility / future use, not printed by default) */
-  approverName?: string;
-  approverTitle?: string;
   /** Defaults to now */
   date?: Date;
   /** Big center line. Defaults to "APPROVED" */
@@ -29,20 +16,21 @@ export interface StampOptions {
   signatureImageBytes?: ArrayBuffer | Uint8Array;
   /**
    * Vertical anchor for the stamp, as a fraction of page height from the
-   * bottom (0 = bottom edge, 1 = top edge). Defaults to 0.16, which sits
-   * roughly where a signature block usually lives on a single-page memo.
-   * If you know the exact signature position (e.g. from a text-extraction
-   * pass), pass centerYPoints instead for a pixel-accurate placement.
+   * bottom (0 = bottom edge, 1 = top edge). Defaults to 0.16
    */
   verticalAnchorFraction?: number;
   /** Absolute Y position in PDF points (bottom-left origin), overrides verticalAnchorFraction */
   centerYPoints?: number;
-  /** Rotation in degrees. Negative tilts the left side up (classic stamp look). Defaults to -16 */
+  /** Rotation in degrees. Defaults to -16 */
   angle?: number;
   /** Stamp ink color. Defaults to official stamp blue. */
   color?: { r: number; g: number; b: number };
   /** Which page to stamp (0-indexed). Defaults to the last page. */
   pageIndex?: number;
+  /** Name of the approver to display on the stamp */
+  approverName?: string;
+  /** Title of the approver to display on the stamp (currently not displayed in stamp but kept for future use) */
+  approverTitle?: string;
 }
 
 function rotatePoint(px: number, py: number, angleDeg: number) {
@@ -53,13 +41,6 @@ function rotatePoint(px: number, py: number, angleDeg: number) {
   };
 }
 
-/**
- * Draws one rectangle, correctly rotated in place around a shared center
- * point. pdf-lib rotates primitives around their own (x, y) anchor, so to
- * make several primitives look like one rigid rotated group, we rotate each
- * primitive's local (unrotated) offset from the group center by the same
- * angle, then translate by the true center.
- */
 function drawRotatedRect(
   page: PDFPage,
   centerX: number,
@@ -111,7 +92,6 @@ function drawRotatedCenteredText(
     return;
   }
 
-  // Manual letter-spacing: walk the rotated baseline character by character.
   let cursor = 0;
   for (const ch of text) {
     const chWidth = font.widthOfTextAtSize(ch, size);
@@ -128,7 +108,6 @@ function drawRotatedCenteredText(
   }
 }
 
-/** A generated signature-style flourish, drawn as a rotated SVG path, used when no real signature image is supplied. */
 function drawGeneratedSignature(
   page: PDFPage,
   centerX: number,
@@ -167,14 +146,18 @@ async function drawSignatureImage(
   try {
     image = await pdfDoc.embedPng(imageBytes);
   } catch {
-    image = await pdfDoc.embedJpg(imageBytes);
+    try {
+      image = await pdfDoc.embedJpg(imageBytes);
+    } catch {
+      console.error('Failed to embed signature image - invalid format');
+      return;
+    }
   }
+
   const scale = Math.min(maxWidth / image.width, maxHeight / image.height);
   const drawWidth = image.width * scale;
   const drawHeight = image.height * scale;
 
-  // localOffset is the desired center of the image within the stamp's local
-  // (unrotated) frame; convert to the image's bottom-left anchor before rotating.
   const anchor = rotatePoint(localOffsetX - drawWidth / 2, localOffsetY - drawHeight / 2, angle);
   page.drawImage(image, {
     x: centerX + anchor.x,
@@ -185,9 +168,11 @@ async function drawSignatureImage(
   });
 }
 
-/**
- * Stamps a PDF and returns the new file bytes. Does not mutate the input.
- */
+// ═══════════════════════════════════════════════════════════════════════════
+//  OPERATION 1: STAMPING (independent — draws the "APPROVED" box)
+//  Used for documents that need the official court stamp.
+// ═══════════════════════════════════════════════════════════════════════════
+
 export async function stampPdf(fileBytes: ArrayBuffer | Uint8Array, opts: StampOptions): Promise<Uint8Array> {
   const pdfDoc = await PDFDocument.load(fileBytes);
   const pages = pdfDoc.getPages();
@@ -199,7 +184,6 @@ export async function stampPdf(fileBytes: ArrayBuffer | Uint8Array, opts: StampO
   const label = opts.label ?? 'APPROVED';
   const issuer = opts.issuer ?? 'REGISTRAR HIGH COURT';
 
-  // Date only — no time component.
   const dateStr = (opts.date ?? new Date()).toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -207,20 +191,20 @@ export async function stampPdf(fileBytes: ArrayBuffer | Uint8Array, opts: StampO
   });
 
   const angle = opts.angle ?? -16;
-  // Official stamp blue
   const c = opts.color ?? { r: 0.09, g: 0.24, b: 0.6 };
   const color = rgb(c.r, c.g, c.b);
 
   const centerX = width / 2;
   const centerY = opts.centerYPoints ?? height * (opts.verticalAnchorFraction ?? 0.16);
 
-  // Slightly shorter box now that we've dropped a line — keeps the stamp
-  // feeling tight instead of leaving a gap where the timestamp used to sit.
-  const boxWidth = 230;
-  const boxHeight = 102;
+  // ─── STAMP BOX DIMENSIONS ──────────────────────────────────────────────────
+  // Increased height to accommodate approver name
+  const boxWidth = 220;
+  const boxHeight = 140;
 
-  // Outer + inner border for a classic rubber-stamp look
+  // Outer border
   drawRotatedRect(page, centerX, centerY, -boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, angle, color, 3);
+  // Inner border
   drawRotatedRect(
     page,
     centerX,
@@ -234,17 +218,25 @@ export async function stampPdf(fileBytes: ArrayBuffer | Uint8Array, opts: StampO
     1
   );
 
-  // Line 1: issuer, small caps with letter-spacing
-  drawRotatedCenteredText(page, font, issuer, centerX, centerY, boxHeight / 2 - 20, 9.5, angle, color, 1);
+  // ─── LINE 1: Issuer ──────────────────────────────────────────────────────
+  drawRotatedCenteredText(page, font, issuer, centerX, centerY, boxHeight / 2 - 16, 9.5, angle, color, 1);
 
-  // Line 2: APPROVED, large
-  drawRotatedCenteredText(page, font, label, centerX, centerY, boxHeight / 2 - 46, 22, angle, color);
+  // ─── LINE 2: APPROVED ────────────────────────────────────────────────────
+  drawRotatedCenteredText(page, font, label, centerX, centerY, boxHeight / 2 - 40, 20, angle, color);
 
-  // Line 3: date only
-  drawRotatedCenteredText(page, font, dateStr, centerX, centerY, boxHeight / 2 - 64, 9, angle, color);
+  // ─── LINE 3: Approver Name ─────────────────────────────────────────────
+  const nameYOffset = boxHeight / 2 - 58;
+  const approverName = opts.approverName?.toUpperCase() || 'REGISTRAR';
+  drawRotatedCenteredText(page, font, approverName, centerX, centerY, nameYOffset, 9, angle, color);
 
-  // Signature, near the bottom of the box
-  const sigLocalOffsetY = -boxHeight / 2 + 18;
+  // ─── LINE 4: Date ────────────────────────────────────────────────────────
+  const dateYOffset = boxHeight / 2 - 76;
+  drawRotatedCenteredText(page, font, dateStr, centerX, centerY, dateYOffset, 9, angle, color);
+
+  // ─── SIGNATURE IMAGE ───────────────────────────────────────────────────
+  // Position signature in the bottom center of the stamp
+  const sigLocalOffsetY = -boxHeight / 2 + 28;
+
   if (opts.signatureImageBytes) {
     await drawSignatureImage(
       pdfDoc,
@@ -254,21 +246,17 @@ export async function stampPdf(fileBytes: ArrayBuffer | Uint8Array, opts: StampO
       centerY,
       0,
       sigLocalOffsetY,
-      boxWidth - 40,
-      24,
+      boxWidth - 50,
+      28,
       angle
     );
   } else {
-    drawGeneratedSignature(page, centerX, centerY, -37, sigLocalOffsetY, angle, color);
+    drawGeneratedSignature(page, centerX, centerY, -35, sigLocalOffsetY, angle, color);
   }
 
   return pdfDoc.save();
 }
 
-/**
- * Convenience wrapper: fetches a PDF from a URL, stamps it, and returns a
- * Blob ready to preview (URL.createObjectURL) or upload (FormData).
- */
 export async function stampPdfFromUrl(fileUrl: string, opts: StampOptions): Promise<Blob> {
   const res = await fetch(fileUrl);
   if (!res.ok) {
@@ -277,12 +265,114 @@ export async function stampPdfFromUrl(fileUrl: string, opts: StampOptions): Prom
   const bytes = await res.arrayBuffer();
   const stamped = await stampPdf(bytes, opts);
 
-  // `stamped` is a Uint8Array<ArrayBufferLike>, which TS's BlobPart type
-  // doesn't accept directly (ArrayBufferLike also covers SharedArrayBuffer).
-  // Copy into a plain, concrete ArrayBuffer before constructing the Blob.
   const arrayBuffer = stamped.buffer.slice(
     stamped.byteOffset,
     stamped.byteOffset + stamped.byteLength
+  ) as ArrayBuffer;
+
+  return new Blob([arrayBuffer], { type: 'application/pdf' });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  OPERATION 2: SIGNING (independent — draws a plain signature block,
+//  no box, no "APPROVED", no date). Used for documents that need only a
+//  signature. Does not call stampPdf and shares no logic with it beyond
+//  the generic image-embedding step.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface SignatureOptions {
+  signatureImageBytes: ArrayBuffer | Uint8Array;
+  signatoryName: string;
+  signatoryTitle: string;
+  /** Page to place the signature on. Defaults to appending a new blank page. */
+  pageIndex?: number;
+  /** Left offset in points. Defaults to 60. */
+  x?: number;
+  /** Top offset in points from the top edge. Defaults to 140. */
+  yFromTop?: number;
+}
+
+export async function signPdf(
+  fileBytes: ArrayBuffer | Uint8Array,
+  opts: SignatureOptions
+): Promise<Uint8Array> {
+  const pdfDoc = await PDFDocument.load(fileBytes);
+  const existingPages = pdfDoc.getPages();
+
+  let page: PDFPage;
+  if (opts.pageIndex !== undefined) {
+    page = existingPages[opts.pageIndex];
+  } else {
+    // Append a fresh page — matches the "signature on its own page" layout
+    const last = existingPages[existingPages.length - 1];
+    const { width, height } = last.getSize();
+    page = pdfDoc.addPage([width, height]);
+  }
+
+  const { height } = page.getSize();
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const black = rgb(0, 0, 0);
+
+  const x = opts.x ?? 60;
+  const topY = height - (opts.yFromTop ?? 140);
+
+  // ─── Signature image ─────────────────────────────────────────────────
+  let image;
+  try {
+    image = await pdfDoc.embedPng(opts.signatureImageBytes);
+  } catch {
+    image = await pdfDoc.embedJpg(opts.signatureImageBytes);
+  }
+
+  const maxWidth = 220;
+  const maxHeight = 70;
+  const scale = Math.min(maxWidth / image.width, maxHeight / image.height);
+  const drawWidth = image.width * scale;
+  const drawHeight = image.height * scale;
+
+  page.drawImage(image, {
+    x,
+    y: topY,
+    width: drawWidth,
+    height: drawHeight,
+  });
+
+  // ─── Name ────────────────────────────────────────────────────────────
+  const nameSize = 13;
+  const nameY = topY - 18;
+  page.drawText(opts.signatoryName.toUpperCase(), {
+    x, y: nameY, size: nameSize, font: boldFont, color: black,
+  });
+
+  // ─── Title (underlined) ──────────────────────────────────────────────
+  const titleSize = 13;
+  const titleY = nameY - 20;
+  const titleText = opts.signatoryTitle.toUpperCase();
+  page.drawText(titleText, {
+    x, y: titleY, size: titleSize, font: boldFont, color: black,
+  });
+  const titleWidth = boldFont.widthOfTextAtSize(titleText, titleSize);
+  page.drawLine({
+    start: { x, y: titleY - 3 },
+    end: { x: x + titleWidth, y: titleY - 3 },
+    thickness: 1,
+    color: black,
+  });
+
+  return pdfDoc.save();
+}
+
+export async function signPdfFromUrl(fileUrl: string, opts: SignatureOptions): Promise<Blob> {
+  const res = await fetch(fileUrl);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch document for signing (${res.status})`);
+  }
+  const bytes = await res.arrayBuffer();
+  const signed = await signPdf(bytes, opts);
+
+  const arrayBuffer = signed.buffer.slice(
+    signed.byteOffset,
+    signed.byteOffset + signed.byteLength
   ) as ArrayBuffer;
 
   return new Blob([arrayBuffer], { type: 'application/pdf' });

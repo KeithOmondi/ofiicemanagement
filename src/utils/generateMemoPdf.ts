@@ -7,9 +7,10 @@
 
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import type { jsPDF as jsPDFType } from 'jspdf';
 
 const FOOTER_EMBLEM_SRC =
-  'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
+  'https://res.cloudinary.com/do0yflasl/image/upload/v1784364354/ORHC_EMBLEM_wzmp94.jpg';
 
 export interface MemoPdfRow {
   judgeName: string;
@@ -32,6 +33,7 @@ export interface MemoPdfParams {
   signatoryName: string;
   crestUrl: string;
   signatureUrl?: string;
+  fromDepartment?: string;
 }
 
 async function urlToDataUrl(url: string): Promise<string | null> {
@@ -55,6 +57,12 @@ function detectImageFormat(dataUrl: string): 'PNG' | 'JPEG' {
   return dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
 }
 
+// ─── Helper: Clean text for PDF ──────────────────────────────────────────────
+function cleanText(text: string): string {
+  // Replace Unicode arrow with a simple ASCII alternative
+  return text.replace(/→/g, '->').replace(/–/g, '-').replace(/—/g, '-');
+}
+
 export async function generateMemoPdf(params: MemoPdfParams): Promise<Blob> {
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -65,8 +73,8 @@ export async function generateMemoPdf(params: MemoPdfParams): Promise<Blob> {
   // ── Crest ────────────────────────────────────────────────────────────────
   const crestDataUrl = await urlToDataUrl(params.crestUrl);
   if (crestDataUrl) {
-    const crestW = 90;
-    const crestH = 45;
+    const crestW = 120;
+    const crestH = 60;
     doc.addImage(
       crestDataUrl,
       detectImageFormat(crestDataUrl),
@@ -75,41 +83,51 @@ export async function generateMemoPdf(params: MemoPdfParams): Promise<Blob> {
       crestW,
       crestH,
     );
-    cursorY += crestH + 12;
+    cursorY += crestH + 16;
   }
 
-  // ── Title block ──────────────────────────────────────────────────────────
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
+  // ── Title block (Times New Roman, Bold, Larger) ──────────────────────────
+  doc.setFont('Times-Roman', 'bold');
+  
+  // Main title - larger
+  doc.setFontSize(20);
   doc.text('OFFICE OF THE REGISTRAR HIGH COURT', pageWidth / 2, cursorY, { align: 'center' });
-  cursorY += 18;
+  cursorY += 26;
+  
+  // Sub title - slightly smaller but still bold
+  doc.setFontSize(16);
   doc.text('INTERNAL MEMO', pageWidth / 2, cursorY, { align: 'center' });
-  const titleWidth = doc.getTextWidth('INTERNAL MEMO');
-  doc.setLineWidth(1);
-  doc.line(
-    pageWidth / 2 - titleWidth / 2,
-    cursorY + 3,
-    pageWidth / 2 + titleWidth / 2,
-    cursorY + 3,
-  );
-  cursorY += 24;
+  
+  // Full width line under INTERNAL MEMO (thicker)
+  doc.setLineWidth(2);
+  doc.line(margin, cursorY + 6, pageWidth - margin, cursorY + 6);
+  cursorY += 32;
 
-  // ── TO / FROM / REF / DATE / SUBJECT ────────────────────────────────────
-  doc.setFontSize(10);
+  // ── TO / FROM / REF / DATE / SUBJECT (Bold Times New Roman) ─────────────
+  doc.setFont('Times-Roman', 'bold');
+  doc.setFontSize(12);
   const labelX = margin;
-  const valueX = margin + 70;
+  const valueX = margin + 80;
 
   const writeLabelLine = (label: string, value: string, withBorder = false) => {
-    doc.setFont('helvetica', 'bold');
+    // Clean the value text
+    const cleanValue = cleanText(value);
+    
+    // Label in bold
+    doc.setFont('Times-Roman', 'bold');
     doc.text(label, labelX, cursorY);
-    doc.text(':', labelX + 60, cursorY);
-    doc.text(value, valueX, cursorY);
+    doc.text(':', labelX + 65, cursorY);
+    
+    // Value in normal (not bold) but still Times New Roman
+    doc.setFont('Times-Roman', 'normal');
+    doc.text(cleanValue, valueX, cursorY);
+    
     if (withBorder) {
-      doc.setLineWidth(1);
+      doc.setLineWidth(1.5);
       doc.line(margin, cursorY + 6, pageWidth - margin, cursorY + 6);
       cursorY += 10;
     }
-    cursorY += 16;
+    cursorY += 20;
   };
 
   writeLabelLine('TO', params.to.toUpperCase());
@@ -117,84 +135,118 @@ export async function generateMemoPdf(params: MemoPdfParams): Promise<Blob> {
   writeLabelLine('REF', params.ref);
   writeLabelLine('DATE', params.date);
   writeLabelLine('SUBJECT', params.subject.toUpperCase(), true);
-  cursorY += 6;
+  cursorY += 10;
 
-  // ── Body ─────────────────────────────────────────────────────────────────
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  const bodyLines = doc.splitTextToSize(params.bodyText, pageWidth - margin * 2);
+  // ── Body (Times New Roman, Normal) ──────────────────────────────────────
+  doc.setFont('Times-Roman', 'normal');
+  doc.setFontSize(12);
+  const cleanBodyText = cleanText(params.bodyText);
+  const bodyLines = doc.splitTextToSize(cleanBodyText, pageWidth - margin * 2);
   doc.text(bodyLines, margin, cursorY);
-  cursorY += bodyLines.length * 13 + 10;
+  cursorY += bodyLines.length * 16 + 14;
 
-  // ── Table ─────────────────────────────────────────────────────────────────
-  autoTable(doc, {
-    startY: cursorY,
-    margin: { left: margin, right: margin },
-    head: [['#', 'Particulars', 'PJ Number', 'Designation', 'Rate (KES)', 'Days', 'Total (KES)']],
-    body:
-      params.rows.length > 0
-        ? params.rows.map((r, i) => [
-            String(i + 1),
-            r.judgeName,
-            r.pjNumber,
-            r.designation || '-',
-            r.rate.toLocaleString(),
-            String(r.days),
-            r.total.toLocaleString(),
-          ])
-        : [['—', 'No DSA details available.', '', '', '', '', '']],
-    foot:
-      params.rows.length > 0
-        ? [
-            [
-              {
-                content: 'GRAND TOTAL',
-                colSpan: 6,
-                styles: { halign: 'right' as const, fontStyle: 'bold' as const },
-              },
-              params.grandTotal.toLocaleString(),
-            ],
-          ]
-        : undefined,
-    styles: { font: 'helvetica', fontSize: 8, cellPadding: 4 },
-    headStyles: { fillColor: [242, 242, 242], textColor: [0, 0, 0], fontStyle: 'bold' },
-    footStyles: { fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold' },
-    theme: 'grid',
-    columnStyles: {
-      0: { cellWidth: 20, halign: 'center' },
-      1: { cellWidth: 'auto' },
-      2: { cellWidth: 50 },
-      3: { cellWidth: 'auto' },
-      4: { cellWidth: 55, halign: 'right' },
-      5: { cellWidth: 35, halign: 'right' },
-      6: { cellWidth: 60, halign: 'right' },
-    },
-  });
+  // ── DSA Table ─────────────────────────────────────────────────────────────
+  if (params.rows.length > 0) {
+    autoTable(doc, {
+      startY: cursorY,
+      margin: { left: margin, right: margin },
+      head: [['#', 'Particulars', 'PJ Number', 'Designation', 'Rate (KES)', 'Days', 'Total (KES)']],
+      body: params.rows.map((r, i) => [
+        String(i + 1),
+        r.judgeName,
+        r.pjNumber,
+        r.designation || '-',
+        r.rate.toLocaleString(),
+        String(r.days),
+        r.total.toLocaleString(),
+      ]),
+      foot: [
+        [
+          {
+            content: 'GRAND TOTAL',
+            colSpan: 6,
+            styles: { halign: 'right' as const, fontStyle: 'bold' as const },
+          },
+          params.grandTotal.toLocaleString(),
+        ],
+      ],
+      styles: {
+        font: 'Times-Roman',
+        fontSize: 10,
+        cellPadding: 6,
+        halign: 'left',
+        valign: 'middle',
+        lineColor: [180, 170, 150],
+        lineWidth: 0.5,
+      },
+      headStyles: {
+        fillColor: [201, 168, 76],
+        textColor: [26, 61, 28],
+        fontStyle: 'bold',
+        fontSize: 10,
+        halign: 'center',
+        valign: 'middle',
+      },
+      footStyles: {
+        fillColor: [248, 245, 240],
+        textColor: [0, 0, 0],
+        fontStyle: 'bold',
+        fontSize: 10,
+      },
+      alternateRowStyles: {
+        fillColor: [248, 245, 240],
+      },
+      theme: 'grid',
+      columnStyles: {
+        0: { cellWidth: 25, halign: 'center' },
+        1: { cellWidth: 'auto' },
+        2: { cellWidth: 55 },
+        3: { cellWidth: 'auto' },
+        4: { cellWidth: 60, halign: 'right' },
+        5: { cellWidth: 35, halign: 'right' },
+        6: { cellWidth: 65, halign: 'right' },
+      },
+    });
+  } else {
+    doc.setFont('Times-Roman', 'italic');
+    doc.setFontSize(11);
+    doc.setTextColor(150, 150, 150);
+    doc.text('No DSA details available.', margin, cursorY + 10);
+    doc.setTextColor(0, 0, 0);
+    cursorY += 20;
+  }
 
-  // ── Footer — emblem + address, anchored to page bottom ──────────────────
-  const footerLogoW = 48;
-  const footerLogoH = 36;
-  const footerBlockH = 52;
-  const footerY = pageHeight - footerBlockH - 8;
+  // Get the final Y position after the table
+  const autoTableResult = (doc as jsPDFType & { lastAutoTable?: { finalY: number } }).lastAutoTable;
+  const finalY = autoTableResult?.finalY || cursorY;
+  cursorY = finalY + 24;
 
-  // ── Signature block — sits just above the footer separator line ───────────
+  // ── Footer layout properties ─────────────────────────────────────────────
+  const footerBlockH = 50;
+  const footerY = pageHeight - footerBlockH - 24;
+
+  // ── Signature block ──────────────────────────────────────────────────────
   const signatureDataUrl = params.signatureUrl
     ? await urlToDataUrl(params.signatureUrl)
     : null;
 
-  const sigBlockH = (signatureDataUrl ? 40 + 4 : 10) + 16 + 6;
-  let sigCursorY = footerY - sigBlockH - 10;
+  const sigBlockH = (signatureDataUrl ? 48 + 8 : 14) + 20 + 10;
+  let sigCursorY = footerY - sigBlockH - 14;
 
-  // Signatory name
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10);
-  doc.text(params.signatoryName || ' ', margin, sigCursorY);
-  sigCursorY += 6;
+  if (sigCursorY < cursorY + 10) {
+    sigCursorY = cursorY + 10;
+  }
+
+  // Signatory name (bold)
+  doc.setFont('Times-Roman', 'bold');
+  doc.setFontSize(12);
+  doc.text(cleanText(params.signatoryName || ' '), margin, sigCursorY);
+  sigCursorY += 8;
 
   // Optional signature image
   if (signatureDataUrl) {
-    const sigW = 110;
-    const sigH = 40;
+    const sigW = 130;
+    const sigH = 48;
     doc.addImage(
       signatureDataUrl,
       detectImageFormat(signatureDataUrl),
@@ -203,16 +255,18 @@ export async function generateMemoPdf(params: MemoPdfParams): Promise<Blob> {
       sigW,
       sigH,
     );
-    sigCursorY += sigH + 4;
+    sigCursorY += sigH + 8;
   } else {
-    sigCursorY += 10;
+    sigCursorY += 14;
   }
 
-  // FROM department line with underline
-  doc.setFont('helvetica', 'bold');
-  doc.text(params.from, margin, sigCursorY);
-  const fromWidth = doc.getTextWidth(params.from);
-  doc.setLineWidth(0.5);
+  // FROM department line with underline (bold)
+  const fromText = cleanText(params.fromDepartment || params.from);
+  doc.setFont('Times-Roman', 'bold');
+  doc.setFontSize(12);
+  doc.text(fromText, margin, sigCursorY);
+  const fromWidth = doc.getTextWidth(fromText);
+  doc.setLineWidth(0.7);
   doc.line(margin, sigCursorY + 2, margin + fromWidth, sigCursorY + 2);
 
   // ── Separator line ────────────────────────────────────────────────────────
@@ -223,42 +277,61 @@ export async function generateMemoPdf(params: MemoPdfParams): Promise<Blob> {
   // ── Footer emblem (left side) ────────────────────────────────────────────
   const footerEmblemDataUrl = await urlToDataUrl(FOOTER_EMBLEM_SRC);
   if (footerEmblemDataUrl) {
-    const logoTopY = footerY + (footerBlockH - footerLogoH) / 2;
+    const footerLogoW = 90;
+    const footerLogoH = 26;
     doc.addImage(
       footerEmblemDataUrl,
       detectImageFormat(footerEmblemDataUrl),
       margin,
-      logoTopY,
+      footerY + 8,
       footerLogoW,
       footerLogoH,
     );
   }
 
-  // ── Footer text (right-aligned) ───────────────────────────────────────────
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7);
-  doc.setTextColor(80, 80, 80);
+  // ── Footer text (right-aligned) ─────────────────────────────────────────
+  // Line 1: Social Transformation Motto
+  doc.setFont('Times-Roman', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(30, 30, 30);
+  doc.text(
+    'Social Transformation through Access to Justice',
+    pageWidth - margin,
+    footerY + 12,
+    { align: 'right' },
+  );
+
+  // Line 2: Physical Address
+  doc.setFont('Times-Roman', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(90, 90, 90);
   doc.text(
     'Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi',
     pageWidth - margin,
-    footerY + 14,
+    footerY + 23,
     { align: 'right' },
   );
+
+  // Line 3: Contact Details
   doc.text(
     'Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke',
     pageWidth - margin,
-    footerY + 26,
+    footerY + 33,
     { align: 'right' },
   );
 
-  // Motto in dark green + bold
-  doc.setFont('helvetica', 'bold');
+  // Line 4: Motto in green + bold
+  doc.setFont('Times-Roman', 'bold');
+  doc.setFontSize(8.5);
   doc.setTextColor(26, 61, 28);
-  doc.text('Justice Be Our Shield and Defender', pageWidth - margin, footerY + 34, {
-    align: 'right',
-  });
+  doc.text(
+    'Justice Be Our Shield and Defender',
+    pageWidth - margin,
+    footerY + 44,
+    { align: 'right' },
+  );
 
-  // Reset colours
+  // Reset colors
   doc.setTextColor(0, 0, 0);
   doc.setDrawColor(0, 0, 0);
 

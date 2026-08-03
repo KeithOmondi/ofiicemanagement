@@ -26,6 +26,10 @@ export type HelpdeskDocumentFormat = 'pdf' | 'docx' | 'xlsx';
 export type HelpdeskDocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
 
+// ─── Stamp Types ──────────────────────────────────────────────────────────────
+
+export type StampType = 'approved' | 'received' | 'official';
+
 // ─── Two-Step Approval Types ──────────────────────────────────────────────────
 
 /**
@@ -120,7 +124,7 @@ export type SentryStatus = 'pending' | 'active' | 'resolved' | 'rejected';
 export interface ApprovalHistoryEntry {
     id: string;
     document_id: string;
-    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted' | 'signed';
+    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted' | 'signed' | 'stamped';
     from_user_id: string;
     from_user_name: string;
     to_user_id?: string;
@@ -269,6 +273,17 @@ export interface HelpdeskDocument {
     signature_position_width?: number | null;  // Width of signature on PDF
     signature_position_height?: number | null; // Height of signature on PDF
 
+    // ─── NEW: Stamp Fields ──────────────────────────────────────────────────────
+    is_stamped: boolean;                   // Whether the document has been officially stamped
+    stamped_by?: string;                   // ID of the user who applied the stamp
+    stamped_by_name?: string;              // Name of the user who applied the stamp
+    stamped_at?: string;                   // When the stamp was applied
+    stamp_type?: StampType;                // Type of stamp applied (approved, received, official)
+    stamp_position_x?: number | null;      // X position of stamp on PDF
+    stamp_position_y?: number | null;      // Y position of stamp on PDF
+    stamp_position_width?: number | null;  // Width of stamp on PDF
+    stamp_position_height?: number | null; // Height of stamp on PDF
+
     // ─── Aide Request Fields ──────────────────────────────────────────────────
     officer_rank?: OfficerRank | null;
     officer_name?: string | null;
@@ -316,6 +331,11 @@ export interface RequesterDocumentView {
     is_signed: boolean;
     signed_by_name?: string;
     signed_at?: string;
+    // ─── NEW: Stamp info ──────────────────────────────────────────────────────
+    is_stamped: boolean;
+    stamped_by_name?: string;
+    stamped_at?: string;
+    stamp_type?: StampType;
 }
 
 // ─── Pending Internal Approvals Summary ──────────────────────────────────────
@@ -510,6 +530,16 @@ export interface UpdateDocumentFilePayload {
     signed_by?: string;
     signed_by_name?: string;
     signed_at?: string;
+    // ─── NEW: Stamp fields ────────────────────────────────────────────────────
+    is_stamped?: boolean;
+    stamped_by?: string;
+    stamped_by_name?: string;
+    stamped_at?: string;
+    stamp_type?: StampType;
+    stamp_position_x?: number;
+    stamp_position_y?: number;
+    stamp_position_width?: number;
+    stamp_position_height?: number;
 }
 
 export interface SubmitForApprovalPayload {
@@ -709,6 +739,7 @@ export interface HelpdeskDocumentsState {
             sendingBack?: boolean;
             resubmitting?: boolean;
             cancelling?: boolean;
+            stamping?: boolean;
         };
     };
     stats: DocumentStats | null;
@@ -754,6 +785,10 @@ export interface DocumentStats {
     // Two-step workflow stats
     pending_internal: number;
     ready_to_send_back: number;
+    // ─── NEW: Stamp stats ──────────────────────────────────────────────────────
+    stamped_count: number;
+    signed_count: number;
+    signed_and_stamped_count: number;
 }
 
 export interface DocumentSummary {
@@ -777,6 +812,9 @@ export interface DocumentSummary {
     };
     requester_status_summary: Record<RequesterVisibleStatus, number>;
     signed_count: number;
+    // ─── NEW: Stamp summary ────────────────────────────────────────────────────
+    stamped_count: number;
+    signed_and_stamped_count: number;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -930,6 +968,20 @@ export const REQUESTER_VISIBLE_STATUS_ICONS: Record<RequesterVisibleStatus, stri
     in_revision: 'RefreshCw',
 };
 
+// ─── Stamp Constants ──────────────────────────────────────────────────────────
+
+export const STAMP_TYPE_LABELS: Record<StampType, string> = {
+    approved: 'Approved',
+    received: 'Received',
+    official: 'Official',
+};
+
+export const STAMP_TYPE_COLORS: Record<StampType, string> = {
+    approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    received: 'bg-blue-50 text-blue-700 border-blue-200',
+    official: 'bg-purple-50 text-purple-700 border-purple-200',
+};
+
 // ─── Aide Status Constants ──────────────────────────────────────────────────
 
 export const AIDE_STATUS_LABELS: Record<AideStatus, string> = {
@@ -1069,6 +1121,16 @@ export function getRequesterVisibleStatusColor(status: RequesterVisibleStatus): 
 
 export function getRequesterVisibleStatusIcon(status: RequesterVisibleStatus): string {
     return REQUESTER_VISIBLE_STATUS_ICONS[status] || 'File';
+}
+
+// ─── Stamp Helper Functions ──────────────────────────────────────────────────
+
+export function getStampTypeLabel(stampType: StampType): string {
+    return STAMP_TYPE_LABELS[stampType] || stampType;
+}
+
+export function getStampTypeColor(stampType: StampType): string {
+    return STAMP_TYPE_COLORS[stampType] || '';
 }
 
 export function isInternalApprovalPending(status: InternalApprovalStatus): boolean {
@@ -1336,6 +1398,10 @@ export function isRequesterVisibleStatus(value: string): value is RequesterVisib
         'changes_requested',
         'in_revision'
     ].includes(value);
+}
+
+export function isStampType(value: string): value is StampType {
+    return ['approved', 'received', 'official'].includes(value);
 }
 
 // ─── URL Helpers ─────────────────────────────────────────────────────────────

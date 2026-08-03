@@ -16,11 +16,12 @@ import {
   type DocumentStatus as HelpdeskDocumentStatus,
   type DocumentEntityType,
 } from "../../store/slices/helpdeskDocumentsSlice";
-import { selectCurrentUser } from "../../store/slices/userSlice";
+import { fetchCurrentUser, selectCurrentUser } from "../../store/slices/userSlice";
 import { hasRole } from "../../store/slices/authSlice";
 import type { UserMetadata } from "../../store/slices/authSlice";
 import type { User } from "../../store/slices/userSlice";
 import toast from "react-hot-toast";
+import { stampPdfFromUrl, type StampOptions } from "../../utils/pdfStamp";
 
 // ─── Type guard to check if a user has a signature_url ──────────────────────
 function hasSignatureUrl(user: User | UserMetadata | null): user is User {
@@ -286,11 +287,13 @@ interface HelpdeskDocumentDetailProps {
   onRequestChanges: (doc: HelpdeskDocument) => Promise<void>;
   onSendBack: (doc: HelpdeskDocument, status: 'approved' | 'rejected' | 'changes_requested') => Promise<void>;
   onCancelDecision: (doc: HelpdeskDocument) => Promise<void>;
+  onStampAndApprove: (doc: HelpdeskDocument) => Promise<void>;
   isApproving?: boolean;
   isRejecting?: boolean;
   isRequestingChanges?: boolean;
   isSendingBack?: boolean;
   isCancelling?: boolean;
+  isStamping?: boolean;
 }
 
 const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
@@ -302,11 +305,13 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
   onRequestChanges,
   onSendBack,
   onCancelDecision,
+  onStampAndApprove,
   isApproving = false,
   isRejecting = false,
   isRequestingChanges = false,
   isSendingBack = false,
   isCancelling = false,
+  isStamping = false,
 }) => {
   const isPending = document.internal_approval_status === 'pending' || 
                     document.internal_approval_status === 'previewed' ||
@@ -538,7 +543,7 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
             </h4>
             <p className="mt-1 text-xs text-amber-700">
               {isPending
-                ? 'Review the document and make a decision. Approving will stamp and sign the document using your uploaded signature.'
+                ? 'Review the document and make a decision. Choose "Approve & Stamp" to apply the official court stamp with your signature, or "Approve & Sign" to add a signature block only.'
                 : document.internal_approval_status === 'approved_internal'
                 ? 'Document approved and signed. Send back to requester to make it visible.'
                 : document.internal_approval_status === 'rejected_internal'
@@ -549,16 +554,33 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
             </p>
 
             <div className="mt-3 flex flex-wrap gap-2">
-              {/* Approve & Sign Button */}
+              {/* Approve & Stamp Button - Applies official court stamp with signature */}
+              {isPending && (
+                <button
+                  onClick={() => onStampAndApprove(document)}
+                  disabled={isStamping}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  title="Apply official court stamp with your signature embedded inside"
+                >
+                  {isStamping ? <Spinner className="h-4 w-4" /> : null}
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                  </svg>
+                  Approve & Stamp
+                </button>
+              )}
+
+              {/* Approve & Sign Button - Adds signature block only */}
               {isPending && (
                 <button
                   onClick={() => onApprove(document)}
                   disabled={isApproving}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+                  title="Add signature block on a separate page (no stamp)"
                 >
                   {isApproving ? <Spinner className="h-4 w-4" /> : null}
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                   </svg>
                   Approve & Sign
                 </button>
@@ -569,7 +591,7 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
                 <button
                   onClick={() => onReject(document)}
                   disabled={isRejecting}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
                 >
                   {isRejecting ? <Spinner className="h-4 w-4" /> : null}
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -584,7 +606,7 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
                 <button
                   onClick={() => onRequestChanges(document)}
                   disabled={isRequestingChanges}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
                 >
                   {isRequestingChanges ? <Spinner className="h-4 w-4" /> : null}
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -601,7 +623,7 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
                     <button
                       onClick={() => onSendBack(document, 'approved')}
                       disabled={isSendingBack}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
                     >
                       {isSendingBack ? <Spinner className="h-4 w-4" /> : null}
                       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -614,7 +636,7 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
                     <button
                       onClick={() => onSendBack(document, 'rejected')}
                       disabled={isSendingBack}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
                     >
                       {isSendingBack ? <Spinner className="h-4 w-4" /> : null}
                       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -627,7 +649,7 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
                     <button
                       onClick={() => onSendBack(document, 'changes_requested')}
                       disabled={isSendingBack}
-                      className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
                     >
                       {isSendingBack ? <Spinner className="h-4 w-4" /> : null}
                       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -641,7 +663,7 @@ const HelpdeskDocumentDetail: React.FC<HelpdeskDocumentDetailProps> = ({
                   <button
                     onClick={() => onCancelDecision(document)}
                     disabled={isCancelling}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 hover:bg-amber-100 disabled:opacity-50 transition-colors"
                   >
                     {isCancelling ? <Spinner className="h-4 w-4" /> : null}
                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
@@ -817,9 +839,17 @@ const HelpdeskApprovals: React.FC = () => {
     requestChanges?: string;
     sendBack?: string;
     cancel?: string;
+    stamp?: string;
   }>({});
 
   const isSuperAdmin = hasRole(user, "super_admin");
+
+  // Fetch current user to ensure signature_url is available
+  useEffect(() => {
+    if (isSuperAdmin && !currentUser) {
+      dispatch(fetchCurrentUser());
+    }
+  }, [dispatch, isSuperAdmin, currentUser]);
 
   // Fetch pending approvals on mount - include both pending and ready to send back
   useEffect(() => {
@@ -854,29 +884,147 @@ const HelpdeskApprovals: React.FC = () => {
     }
   }, [dispatch, isSuperAdmin]);
 
+  // ─── Helper function to fetch signature bytes ──────────────────────────────
+
+  const fetchSignatureBytes = async (signatureUrl: string): Promise<ArrayBuffer> => {
+    const response = await fetch(signatureUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch signature: ${response.status}`);
+    }
+    return await response.arrayBuffer();
+  };
+
+  // Helper function to upload stamped document
+  const uploadStampedDocument = async (blob: Blob): Promise<string> => {
+    // This is a placeholder - implement based on your storage setup
+    // For example, if using Supabase storage:
+    /*
+    const fileName = `stamped_${Date.now()}.pdf`;
+    const { data, error } = await supabase.storage
+      .from('helpdesk-documents')
+      .upload(fileName, blob);
+    
+    if (error) throw error;
+    
+    const { data: { publicUrl } } = supabase.storage
+      .from('helpdesk-documents')
+      .getPublicUrl(fileName);
+    
+    return publicUrl;
+    */
+    
+    // For now, create an object URL for demo purposes
+    // In production, this should upload to your storage service
+    return URL.createObjectURL(blob);
+  };
+
   // ─── Action Handlers ──────────────────────────────────────────────────────
+
+  // Handler for Stamp & Approve - REQUIRES real signature from currentUser
+  const handleStampAndApprove = async (doc: HelpdeskDocument) => {
+    if (!isSuperAdmin) return;
+    
+    // Use activeUser for user details (id, full_name)
+    const activeUser = user || currentUser;
+    
+    if (!activeUser?.id) {
+      toast.error('User not found. Please log in again.');
+      return;
+    }
+
+    // Signature MUST be checked on currentUser (userSlice), which has signature_url
+    // user from authSlice (UserMetadata) does NOT have signature_url
+    const hasSignature = hasSignatureUrl(currentUser);
+    
+    if (!hasSignature) {
+      toast.error(
+        '⚠️ No signature uploaded. A real signature is required for the official court stamp. ' +
+        'Please upload your signature in your profile settings first.',
+        { duration: 6000 }
+      );
+      return;
+    }
+
+    setLoadingAction(prev => ({ ...prev, stamp: doc.id }));
+    
+    try {
+      // Fetch signature bytes from currentUser (which has signature_url)
+      const signatureBytes = await fetchSignatureBytes(currentUser!.signature_url!);
+
+      // Prepare stamp options with the real signature
+      const stampOptions: StampOptions = {
+        label: 'APPROVED',
+        issuer: 'REGISTRAR HIGH COURT',
+        signatureImageBytes: signatureBytes,
+        date: new Date(),
+        verticalAnchorFraction: 0.16,
+        angle: -16,
+        approverName: activeUser.full_name || 'Super Admin',
+        approverTitle: 'Registrar, High Court',
+      };
+
+      // First, approve the document internally
+      const approvedDoc = await dispatch(internalApproveDocument({
+        id: doc.id,
+        action: 'approve',
+        approved_by: activeUser.id,
+        approved_by_name: activeUser.full_name || 'Super Admin',
+        comments: 'Document approved and stamped with official court stamp.',
+        generate_e_stamp: true,
+      })).unwrap();
+
+      // Apply the stamp to the PDF with the real signature
+      const stampedPdfBlob = await stampPdfFromUrl(doc.file_url, stampOptions);
+      
+      // Upload the stamped PDF back to storage
+      const stampedFileUrl = await uploadStampedDocument(stampedPdfBlob);
+
+      // Update the document with the stamped file URL
+      const updatedDoc = {
+        ...approvedDoc,
+        file_url: stampedFileUrl,
+        e_stamp_url: stampedFileUrl,
+        e_stamp_status: 'stamped' as const,
+        is_signed: true,
+        signed_at: new Date().toISOString(),
+        signed_by_name: activeUser.full_name || 'Super Admin',
+      };
+
+      // Update the selected document
+      setSelectedDocument(updatedDoc);
+      
+      toast.success('Document approved and stamped with official court stamp!');
+      
+      // Refresh the list
+      await refreshDocuments();
+      
+    } catch (err) {
+      const errorMessage = typeof err === 'string' ? err : 'Failed to stamp and approve document.';
+      toast.error(errorMessage);
+      console.error('Stamp and approve error:', err);
+    } finally {
+      setLoadingAction(prev => ({ ...prev, stamp: undefined }));
+    }
+  };
 
   const handleApprove = async (doc: HelpdeskDocument) => {
     if (!isSuperAdmin) return;
     
-    // Use user from auth slice as the primary source, fallback to currentUser from user slice
     const activeUser = user || currentUser;
     
-    // Make sure we have a valid user ID
     if (!activeUser?.id) {
       toast.error('User not found. Please log in again.');
       return;
     }
     
-    // Check if user has a signature uploaded using the type guard
-    const hasSignature = hasSignatureUrl(activeUser);
+    // Signature check should also use currentUser for consistency
+    const hasSignature = hasSignatureUrl(currentUser);
     
     if (!hasSignature) {
       toast('⚠️ No signature uploaded. The document will be approved but without your signature.', {
         duration: 5000,
         icon: '⚠️',
       });
-      // Continue anyway - the backend will handle missing signature
     }
     
     setLoadingAction(prev => ({ ...prev, approve: doc.id }));
@@ -891,11 +1039,7 @@ const HelpdeskApprovals: React.FC = () => {
       })).unwrap();
       
       toast.success('Document approved. Click "Send Approved" to notify the requester.');
-      
-      // Update the selected document with the result
       setSelectedDocument(result);
-      
-      // Refresh the list
       await refreshDocuments();
       
     } catch (err) {
@@ -970,33 +1114,67 @@ const HelpdeskApprovals: React.FC = () => {
     }
   };
 
-  const handleSendBack = async (doc: HelpdeskDocument, finalStatus: 'approved' | 'rejected' | 'changes_requested') => {
-    if (!isSuperAdmin) return;
-    setLoadingAction(prev => ({ ...prev, sendBack: doc.id }));
-    try {
-      const result = await dispatch(sendBackToRequester({
-        id: doc.id,
-        final_status: finalStatus,
-        sent_by: currentUser?.id || '',
-        sent_by_name: currentUser?.full_name,
-        comments: `Document sent back to requester with status: ${finalStatus}`,
-        notify_requester: true,
-      })).unwrap();
-      const statusMessages = {
-        approved: 'Document approved and sent back to requester with signature.',
-        rejected: 'Document rejected and sent back to requester.',
-        changes_requested: 'Changes requested and sent back to requester.',
-      };
-      toast.success(statusMessages[finalStatus]);
-      setSelectedDocument(result);
-      await refreshDocuments();
-    } catch (err) {
-      const errorMessage = typeof err === 'string' ? err : 'Failed to send document back to requester.';
-      toast.error(errorMessage);
-    } finally {
-      setLoadingAction(prev => ({ ...prev, sendBack: undefined }));
-    }
-  };
+const handleSendBack = async (doc: HelpdeskDocument, finalStatus: 'approved' | 'rejected' | 'changes_requested') => {
+  if (!isSuperAdmin) return;
+  
+  setLoadingAction(prev => ({ ...prev, sendBack: doc.id }));
+  
+  try {
+    // Capture ALL stamp and signature related fields BEFORE sending back
+    const preservedFields = {
+      file_url: doc.file_url,
+      e_stamp_url: doc.e_stamp_url,
+      e_stamp_status: doc.e_stamp_status,
+      is_signed: doc.is_signed,
+      signed_at: doc.signed_at,
+      signed_by_name: doc.signed_by_name,
+      is_stamped: doc.is_stamped,
+      stamped_at: doc.stamped_at,
+      stamped_by_name: doc.stamped_by_name,
+      stamp_type: doc.stamp_type,
+      signature_position_x: doc.signature_position_x,
+      signature_position_y: doc.signature_position_y,
+      signature_position_width: doc.signature_position_width,
+      signature_position_height: doc.signature_position_height,
+      stamp_position_x: doc.stamp_position_x,
+      stamp_position_y: doc.stamp_position_y,
+      stamp_position_width: doc.stamp_position_width,
+      stamp_position_height: doc.stamp_position_height,
+    };
+    
+    // Send back to requester
+    const result = await dispatch(sendBackToRequester({
+      id: doc.id,
+      final_status: finalStatus,
+      sent_by: currentUser?.id || '',
+      sent_by_name: currentUser?.full_name,
+      comments: `Document sent back to requester with status: ${finalStatus}`,
+      notify_requester: true,
+    })).unwrap();
+    
+    // Restore ALL stamp and signature fields that might have been lost
+    const updatedDoc = {
+      ...result,
+      ...preservedFields,
+    };
+    
+    const statusMessages = {
+      approved: 'Document approved and sent back to requester with signature.',
+      rejected: 'Document rejected and sent back to requester.',
+      changes_requested: 'Changes requested and sent back to requester.',
+    };
+    
+    toast.success(statusMessages[finalStatus]);
+    setSelectedDocument(updatedDoc);
+    await refreshDocuments();
+    
+  } catch (err) {
+    const errorMessage = typeof err === 'string' ? err : 'Failed to send document back to requester.';
+    toast.error(errorMessage);
+  } finally {
+    setLoadingAction(prev => ({ ...prev, sendBack: undefined }));
+  }
+};
 
   const handleCancelDecision = async (doc: HelpdeskDocument) => {
     if (!isSuperAdmin) return;
@@ -1147,11 +1325,13 @@ const HelpdeskApprovals: React.FC = () => {
               onRequestChanges={handleRequestChanges}
               onSendBack={handleSendBack}
               onCancelDecision={handleCancelDecision}
+              onStampAndApprove={handleStampAndApprove}
               isApproving={loadingAction.approve === selectedDocument.id}
               isRejecting={loadingAction.reject === selectedDocument.id}
               isRequestingChanges={loadingAction.requestChanges === selectedDocument.id}
               isSendingBack={loadingAction.sendBack === selectedDocument.id}
               isCancelling={loadingAction.cancel === selectedDocument.id}
+              isStamping={loadingAction.stamp === selectedDocument.id}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center px-4">

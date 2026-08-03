@@ -2,6 +2,9 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+const FOOTER_EMBLEM_SRC =
+  'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
+
 export interface ProcurementMemoData {
   to: string;
   from: string;
@@ -39,18 +42,24 @@ async function fetchImageDataUrl(url: string): Promise<string | null> {
   }
 }
 
+function detectImageFormat(dataUrl: string): 'PNG' | 'JPEG' {
+  return dataUrl.startsWith('data:image/png') ? 'PNG' : 'JPEG';
+}
+
 // ─── Main export ────────────────────────────────────────────────────────────
 
 export const generateProcurementMemoPdf = async (data: ProcurementMemoData): Promise<Blob> => {
   // Load images
-  const [crestDataUrl, signatureDataUrl] = await Promise.all([
+  const [crestDataUrl, signatureDataUrl, footerEmblemDataUrl] = await Promise.all([
     data.crestUrl ? fetchImageDataUrl(data.crestUrl) : Promise.resolve(null),
     data.signatureUrl ? fetchImageDataUrl(data.signatureUrl) : Promise.resolve(null),
+    fetchImageDataUrl(FOOTER_EMBLEM_SRC),
   ]);
 
   return new Promise((resolve) => {
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
     const marginX = 48;
     let y = 40;
 
@@ -144,7 +153,7 @@ export const generateProcurementMemoPdf = async (data: ProcurementMemoData): Pro
 
     // ── Signature block ──
     y += 40;
-    if (y > doc.internal.pageSize.getHeight() - 150) {
+    if (y > pageHeight - 150) {
       doc.addPage();
       y = 60;
     }
@@ -169,20 +178,73 @@ export const generateProcurementMemoPdf = async (data: ProcurementMemoData): Pro
     y += 12;
     doc.text(data.from.toUpperCase(), marginX, y);
 
-    // ── Footer ──
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const footerY = pageHeight - 60;
+    // ── Footer — emblem + address, anchored to page bottom ──────────────────
+    const footerBlockH = 50;
+    const footerY = pageHeight - footerBlockH - 24;
+
+    // Horizontal separating line
     doc.setLineWidth(0.5);
-    doc.setDrawColor(200, 200, 200);
+    doc.setDrawColor(180, 180, 180);
     doc.line(marginX, footerY, pageWidth - marginX, footerY);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(60, 60, 60);
-    doc.text('Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi', marginX, footerY + 12);
-    doc.text('Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke', marginX, footerY + 22);
+
+    // Left Emblem / Logo
+    if (footerEmblemDataUrl) {
+      const footerLogoW = 90;
+      const footerLogoH = 26;
+      doc.addImage(
+        footerEmblemDataUrl,
+        detectImageFormat(footerEmblemDataUrl),
+        marginX,
+        footerY + 8,
+        footerLogoW,
+        footerLogoH,
+      );
+    }
+
+    // Right Block Line 1: Social Transformation Motto
     doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(30, 30, 30);
+    doc.text(
+      'Social Transformation through Access to Justice',
+      pageWidth - marginX,
+      footerY + 12,
+      { align: 'right' },
+    );
+
+    // Right Block Line 2: Physical Address
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(90, 90, 90);
+    doc.text(
+      'Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi',
+      pageWidth - marginX,
+      footerY + 23,
+      { align: 'right' },
+    );
+
+    // Right Block Line 3: Contact Details
+    doc.text(
+      'Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke',
+      pageWidth - marginX,
+      footerY + 33,
+      { align: 'right' },
+    );
+
+    // Right Block Line 4: National Anthem / Motto (Green)
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
     doc.setTextColor(26, 61, 28);
-    doc.text('Justice Be Our Shield and Defender', marginX, footerY + 34);
+    doc.text(
+      'Justice Be Our Shield and Defender',
+      pageWidth - marginX,
+      footerY + 44,
+      { align: 'right' },
+    );
+
+    // Reset document context defaults
+    doc.setTextColor(0, 0, 0);
+    doc.setDrawColor(0, 0, 0);
 
     const pdfOutput = doc.output('blob');
     resolve(pdfOutput);
