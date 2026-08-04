@@ -10,13 +10,11 @@ import {
   selectDeletingDocumentId,
   selectSelectedHelpdeskDocument,
   selectDocumentActionLoading,
-  //selectDocumentLinking,
-  //selectUnlinkedHelpdeskDocuments,
   fetchHelpdeskDocuments,
   fetchHelpdeskDocumentById,
   uploadHelpdeskDocument,
   deleteHelpdeskDocument,
-  // ─── New Two-Step Approval Actions ──────────────────────────────────────
+  submitForApproval,
   internalApproveDocument,
   internalRejectDocument,
   internalRequestChanges,
@@ -28,8 +26,6 @@ import {
   type DocumentFormat,
   type DocumentStatus,
   type HelpdeskDocument,
-  //type InternalApprovalStatus,
-  //type RequesterVisibleStatus,
 } from '../../store/slices/helpdeskDocumentsSlice';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -54,6 +50,7 @@ import {
   Folder,
   Maximize2,
   Minimize2,
+  RefreshCw,
 } from 'lucide-react';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -132,6 +129,32 @@ const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => {
       {config.label}
     </span>
   );
+};
+
+// ─── Helper: Get error message ─────────────────────────────────────────────
+
+const getErrorMessage = (error: unknown): string => {
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    return error.message;
+  }
+  if (
+    error &&
+    typeof error === 'object' &&
+    'response' in error &&
+    error.response &&
+    typeof error.response === 'object' &&
+    'data' in error.response &&
+    error.response.data &&
+    typeof error.response.data === 'object' &&
+    'message' in error.response.data &&
+    typeof error.response.data.message === 'string'
+  ) {
+    return error.response.data.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return 'An unexpected error occurred';
 };
 
 // ─── Document Preview Modal ──────────────────────────────────────────────────
@@ -374,14 +397,16 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
   };
 
   return (
-    <div className={`fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-all duration-300 ${
-      isFullscreen ? 'p-0' : ''
-    }`}>
-      <div className={`bg-white rounded-xl shadow-2xl flex flex-col transition-all duration-300 ${
-        isFullscreen 
-          ? 'w-full h-full rounded-none' 
-          : 'w-full max-w-6xl h-[90vh]'
-      }`}>
+    <div
+      className={`fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-all duration-300 ${
+        isFullscreen ? 'p-0' : ''
+      }`}
+    >
+      <div
+        className={`bg-white rounded-xl shadow-2xl flex flex-col transition-all duration-300 ${
+          isFullscreen ? 'w-full h-full rounded-none' : 'w-full max-w-6xl h-[90vh]'
+        }`}
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 bg-stone-50/50 rounded-t-xl flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -494,7 +519,7 @@ const DocumentCard: React.FC<DocumentCardProps> = ({ doc, onPreview, onDelete, d
       <div className="flex-1">
         <h3 className="font-medium text-slate-800 truncate mb-1">{doc.subject}</h3>
         <p className="text-xs font-mono text-slate-500 mb-2">Ref: {doc.ref}</p>
-        
+
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
           <span className="inline-block rounded bg-slate-100 px-2 py-0.5 font-mono uppercase">
             {doc.format}
@@ -567,7 +592,7 @@ const SenderFolderSection: React.FC<SenderFolderSectionProps> = ({
   const displayName = senderName || 'Unknown Sender';
   const isUnknown = displayName === 'Unknown Sender';
   const totalDocs = documents.length;
-  const approvedDocs = documents.filter(d => d.status === 'approved').length;
+  const approvedDocs = documents.filter((d) => d.status === 'approved').length;
 
   const formattedDate = documents[0]?.created_at
     ? new Date(documents[0].created_at).toLocaleDateString()
@@ -592,19 +617,17 @@ const SenderFolderSection: React.FC<SenderFolderSectionProps> = ({
               )}
             </div>
             <div className="flex items-center gap-3 text-xs text-slate-500 mt-0.5">
-              <span>{totalDocs} document{totalDocs !== 1 ? 's' : ''}</span>
+              <span>
+                {totalDocs} document{totalDocs !== 1 ? 's' : ''}
+              </span>
               {approvedDocs > 0 && (
-                <span className="text-emerald-600">
-                  ✓ {approvedDocs} approved
-                </span>
+                <span className="text-emerald-600">✓ {approvedDocs} approved</span>
               )}
             </div>
           </div>
         </div>
         {formattedDate && (
-          <div className="text-xs text-slate-400 flex-shrink-0">
-            {formattedDate}
-          </div>
+          <div className="text-xs text-slate-400 flex-shrink-0">{formattedDate}</div>
         )}
       </div>
 
@@ -649,8 +672,6 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
   const [newComment, setNewComment] = useState('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-  //const [showReturnModal, setShowReturnModal] = useState(false);
-  //const [returnComments, setReturnComments] = useState('');
   const [showChangesModal, setShowChangesModal] = useState(false);
   const [changesRequested, setChangesRequested] = useState<string[]>([]);
   const [changeInput, setChangeInput] = useState('');
@@ -663,7 +684,31 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
   const hasInternalDecision = document.is_internal_approval_complete;
   const isReadyToSendBack = hasInternalDecision && !document.is_sent_back_to_requester;
 
+  // ─── Check if user can submit for approval ─────────────────────────────
+  const canSubmitForApproval =
+    (currentUserRole === 'dept_head' || currentUserRole === 'staff') &&
+    (document.status === 'draft' || document.status === 'returned');
+
   // ─── Two-Step Approval Handlers ──────────────────────────────────────────
+
+  const handleSubmitForApproval = async () => {
+    if (!window.confirm('Submit this document for approval?')) return;
+    setIsSubmitting(true);
+    try {
+      await dispatch(
+        submitForApproval({
+          id: docId,
+          comments: 'Document submitted for approval.',
+        })
+      ).unwrap();
+      onRefresh();
+      toast.success('Document submitted for approval. Super Admin will review it.');
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleSendBackToRequester = async () => {
     // Determine the final status based on internal approval status
@@ -684,19 +729,21 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
     }
 
     if (!window.confirm(`Send this document back to the requester as "${finalStatus}"?`)) return;
-    
+
     setIsSubmitting(true);
     try {
-      await dispatch(sendBackToRequester({
-        id: docId,
-        final_status: finalStatus,
-        comments: 'Document processed and sent back to requester.',
-        notify_requester: true,
-      })).unwrap();
+      await dispatch(
+        sendBackToRequester({
+          id: docId,
+          final_status: finalStatus,
+          comments: 'Document processed and sent back to requester.',
+          notify_requester: true,
+        })
+      ).unwrap();
       onRefresh();
       toast.success(`Document sent back to requester as ${finalStatus}`);
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to send back to requester');
+      toast.error(getErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -705,16 +752,18 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
   const handleInternalApprove = async () => {
     setIsSubmitting(true);
     try {
-      await dispatch(internalApproveDocument({
-        id: docId,
-        action: 'approve',
-        comments: 'Document approved internally.',
-        generate_e_stamp: true,
-      })).unwrap();
+      await dispatch(
+        internalApproveDocument({
+          id: docId,
+          action: 'approve',
+          comments: 'Document approved internally.',
+          generate_e_stamp: true,
+        })
+      ).unwrap();
       onRefresh();
       toast.success('Document approved internally. Click "Send Back to Requester" to notify them.');
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to approve document internally');
+      toast.error(getErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -727,18 +776,20 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
     }
     setIsSubmitting(true);
     try {
-      await dispatch(internalRejectDocument({
-        id: docId,
-        action: 'reject',
-        rejection_reason: rejectReason.trim(),
-        comments: `Rejected internally: ${rejectReason.trim()}`,
-      })).unwrap();
+      await dispatch(
+        internalRejectDocument({
+          id: docId,
+          action: 'reject',
+          rejection_reason: rejectReason.trim(),
+          comments: `Rejected internally: ${rejectReason.trim()}`,
+        })
+      ).unwrap();
       setShowRejectModal(false);
       setRejectReason('');
       onRefresh();
       toast.success('Document rejected internally. Click "Send Back to Requester" to notify them.');
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to reject document internally');
+      toast.error(getErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -751,19 +802,21 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
     }
     setIsSubmitting(true);
     try {
-      await dispatch(internalRequestChanges({
-        id: docId,
-        action: 'request_changes',
-        changes_requested: changesRequested,
-        comments: `Changes requested internally: ${changesRequested.join('; ')}`,
-      })).unwrap();
+      await dispatch(
+        internalRequestChanges({
+          id: docId,
+          action: 'request_changes',
+          changes_requested: changesRequested,
+          comments: `Changes requested internally: ${changesRequested.join('; ')}`,
+        })
+      ).unwrap();
       setShowChangesModal(false);
       setChangesRequested([]);
       setChangeInput('');
       onRefresh();
       toast.success('Changes requested internally. Click "Send Back to Requester" to notify them.');
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to request changes internally');
+      toast.error(getErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -773,15 +826,17 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
     if (!newComment.trim()) return;
     setIsSubmitting(true);
     try {
-      await dispatch(addComment({
-        id: docId,
-        comment: newComment.trim(),
-        is_internal: currentUserRole === 'super_admin',
-      })).unwrap();
+      await dispatch(
+        addComment({
+          id: docId,
+          comment: newComment.trim(),
+          is_internal: currentUserRole === 'super_admin',
+        })
+      ).unwrap();
       setNewComment('');
       onRefresh();
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to add comment');
+      toast.error(getErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -800,29 +855,23 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
 
   // ─── Permission Checks ──────────────────────────────────────────────────
 
-  // Department Head can only submit for approval (but we're using internal workflow)
-  // In the new workflow, we need to check if the document is in draft and user is dept_head
-  //const canSubmit = document.status === 'draft' && currentUserRole === 'dept_head';
-  
   // Super admin actions
-  const canInternalApprove = 
-    currentUserRole === 'super_admin' && 
+  const canInternalApprove =
+    currentUserRole === 'super_admin' &&
     document.internal_approval_status === 'pending' &&
     !document.is_internal_approval_complete;
-  
-  const canInternalReject = 
-    currentUserRole === 'super_admin' && 
+
+  const canInternalReject =
+    currentUserRole === 'super_admin' &&
     document.internal_approval_status === 'pending' &&
     !document.is_internal_approval_complete;
-  
-  const canInternalRequestChanges = 
-    currentUserRole === 'super_admin' && 
+
+  const canInternalRequestChanges =
+    currentUserRole === 'super_admin' &&
     document.internal_approval_status === 'pending' &&
     !document.is_internal_approval_complete;
-  
-  const canSendBack = 
-    currentUserRole === 'super_admin' && 
-    isReadyToSendBack;
+
+  const canSendBack = currentUserRole === 'super_admin' && isReadyToSendBack;
 
   const canDownloadStamped = document.status === 'approved' && document.e_stamp_url;
 
@@ -853,14 +902,11 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
               {new Date(document.created_at).toLocaleDateString()}
             </p>
             <p className="text-xs text-slate-400 mt-0.5">
-              Internal Status: {document.internal_approval_status} • 
-              Requester Status: {document.requester_status}
+              Internal Status: {document.internal_approval_status} • Requester Status:{' '}
+              {document.requester_status}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 transition"
-          >
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
             <X size={20} />
           </button>
         </div>
@@ -875,6 +921,22 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
               <Eye size={14} />
               Preview Document
             </button>
+
+            {/* ✅ Send for Approval - Department Head / Staff */}
+            {canSubmitForApproval && (
+              <button
+                onClick={handleSubmitForApproval}
+                disabled={isSubmitting || isLoading.submitting}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
+              >
+                {isSubmitting || isLoading.submitting ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Send size={14} />
+                )}
+                Send for Approval
+              </button>
+            )}
 
             {/* Super Admin Actions */}
             {canInternalApprove && (
@@ -941,30 +1003,42 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
           {/* ── Document Info ────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-3">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Reference</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Reference
+              </p>
               <p className="mt-0.5 text-sm font-mono text-slate-800">{document.ref}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Format</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Format
+              </p>
               <p className="mt-0.5 text-sm font-semibold text-slate-800 uppercase">{document.format}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Entity Type</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Entity Type
+              </p>
               <p className="mt-0.5 text-sm capitalize text-slate-800">{document.entity_type}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Uploaded By</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Uploaded By
+              </p>
               <p className="mt-0.5 text-sm text-slate-800">{document.uploaded_by_name || 'Unknown'}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Uploaded On</p>
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Uploaded On
+              </p>
               <p className="mt-0.5 text-sm text-slate-800">
                 {new Date(document.created_at).toLocaleString()}
               </p>
             </div>
             {document.approved_at && (
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Approved On</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Approved On
+                </p>
                 <p className="mt-0.5 text-sm text-slate-800">
                   {new Date(document.approved_at).toLocaleString()}
                 </p>
@@ -972,13 +1046,17 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
             )}
             {document.approved_by_name && (
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Approved By</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  Approved By
+                </p>
                 <p className="mt-0.5 text-sm text-slate-800">{document.approved_by_name}</p>
               </div>
             )}
             {document.rejection_reason && (
               <div className="col-span-full">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-red-400">Rejection Reason</p>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-red-400">
+                  Rejection Reason
+                </p>
                 <p className="mt-0.5 text-sm text-red-700">{document.rejection_reason}</p>
               </div>
             )}
@@ -1025,7 +1103,8 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
                 <div className="text-xs text-slate-500">
                   <p className="font-mono">{document.ref}</p>
                   <p className="text-emerald-600">
-                    ✓ Approved on {document.approved_at ? new Date(document.approved_at).toLocaleDateString() : 'N/A'}
+                    ✓ Approved on{' '}
+                    {document.approved_at ? new Date(document.approved_at).toLocaleDateString() : 'N/A'}
                   </p>
                 </div>
               </div>
@@ -1249,7 +1328,7 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
                 <p className="mt-1 text-sm text-slate-500">
                   Specify what changes are required for this document.
                 </p>
-                
+
                 <div className="mt-4 flex gap-2">
                   <input
                     type="text"
@@ -1271,7 +1350,10 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
                 {changesRequested.length > 0 && (
                   <div className="mt-3 space-y-1 max-h-32 overflow-y-auto">
                     {changesRequested.map((change, index) => (
-                      <div key={index} className="flex items-center justify-between bg-amber-50 rounded-lg px-3 py-2">
+                      <div
+                        key={index}
+                        className="flex items-center justify-between bg-amber-50 rounded-lg px-3 py-2"
+                      >
                         <span className="text-sm text-amber-800">{change}</span>
                         <button
                           onClick={() => removeChangeRequest(index)}
@@ -1314,10 +1396,10 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({ 
-  entityType, 
-  entityId, 
-  groupBySender = true 
+const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
+  entityType,
+  entityId,
+  groupBySender = true,
 }) => {
   const dispatch = useAppDispatch();
   const documents = useAppSelector(selectAllHelpdeskDocuments);
@@ -1357,7 +1439,7 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
 
   const groupDocumentsBySender = () => {
     const groups = new Map<string, HelpdeskDocument[]>();
-    
+
     documents.forEach((doc) => {
       const sender = doc.uploaded_by_name || 'Unknown Sender';
       if (!groups.has(sender)) {
@@ -1431,7 +1513,7 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
 
       toast.success('Document uploaded successfully');
     } catch (err) {
-      setUploadError(typeof err === 'string' ? err : 'Upload failed. Please try again.');
+      setUploadError(getErrorMessage(err));
     }
   };
 
@@ -1620,7 +1702,9 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
 
               {/* Reference */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Reference *</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Reference *
+                </label>
                 <input
                   type="text"
                   name="ref"
@@ -1633,7 +1717,9 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
 
               {/* Subject */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Subject *</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Subject *
+                </label>
                 <input
                   type="text"
                   name="subject"
@@ -1646,7 +1732,9 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
 
               {/* Format */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Format *</label>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Format *
+                </label>
                 <select
                   name="format"
                   value={uploadFormData.format}
@@ -1721,9 +1809,5 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
     </div>
   );
 };
-
-// ─── Missing Import ──────────────────────────────────────────────────────────
-
-import { RefreshCw } from 'lucide-react';
 
 export default HelpdeskDocs;

@@ -16,8 +16,7 @@ export interface AideMemoParams {
   ref: string;
   date: string;
 
-  // Addressee — structured so the body paragraph can reuse the
-  // organization name without re-parsing a free-text address block.
+  // Addressee
   to: string; // e.g. "The Deputy Inspector General"
   toOrganization: string; // e.g. "Kenya Police Service"
   toBuilding?: string; // e.g. "Vigilance House"
@@ -26,8 +25,7 @@ export interface AideMemoParams {
 
   subject: string;
 
-  // Body — fully editable overrides. If omitted, sensible defaults are
-  // used so existing callers keep working unchanged.
+  // Body
   bodyText: string;
   greetingText?: string;
   officerSuitabilityText?: string;
@@ -35,17 +33,17 @@ export interface AideMemoParams {
 
   // Judge details
   judgeName: string;
-  judgeTitle?: string; // e.g. "Judge of the High Court"
-  judgeLocation?: string; // e.g. "Milimani Law Courts"
+  judgeTitle?: string;
+  judgeLocation?: string;
 
-  // Officer details (kept for backward compatibility / reference)
+  // Officer details
   officerName: string;
-  officerRank: string; // full label, e.g. "Police Constable (PC)"
+  officerRank: string;
   officerNumber: string;
   currentStation: string;
-  assignmentType: string; // "Bodyguard", "Driver", "Close Escort", etc.
+  assignmentType: string;
 
-  // Signatory fields & Signature image URL removed (handled backend-side)
+  // Signatory fields
   signatoryName?: string;
   signatoryTitle?: string;
   fromDepartment?: string;
@@ -59,7 +57,6 @@ export interface AideMemoParams {
 
 // ─── Shared helpers ──────────────────────────────────────────────────────
 
-/** "Police Constable (PC)" -> "PC". Falls back to the full rank if there's no abbreviation in parens. */
 export function getRankAbbreviation(rank: string): string {
   const match = rank.match(/\(([^)]+)\)/);
   return match ? match[1] : rank;
@@ -90,11 +87,6 @@ async function urlToDataUrl(url: string): Promise<string | null> {
   }
 }
 
-/**
- * Loads an image and returns its natural pixel dimensions so callers can
- * scale it into a target box without distorting its aspect ratio.
- * Returns null if the image can't be loaded/measured.
- */
 function getImageDimensions(dataUrl: string): Promise<{ width: number; height: number } | null> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -104,11 +96,6 @@ function getImageDimensions(dataUrl: string): Promise<{ width: number; height: n
   });
 }
 
-/**
- * Given a data URL and a target box, returns width/height that fit inside
- * the box while preserving the image's real aspect ratio. Falls back to a
- * square of `fallbackSize` if the image can't be measured.
- */
 async function getScaledImageSize(
   dataUrl: string,
   maxWidth: number,
@@ -170,6 +157,9 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   const margin = 54;
   let cursorY = 40;
 
+  // Use 'helvetica' — built-in sans-serif closest to Tahoma
+  const FONT = 'helvetica';
+
   // ── Crest (left side) ──────────────────────────────────────────────────────
   const crestDataUrl = await urlToDataUrl(params.crestUrl);
   const crestMaxHeight = 55;
@@ -186,7 +176,7 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
 
   // ── Title block (next to crest, left-aligned) ────────────────────────────
   const titleX = margin + crestW + 16;
-  doc.setFont('helvetica', 'bold');
+  doc.setFont(FONT, 'bold');
   doc.setFontSize(15);
   doc.text('THE JUDICIARY', titleX, cursorY + 18);
 
@@ -204,14 +194,14 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   cursorY += 20;
 
   // ── Reference and Date line ──────────────────────────────────────────────
-  doc.setFont('Times-Roman', 'bold');
+  doc.setFont(FONT, 'bold');
   doc.setFontSize(12);
   doc.text(`Ref: ${params.ref}`, margin, cursorY);
   doc.text(formatDate(params.date), pageWidth - margin, cursorY, { align: 'right' });
   cursorY += 28;
 
   // ── TO block ──────────────────────────────────────────────────────────────
-  doc.setFont('Times-Roman', 'bold');
+  doc.setFont(FONT, 'bold');
   doc.setFontSize(12);
 
   const toText = params.to;
@@ -219,7 +209,7 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   doc.text(toLines, margin, cursorY);
   cursorY += toLines.length * 16 + 2;
 
-  doc.setFont('Times-Roman', 'normal');
+  doc.setFont(FONT, 'normal');
   const addressLines = buildToAddressLines(params);
   addressLines.forEach((line) => {
     doc.text(line, margin, cursorY);
@@ -227,20 +217,20 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   });
 
   if (params.toCity) {
-    doc.setFont('Times-Roman', 'bold');
+    doc.setFont(FONT, 'bold');
     doc.text(params.toCity, margin, cursorY);
     cursorY += 24;
   } else {
     cursorY += 8;
   }
 
-  // ── Subject ──────────────────────────────────────────────────────────────
-  doc.setFont('Times-Roman', 'bold');
+  // ── Subject (RE:) — Helvetica Bold 12pt ───────────────────────────────────
+  doc.setFont(FONT, 'bold');
   doc.setFontSize(12);
   const subjectText = `RE: ${params.subject.toUpperCase()}`;
   const subjectLines = doc.splitTextToSize(subjectText, pageWidth - margin * 2);
   doc.text(subjectLines, margin, cursorY);
-  
+
   doc.setLineWidth(0.8);
   subjectLines.forEach((line: string, i: number) => {
     const w = doc.getTextWidth(line);
@@ -250,7 +240,7 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   cursorY += subjectLines.length * 16 + 10;
 
   // ── Body ──────────────────────────────────────────────────────────────────
-  doc.setFont('Times-Roman', 'normal');
+  doc.setFont(FONT, 'normal');
   doc.setFontSize(12);
   cursorY += 10;
 
@@ -279,48 +269,38 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   cursorY += closingLines.length * 16 + 20;
 
   // ─── Yours sincerely ─────────────────────────────────────────────────────
-  doc.setFont('Times-Roman', 'bold');
+  doc.setFont(FONT, 'bold');
   doc.text('Yours sincerely,', margin, cursorY);
-  
+
   // ─── Signature Block ──────────────────────────────────────────────────────
-  // Reserve space for backend signature image, name, and designation
-  // Increased from 80 to 130pt to give adequate room for:
-  //   - Signature image (~40pt)
-  //   - Signatory name (bold, ~18pt)
-  //   - Signatory title (underlined, ~18pt)
-  //   - Department/Office (~16pt)
-  //   - Spacing between elements
   const SIGNATURE_BLOCK_HEIGHT = 130;
-  cursorY += 30; // spacing after "Yours sincerely,"
-  
-  // Check if there's enough space on the current page
+  cursorY += 30;
+
   const footerTopY = pageHeight - 78;
   if (cursorY + SIGNATURE_BLOCK_HEIGHT + 40 > footerTopY) {
     doc.addPage();
     cursorY = 60;
   }
-  
+
   cursorY += SIGNATURE_BLOCK_HEIGHT;
 
-  // ─── Copy to (CC) - MOVED BELOW signature block ──────────────────────────
+  // ─── Copy to (CC) ────────────────────────────────────────────────────────
   const maxCcY = footerTopY - 10;
   const ccCount = params.ccList?.length || 0;
   const ccHeight = 16 + ccCount * 18 + 8;
 
   if (ccCount > 0) {
-    // Push CC down if it would overlap the signature block
     if (cursorY + ccHeight > maxCcY) {
-      // If there's not enough room on this page for CC, start a new page
       doc.addPage();
       cursorY = 60;
     }
 
-    doc.setFont('Times-Roman', 'bold');
+    doc.setFont(FONT, 'bold');
     doc.setFontSize(11);
     doc.text('Copy to:', margin, cursorY);
     cursorY += 16;
 
-    doc.setFont('Times-Roman', 'normal');
+    doc.setFont(FONT, 'normal');
     doc.setFontSize(11);
     params.ccList!.forEach((cc, index) => {
       const ccText = `${index + 1}. ${cc}`;
@@ -354,12 +334,12 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   const footerTextX = pageWidth - margin;
   const footerTextStartY = footerY + 10;
 
-  doc.setFont('Times-Roman', 'italic');
+  doc.setFont(FONT, 'oblique'); // Standard italic equivalent in Helvetica
   doc.setFontSize(8);
   doc.setTextColor(85, 85, 85);
   doc.text('Social Transformation through Access to Justice', footerTextX, footerTextStartY, { align: 'right' });
 
-  doc.setFont('Times-Roman', 'normal');
+  doc.setFont(FONT, 'normal');
   doc.setFontSize(8);
   doc.setTextColor(80, 80, 80);
 
@@ -377,7 +357,7 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
     { align: 'right' },
   );
 
-  doc.setFont('Times-Roman', 'bold');
+  doc.setFont(FONT, 'bold');
   doc.setFontSize(8.5);
   doc.setTextColor(26, 61, 28);
   doc.text('Justice Be Our Shield and Defender', footerTextX, footerTextStartY + 33, { align: 'right' });

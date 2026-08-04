@@ -1,6 +1,6 @@
 // src/features/aide/components/AidesModal.tsx
 
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   createAideRequest,
@@ -270,7 +270,30 @@ export const AidesModal: React.FC<AidesModalProps> = ({
   const isLinking = useAppSelector(selectDocumentLinking);
 
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
-  const [formData, setFormData] = useState<AideFormData>(EMPTY_FORM);
+
+  // Single source of truth for initial form state. Because the parent
+  // remounts this component (key={editingId ?? 'new'}) whenever the
+  // editing target changes, this lazy initializer is all that's needed —
+  // no effects required to keep formData in sync with initialData/isOpen.
+  const getInitialFormData = (): AideFormData => {
+    if (initialData) {
+      return {
+        judge_name: initialData.judge_name || '',
+        judge_location: initialData.judge_location || '',
+        officer_rank: initialData.officer_rank || 'Police Constable (PC)',
+        officer_name: initialData.officer_name || '',
+        employment_number: initialData.employment_number || '',
+        current_station: initialData.current_station || '',
+        current_unit: initialData.current_unit || 'KPS',
+        proposed_assignment: initialData.proposed_assignment || '',
+        reporting_date: initialData.reporting_date || '',
+        remarks: initialData.remarks || '',
+      };
+    }
+    return EMPTY_FORM;
+  };
+
+  const [formData, setFormData] = useState<AideFormData>(getInitialFormData);
   const [memoDraft, setMemoDraft] = useState<MemoDraft | null>(null);
 
   const [pendingDocumentId, setPendingDocumentId] = useState<string | undefined>();
@@ -278,46 +301,22 @@ export const AidesModal: React.FC<AidesModalProps> = ({
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const [downloadingFormat, setDownloadingFormat] = useState<DownloadFormat | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
 
   const docs = useMemo(
     () => allDocs.filter((d) => d.entity_type === 'aide' && d.entity_id === editingId),
     [allDocs, editingId]
   );
 
-  // Reset everything when the modal transitions to open (render-time
-  // adjustment — not an effect, avoids the cascading-render warning)
-  if (isOpen !== prevIsOpen) {
-    setPrevIsOpen(isOpen);
+  // ─── Effects ──────────────────────────────────────────────────────────────────
 
-    if (isOpen) {
-      setFormData(
-        initialData
-          ? {
-              judge_name: initialData.judge_name || '',
-              judge_location: initialData.judge_location || '',
-              officer_rank: initialData.officer_rank || 'Police Constable (PC)',
-              officer_name: initialData.officer_name || '',
-              employment_number: initialData.employment_number || '',
-              current_station: initialData.current_station || '',
-              current_unit: initialData.current_unit || 'KPS',
-              proposed_assignment: initialData.proposed_assignment || '',
-              reporting_date: initialData.reporting_date || '',
-              remarks: initialData.remarks || '',
-            }
-          : EMPTY_FORM
-      );
-      setMemoDraft(null);
-      setPendingDocumentId(undefined);
-      setCurrentStep(1);
-    }
-  }
-
-  React.useEffect(() => {
+  // Fetch documents when editing
+  useEffect(() => {
     if (isOpen && editingId) {
       dispatch(fetchHelpdeskDocuments({ entity_type: 'aide', entity_id: editingId }));
     }
   }, [dispatch, isOpen, editingId]);
+
+  // ─── Handlers ──────────────────────────────────────────────────────────────────
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -1061,8 +1060,8 @@ export const AidesModal: React.FC<AidesModalProps> = ({
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
-                            <a
-                              href={doc.file_url}
+                            
+                             <a href={doc.file_url}
                               target="_blank"
                               rel="noreferrer"
                               className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"

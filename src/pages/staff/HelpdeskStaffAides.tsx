@@ -125,8 +125,8 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import { SentryModal } from '../../components/modals/SentryModal';
-import { AidesModal } from '../../components/modals/AidesModal';
 import { stampPdfFromUrl } from '../../utils/pdfStamp';
+import { AidesModal } from '../../components/modals/AidesModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -976,15 +976,44 @@ const AideDetailModal: React.FC<AideDetailModalProps> = ({ aideId, onClose, onEd
     }
   };
 
-  const handleSendDocumentForApproval = async (documentId: string) => {
-    try {
-      await dispatch(submitDocumentForApproval({ id: documentId })).unwrap();
-      toast.success('Document sent for approval.');
-      dispatch(fetchHelpdeskDocuments({ entity_type: 'aide', entity_id: aideId }));
-    } catch (err) {
-      toast.error(getErrorMessage(err));
+// ─── In AideDetailModal - updated handleSendDocumentForApproval ─────────────
+
+const handleSendDocumentForApproval = async (documentId: string) => {
+  // Check if document is in a submittable state
+  const doc = allDocuments.find(d => d.id === documentId);
+  if (!doc) {
+    toast.error('Document not found.');
+    return;
+  }
+  
+  if (doc.status !== 'draft' && doc.status !== 'returned') {
+    toast.error(`Cannot submit document with status: ${doc.status}. Only draft or returned documents can be submitted.`);
+    return;
+  }
+
+  try {
+    await dispatch(submitDocumentForApproval({ 
+      id: documentId,
+      comments: `Submitted for approval for ${aide?.judge_name || 'Aide Request'}.`,
+    })).unwrap();
+    
+    toast.success('Document submitted for approval. Super Admin will review it.');
+    dispatch(fetchHelpdeskDocuments({ entity_type: 'aide', entity_id: aideId }));
+  } catch (err) {
+    // ✅ Use type guard for error handling without 'any'
+    let errorMsg = 'Failed to submit document for approval.';
+    if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
+      errorMsg = err.message;
     }
-  };
+    if (err && typeof err === 'object' && 'response' in err && 
+        err.response && typeof err.response === 'object' && 'data' in err.response &&
+        err.response.data && typeof err.response.data === 'object' && 'message' in err.response.data &&
+        typeof err.response.data.message === 'string') {
+      errorMsg = err.response.data.message;
+    }
+    toast.error(errorMsg);
+  }
+};
 
   const handleViewDocument = (doc: HelpdeskDocument) => {
     setSelectedDocForView(doc);
@@ -1381,15 +1410,44 @@ const SentryDetailModal: React.FC<SentryDetailModalProps> = ({ sentryId, onClose
     }
   };
 
-  const handleSendDocumentForApproval = async (documentId: string) => {
-    try {
-      await dispatch(submitDocumentForApproval({ id: documentId })).unwrap();
-      toast.success('Document sent for approval.');
-      dispatch(fetchHelpdeskDocuments({ entity_type: 'sentry', entity_id: sentryId }));
-    } catch (err) {
-      toast.error(getErrorMessage(err));
+// ─── In SentryDetailModal - updated handleSendDocumentForApproval ────────────
+
+const handleSendDocumentForApproval = async (documentId: string) => {
+  // Check if document is in a submittable state
+  const doc = allDocuments.find(d => d.id === documentId);
+  if (!doc) {
+    toast.error('Document not found.');
+    return;
+  }
+  
+  if (doc.status !== 'draft' && doc.status !== 'returned') {
+    toast.error(`Cannot submit document with status: ${doc.status}. Only draft or returned documents can be submitted.`);
+    return;
+  }
+
+  try {
+    await dispatch(submitDocumentForApproval({ 
+      id: documentId,
+      comments: `Submitted for approval for ${sentry?.judge_name || 'Sentry Request'}.`,
+    })).unwrap();
+    
+    toast.success('Document submitted for approval. Super Admin will review it.');
+    dispatch(fetchHelpdeskDocuments({ entity_type: 'sentry', entity_id: sentryId }));
+  } catch (err) {
+    // ✅ Use type guard for error handling without 'any'
+    let errorMsg = 'Failed to submit document for approval.';
+    if (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string') {
+      errorMsg = err.message;
     }
-  };
+    if (err && typeof err === 'object' && 'response' in err && 
+        err.response && typeof err.response === 'object' && 'data' in err.response &&
+        err.response.data && typeof err.response.data === 'object' && 'message' in err.response.data &&
+        typeof err.response.data.message === 'string') {
+      errorMsg = err.response.data.message;
+    }
+    toast.error(errorMsg);
+  }
+};
 
   const handleViewDocument = (doc: HelpdeskDocument) => {
     setSelectedDocForView(doc);

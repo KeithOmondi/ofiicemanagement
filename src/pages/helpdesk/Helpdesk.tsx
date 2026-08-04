@@ -1388,33 +1388,26 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
     }
   };
 
-  const handleSendForApproval = async (docId: string) => {
+// ─── In EntityDetailModal - replace handleSendForApproval ───────────────────
+
+const handleSendForApproval = async (docId: string) => {
     try {
-      // Step 1: Approve internally
-      const approvedDoc = await dispatch(internalApproveDocument({
-        id: docId,
-        action: 'approve',
-        comments: `Document approved for ${title}.`,
-        generate_e_stamp: true,
-      })).unwrap();
+        // ✅ Use submitForApproval instead of internalApproveDocument + sendBackToRequester
+        // This sends the document to the approval queue for Super Admin review
+        await dispatch(submitForApproval({ 
+            id: docId,
+            comments: `Submitted for approval by ${title}.`,
+        })).unwrap();
 
-      // Step 2: Send back to requester
-      await dispatch(sendBackToRequester({
-        id: approvedDoc.id,
-        final_status: 'approved',
-        comments: 'Document approved and sent back to requester.',
-        notify_requester: true,
-      })).unwrap();
-
-      toast.success('Document approved and sent back to requester.');
-      dispatch(fetchHelpdeskDocuments({ 
-        entity_type: entityType, 
-        entity_id: item.id 
-      }));
+        toast.success('Document submitted for approval. Super Admin will review it.');
+        dispatch(fetchHelpdeskDocuments({ 
+            entity_type: entityType, 
+            entity_id: item.id 
+        }));
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to process document approval.');
+        toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
     }
-  };
+};
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
