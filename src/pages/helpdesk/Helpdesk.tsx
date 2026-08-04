@@ -90,6 +90,7 @@ import {
   type DocumentFormat,
   type DocumentStatus,
   type DocumentEntityType,
+  submitForApproval,
 } from '../../store/slices/helpdeskDocumentsSlice';
 
 // ─── Consolidated Memo imports ───────────────────────────────────────────────
