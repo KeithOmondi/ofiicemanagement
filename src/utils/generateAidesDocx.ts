@@ -134,10 +134,9 @@ function buildHeaderDivider(): Paragraph {
 }
 
 export async function generateAidesDocx(params: AideMemoParams): Promise<Blob> {
-  const [leftCrest, rightCrest, sigImg, footerLeft] = await Promise.all([
+  const [leftCrest, rightCrest, footerLeft] = await Promise.all([
     fetchImageBuffer(params.crestUrl),
     fetchImageBuffer(RIGHT_CREST_SRC),
-    params.signatureUrl ? fetchImageBuffer(params.signatureUrl) : Promise.resolve(null),
     fetchImageBuffer(FOOTER_LEFT_EMBLEM_SRC),
   ]);
 
@@ -254,39 +253,23 @@ export async function generateAidesDocx(params: AideMemoParams): Promise<Blob> {
     }),
   );
 
-  // ── Signature image (optional) ──────────────────────────────────────────
-  if (sigImg) {
-    body.push(
-      new Paragraph({
-        spacing: { after: 80 },
-        children: [new ImageRun({ data: sigImg, transformation: { width: 110, height: 40 }, type: 'png' })],
-      }),
-    );
-  } else {
-    body.push(new Paragraph({ spacing: { after: 200 }, children: [] }));
-  }
+  // ─── Signature Block ──────────────────────────────────────────────────────
+  // Reserve space for backend signature image, name, and designation
+  // The backend's embedSignatureBlockIntoPDF will add:
+  //   - Signature image
+  //   - Signatory name (bold)
+  //   - Signatory title (underlined)
+  //   - Date
+  
+  // Add spacing for the backend signature block
+  body.push(
+    new Paragraph({
+      spacing: { after: 300 },
+      children: [],
+    }),
+  );
 
-  // ── Signatory name / title (title bold + underlined) ────────────────────
-  body.push(
-    new Paragraph({
-      spacing: { after: 20 },
-      children: [new TextRun({ text: cleanText(params.signatoryName), bold: true, size: 22, font: FONT })],
-    }),
-  );
-  body.push(
-    new Paragraph({
-      spacing: { after: params.fromDepartment ? 20 : 200 },
-      children: [
-        new TextRun({
-          text: cleanText(params.signatoryTitle),
-          bold: true,
-          underline: { type: UnderlineType.SINGLE },
-          size: 22,
-          font: FONT,
-        }),
-      ],
-    }),
-  );
+  // ── Department (kept for reference, appears below signature) ─────────────
   if (params.fromDepartment) {
     body.push(
       new Paragraph({
@@ -296,11 +279,11 @@ export async function generateAidesDocx(params: AideMemoParams): Promise<Blob> {
     );
   }
 
-  // ── Copy to (CC) ──────────────────────────────────────────────────────────
+  // ── Copy to (CC) - MOVED BELOW signature block ──────────────────────────
   if (params.ccList && params.ccList.length > 0) {
     body.push(
       new Paragraph({
-        spacing: { after: 60 },
+        spacing: { before: 200, after: 60 },
         children: [new TextRun({ text: 'Copy to:', bold: true, size: 20, font: FONT })],
       }),
     );
