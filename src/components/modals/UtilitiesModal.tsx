@@ -506,19 +506,11 @@ function computeFuelTotals(judges: JudgeUtility[]): JudgeTotals[] {
     .map((j) => {
       let fuel = 0;
       j.items.forEach((item) => {
-        if (item.utility_type === 'Fuel') {
+        if (item.utility_type === 'Fuel' && item.status === 'Awaiting') {
           fuel += item.amount;
         }
       });
-      return {
-        judge_name: j.judge_name,
-        kplc: 0,
-        water: 0,
-        wifi: 0,
-        fuel,
-        other: 0,
-        total: fuel,
-      };
+      return { judge_name: j.judge_name, kplc: 0, water: 0, wifi: 0, fuel, other: 0, total: fuel };
     })
     .filter((row) => row.fuel > 0)
     .sort((a, b) => a.judge_name.localeCompare(b.judge_name));
@@ -529,6 +521,7 @@ function computeNonFuelTotals(judges: JudgeUtility[]): JudgeTotals[] {
     .map((j) => {
       let kplc = 0, water = 0, wifi = 0;
       j.items.forEach((item) => {
+        if (item.status !== 'Awaiting') return; // <-- cohort filter
         switch (item.utility_type) {
           case 'Electricity': kplc += item.amount; break;
           case 'Water': water += item.amount; break;

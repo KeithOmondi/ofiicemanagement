@@ -897,26 +897,26 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
   const [pendingDocumentId, setPendingDocumentId] = useState<string | undefined>();
   const [formData, setFormData] = useState<TicketFormData>(() => ({
-    department_id: initialData?.department_id ?? (isDeptHead ? currentUser?.department_id ?? '' : ''),
-    trip_type: initialData?.trip_type ?? 'one_way',
-    date_of_travel: initialData?.date_of_travel ?? '',
-    time_of_travel: initialData?.time_of_travel ?? '',
-    return_date: initialData?.return_date ?? '',
-    return_time: initialData?.return_time ?? '',
-    preferred_departure_time: initialData?.preferred_departure_time ?? 'any',
-    preferred_return_time: initialData?.preferred_return_time ?? 'any',
-    departure_from: initialData?.departure_from ?? '',
-    destination: initialData?.destination ?? '',
-    remarks: initialData?.remarks ?? '',
-    judge_name: initialData?.judge_name ?? '',
-    pj_number: initialData?.pj_number ?? '',
-    travel_class: initialData?.travel_class ?? 'economy',
-    number_of_passengers: initialData?.number_of_passengers ?? 1,
-    special_requests: initialData?.special_requests ?? '',
-    priority: initialData?.priority ?? 'normal',
-    assigned_to: initialData?.assigned_to ?? '',
-    is_draft: false,
-  }));
+  department_id: initialData?.department_id ?? (isDeptHead ? currentUser?.department_id ?? '' : ''),
+  trip_type: initialData?.trip_type ?? 'one_way',
+  date_of_travel: initialData?.date_of_travel?.split('T')[0] ?? '',
+  time_of_travel: initialData?.time_of_travel ?? '',
+  return_date: initialData?.return_date?.split('T')[0] ?? '',
+  return_time: initialData?.return_time ?? '',
+  preferred_departure_time: initialData?.preferred_departure_time ?? 'any',
+  preferred_return_time: initialData?.preferred_return_time ?? 'any',
+  departure_from: initialData?.departure_from ?? '',
+  destination: initialData?.destination ?? '',
+  remarks: initialData?.remarks ?? '',
+  judge_name: initialData?.judge_name ?? '',
+  pj_number: initialData?.pj_number ?? '',
+  travel_class: initialData?.travel_class ?? 'economy',
+  number_of_passengers: initialData?.number_of_passengers ?? 1,
+  special_requests: initialData?.special_requests ?? '',
+  priority: initialData?.priority ?? 'normal',
+  assigned_to: initialData?.assigned_to ?? '',
+  is_draft: false,
+}));
 
   useEffect(() => {
     dispatch(fetchJudges({}));
@@ -1016,37 +1016,46 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
     if (currentStep === 2) setCurrentStep(1);
   };
 
-  const handleSubmit = (e?: FormEvent) => {
-    e?.preventDefault();
+const toDateOnly = (d: string | undefined | null): string | undefined => {
+  if (!d) return undefined;
+  return d.split('T')[0]; // strips any time component from ISO strings
+};
 
-    const derivedTitle =
-      initialData?.title ??
-      `${formData.judge_name ? `${formData.judge_name} — ` : ''}${formData.departure_from} to ${formData.destination} (${formData.date_of_travel})`;
+const handleSubmit = (e?: FormEvent) => {
+  e?.preventDefault();
 
-    const payload: CreateTicketRequest = {
-      title: derivedTitle,
-      department_id: effectiveDepartmentId || undefined,
-      trip_type: formData.trip_type,
-      date_of_travel: formData.date_of_travel,
-      time_of_travel: formData.time_of_travel || undefined,
-      return_date: formData.return_date || undefined,
-      return_time: formData.return_time || undefined,
-      preferred_departure_time: formData.preferred_departure_time,
-      preferred_return_time: formData.preferred_return_time,
-      departure_from: formData.departure_from,
-      destination: formData.destination,
-      remarks: formData.remarks || undefined,
-      judge_name: formData.judge_name || undefined,
-      pj_number: formData.pj_number || undefined,
-      travel_class: formData.travel_class,
-      number_of_passengers: formData.number_of_passengers,
-      special_requests: formData.special_requests || undefined,
-      priority: formData.priority,
-      assigned_to: formData.assigned_to || undefined,
-      is_draft: formData.is_draft,
-    };
-    onSubmit(payload, pendingDocumentId);
+  const derivedTitle =
+    initialData?.title ??
+    `${formData.judge_name ? `${formData.judge_name} — ` : ''}${formData.departure_from} to ${formData.destination} (${formData.date_of_travel})`;
+
+  const basePayload = {
+    title: derivedTitle,
+    department_id: effectiveDepartmentId || undefined,
+    trip_type: formData.trip_type,
+    date_of_travel: toDateOnly(formData.date_of_travel)!,
+    time_of_travel: formData.time_of_travel || undefined,
+    return_date: toDateOnly(formData.return_date),
+    return_time: formData.return_time || undefined,
+    preferred_departure_time: formData.preferred_departure_time,
+    preferred_return_time: formData.preferred_return_time,
+    departure_from: formData.departure_from,
+    destination: formData.destination,
+    remarks: formData.remarks || undefined,
+    judge_name: formData.judge_name || undefined,
+    pj_number: formData.pj_number || undefined,
+    travel_class: formData.travel_class,
+    number_of_passengers: formData.number_of_passengers,
+    special_requests: formData.special_requests || undefined,
+    priority: formData.priority,
+    assigned_to: formData.assigned_to || undefined,
   };
+
+  const payload = initialData
+    ? (basePayload as UpdateTicketRequest) // no is_draft on update
+    : ({ ...basePayload, is_draft: formData.is_draft } as CreateTicketRequest);
+
+  onSubmit(payload, pendingDocumentId);
+};
 
   const handleClose = () => {
     setCurrentStep(1);
