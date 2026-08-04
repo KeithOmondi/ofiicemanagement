@@ -10,6 +10,7 @@ import type { jsPDF as jsPDFType } from 'jspdf';
 
 const FOOTER_EMBLEM_SRC =
   'https://res.cloudinary.com/do0yflasl/image/upload/v1784364354/ORHC_EMBLEM_wzmp94.jpg';
+  
 
 export interface AirTicketScheduleRow {
   name: string;

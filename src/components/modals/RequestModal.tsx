@@ -18,12 +18,6 @@ import {
   type RemarkType,
 } from '../../store/slices/helpdeskSlice';
 import {
-  selectCurrentUser,
-  selectUsersSignatureLoading,
-  uploadSignature,
-  deleteSignature,
-} from '../../store/slices/userSlice';
-import {
   searchJudges,
   selectAllJudges,
   selectJudgesLoading,
@@ -47,9 +41,6 @@ import {
   Edit,
   Download,
   ChevronDown,
-  Upload,
-  Trash2,
-  Image,
   ArrowRight,
   ArrowLeft,
 } from 'lucide-react';
@@ -63,13 +54,12 @@ import {
 import type { Judge } from '../../types/judges.types';
 
 // ─── Import memo generators ────────────────────────────────────────────────
-// Medical claims
-import { generateMemoDocx } from '../../utils/generateMemoDocx';
-import { generateMemoPdf } from '../../utils/generateMemoPdf';
-// General requests (Driver, Bodyguard, Firearm, etc.)
+// General requests (Driver, Bodyguard, Firearm, etc.) - only these are needed
 import { generateGRMemoDocx } from '../../utils/generateGRMemoDocx';
 import { generateGRMemoPdf } from '../../utils/generateGRMemoPdf';
 import type { GRMemoParams } from '../../utils/generateGRMemoPdf';
+
+// ❌ REMOVED: generateMemoDocx and generateMemoPdf - medical claims handled by backend
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -93,11 +83,6 @@ const REMARK_TYPE_LABELS: Record<RemarkType, string> = {
   Onboarding: 'Onboarding',
   Release: 'Release',
 };
-
-/*const POLICE_SERVICE_LABELS: Record<string, string> = {
-  kenya: 'Kenya Police Service',
-  administration: 'Administration Police Service',
-};*/
 
 const POLICE_SERVICE_ADDRESS: Record<string, string> = {
   kenya: 'The Deputy Inspector General,\nKenya Police Service,\nVigilance House,\nP.O. BOX 53258-00200-00100\nNAIROBI.',
@@ -206,88 +191,6 @@ function GhostButton({
       {icon}
       {children}
     </button>
-  );
-}
-
-// ─── Signature Section ──────────────────────────────────────────────────────
-
-interface SignatureSectionProps {
-  userSignature: string | null;
-  onUpload: (file: File) => Promise<void>;
-  onRemove: () => Promise<void>;
-  isLoading: boolean;
-}
-
-function SignatureSection({ userSignature, onUpload, onRemove, isLoading }: SignatureSectionProps) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml'];
-    if (!validTypes.includes(file.type)) {
-      toast.error('Please upload an image file (JPEG, PNG, WEBP, GIF, or SVG).');
-      e.target.value = '';
-      return;
-    }
-
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error('Signature image must be less than 2MB.');
-      e.target.value = '';
-      return;
-    }
-
-    await onUpload(file);
-    e.target.value = '';
-  };
-
-  return (
-    <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Image size={16} className="text-[#c9a84c]" />
-          <h4 className="text-sm font-semibold text-stone-800">Digital Signature</h4>
-        </div>
-        <div className="flex gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
-            onChange={handleFileChange}
-            className="hidden"
-            disabled={isLoading}
-          />
-          <GhostButton
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isLoading}
-            icon={isLoading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-          >
-            {isLoading ? 'Uploading…' : 'Upload Signature'}
-          </GhostButton>
-          {userSignature && (
-            <GhostButton onClick={onRemove} disabled={isLoading} icon={<Trash2 size={14} />}>
-              Remove
-            </GhostButton>
-          )}
-        </div>
-      </div>
-
-      {userSignature ? (
-        <div className="flex items-center gap-4 p-3 bg-white rounded border border-stone-200">
-          <img src={userSignature} alt="Your signature" className="max-h-16 w-auto object-contain" />
-          <span className="text-xs text-stone-500">✓ Signature uploaded</span>
-        </div>
-      ) : (
-        <div className="flex items-center gap-3 p-3 bg-white rounded border border-dashed border-stone-300">
-          <Image size={20} className="text-stone-400" />
-          <div>
-            <p className="text-sm text-stone-600">No signature uploaded</p>
-            <p className="text-xs text-stone-400">Upload your signature to include it in the memo</p>
-          </div>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -750,7 +653,6 @@ interface MemoPreviewProps {
   medicalForm: CreateMedicalClaimInput;
   generalForm: ExtendedGeneralForm;
   onEdit: () => void;
-  signatureUrl?: string | null;
   onDocumentUploaded?: (documentId: string) => void;
 }
 
@@ -761,11 +663,9 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   medicalForm,
   generalForm,
   onEdit,
-  signatureUrl,
   onDocumentUploaded,
 }) => {
   const dispatch = useAppDispatch();
-  const currentUser = useAppSelector((state) => state.auth.user);
 
   const [creationDetails] = useState(() => {
     const now = new Date();
@@ -805,7 +705,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
           { label: 'Remarks', value: medicalForm.remarks || 'N/A' },
         ],
         grandTotal: medicalForm.claim_amount || 0,
-        signatoryName: currentUser?.full_name || '',
         copyTo: [],
         policeService: '',
       };
@@ -822,7 +721,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
     const rank = generalForm.rank || '';
     const force = generalForm.force_number || '';
     const officerStation = generalForm.officer_station?.trim() || '';
-    //const policeService = POLICE_SERVICE_LABELS[generalForm.police_service] || 'Kenya Police Service';
 
     // ─── Build letter body with bold markers ──────────────────────────────
     let body = `Greetings from the Office of the Registrar, High Court.\n\n`;
@@ -878,11 +776,10 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
         { label: 'Remarks', value: generalForm.remarks || 'N/A' },
       ],
       grandTotal: 0,
-      signatoryName: currentUser?.full_name || '',
       copyTo,
       policeService: generalForm.police_service,
     };
-  }, [mode, medicalForm, generalForm, currentUser?.full_name, creationDetails]);
+  }, [mode, medicalForm, generalForm, creationDetails]);
 
   // ─── Editable fields ────────────────────────────────────────────────────
   const [toField, setToField] = useState(() => memoData.to);
@@ -891,79 +788,38 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   const [dateField, setDateField] = useState(() => memoData.date);
   const [subjectField, setSubjectField] = useState(() => memoData.subject);
   const [bodyText, setBodyText] = useState(() => memoData.body);
-  const [signatoryName, setSignatoryName] = useState(() => memoData.signatoryName);
   const [copyToList, setCopyToList] = useState(() => memoData.copyTo.map(c => c.value).join('\n'));
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const [downloadingFormat, setDownloadingFormat] = useState<DownloadFormat | null>(null);
 
   const editableLineClasses =
     'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none';
+// ─── In MemoPreview component - handleDownload function ──────────────────
 
-  const handleDownload = async (format: DownloadFormat) => {
-    setShowDownloadMenu(false);
-    setDownloadingFormat(format);
+const handleDownload = async (format: DownloadFormat) => {
+  setShowDownloadMenu(false);
+  setDownloadingFormat(format);
 
-    try {
-      const shared = {
+  try {
+    // ─── Only General Requests use the frontend generator ──────────────
+    if (mode !== 'medical') {
+      const grParams: GRMemoParams = {
         to: toField,
         from: fromField,
         ref: refField,
         date: dateField,
         subject: subjectField,
-        bodyText,
-        rows: memoData.rows.map((row) => ({
-          judgeName: row.label,
-          pjNumber: row.value,
-          designation: '',
-          rate: 0,
-          days: 0,
-          total: 0,
-        })),
-        grandTotal: memoData.grandTotal,
-        amountInWords: '',
-        signatoryName,
-        copyTo: copyToList.split('\n').filter(line => line.trim()),
+        bodyText: bodyText,
+        copyTo: memoData.copyTo,
+        crestUrl: JUDICIARY_CREST_SRC,
+        fromDepartment: fromField,
       };
 
       let blob: Blob | null = null;
-
-      // ─── Choose generator based on mode ──────────────────────────────
-      if (mode === 'medical') {
-        // Medical claims use the generic memo generator with tables
-        if (format === 'docx') {
-          blob = await generateMemoDocx({
-            ...shared,
-            crestUrl: JUDICIARY_CREST_SRC,
-            signatureUrl: signatureUrl || undefined,
-          });
-        } else if (format === 'pdf') {
-          blob = await generateMemoPdf({
-            ...shared,
-            crestUrl: JUDICIARY_CREST_SRC,
-            signatureUrl: signatureUrl || undefined,
-          });
-        }
-      } else {
-        // General / Security requests use the formal letter generator
-        const grParams: GRMemoParams = {
-          to: toField,
-          from: fromField,
-          ref: refField,
-          date: dateField,
-          subject: subjectField,
-          bodyText: bodyText,
-          copyTo: memoData.copyTo, // already array of { label, value }
-          signatoryName: signatoryName,
-          crestUrl: JUDICIARY_CREST_SRC,
-          signatureUrl: signatureUrl || undefined,
-          fromDepartment: fromField,
-        };
-
-        if (format === 'docx') {
-          blob = await generateGRMemoDocx(grParams);
-        } else if (format === 'pdf') {
-          blob = await generateGRMemoPdf(grParams);
-        }
+      if (format === 'docx') {
+        blob = await generateGRMemoDocx(grParams);
+      } else if (format === 'pdf') {
+        blob = await generateGRMemoPdf(grParams);
       }
 
       if (!blob) throw new Error('Generator returned no blob');
@@ -971,35 +827,37 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
       const safeRef = (refField || 'memo').replace(/[\\/:*?"<>|]/g, '-');
       const filename = `${safeRef}.${format}`;
 
-      const entityTypeMap: Record<RequestModalMode, DocumentEntityType> = {
-        medical: 'medicalClaim',
-        general: 'generalRequest',
-        security: 'generalRequest',
-      };
-
       const result = await dispatch(
         uploadHelpdeskDocument({
           blob,
           filename,
           ref: refField,
           subject: subjectField,
-          entity_type: entityTypeMap[mode],
+          entity_type: 'generalRequest',
           format: format as DocumentFormat,
-          request_type: mode !== 'medical' ? (generalForm.request_type as unknown as RequestType) : undefined,
-          judge_name: mode !== 'medical' ? generalForm.judge_name : undefined,
-          remark_type: mode !== 'medical' ? (generalForm.remark_type as RemarkType) : undefined,
+          request_type: generalForm.request_type as unknown as RequestType,
+          judge_name: generalForm.judge_name,
+          remark_type: generalForm.remark_type as RemarkType,
         })
       ).unwrap();
 
       onDocumentUploaded?.(result.id);
       toast.success(`${format.toUpperCase()} document saved to the system.`);
-    } catch (err) {
-      console.error(`Failed to generate/upload memo:`, err);
-      toast.error('Failed to save document. Please try again.');
-    } finally {
-      setDownloadingFormat(null);
+    } else {
+      // ─── Medical claims - skip frontend generation ──────────────────
+      // Medical claim documents are generated by the backend during approval
+      toast('Medical claim documents are generated by the system during approval.', {
+        icon: 'ℹ️',
+        duration: 4000,
+      });
     }
-  };
+  } catch (err) {
+    console.error(`Failed to generate/upload memo:`, err);
+    toast.error('Failed to save document. Please try again.');
+  } finally {
+    setDownloadingFormat(null);
+  }
+};
 
   const downloadLabels: Record<DownloadFormat, string> = {
     docx: 'Preparing Word…',
@@ -1009,7 +867,6 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
   // ─── Render ──────────────────────────────────────────────────────────────
 
   if (mode === 'medical') {
-    // Medical memo preview (unchanged)
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -1055,7 +912,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
             </div>
           </div>
         </div>
-        {/* Internal memo layout (unchanged) */}
+        {/* Internal memo layout - display only, no download functionality for medical */}
         <div className="border border-stone-300 bg-white shadow-sm font-serif text-black" style={{ minHeight: '297mm' }}>
           <div className="flex flex-col" style={{ minHeight: '297mm' }}>
             <div className="p-10">
@@ -1095,14 +952,15 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
                     )}
                   </div>
                 )}
-                <div className="mt-6 pt-4 border-t border-stone-200"><p className="text-sm font-bold mt-4">Yours sincerely,</p></div>
+                <div className="mt-6 pt-4 border-t border-stone-200">
+                  <p className="text-sm font-bold mt-4">Yours sincerely,</p>
+                  <div className="mt-4 h-8"></div>
+                </div>
               </div>
             </div>
             <div className="flex-1"></div>
             <div className="p-10 pt-0">
               <div className="space-y-1">
-                <input type="text" value={signatoryName} onChange={(e) => setSignatoryName(e.target.value)} placeholder="Signatory name" className={`${editableLineClasses} block text-sm font-bold`} />
-                {signatureUrl && <div className="py-1"><img src={signatureUrl} alt="Signature" className="max-h-12 w-auto object-contain" /></div>}
                 <input type="text" value={fromField} onChange={(e) => setFromField(e.target.value)} className={`${editableLineClasses} block text-sm font-bold underline uppercase`} />
               </div>
               <div className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3">
@@ -1144,11 +1002,19 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
               <>
                 <div className="fixed inset-0 z-0" onClick={() => setShowDownloadMenu(false)} />
                 <div className="absolute right-0 z-10 mt-1 w-44 overflow-hidden rounded-lg border border-stone-200 bg-white py-1 shadow-lg">
-                  <button onClick={() => handleDownload('docx')} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50">
-                    <FileText size={14} className="text-blue-600" /> Word (.docx)
+                  <button
+                    onClick={() => handleDownload('docx')}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50"
+                  >
+                    <FileText size={14} className="text-blue-600" />
+                    Word (.docx)
                   </button>
-                  <button onClick={() => handleDownload('pdf')} className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50">
-                    <FileText size={14} className="text-red-600" /> PDF (.pdf)
+                  <button
+                    onClick={() => handleDownload('pdf')}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-stone-700 hover:bg-stone-50"
+                  >
+                    <FileText size={14} className="text-red-600" />
+                    PDF (.pdf)
                   </button>
                 </div>
               </>
@@ -1180,8 +1046,7 @@ const MemoPreview: React.FC<MemoPreviewProps> = ({
             <div className="mt-10" style={{ fontFamily: '"Tahoma", sans-serif' }}>
               <p className="text-sm font-bold">Yours sincerely,</p>
               <div className="mt-10 space-y-1">
-                <input type="text" value={signatoryName} onChange={(e) => setSignatoryName(e.target.value)} placeholder="Signatory name" className={`${editableLineClasses} block text-sm font-bold`} />
-                {signatureUrl && <div className="py-1"><img src={signatureUrl} alt="Signature" className="max-h-12 w-auto object-contain" /></div>}
+                <div className="h-8"></div>
                 <input type="text" value={fromField} onChange={(e) => setFromField(e.target.value)} className={`${editableLineClasses} block text-sm font-bold uppercase`} />
               </div>
             </div>
@@ -1247,8 +1112,6 @@ export const RequestModal: React.FC<RequestModalProps> = ({
 }) => {
   const dispatch = useAppDispatch();
   const mutating = useAppSelector((state) => state.helpdesk.loading.mutating);
-  const currentUser = useAppSelector(selectCurrentUser);
-  const signatureLoading = useAppSelector(selectUsersSignatureLoading);
 
   // Judges autocomplete state
   const [judgeSearchTerm, setJudgeSearchTerm] = useState('');
@@ -1279,10 +1142,6 @@ export const RequestModal: React.FC<RequestModalProps> = ({
       debounceTimer.current = setTimeout(() => {
         dispatch(searchJudges(judgeSearchTerm.trim()));
       }, 300);
-    } else {
-      // Clear suggestions if search term is too short
-      // We could clear the suggestions, but we keep the current list to avoid flickering.
-      // Optionally, we can dispatch an action to clear, but we'll leave it.
     }
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -1327,7 +1186,6 @@ export const RequestModal: React.FC<RequestModalProps> = ({
           reporting_date: item.reporting_date || '',
           officer_station: (item as unknown as { officer_station?: string }).officer_station || '',
         });
-        // Set judge search term to the judge name so it appears in the input
         setJudgeSearchTerm(item.judge_name || '');
         setCurrentStep(2);
       }
@@ -1374,7 +1232,6 @@ export const RequestModal: React.FC<RequestModalProps> = ({
     setGeneralForm((prev) => ({
       ...prev,
       judge_name: judge.name,
-      // Optionally, if judge has a station field, set it here, but we don't have it.
     }));
   };
 
@@ -1382,30 +1239,10 @@ export const RequestModal: React.FC<RequestModalProps> = ({
   // and also update the generalForm.judge_name to allow free-text entry.
   const handleJudgeSearchTermChange = (term: string) => {
     setJudgeSearchTerm(term);
-    // Update the judge_name in the form so that it's always in sync
     setGeneralForm((prev) => ({
       ...prev,
       judge_name: term,
     }));
-  };
-
-  const handleSignatureUpload = async (file: File) => {
-    try {
-      await dispatch(uploadSignature(file)).unwrap();
-      toast.success('Signature uploaded successfully.');
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to upload signature.');
-    }
-  };
-
-  const handleSignatureRemove = async () => {
-    if (!currentUser?.signature_url) return;
-    try {
-      await dispatch(deleteSignature()).unwrap();
-      toast.success('Signature removed successfully.');
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to remove signature.');
-    }
   };
 
   const handleMemoUploaded = (docId: string) => {
@@ -1489,7 +1326,6 @@ export const RequestModal: React.FC<RequestModalProps> = ({
         };
 
         if (editingItem) {
-          // Update status – ensure status is a string, cast as Status
           await dispatch(updateMedicalClaimStatus({
             id: editingItem.id,
             status: input.status as Status,
@@ -1549,7 +1385,6 @@ export const RequestModal: React.FC<RequestModalProps> = ({
           send_email: generalForm.send_email,
           rank: generalForm.rank || undefined,
           reporting_date: generalForm.reporting_date || undefined,
-          // @ts-expect-error — officer_station not yet added to CreateGeneralRequestInput; add it in helpdeskSlice.ts
           officer_station: generalForm.officer_station?.trim() || undefined,
         };
 
@@ -1698,22 +1533,13 @@ export const RequestModal: React.FC<RequestModalProps> = ({
           )}
 
           {currentStep === 2 && (
-            <div className="space-y-4">
-              <SignatureSection
-                userSignature={currentUser?.signature_url || null}
-                onUpload={handleSignatureUpload}
-                onRemove={handleSignatureRemove}
-                isLoading={signatureLoading}
-              />
-              <MemoPreview
-                mode={mode}
-                medicalForm={medicalForm}
-                generalForm={generalForm}
-                onEdit={() => setCurrentStep(1)}
-                signatureUrl={currentUser?.signature_url}
-                onDocumentUploaded={handleMemoUploaded}
-              />
-            </div>
+            <MemoPreview
+              mode={mode}
+              medicalForm={medicalForm}
+              generalForm={generalForm}
+              onEdit={() => setCurrentStep(1)}
+              onDocumentUploaded={handleMemoUploaded}
+            />
           )}
         </div>
 

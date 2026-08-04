@@ -27,10 +27,10 @@ export interface GRMemoParams {
   subject: string;         // rendered after "RE: ", uppercased
   bodyText: string;        // may include **bold** markers for judge/officer names
   copyTo: GRMemoCopyToEntry[];
-  signatoryName: string;
   crestUrl: string;
-  signatureUrl?: string;
   fromDepartment?: string; // defaults to `from` if omitted
+  // ❌ REMOVED: signatoryName
+  // ❌ REMOVED: signatureUrl
 }
 
 async function urlToDataUrl(url: string): Promise<string | null> {
@@ -238,36 +238,23 @@ export async function generateGRMemoPdf(params: GRMemoParams): Promise<Blob> {
   }
   cursorY += 10;
 
-  // ── Signature block ──────────────────────────────────────────────────────
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12);
-  doc.text('Yours sincerely,', margin, cursorY);
-  cursorY += 30;
-
-  doc.text(params.signatoryName || ' ', margin, cursorY);
-  cursorY += 14;
-
-  const signatureDataUrl = params.signatureUrl
-    ? await urlToDataUrl(params.signatureUrl)
-    : null;
-  if (signatureDataUrl) {
-    const sigW = 110;
-    const sigH = 40;
-    doc.addImage(
-      signatureDataUrl,
-      detectImageFormat(signatureDataUrl),
-      margin,
-      cursorY - 30,
-      sigW,
-      sigH,
-    );
-    cursorY += 14;
+  // ─── Signature block placeholder ────────────────────────────────────────
+  // The signature block is handled by the backend via embedSignatureBlockIntoPDF
+  // This space is reserved for the backend to add the signature, name, and designation
+  
+  // Space reserved for backend signature block
+  const RESERVED_SIGNATURE_SPACE = 60; // pt — space for backend signature
+  const sigGapAboveContent = 20;
+  
+  // Check if there's enough space on the current page
+  const footerY = pageHeight - 70;
+  if (cursorY + sigGapAboveContent + RESERVED_SIGNATURE_SPACE + 40 > footerY) {
+    doc.addPage();
+    cursorY = 60;
   }
-
-  // From department — bold, NOT underlined (matches reference letter)
-  const fromText = (params.fromDepartment || params.from).toUpperCase();
-  doc.text(fromText, margin, cursorY);
-  cursorY += 28;
+  
+  cursorY += sigGapAboveContent;
+  cursorY += RESERVED_SIGNATURE_SPACE;
 
   // ── Copy to. ────────────────────────────────────────────────────────────
   if (params.copyTo.length > 0) {
@@ -303,12 +290,12 @@ export async function generateGRMemoPdf(params: GRMemoParams): Promise<Blob> {
 
   // ── Footer — emblem + address, anchored to page bottom ──────────────────
   const footerBlockH = 50;
-  const footerY = pageHeight - footerBlockH - 24;
+  const footerYPos = pageHeight - footerBlockH - 24;
 
   // Horizontal separating line
   doc.setLineWidth(0.5);
   doc.setDrawColor(180, 180, 180);
-  doc.line(margin, footerY, pageWidth - margin, footerY);
+  doc.line(margin, footerYPos, pageWidth - margin, footerYPos);
 
   // Left Emblem / Logo
   const footerEmblemDataUrl = await urlToDataUrl(FOOTER_EMBLEM_SRC);
@@ -319,7 +306,7 @@ export async function generateGRMemoPdf(params: GRMemoParams): Promise<Blob> {
       footerEmblemDataUrl,
       detectImageFormat(footerEmblemDataUrl),
       margin,
-      footerY + 8,
+      footerYPos + 8,
       footerLogoW,
       footerLogoH,
     );
@@ -332,7 +319,7 @@ export async function generateGRMemoPdf(params: GRMemoParams): Promise<Blob> {
   doc.text(
     'Social Transformation through Access to Justice',
     pageWidth - margin,
-    footerY + 12,
+    footerYPos + 12,
     { align: 'right' },
   );
 
@@ -343,7 +330,7 @@ export async function generateGRMemoPdf(params: GRMemoParams): Promise<Blob> {
   doc.text(
     'Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi',
     pageWidth - margin,
-    footerY + 23,
+    footerYPos + 23,
     { align: 'right' },
   );
 
@@ -351,7 +338,7 @@ export async function generateGRMemoPdf(params: GRMemoParams): Promise<Blob> {
   doc.text(
     'Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke',
     pageWidth - margin,
-    footerY + 33,
+    footerYPos + 33,
     { align: 'right' },
   );
 
@@ -362,7 +349,7 @@ export async function generateGRMemoPdf(params: GRMemoParams): Promise<Blob> {
   doc.text(
     'Justice Be Our Shield and Defender',
     pageWidth - margin,
-    footerY + 44,
+    footerYPos + 44,
     { align: 'right' },
   );
 

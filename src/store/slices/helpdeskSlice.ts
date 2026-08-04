@@ -111,6 +111,7 @@ export interface CreateGeneralRequestInput {
   send_email?: boolean;
   rank?: string;
   reporting_date?: string;
+  officer_station?: string;
 }
 
 /**
@@ -138,6 +139,7 @@ export interface UpdateGeneralRequestInput {
   notes?: string;
   rank?: string;
   reporting_date?: string;
+  officer_station?: string;
 }
 
 // ─── Security Request (Deprecated) ─────────────────────────────────────────

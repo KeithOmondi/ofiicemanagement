@@ -111,8 +111,8 @@ import { generateAirTicketMemoExcel } from '../../utils/generateAirTicketMemoExc
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1781759596/JOB_LOGO_ubls4m.jpg';
-const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1782893389/footer-emblem_n0ncm9.jpg';
+const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784363826/ORHC_L_crclut.jpg';
+const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784364354/ORHC_EMBLEM_wzmp94.jpg';
 
 // ── Helper: status badge style ──────────────────────────────────────────────
 
@@ -1457,12 +1457,7 @@ interface TicketDetailModalProps {
 const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
   ticket,
   onClose,
-  onEdit,
-  onDelete,
   onSubmitForApproval,
-  onApprove,
-  onReject,
-  onReturn,
   onBook,
   onCancel,
   onComplete,
@@ -1608,15 +1603,6 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
             {ticket.status === 'draft' && (
               <ActionPill tone="warning" onClick={onSubmitForApproval}>Submit for Approval</ActionPill>
             )}
-            {ticket.status === 'pending_approval' && (
-              <>
-                <ActionPill tone="success" onClick={() => onApprove()}>Approve</ActionPill>
-                <ActionPill tone="danger" onClick={() => onReject(prompt('Rejection reason?') || '')}>Reject</ActionPill>
-                <ActionPill tone="warning" onClick={() => onReturn(prompt('Return reason?') || '', prompt('Instructions?') || undefined)}>
-                  Return
-                </ActionPill>
-              </>
-            )}
             {ticket.status === 'approved' && (
               <ActionPill tone="info" onClick={() => onBook(prompt('Booking reference?') || '', prompt('Comments?') || undefined)}>
                 Book
@@ -1628,8 +1614,6 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
             {(ticket.status === 'draft' || ticket.status === 'approved' || ticket.status === 'booked') && (
               <ActionPill tone="muted" onClick={onCancel}>Cancel</ActionPill>
             )}
-            <ActionPill tone="default" onClick={onEdit}>Edit</ActionPill>
-            <ActionPill tone="danger" onClick={onDelete}>Delete</ActionPill>
           </div>
 
           {/* ─── Supporting Document ─────────────────────────────────────────── */}
@@ -1724,8 +1708,8 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      <a
-                        href={doc.file_url}
+                      
+                     <a href={doc.file_url}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"

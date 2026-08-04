@@ -37,16 +37,16 @@ export interface GRMemoCopyToEntry {
 
 export interface GRMemoDocxParams {
   to: string;               // full address block, newline-separated
-  from: string;              // e.g. "OFFICE OF THE REGISTRAR, HIGH COURT"
-  ref: string;                // e.g. "RHC/10 8th July 2026"
+  from: string;             // e.g. "OFFICE OF THE REGISTRAR, HIGH COURT"
+  ref: string;              // e.g. "RHC/10 8th July 2026"
   date: string;
-  subject: string;           // rendered after "RE: ", uppercased
+  subject: string;          // rendered after "RE: ", uppercased
   bodyText: string;
   copyTo: GRMemoCopyToEntry[];
-  signatoryName: string;
+  signatoryName?: string;   // ✅ Made optional - backend handles this
   crestUrl: string;
-  signatureUrl?: string;
-  fromDepartment?: string;   // defaults to `from` if omitted
+  signatureUrl?: string;    // ✅ Already optional - backend handles this
+  fromDepartment?: string;  // defaults to `from` if omitted
 }
 
 const DARK_GREEN = '1A3D1C';
@@ -65,9 +65,6 @@ async function urlToArrayBuffer(url: string): Promise<ArrayBuffer | null> {
 
 export async function generateGRMemoDocx(params: GRMemoParams): Promise<Blob> {
   const crestBuffer = await urlToArrayBuffer(params.crestUrl);
-  const signatureBuffer = params.signatureUrl
-    ? await urlToArrayBuffer(params.signatureUrl)
-    : null;
   const footerEmblemBuffer = await urlToArrayBuffer(FOOTER_EMBLEM_SRC);
 
   const children: Paragraph[] = [];
@@ -161,7 +158,10 @@ export async function generateGRMemoDocx(params: GRMemoParams): Promise<Blob> {
     );
   }
 
-  // ── Signature block ──────────────────────────────────────────────────────
+  // ─── Signature block placeholder ────────────────────────────────────────
+  // The signature block is handled by the backend via embedSignatureBlockIntoPDF
+  // This space is reserved for the backend to add the signature, name, and designation
+  
   children.push(
     new Paragraph({
       spacing: { before: 200, after: 240 },
@@ -169,36 +169,18 @@ export async function generateGRMemoDocx(params: GRMemoParams): Promise<Blob> {
     }),
   );
 
-  if (signatureBuffer) {
-    children.push(
-      new Paragraph({
-        spacing: { after: 100 },
-        children: [
-          new ImageRun({
-            data: signatureBuffer,
-            transformation: { width: 130, height: 47 },
-            type: 'png',
-          }),
-        ],
-      }),
-    );
-  }
-
+  // ❌ REMOVED: signature image, signatoryName, and designation
+  // These are now handled by the backend during the approval workflow
+  
+  // Reserve space for the backend signature block
   children.push(
-    new Paragraph({
-      spacing: { after: 40 },
-      children: [
-        new TextRun({ text: params.signatoryName || ' ', bold: true, size: 20 }),
-      ],
-    }),
     new Paragraph({
       spacing: { after: 300 },
       children: [
-        new TextRun({
-          text: (params.fromDepartment || params.from).toUpperCase(),
-          bold: true,
-          underline: {},
+        new TextRun({ 
+          text: '_____________________________', 
           size: 20,
+          color: 'CCCCCC',
         }),
       ],
     }),
