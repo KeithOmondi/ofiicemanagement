@@ -28,13 +28,6 @@ import {
   type OfficerRank,
   type UnitType,
 } from '../../types/aide.types';
-// Import signature-related functions from userSlice
-import {
-  selectUsersSignatureLoading,
-  uploadSignature,
-  deleteSignature,
-  selectCurrentUser,
-} from '../../store/slices/userSlice';
 import toast from 'react-hot-toast';
 import {
   X,
@@ -52,7 +45,6 @@ import {
   ChevronDown,
   Plus,
   Trash2,
-  Image,
 } from 'lucide-react';
 import {
   generateAidesMemoPdf,
@@ -98,8 +90,6 @@ interface MemoDraft {
   bodyText: string;
   officerSuitabilityText: string;
   closingText: string;
-  signatoryName: string;
-  signatoryTitle: string;
   fromDepartment: string;
   ccList: string[];
 }
@@ -120,14 +110,12 @@ function draftFromParams(params: AideMemoParams): MemoDraft {
     closingText:
       params.closingText ||
       'We take this opportunity to thank you for your continued partnership and kindly request your favourable consideration of this matter.',
-    signatoryName: params.signatoryName,
-    signatoryTitle: params.signatoryTitle,
     fromDepartment: params.fromDepartment || '',
     ccList: params.ccList && params.ccList.length > 0 ? params.ccList : [''],
   };
 }
 
-function paramsFromDraft(draft: MemoDraft, signatureUrl: string | undefined, crestUrl: string): AideMemoParams {
+function paramsFromDraft(draft: MemoDraft, crestUrl: string): AideMemoParams {
   return {
     ref: draft.ref,
     date: draft.date,
@@ -147,12 +135,9 @@ function paramsFromDraft(draft: MemoDraft, signatureUrl: string | undefined, cre
     officerNumber: '',
     currentStation: '',
     assignmentType: '',
-    signatoryName: draft.signatoryName,
-    signatoryTitle: draft.signatoryTitle,
     fromDepartment: draft.fromDepartment || undefined,
     ccList: draft.ccList.filter((cc) => cc.trim()),
     crestUrl,
-    signatureUrl,
   };
 }
 
@@ -277,10 +262,6 @@ export const AidesModal: React.FC<AidesModalProps> = ({
   const dispatch = useAppDispatch();
   const isEditing = !!editingId;
   const mutating = useAppSelector((state) => state.aides.loading.create || state.aides.loading.update);
-
-  // Get current user from authSlice (has the user data from login)
-  const currentUser = useAppSelector(selectCurrentUser);
-  const signatureLoading = useAppSelector(selectUsersSignatureLoading);
 
   const allDocs = useAppSelector(selectAllHelpdeskDocuments);
   const documentsUploading = useAppSelector(selectDocumentsUploading);
@@ -410,27 +391,6 @@ export const AidesModal: React.FC<AidesModalProps> = ({
     }
   };
 
-  // ─── Signature handlers ──────────────────────────────────────────────────
-
-  const handleSignatureUpload = async (file: File) => {
-    try {
-      await dispatch(uploadSignature(file)).unwrap();
-      toast.success('Signature uploaded successfully.');
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to upload signature.');
-    }
-  };
-
-  const handleSignatureRemove = async () => {
-    if (!currentUser?.signature_url) return;
-    try {
-      await dispatch(deleteSignature()).unwrap();
-      toast.success('Signature removed successfully.');
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to remove signature.');
-    }
-  };
-
   // ─── Memo draft editing helpers ─────────────────────────────────────────
 
   const updateDraft = <K extends keyof MemoDraft>(field: K, value: MemoDraft[K]) => {
@@ -480,9 +440,6 @@ export const AidesModal: React.FC<AidesModalProps> = ({
     // Seed the editable draft the first time we land on Step 2. If the
     // user goes Back and Next again, their edits are preserved.
     if (!memoDraft) {
-      // Get the user's full name from authSlice, fallback to 'REGISTRAR HIGH COURT'
-      const userName = currentUser?.full_name || 'REGISTRAR HIGH COURT';
-      
       const seedParams = buildAideMemoParams({
         judgeName: formData.judge_name.trim(),
         judgeLocation: formData.judge_location.trim() || undefined,
@@ -493,8 +450,6 @@ export const AidesModal: React.FC<AidesModalProps> = ({
         assignmentType: formData.proposed_assignment.trim(),
         requestDate: formData.reporting_date || new Date().toISOString().split('T')[0],
         refNumber: `RHC/AIDE/${Date.now().toString().slice(-6)}`,
-        signatoryName: userName,
-        signatoryTitle: 'REGISTRAR HIGH COURT',
         fromDepartment: 'Office of the Registrar High Court',
         additionalNotes: formData.remarks || undefined,
       });
@@ -514,7 +469,6 @@ export const AidesModal: React.FC<AidesModalProps> = ({
     if (!memoDraft) return null;
     const params = paramsFromDraft(
       memoDraft,
-      currentUser?.signature_url || undefined,
       CREST_URL
     );
     return format === 'pdf' ? await generateAidesMemoPdf(params) : await generateAidesDocx(params);
@@ -854,56 +808,6 @@ export const AidesModal: React.FC<AidesModalProps> = ({
                 </div>
               </div>
 
-              {/* ─── Signature Section ───────────────────────────────────────────────── */}
-              <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-2">
-                    <Image size={16} className="text-[#c9a84c]" />
-                    <h4 className="text-sm font-semibold text-stone-800">Digital Signature</h4>
-                  </div>
-                  <div className="flex gap-2">
-                    <input
-                      type="file"
-                      accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleSignatureUpload(file);
-                        e.target.value = '';
-                      }}
-                      className="hidden"
-                      id="aide-signature-upload"
-                      disabled={signatureLoading}
-                    />
-                    <label
-                      htmlFor="aide-signature-upload"
-                      className="inline-flex items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-50 cursor-pointer disabled:opacity-50"
-                    >
-                      {signatureLoading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-                      {signatureLoading ? 'Uploading…' : 'Upload Signature'}
-                    </label>
-                    {currentUser?.signature_url && (
-                      <GhostButton onClick={handleSignatureRemove} disabled={signatureLoading} icon={<Trash2 size={14} />}>
-                        Remove
-                      </GhostButton>
-                    )}
-                  </div>
-                </div>
-                {currentUser?.signature_url ? (
-                  <div className="flex items-center gap-4 p-3 bg-white rounded border border-stone-200">
-                    <img src={currentUser.signature_url} alt="Your signature" className="max-h-16 w-auto object-contain" />
-                    <span className="text-xs text-stone-500">✓ Signature uploaded</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-3 p-3 bg-white rounded border border-dashed border-stone-300">
-                    <Image size={20} className="text-stone-400" />
-                    <div>
-                      <p className="text-sm text-stone-600">No signature uploaded</p>
-                      <p className="text-xs text-stone-400">Upload your signature to include it in the memo</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
               {/* ─── Live editable letter preview ──────────────────────────────── */}
               <div className="rounded-lg border border-stone-300 bg-white p-8 shadow-sm font-serif text-black text-[13px] leading-relaxed">
                 <div className="flex items-center gap-4 mb-1">
@@ -1017,33 +921,21 @@ export const AidesModal: React.FC<AidesModalProps> = ({
 
                 <p className="font-bold mb-8">Yours sincerely,</p>
 
-                {currentUser?.signature_url && (
-                  <img src={currentUser.signature_url} alt="Signature" className="max-h-10 w-auto object-contain mb-1" />
-                )}
-
                 {/* ─── Signature Block ────────────────────────────────────────────── */}
-                {/* Signatory Name - should be the logged-in user's full name */}
-                <input
-                  value={memoDraft.signatoryName}
-                  onChange={(e) => updateDraft('signatoryName', e.target.value)}
-                  className={`${docFieldClasses} block font-bold w-full text-base`}
-                  placeholder="Signatory Name"
-                />
-                {/* Signatory Title - bold + underlined */}
-                <input
-                  value={memoDraft.signatoryTitle}
-                  onChange={(e) => updateDraft('signatoryTitle', e.target.value)}
-                  className={`${docFieldClasses} block font-bold underline w-full text-sm mb-1`}
-                  placeholder="Signatory Title"
-                />
+                {/* Signature space reserved for backend - increased spacing */}
+                <div className="h-24 mb-4">
+                  {/* Signature will be embedded by the backend via embedSignatureBlockIntoPDF */}
+                </div>
+
                 {/* Department - normal text */}
                 <input
                   value={memoDraft.fromDepartment}
                   onChange={(e) => updateDraft('fromDepartment', e.target.value)}
-                  className={`${docFieldClasses} block w-full text-sm mb-4`}
+                  className={`${docFieldClasses} block w-full text-sm mb-8`}
                   placeholder="Department"
                 />
 
+                {/* ─── Copy to: MOVED BELOW signature block ──────────────────────── */}
                 <p className="font-bold mb-1">Copy to:</p>
                 <div className="space-y-1">
                   {memoDraft.ccList.map((cc, i) => (

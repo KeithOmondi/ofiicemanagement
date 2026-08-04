@@ -45,9 +45,9 @@ export interface AideMemoParams {
   currentStation: string;
   assignmentType: string; // "Bodyguard", "Driver", "Close Escort", etc.
 
-  // Signature
-  signatoryName: string;
-  signatoryTitle: string;
+  // Signatory fields & Signature image URL removed (handled backend-side)
+  signatoryName?: string;
+  signatoryTitle?: string;
   fromDepartment?: string;
 
   // Copies (CC)
@@ -55,7 +55,6 @@ export interface AideMemoParams {
 
   // Images
   crestUrl: string;
-  signatureUrl?: string;
 }
 
 // ─── Shared helpers ──────────────────────────────────────────────────────
@@ -172,8 +171,6 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   let cursorY = 40;
 
   // ── Crest (left side) ──────────────────────────────────────────────────────
-  // Scaled proportionally to its real aspect ratio instead of forced into a
-  // fixed square, so wide/tall crest images don't look squished or stretched.
   const crestDataUrl = await urlToDataUrl(params.crestUrl);
   const crestMaxHeight = 55;
   const crestMaxWidth = 90;
@@ -188,8 +185,6 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   }
 
   // ── Title block (next to crest, left-aligned) ────────────────────────────
-  // Arial isn't a built-in jsPDF font; 'helvetica' is its closest metric
-  // match and is what jsPDF/PDF viewers substitute for Arial.
   const titleX = margin + crestW + 16;
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(15);
@@ -198,7 +193,7 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   doc.setFontSize(12);
   doc.text('OFFICE OF THE REGISTRAR HIGH COURT', titleX, cursorY + 38);
 
-  // Move cursor to just below the crest (align with bottom of crest)
+  // Move cursor to just below the crest
   cursorY += crestH + 12;
 
   // ── Gold divider directly under the header ──────────────────────────────
@@ -219,7 +214,6 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   doc.setFont('Times-Roman', 'bold');
   doc.setFontSize(12);
 
-  // toText without trailing comma (comma is added by the address lines)
   const toText = params.to;
   const toLines = doc.splitTextToSize(toText, pageWidth - margin * 2);
   doc.text(toLines, margin, cursorY);
@@ -246,7 +240,7 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   const subjectText = `RE: ${params.subject.toUpperCase()}`;
   const subjectLines = doc.splitTextToSize(subjectText, pageWidth - margin * 2);
   doc.text(subjectLines, margin, cursorY);
-  // underline the subject block to match the Word template
+  
   doc.setLineWidth(0.8);
   subjectLines.forEach((line: string, i: number) => {
     const w = doc.getTextWidth(line);
@@ -258,9 +252,6 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   // ── Body ──────────────────────────────────────────────────────────────────
   doc.setFont('Times-Roman', 'normal');
   doc.setFontSize(12);
-
-  // Extra breathing room before the salutation so it doesn't sit flush
-  // under the subject's underline.
   cursorY += 10;
 
   const greetingText = params.greetingText || 'Greetings from the Office of the Registrar, High Court.';
@@ -287,88 +278,41 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   doc.text(closingLines, margin, cursorY);
   cursorY += closingLines.length * 16 + 20;
 
-  // ─── Calculate available space for signature block ──────────────────────
-  const footerTopY = pageHeight - 78;
-
-  // Reserve space for the footer (including the emblem and text)
-  // The signature block should end at least 40pt above the footer line
-  const maxSignatureY = footerTopY - 40;
-
   // ─── Yours sincerely ─────────────────────────────────────────────────────
   doc.setFont('Times-Roman', 'bold');
   doc.text('Yours sincerely,', margin, cursorY);
-  cursorY += 24;
-
-  // ─── Signature area ──────────────────────────────────────────────────────
-  const signatureDataUrl = params.signatureUrl ? await urlToDataUrl(params.signatureUrl) : null;
-
-  // Calculate how much space the signature block will need
-  let signatureBlockHeight = 0;
-  if (signatureDataUrl) {
-    signatureBlockHeight += 48 + 4; // sig image + spacing
-  } else {
-    signatureBlockHeight += 20;
+  
+  // ─── Signature Block ──────────────────────────────────────────────────────
+  // Reserve space for backend signature image, name, and designation
+  // Increased from 80 to 130pt to give adequate room for:
+  //   - Signature image (~40pt)
+  //   - Signatory name (bold, ~18pt)
+  //   - Signatory title (underlined, ~18pt)
+  //   - Department/Office (~16pt)
+  //   - Spacing between elements
+  const SIGNATURE_BLOCK_HEIGHT = 130;
+  cursorY += 30; // spacing after "Yours sincerely,"
+  
+  // Check if there's enough space on the current page
+  const footerTopY = pageHeight - 78;
+  if (cursorY + SIGNATURE_BLOCK_HEIGHT + 40 > footerTopY) {
+    doc.addPage();
+    cursorY = 60;
   }
-  signatureBlockHeight += 16; // signatory name
-  signatureBlockHeight += 14; // title + underline
-  if (params.fromDepartment) {
-    signatureBlockHeight += 12;
-  }
-  signatureBlockHeight += 16; // extra spacing
+  
+  cursorY += SIGNATURE_BLOCK_HEIGHT;
 
-  // Check if we need to push the signature block up to fit before the footer
-  if (cursorY + signatureBlockHeight > maxSignatureY) {
-    // Move the signature block up by reducing spacing before it
-    // We'll keep "Yours sincerely" where it is but reduce the gap to the footer
-    // by moving the signature content up
-  }
+  // ─── Copy to (CC) - MOVED BELOW signature block ──────────────────────────
+  const maxCcY = footerTopY - 10;
+  const ccCount = params.ccList?.length || 0;
+  const ccHeight = 16 + ccCount * 18 + 8;
 
-  if (signatureDataUrl) {
-    // Preserve the signature's real aspect ratio within its allotted box.
-    const sigScaled = await getScaledImageSize(signatureDataUrl, 130, 48, 48);
-    doc.addImage(
-      signatureDataUrl,
-      detectImageFormat(signatureDataUrl),
-      margin,
-      cursorY,
-      sigScaled.width,
-      sigScaled.height,
-    );
-    cursorY += sigScaled.height + 4;
-  } else {
-    cursorY += 20;
-  }
-
-  doc.setFont('Times-Roman', 'bold');
-  doc.setFontSize(12);
-  doc.text(cleanText(params.signatoryName), margin, cursorY);
-  cursorY += 16;
-
-  doc.setFont('Times-Roman', 'bold');
-  doc.setFontSize(11);
-  const titleText = cleanText(params.signatoryTitle);
-  doc.text(titleText, margin, cursorY);
-  const titleWidth = doc.getTextWidth(titleText);
-  doc.setLineWidth(0.7);
-  doc.line(margin, cursorY + 2, margin + titleWidth, cursorY + 2);
-  cursorY += 14;
-
-  if (params.fromDepartment) {
-    doc.setFont('Times-Roman', 'normal');
-    doc.setFontSize(11);
-    doc.text(cleanText(params.fromDepartment), margin, cursorY);
-    cursorY += 12;
-  }
-
-  cursorY += 16;
-
-  // ─── Copy to (CC) ────────────────────────────────────────────────────────
-  if (params.ccList && params.ccList.length > 0) {
-    // Check if CC will fit before the footer
-    const ccHeight = 16 + (params.ccList.length * 18) + 8;
-    if (cursorY + ccHeight > maxSignatureY) {
-      // Reduce spacing to fit
-      cursorY -= 8;
+  if (ccCount > 0) {
+    // Push CC down if it would overlap the signature block
+    if (cursorY + ccHeight > maxCcY) {
+      // If there's not enough room on this page for CC, start a new page
+      doc.addPage();
+      cursorY = 60;
     }
 
     doc.setFont('Times-Roman', 'bold');
@@ -378,7 +322,7 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
 
     doc.setFont('Times-Roman', 'normal');
     doc.setFontSize(11);
-    params.ccList.forEach((cc, index) => {
+    params.ccList!.forEach((cc, index) => {
       const ccText = `${index + 1}. ${cc}`;
       const ccLines = doc.splitTextToSize(ccText, pageWidth - margin * 2);
       doc.text(ccLines, margin + 20, cursorY);
@@ -388,7 +332,7 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   }
 
   // ─── Footer ──────────────────────────────────────────────────────────────
-  const footerY = footerTopY;
+  const footerY = pageHeight - 78;
 
   doc.setLineWidth(0.7);
   doc.setDrawColor(180, 180, 180);
@@ -396,7 +340,6 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
 
   const footerEmblemDataUrl = await urlToDataUrl(FOOTER_EMBLEM_SRC);
   if (footerEmblemDataUrl) {
-    // Same proportional-scaling treatment as the header crest.
     const footerScaled = await getScaledImageSize(footerEmblemDataUrl, 50, 38, 38);
     doc.addImage(
       footerEmblemDataUrl,
@@ -458,8 +401,8 @@ export function buildAideMemoParams(data: {
   assignmentType: string;
   requestDate: string;
   refNumber: string;
-  signatoryName: string;
-  signatoryTitle: string;
+  signatoryName?: string;
+  signatoryTitle?: string;
   fromDepartment?: string;
   additionalNotes?: string;
   toTitle?: string;
@@ -513,9 +456,6 @@ export function buildAideMemoParams(data: {
     officerNumber: data.officerNumber,
     currentStation: data.currentStation,
     assignmentType: assignmentDisplay,
-    signatoryName: data.signatoryName,
-    signatoryTitle: data.signatoryTitle,
-    fromDepartment: data.fromDepartment,
     ccList,
     crestUrl: 'https://res.cloudinary.com/do0yflasl/image/upload/v1784363826/ORHC_L_crclut.jpg',
   };
