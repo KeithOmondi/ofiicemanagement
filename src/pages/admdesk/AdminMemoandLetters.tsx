@@ -833,14 +833,16 @@ const ResponsesPanel: React.FC<{ documentId: string }> = ({ documentId }) => {
 interface MemoFields {
   to: string;
   from: string;
+  fromFirst: boolean; // Add this
 }
 
+// Update the MemoDisplayProps interface (around line 930)
 interface MemoDisplayProps {
   document: Document;
   isEditable: boolean;
   canEditFields: boolean;
   fields: MemoFields;
-  onFieldChange: (field: keyof MemoFields, value: string) => void;
+  onFieldChange: (field: keyof MemoFields, value: string | boolean) => void; // Changed to accept string | boolean
   onFieldBlur: () => void;
   editorRef: React.RefObject<HTMLDivElement | null>;
   handleInput: () => void;
@@ -848,9 +850,17 @@ interface MemoDisplayProps {
   currentUserName: string;
 }
 
+// Also update the MemoFields interface
+interface MemoFields {
+  to: string;
+  from: string;
+  fromFirst: boolean;
+}
+
 const memoEditableFieldClasses =
   'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none';
 
+// Updated MemoDisplay component
 const MemoDisplay: React.FC<MemoDisplayProps> = ({
   document,
   isEditable,
@@ -874,6 +884,9 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
     };
   }, [document, currentUserName]);
 
+  // Get the field order based on fromFirst
+  const fieldsOrder = fields.fromFirst ? ['from', 'to'] : ['to', 'from'];
+
   return (
     <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col">
       <div className="flex justify-center mb-3">
@@ -893,37 +906,51 @@ const MemoDisplay: React.FC<MemoDisplayProps> = ({
         </p>
       </div>
 
+      {/* ─── fromFirst Toggle ────────────────────────────────────────────── */}
+      {canEditFields && (
+        <div className="flex items-center justify-end gap-2 mb-2">
+          <label className="text-[10px] font-medium text-stone-500 flex items-center gap-2 cursor-pointer">
+            <span className={fields.fromFirst ? 'text-stone-400' : 'text-stone-700'}>TO first</span>
+            <div 
+              className="relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer"
+              style={{ backgroundColor: fields.fromFirst ? '#1E4620' : '#d1d5db' }}
+              onClick={() => onFieldChange('fromFirst', !fields.fromFirst)}
+            >
+              <span 
+                className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                  fields.fromFirst ? 'translate-x-5' : 'translate-x-1'
+                }`}
+              />
+            </div>
+            <span className={fields.fromFirst ? 'text-stone-700' : 'text-stone-400'}>FROM first</span>
+          </label>
+        </div>
+      )}
+
       <div className="border-t-[2.5px] border-black mb-2.5" />
 
       <div className="mt-2">
-        <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
-          <span className="w-24 shrink-0 uppercase">TO</span>
-          <span className="w-5 shrink-0">:</span>
-          {canEditFields ? (
-            <input
-              value={fields.to}
-              onChange={(e) => onFieldChange('to', e.target.value)}
-              onBlur={onFieldBlur}
-              className={memoEditableFieldClasses}
-            />
-          ) : (
-            <span className="flex-1">{fields.to}</span>
-          )}
-        </div>
-        <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
-          <span className="w-24 shrink-0 uppercase">FROM</span>
-          <span className="w-5 shrink-0">:</span>
-          {canEditFields ? (
-            <input
-              value={fields.from}
-              onChange={(e) => onFieldChange('from', e.target.value)}
-              onBlur={onFieldBlur}
-              className={memoEditableFieldClasses}
-            />
-          ) : (
-            <span className="flex-1">{fields.from}</span>
-          )}
-        </div>
+        {/* Render fields in order based on fromFirst */}
+        {fieldsOrder.map((fieldKey) => {
+          const label = fieldKey === 'to' ? 'TO' : 'FROM';
+          const value = fieldKey === 'to' ? fields.to : fields.from;
+          return (
+            <div key={fieldKey} className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
+              <span className="w-24 shrink-0 uppercase">{label}</span>
+              <span className="w-5 shrink-0">:</span>
+              {canEditFields ? (
+                <input
+                  value={value}
+                  onChange={(e) => onFieldChange(fieldKey as keyof MemoFields, e.target.value)}
+                  onBlur={onFieldBlur}
+                  className={memoEditableFieldClasses}
+                />
+              ) : (
+                <span className="flex-1">{value}</span>
+              )}
+            </div>
+          );
+        })}
         <div className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
           <span className="w-24 shrink-0 uppercase">REF</span>
           <span className="w-5 shrink-0">:</span>
@@ -1286,6 +1313,7 @@ interface DocumentUpdatePayload {
   enclosures?: string;
   signature_name?: string;
   signature_title?: string;
+  metadata?: { fromFirst?: boolean }; // Add this
 }
 
 interface DocumentEditorProps {
@@ -1350,10 +1378,12 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     document.body ? document.body.split(/\s+/).filter(Boolean).length : 0,
   );
 
-  const [memoFields, setMemoFields] = useState<MemoFields>(() => ({
-    to: document.to_recipient || 'REGISTRAR, HIGH COURT / ORHC AIE HOLDER',
-    from: document.from_sender || 'HIGH COURT SUPPORT OFFICE',
-  }));
+// Update the memoFields useState to include fromFirst
+const [memoFields, setMemoFields] = useState<MemoFields>(() => ({
+  to: document.to_recipient || 'REGISTRAR, HIGH COURT / ORHC AIE HOLDER',
+  from: document.from_sender || 'HIGH COURT SUPPORT OFFICE',
+  fromFirst: document.metadata?.fromFirst ?? false,
+}));
 
   const [letterFields, setLetterFields] = useState<LetterFields>(() => ({
     ref: document.reference_no ?? "",
@@ -1383,10 +1413,10 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     draftedByInitials: document.from_sender || "lnu",
   }));
 
-  const handleMemoFieldChange = (field: keyof MemoFields, value: string) => {
-    setMemoFields((prev) => ({ ...prev, [field]: value }));
-    setSaveState("unsaved");
-  };
+const handleMemoFieldChange = (field: keyof MemoFields, value: string | boolean) => {
+  setMemoFields((prev) => ({ ...prev, [field]: value }));
+  setSaveState("unsaved");
+};
 
   const handleLetterFieldChange = (field: keyof LetterFields, value: string) => {
     setLetterFields((prev) => ({ ...prev, [field]: value }));
@@ -1415,34 +1445,44 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     [onSave, document.id],
   );
 
-  const extraFieldsPayload = useCallback((): DocumentUpdatePayload | undefined => {
-    if (canEditMemoFields) {
-      return {
-        to_recipient: memoFields.to,
-        from_sender: memoFields.from,
-      };
-    }
-    if (canEditLetterFields) {
-      return {
-        reference_no: letterFields.ref,
-        to_recipient: letterFields.to,
-        cc: letterFields.cc,
-        enclosures: letterFields.enclosures,
-        signature_name: letterFields.signatureName,
-        signature_title: letterFields.signatureTitle,
-      };
-    }
-    if (canEditCertificateFields) {
-      return {
-        reference_no: certificateFields.ref,
-        to_recipient: certificateFields.to,
-        from_sender: certificateFields.from,
-        signature_name: certificateFields.signatureName,
-        signature_title: certificateFields.signatureTitle,
-      };
-    }
-    return undefined;
-  }, [canEditMemoFields, memoFields, canEditLetterFields, letterFields, canEditCertificateFields, certificateFields]);
+const extraFieldsPayload = useCallback((): DocumentUpdatePayload | undefined => {
+  if (canEditMemoFields) {
+    return {
+      to_recipient: memoFields.to,
+      from_sender: memoFields.from,
+      metadata: {
+        fromFirst: memoFields.fromFirst,
+      },
+    };
+  }
+  if (canEditLetterFields) {
+    return {
+      reference_no: letterFields.ref,
+      to_recipient: letterFields.to,
+      cc: letterFields.cc,
+      enclosures: letterFields.enclosures,
+      signature_name: letterFields.signatureName,
+      signature_title: letterFields.signatureTitle,
+    };
+  }
+  if (canEditCertificateFields) {
+    return {
+      reference_no: certificateFields.ref,
+      to_recipient: certificateFields.to,
+      from_sender: certificateFields.from,
+      signature_name: certificateFields.signatureName,
+      signature_title: certificateFields.signatureTitle,
+    };
+  }
+  return undefined;
+}, [
+  canEditMemoFields, 
+  memoFields, 
+  canEditLetterFields, 
+  letterFields, 
+  canEditCertificateFields, 
+  certificateFields
+]);
 
   const scheduleAutosave = useCallback(
     (html: string) => {
@@ -1869,17 +1909,21 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
               <DocumentFallback document={document} />
             ) : document.type === 'memo' ? (
               <MemoDisplay
-                document={document}
-                isEditable={isEditable}
-                canEditFields={canEditMemoFields}
-                fields={memoFields}
-                onFieldChange={handleMemoFieldChange}
-                onFieldBlur={handleFieldBlur}
-                editorRef={editorRef}
-                handleInput={handleInput}
-                handleManualSave={handleManualSave}
-                currentUserName={currentUserName}
-              />
+  document={document}
+  isEditable={isEditable}
+  canEditFields={canEditMemoFields}
+  fields={{
+    to: memoFields.to,
+    from: memoFields.from,
+    fromFirst: memoFields.fromFirst,
+  }}
+  onFieldChange={handleMemoFieldChange}
+  onFieldBlur={handleFieldBlur}
+  editorRef={editorRef}
+  handleInput={handleInput}
+  handleManualSave={handleManualSave}
+  currentUserName={currentUserName}
+/>
             ) : document.type === 'letter' ? (
               <LetterDisplay
                 document={document}

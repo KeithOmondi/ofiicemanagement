@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, type ChangeEvent, useMemo } from 'react';
+import React, { useState, useEffect, useRef, type ChangeEvent, useMemo, useCallback } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   createUtility,
@@ -8,12 +8,14 @@ import {
   deleteUtility,
   fetchUtilities,
   fetchHelpDeskStats,
-  //selectAllUtilities,
+  fetchUtilityByPjNumber,
+  updateUtility,
   type UtilityType,
   type UtilityStatus,
   type UtilityItem,
-  type UtilityItemInput,
   type JudgeUtility,
+  type AddUtilityItemInput,
+  type UpdateUtilityInput,
 } from '../../store/slices/helpdeskSlice';
 import {
   fetchHelpdeskDocuments,
@@ -489,8 +491,6 @@ const UtilityItemRow: React.FC<UtilityItemRowProps> = ({
 
 // ─── Memo Modal ──────────────────────────────────────────────────────────
 
-// ─── Memo Modal ──────────────────────────────────────────────────────────
-
 interface JudgeTotals {
   judge_name: string;
   kplc: number;
@@ -521,7 +521,7 @@ function computeNonFuelTotals(judges: JudgeUtility[]): JudgeTotals[] {
     .map((j) => {
       let kplc = 0, water = 0, wifi = 0;
       j.items.forEach((item) => {
-        if (item.status !== 'Awaiting') return; // <-- cohort filter
+        if (item.status !== 'Awaiting') return;
         switch (item.utility_type) {
           case 'Electricity': kplc += item.amount; break;
           case 'Water': water += item.amount; break;
@@ -701,10 +701,8 @@ const MemoModal: React.FC<MemoModalProps> = ({
     grandWifi,
     grandTotal,
     amountInWords: formatCurrencyWords(grandTotal),
-    // ❌ signatoryName removed - handled by backend
     crestUrl: JUDICIARY_CREST_SRC,
     footerEmblemUrl: FOOTER_EMBLEM_SRC,
-    // ❌ signatureUrl removed - handled by backend
     memoType: activeTab,
   });
 
@@ -1301,38 +1299,13 @@ const MemoModal: React.FC<MemoModalProps> = ({
   );
 };
 
-
-
-interface MemoModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  judges: JudgeUtility[];
-  onMemoGenerated: (docId: string) => void;
-  entityId?: string;
-  isConsolidated?: boolean;
-  entityType?: DocumentEntityType;
-  entityIdOverride?: string;
-  allJudgesForConsolidated?: JudgeUtility[];
-}
-
-
-
-
-interface MemoModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  judges: JudgeUtility[];
-  onMemoGenerated: (docId: string) => void;
-  entityId?: string;
-  isConsolidated?: boolean;
-  entityType?: DocumentEntityType;
-  entityIdOverride?: string;
-  allJudgesForConsolidated?: JudgeUtility[];
-}
-
-
-
 // ─── Main UtilitiesModal ──────────────────────────────────────────────────
+
+interface UtilitiesModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  editingUtility?: JudgeUtility | null;
+}
 
 interface UtilitiesModalProps {
   isOpen: boolean;
@@ -1347,8 +1320,10 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
 }) => {
   const dispatch = useAppDispatch();
 
-  const [judgeName, setJudgeName] = useState(() => editingUtility?.judge_name ?? '');
-  const [items, setItems] = useState<UtilityItemFormState[]>(() => buildInitialItems(editingUtility));
+  // ─── Form State ──────────────────────────────────────────────────────────
+  const [judgeName, setJudgeName] = useState('');
+  const [pjNumber, setPjNumber] = useState('');
+  const [items, setItems] = useState<UtilityItemFormState[]>(() => [buildEmptyItem()]);
 
   const isEditing = !!editingUtility;
 
@@ -1363,6 +1338,49 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
 
   const [deleteTarget, setDeleteTarget] = useState<'judge' | number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // ─── resetForm function ──────────────────────────────────────────────────
+  const resetForm = useCallback(() => {
+    setJudgeName('');
+    setPjNumber('');
+    setItems(buildInitialItems(null));
+    setDirtyItemIds(new Set());
+    setCurrentStep(1);
+    setPendingDocumentId(undefined);
+  }, []);
+
+  // ─── populateForm function ──────────────────────────────────────────────
+  const populateForm = useCallback((utility: JudgeUtility) => {
+    setJudgeName(utility.judge_name ?? '');
+    setPjNumber(utility.pj_number ?? '');
+    setItems(buildInitialItems(utility));
+    setDirtyItemIds(new Set());
+    setCurrentStep(1);
+    setPendingDocumentId(undefined);
+  }, []);
+
+  // ─── Sync form state to props DURING RENDER (not in an Effect) ─────────
+  // This replaces the old useEffect + isInitialMount ref combo, which caused
+  // an extra cascading render pass. React supports calling setState while
+  // rendering: if state actually changes, React discards this render output
+  // and re-renders immediately with the new state before anything is painted.
+  // See: https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  const syncKey = isOpen ? (editingUtility?.id ?? 'new') : null;
+  const [lastSyncedKey, setLastSyncedKey] = useState<string | null>(null);
+
+  if (syncKey !== lastSyncedKey) {
+    setLastSyncedKey(syncKey);
+
+    if (syncKey !== null) {
+      if (editingUtility) {
+        populateForm(editingUtility);
+      } else {
+        resetForm();
+      }
+    }
+    // syncKey === null means the modal just closed — nothing to sync now;
+    // the next time it opens, syncKey will differ from lastSyncedKey again.
+  }
 
   // ─── Helper to get judges for memo ──────────────────────────────────────
   const getJudgesForMemo = (): JudgeUtility[] => {
@@ -1379,6 +1397,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
 
     const tempJudge: JudgeUtility = {
       id: tempId,
+      pj_number: pjNumber.trim() || null,
       judge_name: judgeName.trim(),
       created_by: null,
       items: filledItems.map((item, index) => ({
@@ -1402,14 +1421,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     };
 
     return [tempJudge];
-  };
-
-  const resetForm = () => {
-    setJudgeName('');
-    setItems(buildInitialItems(null));
-    setDirtyItemIds(new Set());
-    setCurrentStep(1);
-    setPendingDocumentId(undefined);
   };
 
   const handleMemoGenerated = (docId: string) => {
@@ -1448,21 +1459,23 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
 
     setSavingItemIndex(index);
     try {
-      await dispatch(updateUtilityItem({
-        id: editingUtility.id,
-        itemId: item.id,
-        updates: {
-          status: item.status,
-          requisition_number: item.requisition_number.trim() || undefined,
-          date_received: formatDateForAPI(item.date_received),
-          date_forwarded_dass: formatDateForAPI(item.date_forwarded_dass),
-          date_paid: formatDateForAPI(item.date_paid),
-          amount: item.amount,
-          period: item.period.trim(),
-          description: item.description.trim() || undefined,
-          utility_type: item.utility_type,
-        },
-      })).unwrap();
+      await dispatch(
+        updateUtilityItem({
+          id: editingUtility.id,
+          itemId: item.id,
+          updates: {
+            status: item.status,
+            requisition_number: item.requisition_number.trim() || undefined,
+            date_received: formatDateForAPI(item.date_received),
+            date_forwarded_dass: formatDateForAPI(item.date_forwarded_dass),
+            date_paid: formatDateForAPI(item.date_paid),
+            amount: item.amount,
+            period: item.period.trim(),
+            description: item.description.trim() || undefined,
+            utility_type: item.utility_type,
+          },
+        }),
+      ).unwrap();
 
       setDirtyItemIds((prev) => {
         const next = new Set(prev);
@@ -1473,6 +1486,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
       await dispatch(fetchHelpDeskStats());
     } catch (err) {
       console.error('Failed to update utility item:', err);
+      toast.error('Failed to update utility item.');
     } finally {
       setSavingItemIndex(null);
     }
@@ -1490,29 +1504,41 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
       await dispatch(fetchHelpDeskStats());
     } catch (err) {
       console.error('Failed to delete utility item:', err);
+      toast.error('Failed to delete utility item.');
     } finally {
       setDeletingItemIndex(null);
     }
   };
 
+  // ─── UPDATED: Add item to existing using the new API ──────────────────────
   const handleAddItemToExisting = async () => {
     if (!editingUtility) return;
+
+    // Get the PJ number from the editing utility
+    const utilityPjNumber = editingUtility.pj_number;
+    if (!utilityPjNumber || utilityPjNumber.trim() === '') {
+      toast.error('PJ number is required to add a utility item. Please update the utility record first.');
+      return;
+    }
 
     const newItem = buildEmptyItem();
     setSavingItemIndex(items.length);
     try {
-      const input: UtilityItemInput = {
+      // Use the new API with pj_number in the body
+      const addInput: AddUtilityItemInput = {
+        pj_number: utilityPjNumber,
         utility_type: newItem.utility_type,
         requisition_number: newItem.requisition_number.trim() || undefined,
         amount: 0,
         period: 'New item',
         status: newItem.status,
       };
-      const result = await dispatch(addUtilityItem({ id: editingUtility.id, item: input })).unwrap();
+      const result = await dispatch(addUtilityItem(addInput)).unwrap();
       setItems(buildInitialItems(result));
       await dispatch(fetchHelpDeskStats());
     } catch (err) {
       console.error('Failed to add utility item:', err);
+      toast.error('Failed to add utility item. Please ensure the PJ number is correct.');
     } finally {
       setSavingItemIndex(null);
     }
@@ -1557,20 +1583,31 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
 
     setIsSubmitting(true);
     try {
-      const result = await dispatch(createUtility({
-        judge_name: judgeName.trim(),
-        items: filledItems.map((item) => ({
-          utility_type: item.utility_type,
-          requisition_number: item.requisition_number.trim() || undefined,
-          amount: item.amount,
-          period: item.period.trim(),
-          description: item.description.trim() || undefined,
-          date_received: formatDateForAPI(item.date_received),
-          date_forwarded_dass: formatDateForAPI(item.date_forwarded_dass),
-          date_paid: formatDateForAPI(item.date_paid),
-          status: item.status,
-        })),
-      })).unwrap();
+      // PJ number is now REQUIRED - use the entered value or prompt
+      const finalPjNumber = pjNumber.trim();
+      if (!finalPjNumber) {
+        toast.error('PJ number is required to create a utility record.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      const result = await dispatch(
+        createUtility({
+          pj_number: finalPjNumber,
+          judge_name: judgeName.trim(),
+          items: filledItems.map((item) => ({
+            utility_type: item.utility_type,
+            requisition_number: item.requisition_number.trim() || undefined,
+            amount: item.amount,
+            period: item.period.trim(),
+            description: item.description.trim() || undefined,
+            date_received: formatDateForAPI(item.date_received),
+            date_forwarded_dass: formatDateForAPI(item.date_forwarded_dass),
+            date_paid: formatDateForAPI(item.date_paid),
+            status: item.status,
+          })),
+        }),
+      ).unwrap();
 
       if (pendingDocumentId && result?.id) {
         try {
@@ -1579,7 +1616,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
               id: pendingDocumentId,
               entity_type: 'utility_memo',
               entity_id: result.id,
-            })
+            }),
           ).unwrap();
           toast.success('Memo linked to the utility record.');
         } catch {
@@ -1600,6 +1637,58 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     }
   };
 
+  // ─── UPDATED: Handle update of the main utility record ────────────────────
+  const handleUpdateUtilityRecord = async () => {
+    if (!editingUtility) return;
+
+    const updates: UpdateUtilityInput = {};
+    if (judgeName !== editingUtility.judge_name) {
+      updates.judge_name = judgeName.trim();
+    }
+    if (pjNumber !== editingUtility.pj_number) {
+      updates.pj_number = pjNumber.trim() || undefined;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      toast('No changes to save.', {
+        icon: 'ℹ️',
+        duration: 3000,
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await dispatch(
+        updateUtility({
+          id: editingUtility.id,
+          updates,
+        }),
+      ).unwrap();
+      await dispatch(fetchUtilities({}));
+      await dispatch(fetchHelpDeskStats());
+      toast.success('Utility record updated successfully.');
+
+      // Update the editing utility reference
+      if (pjNumber.trim()) {
+        try {
+          const updated = await dispatch(fetchUtilityByPjNumber(pjNumber.trim())).unwrap();
+          if (updated) {
+            setItems(buildInitialItems(updated));
+          }
+        } catch {
+          // If PJ number lookup fails, refresh the editing utility from the list
+          await dispatch(fetchUtilities({}));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to update utility record:', err);
+      toast.error('Failed to update utility record.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const handleConfirmDelete = async () => {
     if (deleteTarget === null) return;
     setIsDeleting(true);
@@ -1610,9 +1699,11 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         await dispatch(fetchHelpDeskStats());
         setDeleteTarget(null);
         onClose();
+        resetForm();
       }
     } catch (err) {
       console.error('Failed to delete:', err);
+      toast.error('Failed to delete utility record.');
     } finally {
       setIsDeleting(false);
     }
@@ -1677,14 +1768,40 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                       <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                       <input
                         type="text"
-                        value={editingUtility!.judge_name}
-                        disabled
+                        value={judgeName}
+                        onChange={(e) => setJudgeName(e.target.value)}
+                        className={`${inputClasses} pl-9`}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <FieldLabel required>PJ Number</FieldLabel>
+                    <div className="relative">
+                      <Hash size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                      <input
+                        type="text"
+                        value={pjNumber}
+                        onChange={(e) => setPjNumber(e.target.value)}
+                        placeholder="e.g. PJ/2024/001"
                         className={`${inputClasses} pl-9`}
                       />
                     </div>
                     <p className="mt-1 text-[11px] text-stone-400">
-                      A judge can have multiple utilities — add each utility type below.
+                      PJ number is required for adding utility items.
                     </p>
+                  </div>
+
+                  {/* ─── Update button for editing ──────────────────────── */}
+                  <div className="flex justify-end">
+                    <GoldButton
+                      size="sm"
+                      onClick={handleUpdateUtilityRecord}
+                      disabled={isSubmitting}
+                      icon={isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                    >
+                      {isSubmitting ? 'Saving…' : 'Update Record'}
+                    </GoldButton>
                   </div>
 
                   <div>
@@ -1692,7 +1809,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                       <FieldLabel>Utility Items ({items.length})</FieldLabel>
                       <GhostButton
                         onClick={handleAddItemToExisting}
-                        disabled={savingItemIndex === items.length}
+                        disabled={savingItemIndex === items.length || !pjNumber.trim()}
                         icon={
                           savingItemIndex === items.length ? (
                             <Loader2 size={12} className="animate-spin" />
@@ -1704,6 +1821,11 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                         Add Utility
                       </GhostButton>
                     </div>
+                    {!pjNumber.trim() && (
+                      <p className="mb-2 text-[11px] text-amber-600">
+                        Please enter a PJ number above to add utility items.
+                      </p>
+                    )}
 
                     <div className="space-y-3">
                       {items.map((item, index) => (
@@ -1742,13 +1864,25 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                         placeholder="e.g. Hon. Justice Korir"
                         className={`${inputClasses} pl-9`}
                         required
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                          }
-                        }}
                       />
                     </div>
+                  </div>
+
+                  <div>
+                    <FieldLabel required>PJ Number</FieldLabel>
+                    <div className="relative">
+                      <Hash size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                      <input
+                        type="text"
+                        value={pjNumber}
+                        onChange={(e) => setPjNumber(e.target.value)}
+                        placeholder="e.g. PJ/2024/001"
+                        className={`${inputClasses} pl-9`}
+                      />
+                    </div>
+                    <p className="mt-1 text-[11px] text-stone-400">
+                      PJ number is required to create a utility record.
+                    </p>
                   </div>
 
                   <div>
@@ -1781,6 +1915,9 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                       Judge
                     </p>
                     <p className="text-sm font-semibold text-stone-800">{judgeName}</p>
+                    {pjNumber && (
+                      <p className="mt-1 text-xs text-stone-500">PJ: {pjNumber}</p>
+                    )}
                   </div>
 
                   <div>
@@ -1871,7 +2008,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                       Next
                     </GoldButton>
                   ) : (
-                    <GoldButton type="button" onClick={handleCreateRecord} disabled={isSubmitting}>
+                    <GoldButton type="button" onClick={handleCreateRecord} disabled={isSubmitting || !pjNumber.trim()}>
                       {isSubmitting ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (

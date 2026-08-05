@@ -83,12 +83,6 @@ export interface GeneralRequest {
   reporting_date?: string | null;
 }
 
-/**
- * Input for creating a general request.
- *
- * Business rule: For `request_type === 'Firearm'`, `firearm_type` is **optional** initially,
- * but becomes **required** when `officer_assigned` is provided.
- */
 export interface CreateGeneralRequestInput {
   judge_name: string;
   request: string;
@@ -114,12 +108,6 @@ export interface CreateGeneralRequestInput {
   officer_station?: string;
 }
 
-/**
- * Input for updating a general request.
- *
- * Business rule: For `request_type === 'Firearm'`, if `officer_assigned` is provided
- * (or updated), `firearm_type` must also be provided.
- */
 export interface UpdateGeneralRequestInput {
   request?: string;
   request_type?: RequestType;
@@ -144,9 +132,6 @@ export interface UpdateGeneralRequestInput {
 
 // ─── Security Request (Deprecated) ─────────────────────────────────────────
 
-/**
- * @deprecated Use GeneralRequest instead
- */
 export interface SecurityRequest {
   id: string;
   s_no: number | null;
@@ -165,9 +150,6 @@ export interface SecurityRequest {
   updated_at: string;
 }
 
-/**
- * @deprecated Use CreateGeneralRequestInput instead
- */
 export interface CreateSecurityRequestInput {
   judge_name: string;
   request_type: RequestType;
@@ -183,9 +165,6 @@ export interface CreateSecurityRequestInput {
   send_email?: boolean;
 }
 
-/**
- * @deprecated Use UpdateGeneralRequestInput instead
- */
 export interface UpdateSecurityRequestInput {
   request_type?: RequestType;
   request_date?: string;
@@ -293,6 +272,7 @@ export interface UtilityItem {
 
 export interface JudgeUtility {
   id: string;
+  pj_number: string | null;
   judge_name: string;
   items: UtilityItem[];
   created_by: string | null;
@@ -313,11 +293,13 @@ export interface UtilityItemInput {
 }
 
 export interface CreateUtilityInput {
+  pj_number: string;
   judge_name: string;
   items: UtilityItemInput[];
 }
 
 export interface AddUtilityItemInput {
+  pj_number: string;
   utility_type: UtilityType;
   requisition_number?: string;
   amount: number;
@@ -341,8 +323,14 @@ export interface UpdateUtilityItemInput {
   requisition_number?: string;
 }
 
+export interface UpdateUtilityInput {
+  pj_number?: string;
+  judge_name?: string;
+}
+
 export interface UtilityFilters {
   search?: string;
+  pj_number?: string;
   judge_name?: string;
   status?: UtilityStatus;
   limit?: number;
@@ -446,7 +434,6 @@ export interface CreateCircuitInput {
   dsa_details?: DSADetailInput[];
 }
 
-// ─── NEW: Update input for circuits ─────────────────────────────────────────
 export interface UpdateCircuitInput {
   name?: string;
   location?: string;
@@ -481,7 +468,6 @@ export interface CreateOtherPaymentInput {
   dsa_details?: DSADetailInput[];
 }
 
-// ─── NEW: Update input for other payments ──────────────────────────────────
 export interface UpdateOtherPaymentInput {
   name?: string;
   description?: string;
@@ -588,7 +574,6 @@ export interface CreateServiceWeekInput {
   dsa_details?: DSADetailInput[];
 }
 
-// ─── NEW: Update input for service weeks ────────────────────────────────────
 export interface UpdateServiceWeekInput {
   name?: string;
   week_number?: string;
@@ -624,9 +609,6 @@ export interface CreateMedicalClaimInput {
 
 // ─── Legacy General Request (Deprecated) ──────────────────────────────────
 
-/**
- * @deprecated Use the new GeneralRequest with request_type instead
- */
 export interface LegacyGeneralRequest {
   id: string;
   s_no: number | null;
@@ -642,9 +624,6 @@ export interface LegacyGeneralRequest {
   updated_at: string;
 }
 
-/**
- * @deprecated Use CreateGeneralRequestInput with request_type instead
- */
 export interface CreateLegacyGeneralRequestInput {
   judge_name: string;
   request: string;
@@ -727,7 +706,7 @@ export interface ProtocolEvent {
   id: string;
   s_no: number | null;
   activity: string;
-  venue: string | null; // UPDATED: Venue/Location of the protocol event
+  venue: string | null;
   period_from: string | null;
   period_to: string | null;
   officers_assigned: string | null;
@@ -745,7 +724,7 @@ export interface ProtocolEvent {
 
 export interface CreateProtocolEventInput {
   activity: string;
-  venue?: string; // UPDATED: Venue/Location of the protocol event
+  venue?: string;
   period_from?: string;
   period_to?: string;
   officers_assigned?: string;
@@ -860,7 +839,6 @@ export type HelpDeskTab =
 ============================================================ */
 
 interface HelpDeskState {
-  // Data
   utilities: JudgeUtility[];
   clubMemberships: ClubMembership[];
   circuits: Circuit[];
@@ -877,11 +855,9 @@ interface HelpDeskState {
   auditLog: HelpDeskAuditEntry[];
   stats: HelpDeskStats | null;
 
-  // Reports
   dsaReport: DSAReportRow[];
   dsaReportFilters: DSAReportFilters;
 
-  // Selection
   selectedUtility: JudgeUtility | null;
   selectedClubMembership: ClubMembership | null;
   selectedCircuit: Circuit | null;
@@ -896,17 +872,14 @@ interface HelpDeskState {
   selectedSecurityRequest: SecurityRequest | null;
   selectedTicket: Ticket | null;
 
-  // Document Tracking
   documentViewStatus: DocumentWithViewStatus | null;
 
-  // UI State
   activeTab: HelpDeskTab;
   filters: HelpDeskFilters;
   utilityFilters: UtilityFilters;
   ticketFilters: TicketFilters;
   searchQuery: string;
 
-  // Pagination
   pagination: {
     utilities: { total: number; page: number; limit: number };
     club: { total: number; page: number; limit: number };
@@ -924,7 +897,6 @@ interface HelpDeskState {
     reports: { total: number; page: number; limit: number };
   };
 
-  // Loading States
   loading: {
     utilities: boolean;
     club: boolean;
@@ -1068,9 +1040,10 @@ const buildQueryString = (
 };
 
 /* ============================================================
-   THUNKS - UNIFIED GENERAL REQUESTS
+   THUNKS - ALL
 ============================================================ */
 
+// ─── General Requests ──────────────────────────────────────────────────────
 export const fetchGeneralRequests = createAsyncThunk(
   "helpdesk/fetchGeneralRequests",
   async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
@@ -1146,10 +1119,7 @@ export const createGeneralRequest = createAsyncThunk(
 
 export const updateGeneralRequest = createAsyncThunk(
   "helpdesk/updateGeneralRequest",
-  async (
-    { id, updates }: { id: string; updates: UpdateGeneralRequestInput },
-    { rejectWithValue },
-  ) => {
+  async ({ id, updates }: { id: string; updates: UpdateGeneralRequestInput }, { rejectWithValue }) => {
     try {
       const { data } = await axiosClient.put(`/helpdesk/general/${id}`, updates);
       return data.data as GeneralRequest;
@@ -1161,16 +1131,9 @@ export const updateGeneralRequest = createAsyncThunk(
 
 export const updateGeneralRequestStatus = createAsyncThunk(
   "helpdesk/updateGeneralRequestStatus",
-  async (
-    { id, status, notes, email, resolvedBy, rejectedBy }: 
-    { id: string; status: Status; notes?: string; email?: string; resolvedBy?: string; rejectedBy?: string },
-    { rejectWithValue },
-  ) => {
+  async ({ id, status, notes, email, resolvedBy, rejectedBy }: { id: string; status: Status; notes?: string; email?: string; resolvedBy?: string; rejectedBy?: string }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.patch(
-        `/helpdesk/general/${id}/status`,
-        { status, notes, email, resolvedBy, rejectedBy },
-      );
+      const { data } = await axiosClient.patch(`/helpdesk/general/${id}/status`, { status, notes, email, resolvedBy, rejectedBy });
       return data.data as GeneralRequest;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -1210,10 +1173,7 @@ export const fetchGeneralRequestStats = createAsyncThunk(
 
 export const sendGeneralRequestEmail = createAsyncThunk(
   "helpdesk/sendGeneralRequestEmail",
-  async (
-    { id, email, type }: { id: string; email: string; type: 'acknowledgement' | 'resolved' | 'rejected' },
-    { rejectWithValue },
-  ) => {
+  async ({ id, email, type }: { id: string; email: string; type: 'acknowledgement' | 'resolved' | 'rejected' }, { rejectWithValue }) => {
     try {
       await axiosClient.post(`/helpdesk/general/${id}/email`, { email, type });
       return { id, email, type };
@@ -1223,10 +1183,7 @@ export const sendGeneralRequestEmail = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - LEGACY SECURITY REQUESTS (Deprecated)
-============================================================ */
-
+// ─── Security Requests (Deprecated) ────────────────────────────────────────
 export const fetchSecurityRequests = createAsyncThunk(
   "helpdesk/fetchSecurityRequests",
   async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
@@ -1290,10 +1247,7 @@ export const createSecurityRequest = createAsyncThunk(
 
 export const updateSecurityRequest = createAsyncThunk(
   "helpdesk/updateSecurityRequest",
-  async (
-    { id, updates }: { id: string; updates: UpdateSecurityRequestInput },
-    { rejectWithValue },
-  ) => {
+  async ({ id, updates }: { id: string; updates: UpdateSecurityRequestInput }, { rejectWithValue }) => {
     try {
       const { data } = await axiosClient.put(`/helpdesk/security/${id}`, updates);
       return data.data as SecurityRequest;
@@ -1305,15 +1259,9 @@ export const updateSecurityRequest = createAsyncThunk(
 
 export const updateSecurityRequestStatus = createAsyncThunk(
   "helpdesk/updateSecurityRequestStatus",
-  async (
-    { id, status, notes }: { id: string; status: Status; notes?: string },
-    { rejectWithValue },
-  ) => {
+  async ({ id, status, notes }: { id: string; status: Status; notes?: string }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.patch(`/helpdesk/security/${id}/status`, {
-        status,
-        notes,
-      });
+      const { data } = await axiosClient.patch(`/helpdesk/security/${id}/status`, { status, notes });
       return data.data as SecurityRequest;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -1350,10 +1298,7 @@ export const fetchSecurityRequestStats = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - REPORTS
-============================================================ */
-
+// ─── Reports ──────────────────────────────────────────────────────────────────
 export const fetchDSAReport = createAsyncThunk(
   "helpdesk/fetchDSAReport",
   async (filters: DSAReportFilters = {}, { rejectWithValue }) => {
@@ -1372,9 +1317,7 @@ export const exportDSAReport = createAsyncThunk(
   async (filters: DSAReportFilters = {}, { rejectWithValue }) => {
     try {
       const query = buildQueryString(filters);
-      const response = await axiosClient.get(`/helpdesk/reports/dsa/export${query}`, {
-        responseType: "blob",
-      });
+      const response = await axiosClient.get(`/helpdesk/reports/dsa/export${query}`, { responseType: "blob" });
       return response.data as Blob;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -1382,10 +1325,7 @@ export const exportDSAReport = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - STATS & AUDIT
-============================================================ */
-
+// ─── Stats & Audit ────────────────────────────────────────────────────────────
 export const fetchHelpDeskStats = createAsyncThunk(
   "helpdesk/fetchStats",
   async (_, { rejectWithValue }) => {
@@ -1410,10 +1350,7 @@ export const fetchHelpDeskAudit = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - TICKETS
-============================================================ */
-
+// ─── Tickets ──────────────────────────────────────────────────────────────────
 export const fetchTickets = createAsyncThunk(
   "helpdesk/fetchTickets",
   async (filters: TicketFilters = {}, { rejectWithValue }) => {
@@ -1453,10 +1390,7 @@ export const createTicket = createAsyncThunk(
 
 export const updateTicket = createAsyncThunk(
   "helpdesk/updateTicket",
-  async (
-    { id, updates }: { id: string; updates: UpdateTicketInput },
-    { rejectWithValue },
-  ) => {
+  async ({ id, updates }: { id: string; updates: UpdateTicketInput }, { rejectWithValue }) => {
     try {
       const { data } = await axiosClient.put(`/helpdesk/tickets/${id}`, updates);
       return data.data as Ticket;
@@ -1478,10 +1412,7 @@ export const deleteTicket = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - JUDGE UTILITIES
-============================================================ */
-
+// ─── Judge Utilities ──────────────────────────────────────────────────────────
 export const fetchUtilities = createAsyncThunk(
   "helpdesk/fetchUtilities",
   async (filters: UtilityFilters = {}, { rejectWithValue }) => {
@@ -1507,6 +1438,18 @@ export const fetchUtilityById = createAsyncThunk(
   },
 );
 
+export const fetchUtilityByPjNumber = createAsyncThunk(
+  "helpdesk/fetchUtilityByPjNumber",
+  async (pjNumber: string, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`/helpdesk/utilities/by-pj/${encodeURIComponent(pjNumber)}`);
+      return data.data as JudgeUtility;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
 export const createUtility = createAsyncThunk(
   "helpdesk/createUtility",
   async (input: CreateUtilityInput, { rejectWithValue }) => {
@@ -1521,15 +1464,9 @@ export const createUtility = createAsyncThunk(
 
 export const addUtilityItem = createAsyncThunk(
   "helpdesk/addUtilityItem",
-  async (
-    { id, item }: { id: string; item: AddUtilityItemInput },
-    { rejectWithValue },
-  ) => {
+  async (input: AddUtilityItemInput, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.post(
-        `/helpdesk/utilities/${id}/items`,
-        item,
-      );
+      const { data } = await axiosClient.post("/helpdesk/utilities/items", input);
       return data.data as JudgeUtility;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -1539,19 +1476,21 @@ export const addUtilityItem = createAsyncThunk(
 
 export const updateUtilityItem = createAsyncThunk(
   "helpdesk/updateUtilityItem",
-  async (
-    {
-      id,
-      itemId,
-      updates,
-    }: { id: string; itemId: string; updates: UpdateUtilityItemInput },
-    { rejectWithValue },
-  ) => {
+  async ({ id, itemId, updates }: { id: string; itemId: string; updates: UpdateUtilityItemInput }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.put(
-        `/helpdesk/utilities/${id}/items/${itemId}`,
-        updates,
-      );
+      const { data } = await axiosClient.put(`/helpdesk/utilities/${id}/items/${itemId}`, updates);
+      return data.data as JudgeUtility;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+export const updateUtility = createAsyncThunk(
+  "helpdesk/updateUtility",
+  async ({ id, updates }: { id: string; updates: UpdateUtilityInput }, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.put(`/helpdesk/utilities/${id}`, updates);
       return data.data as JudgeUtility;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -1561,10 +1500,7 @@ export const updateUtilityItem = createAsyncThunk(
 
 export const deleteUtilityItem = createAsyncThunk(
   "helpdesk/deleteUtilityItem",
-  async (
-    { id, itemId }: { id: string; itemId: string },
-    { rejectWithValue },
-  ) => {
+  async ({ id, itemId }: { id: string; itemId: string }, { rejectWithValue }) => {
     try {
       await axiosClient.delete(`/helpdesk/utilities/${id}/items/${itemId}`);
       return { id, itemId };
@@ -1586,10 +1522,7 @@ export const deleteUtility = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - CLUB MEMBERSHIP
-============================================================ */
-
+// ─── Club Membership ──────────────────────────────────────────────────────────
 export const fetchClubMemberships = createAsyncThunk(
   "helpdesk/fetchClubMemberships",
   async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
@@ -1629,14 +1562,9 @@ export const createClubMembership = createAsyncThunk(
 
 export const updateClubMembershipStatus = createAsyncThunk(
   "helpdesk/updateClubMembershipStatus",
-  async (
-    { id, status }: { id: string; status: Status },
-    { rejectWithValue },
-  ) => {
+  async ({ id, status }: { id: string; status: Status }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.put(`/helpdesk/club/${id}/status`, {
-        status,
-      });
+      const { data } = await axiosClient.put(`/helpdesk/club/${id}/status`, { status });
       return data.data as ClubMembership;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -1656,10 +1584,7 @@ export const deleteClubMembership = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - CIRCUITS
-============================================================ */
-
+// ─── Circuits ──────────────────────────────────────────────────────────────────
 export const fetchCircuits = createAsyncThunk(
   "helpdesk/fetchCircuits",
   async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
@@ -1699,15 +1624,9 @@ export const createCircuit = createAsyncThunk(
 
 export const updateCircuitStatus = createAsyncThunk(
   "helpdesk/updateCircuitStatus",
-  async (
-    { id, status }: { id: string; status: Status },
-    { rejectWithValue },
-  ) => {
+  async ({ id, status }: { id: string; status: Status }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.put(
-        `/helpdesk/circuits/${id}/status`,
-        { status },
-      );
+      const { data } = await axiosClient.put(`/helpdesk/circuits/${id}/status`, { status });
       return data.data as Circuit;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -1715,13 +1634,9 @@ export const updateCircuitStatus = createAsyncThunk(
   },
 );
 
-// ─── UPDATED: Full update for circuits ─────────────────────────────────────
 export const updateCircuit = createAsyncThunk(
   "helpdesk/updateCircuit",
-  async (
-    { id, updates }: { id: string; updates: UpdateCircuitInput },
-    { rejectWithValue },
-  ) => {
+  async ({ id, updates }: { id: string; updates: UpdateCircuitInput }, { rejectWithValue }) => {
     try {
       const { data } = await axiosClient.put(`/helpdesk/circuits/${id}`, updates);
       return data.data as Circuit;
@@ -1733,15 +1648,9 @@ export const updateCircuit = createAsyncThunk(
 
 export const updateCircuitDSADetails = createAsyncThunk(
   "helpdesk/updateCircuitDSADetails",
-  async (
-    { id, dsa_details }: { id: string; dsa_details: DSADetailInput[] },
-    { rejectWithValue },
-  ) => {
+  async ({ id, dsa_details }: { id: string; dsa_details: DSADetailInput[] }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.put(
-        `/helpdesk/circuits/${id}/dsa-details`,
-        { dsa_details },
-      );
+      const { data } = await axiosClient.put(`/helpdesk/circuits/${id}/dsa-details`, { dsa_details });
       return data.data as Circuit;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -1761,10 +1670,7 @@ export const deleteCircuit = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - OTHER PAYMENTS
-============================================================ */
-
+// ─── Other Payments ────────────────────────────────────────────────────────────
 export const fetchOtherPayments = createAsyncThunk(
   "helpdesk/fetchOtherPayments",
   async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
@@ -1804,15 +1710,9 @@ export const createOtherPayment = createAsyncThunk(
 
 export const updateOtherPaymentStatus = createAsyncThunk(
   "helpdesk/updateOtherPaymentStatus",
-  async (
-    { id, status }: { id: string; status: Status },
-    { rejectWithValue },
-  ) => {
+  async ({ id, status }: { id: string; status: Status }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.put(
-        `/helpdesk/other-payments/${id}/status`,
-        { status },
-      );
+      const { data } = await axiosClient.put(`/helpdesk/other-payments/${id}/status`, { status });
       return data.data as OtherPayment;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -1822,15 +1722,9 @@ export const updateOtherPaymentStatus = createAsyncThunk(
 
 export const updateOtherPaymentDSADetails = createAsyncThunk(
   "helpdesk/updateOtherPaymentDSADetails",
-  async (
-    { id, dsa_details }: { id: string; dsa_details: DSADetailInput[] },
-    { rejectWithValue },
-  ) => {
+  async ({ id, dsa_details }: { id: string; dsa_details: DSADetailInput[] }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.put(
-        `/helpdesk/other-payments/${id}/dsa-details`,
-        { dsa_details },
-      );
+      const { data } = await axiosClient.put(`/helpdesk/other-payments/${id}/dsa-details`, { dsa_details });
       return data.data as OtherPayment;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -1838,13 +1732,9 @@ export const updateOtherPaymentDSADetails = createAsyncThunk(
   },
 );
 
-// ─── UPDATED: Full update for other payments ──────────────────────────────
 export const updateOtherPayment = createAsyncThunk(
   "helpdesk/updateOtherPayment",
-  async (
-    { id, updates }: { id: string; updates: UpdateOtherPaymentInput },
-    { rejectWithValue },
-  ) => {
+  async ({ id, updates }: { id: string; updates: UpdateOtherPaymentInput }, { rejectWithValue }) => {
     try {
       const { data } = await axiosClient.put(`/helpdesk/other-payments/${id}`, updates);
       return data.data as OtherPayment;
@@ -1866,10 +1756,7 @@ export const deleteOtherPayment = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - SPECIAL BENCHES
-============================================================ */
-
+// ─── Special Benches ────────────────────────────────────────────────────────────
 export const fetchBenches = createAsyncThunk(
   "helpdesk/fetchBenches",
   async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
@@ -1909,10 +1796,7 @@ export const createBench = createAsyncThunk(
 
 export const updateBench = createAsyncThunk(
   "helpdesk/updateBench",
-  async (
-    { id, updates }: { id: string; updates: UpdateBenchInput },
-    { rejectWithValue },
-  ) => {
+  async ({ id, updates }: { id: string; updates: UpdateBenchInput }, { rejectWithValue }) => {
     try {
       const { data } = await axiosClient.put(`/helpdesk/benches/${id}`, updates);
       return data.data as SpecialBench;
@@ -1924,14 +1808,9 @@ export const updateBench = createAsyncThunk(
 
 export const updateBenchStatus = createAsyncThunk(
   "helpdesk/updateBenchStatus",
-  async (
-    { id, status }: { id: string; status: Status },
-    { rejectWithValue },
-  ) => {
+  async ({ id, status }: { id: string; status: Status }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.put(`/helpdesk/benches/${id}/status`, {
-        status,
-      });
+      const { data } = await axiosClient.put(`/helpdesk/benches/${id}/status`, { status });
       return data.data as SpecialBench;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -1951,10 +1830,7 @@ export const deleteBench = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - PART-HEARDS
-============================================================ */
-
+// ─── Part-Heards ────────────────────────────────────────────────────────────────
 export const fetchPartHeards = createAsyncThunk(
   "helpdesk/fetchPartHeards",
   async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
@@ -1994,10 +1870,7 @@ export const createPartHeard = createAsyncThunk(
 
 export const updatePartHeard = createAsyncThunk(
   "helpdesk/updatePartHeard",
-  async (
-    { id, updates }: { id: string; updates: UpdatePartHeardInput },
-    { rejectWithValue },
-  ) => {
+  async ({ id, updates }: { id: string; updates: UpdatePartHeardInput }, { rejectWithValue }) => {
     try {
       const { data } = await axiosClient.put(`/helpdesk/part-heards/${id}`, updates);
       return data.data as PartHeard;
@@ -2009,15 +1882,9 @@ export const updatePartHeard = createAsyncThunk(
 
 export const updatePartHeardStatus = createAsyncThunk(
   "helpdesk/updatePartHeardStatus",
-  async (
-    { id, status }: { id: string; status: Status },
-    { rejectWithValue },
-  ) => {
+  async ({ id, status }: { id: string; status: Status }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.put(
-        `/helpdesk/part-heards/${id}/status`,
-        { status },
-      );
+      const { data } = await axiosClient.put(`/helpdesk/part-heards/${id}/status`, { status });
       return data.data as PartHeard;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -2037,10 +1904,7 @@ export const deletePartHeard = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - SERVICE WEEKS
-============================================================ */
-
+// ─── Service Weeks ──────────────────────────────────────────────────────────────
 export const fetchServiceWeeks = createAsyncThunk(
   "helpdesk/fetchServiceWeeks",
   async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
@@ -2080,15 +1944,9 @@ export const createServiceWeek = createAsyncThunk(
 
 export const updateServiceWeekStatus = createAsyncThunk(
   "helpdesk/updateServiceWeekStatus",
-  async (
-    { id, status }: { id: string; status: Status },
-    { rejectWithValue },
-  ) => {
+  async ({ id, status }: { id: string; status: Status }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.put(
-        `/helpdesk/service-weeks/${id}/status`,
-        { status },
-      );
+      const { data } = await axiosClient.put(`/helpdesk/service-weeks/${id}/status`, { status });
       return data.data as ServiceWeek;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -2096,13 +1954,9 @@ export const updateServiceWeekStatus = createAsyncThunk(
   },
 );
 
-// ─── UPDATED: Full update for service weeks ──────────────────────────────
 export const updateServiceWeek = createAsyncThunk(
   "helpdesk/updateServiceWeek",
-  async (
-    { id, updates }: { id: string; updates: UpdateServiceWeekInput },
-    { rejectWithValue },
-  ) => {
+  async ({ id, updates }: { id: string; updates: UpdateServiceWeekInput }, { rejectWithValue }) => {
     try {
       const { data } = await axiosClient.put(`/helpdesk/service-weeks/${id}`, updates);
       return data.data as ServiceWeek;
@@ -2124,10 +1978,7 @@ export const deleteServiceWeek = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - MEDICAL EXPENSE CLAIMS
-============================================================ */
-
+// ─── Medical Claims ────────────────────────────────────────────────────────────
 export const fetchMedicalClaims = createAsyncThunk(
   "helpdesk/fetchMedicalClaims",
   async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
@@ -2167,15 +2018,9 @@ export const createMedicalClaim = createAsyncThunk(
 
 export const updateMedicalClaimStatus = createAsyncThunk(
   "helpdesk/updateMedicalClaimStatus",
-  async (
-    { id, status, remarks }: { id: string; status: Status; remarks?: string },
-    { rejectWithValue },
-  ) => {
+  async ({ id, status, remarks }: { id: string; status: Status; remarks?: string }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.put(
-        `/helpdesk/medical-claims/${id}/status`,
-        { status, remarks },
-      );
+      const { data } = await axiosClient.put(`/helpdesk/medical-claims/${id}/status`, { status, remarks });
       return data.data as MedicalClaim;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -2195,10 +2040,7 @@ export const deleteMedicalClaim = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - VISA SUPPORT
-============================================================ */
-
+// ─── Visa Support ──────────────────────────────────────────────────────────────
 export const fetchVisaRequests = createAsyncThunk(
   "helpdesk/fetchVisaRequests",
   async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
@@ -2238,15 +2080,9 @@ export const createVisaRequest = createAsyncThunk(
 
 export const updateVisaStatus = createAsyncThunk(
   "helpdesk/updateVisaStatus",
-  async (
-    { id, status, notes }: { id: string; status: Status; notes?: string },
-    { rejectWithValue },
-  ) => {
+  async ({ id, status, notes }: { id: string; status: Status; notes?: string }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.put(`/helpdesk/visa/${id}/status`, {
-        status,
-        notes,
-      });
+      const { data } = await axiosClient.put(`/helpdesk/visa/${id}/status`, { status, notes });
       return data.data as VisaRequest;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -2266,8 +2102,7 @@ export const deleteVisaRequest = createAsyncThunk(
   },
 );
 
-// ─── Visa Document Tracking Thunks ──────────────────────────────────────────
-
+// ─── Visa Document Tracking ──────────────────────────────────────────────────
 export const markDocumentViewed = createAsyncThunk(
   "helpdesk/markDocumentViewed",
   async (documentId: string, { rejectWithValue }) => {
@@ -2282,14 +2117,9 @@ export const markDocumentViewed = createAsyncThunk(
 
 export const fetchDocumentViewStatus = createAsyncThunk(
   "helpdesk/fetchDocumentViewStatus",
-  async (
-    { documentId, includeViewers = false }: { documentId: string; includeViewers?: boolean },
-    { rejectWithValue },
-  ) => {
+  async ({ documentId, includeViewers = false }: { documentId: string; includeViewers?: boolean }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.get(
-        `/helpdesk/visa/documents/${documentId}/status?include_viewers=${includeViewers}`
-      );
+      const { data } = await axiosClient.get(`/helpdesk/visa/documents/${documentId}/status?include_viewers=${includeViewers}`);
       return data.data as DocumentWithViewStatus;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -2297,10 +2127,7 @@ export const fetchDocumentViewStatus = createAsyncThunk(
   },
 );
 
-/* ============================================================
-   THUNKS - PROTOCOL SUPPORT (UPDATED with venue)
-============================================================ */
-
+// ─── Protocol Support ──────────────────────────────────────────────────────────
 export const fetchProtocolEvents = createAsyncThunk(
   "helpdesk/fetchProtocolEvents",
   async (filters: HelpDeskFilters = {}, { rejectWithValue }) => {
@@ -2340,15 +2167,9 @@ export const createProtocolEvent = createAsyncThunk(
 
 export const updateProtocolStatus = createAsyncThunk(
   "helpdesk/updateProtocolStatus",
-  async (
-    { id, status, notes }: { id: string; status: Status; notes?: string },
-    { rejectWithValue },
-  ) => {
+  async ({ id, status, notes }: { id: string; status: Status; notes?: string }, { rejectWithValue }) => {
     try {
-      const { data } = await axiosClient.put(
-        `/helpdesk/protocol/${id}/status`,
-        { status, notes },
-      );
+      const { data } = await axiosClient.put(`/helpdesk/protocol/${id}/status`, { status, notes });
       return data.data as ProtocolEvent;
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -2369,7 +2190,7 @@ export const deleteProtocolEvent = createAsyncThunk(
 );
 
 /* ============================================================
-   SLICE
+   SLICE - WITH ALL extraReducers
 ============================================================ */
 
 const helpdeskSlice = createSlice({
@@ -2379,7 +2200,6 @@ const helpdeskSlice = createSlice({
     setActiveTab(state, action: PayloadAction<HelpDeskTab>) {
       state.activeTab = action.payload;
     },
-
     setFilters(state, action: PayloadAction<Partial<HelpDeskFilters>>) {
       state.filters = { ...state.filters, ...action.payload };
     },
@@ -2405,29 +2225,17 @@ const helpdeskSlice = createSlice({
       state.dsaReportFilters = {};
       state.searchQuery = "";
     },
-
-    setPagination(
-      state,
-      action: PayloadAction<{
-        module: keyof typeof state.pagination;
-        page: number;
-        limit?: number;
-      }>,
-    ) {
+    setPagination(state, action: PayloadAction<{ module: keyof typeof state.pagination; page: number; limit?: number }>) {
       const { module, page, limit } = action.payload;
       if (state.pagination[module]) {
         state.pagination[module].page = page;
         if (limit) state.pagination[module].limit = limit;
       }
     },
-
     setSelectedUtility(state, action: PayloadAction<JudgeUtility | null>) {
       state.selectedUtility = action.payload;
     },
-    setSelectedClubMembership(
-      state,
-      action: PayloadAction<ClubMembership | null>,
-    ) {
+    setSelectedClubMembership(state, action: PayloadAction<ClubMembership | null>) {
       state.selectedClubMembership = action.payload;
     },
     setSelectedCircuit(state, action: PayloadAction<Circuit | null>) {
@@ -2448,25 +2256,16 @@ const helpdeskSlice = createSlice({
     setSelectedMedicalClaim(state, action: PayloadAction<MedicalClaim | null>) {
       state.selectedMedicalClaim = action.payload;
     },
-    setSelectedGeneralRequest(
-      state,
-      action: PayloadAction<GeneralRequest | null>,
-    ) {
+    setSelectedGeneralRequest(state, action: PayloadAction<GeneralRequest | null>) {
       state.selectedGeneralRequest = action.payload;
     },
     setSelectedVisaRequest(state, action: PayloadAction<VisaRequest | null>) {
       state.selectedVisaRequest = action.payload;
     },
-    setSelectedProtocolEvent(
-      state,
-      action: PayloadAction<ProtocolEvent | null>,
-    ) {
+    setSelectedProtocolEvent(state, action: PayloadAction<ProtocolEvent | null>) {
       state.selectedProtocolEvent = action.payload;
     },
-    setSelectedSecurityRequest(
-      state,
-      action: PayloadAction<SecurityRequest | null>,
-    ) {
+    setSelectedSecurityRequest(state, action: PayloadAction<SecurityRequest | null>) {
       state.selectedSecurityRequest = action.payload;
     },
     setSelectedTicket(state, action: PayloadAction<Ticket | null>) {
@@ -2477,1644 +2276,1481 @@ const helpdeskSlice = createSlice({
     },
 
     // ─── Optimistic Updates ─────────────────────────────────────────────
-
-    updateUtilityItemOptimistically(
-      state,
-      action: PayloadAction<{
-        id: string;
-        itemId: string;
-        status: UtilityStatus;
-      }>,
-    ) {
+    updateUtilityItemOptimistically(state, action: PayloadAction<{ id: string; itemId: string; status: UtilityStatus }>) {
       const { id, itemId, status } = action.payload;
       const utility = state.utilities.find((u) => u.id === id);
       const item = utility?.items.find((i) => i.id === itemId);
       if (item) item.status = status;
       if (state.selectedUtility?.id === id) {
-        const selectedItem = state.selectedUtility.items.find(
-          (i) => i.id === itemId,
-        );
+        const selectedItem = state.selectedUtility.items.find((i) => i.id === itemId);
         if (selectedItem) selectedItem.status = status;
       }
     },
-    updateClubOptimistically(
-      state,
-      action: PayloadAction<{ id: string; status: Status }>,
-    ) {
+    updateClubOptimistically(state, action: PayloadAction<{ id: string; status: Status }>) {
       const { id, status } = action.payload;
       const membership = state.clubMemberships.find((c) => c.id === id);
       if (membership) membership.status = status;
-      if (state.selectedClubMembership?.id === id)
-        state.selectedClubMembership.status = status;
+      if (state.selectedClubMembership?.id === id) state.selectedClubMembership.status = status;
     },
-    updateCircuitOptimistically(
-      state,
-      action: PayloadAction<{ id: string; status: Status }>,
-    ) {
+    updateCircuitOptimistically(state, action: PayloadAction<{ id: string; status: Status }>) {
       const { id, status } = action.payload;
       const circuit = state.circuits.find((c) => c.id === id);
       if (circuit) circuit.status = status;
-      if (state.selectedCircuit?.id === id)
-        state.selectedCircuit.status = status;
+      if (state.selectedCircuit?.id === id) state.selectedCircuit.status = status;
     },
-    updateOtherPaymentOptimistically(
-      state,
-      action: PayloadAction<{ id: string; status: Status }>,
-    ) {
+    updateOtherPaymentOptimistically(state, action: PayloadAction<{ id: string; status: Status }>) {
       const { id, status } = action.payload;
       const payment = state.otherPayments.find((p) => p.id === id);
       if (payment) payment.status = status;
-      if (state.selectedOtherPayment?.id === id)
-        state.selectedOtherPayment.status = status;
+      if (state.selectedOtherPayment?.id === id) state.selectedOtherPayment.status = status;
     },
-    updateBenchOptimistically(
-      state,
-      action: PayloadAction<{ id: string; status: Status }>,
-    ) {
+    updateBenchOptimistically(state, action: PayloadAction<{ id: string; status: Status }>) {
       const { id, status } = action.payload;
       const bench = state.benches.find((b) => b.id === id);
       if (bench) bench.status = status;
       if (state.selectedBench?.id === id) state.selectedBench.status = status;
     },
-    updatePartHeardOptimistically(
-      state,
-      action: PayloadAction<{ id: string; status: Status }>,
-    ) {
+    updatePartHeardOptimistically(state, action: PayloadAction<{ id: string; status: Status }>) {
       const { id, status } = action.payload;
       const partHeard = state.partHeards.find((p) => p.id === id);
       if (partHeard) partHeard.status = status;
-      if (state.selectedPartHeard?.id === id)
-        state.selectedPartHeard.status = status;
+      if (state.selectedPartHeard?.id === id) state.selectedPartHeard.status = status;
     },
-    updateServiceWeekOptimistically(
-      state,
-      action: PayloadAction<{ id: string; status: Status }>,
-    ) {
+    updateServiceWeekOptimistically(state, action: PayloadAction<{ id: string; status: Status }>) {
       const { id, status } = action.payload;
       const week = state.serviceWeeks.find((w) => w.id === id);
       if (week) week.status = status;
-      if (state.selectedServiceWeek?.id === id)
-        state.selectedServiceWeek.status = status;
+      if (state.selectedServiceWeek?.id === id) state.selectedServiceWeek.status = status;
     },
-    updateMedicalClaimOptimistically(
-      state,
-      action: PayloadAction<{ id: string; status: Status; remarks?: string }>,
-    ) {
+    updateMedicalClaimOptimistically(state, action: PayloadAction<{ id: string; status: Status; remarks?: string }>) {
       const { id, status, remarks } = action.payload;
       const claim = state.medicalClaims.find((c) => c.id === id);
-      if (claim) {
-        claim.status = status;
-        if (remarks !== undefined) claim.remarks = remarks;
-      }
-      if (state.selectedMedicalClaim?.id === id) {
-        state.selectedMedicalClaim.status = status;
-        if (remarks !== undefined) state.selectedMedicalClaim.remarks = remarks;
-      }
+      if (claim) { claim.status = status; if (remarks !== undefined) claim.remarks = remarks; }
+      if (state.selectedMedicalClaim?.id === id) { state.selectedMedicalClaim.status = status; if (remarks !== undefined) state.selectedMedicalClaim.remarks = remarks; }
     },
-    updateGeneralRequestOptimistically(
-      state,
-      action: PayloadAction<{ id: string; status: Status; remarks?: string }>,
-    ) {
+    updateGeneralRequestOptimistically(state, action: PayloadAction<{ id: string; status: Status; remarks?: string }>) {
       const { id, status, remarks } = action.payload;
       const request = state.generalRequests.find((r) => r.id === id);
-      if (request) {
-        request.status = status;
-        if (remarks !== undefined) request.remarks = remarks;
-      }
-      if (state.selectedGeneralRequest?.id === id) {
-        state.selectedGeneralRequest.status = status;
-        if (remarks !== undefined) state.selectedGeneralRequest.remarks = remarks;
-      }
+      if (request) { request.status = status; if (remarks !== undefined) request.remarks = remarks; }
+      if (state.selectedGeneralRequest?.id === id) { state.selectedGeneralRequest.status = status; if (remarks !== undefined) state.selectedGeneralRequest.remarks = remarks; }
     },
-    updateVisaOptimistically(
-      state,
-      action: PayloadAction<{ id: string; status: Status; notes?: string }>,
-    ) {
+    updateVisaOptimistically(state, action: PayloadAction<{ id: string; status: Status; notes?: string }>) {
       const { id, status, notes } = action.payload;
       const visa = state.visaRequests.find((v) => v.id === id);
-      if (visa) {
-        visa.status = status;
-        if (notes !== undefined) visa.notes = notes;
-      }
-      if (state.selectedVisaRequest?.id === id) {
-        state.selectedVisaRequest.status = status;
-        if (notes !== undefined) state.selectedVisaRequest.notes = notes;
-      }
+      if (visa) { visa.status = status; if (notes !== undefined) visa.notes = notes; }
+      if (state.selectedVisaRequest?.id === id) { state.selectedVisaRequest.status = status; if (notes !== undefined) state.selectedVisaRequest.notes = notes; }
     },
-    updateProtocolOptimistically(
-      state,
-      action: PayloadAction<{ id: string; status: Status; notes?: string }>,
-    ) {
+    updateProtocolOptimistically(state, action: PayloadAction<{ id: string; status: Status; notes?: string }>) {
       const { id, status, notes } = action.payload;
       const event = state.protocolEvents.find((p) => p.id === id);
-      if (event) {
-        event.status = status;
-        if (notes !== undefined) event.notes = notes;
-      }
-      if (state.selectedProtocolEvent?.id === id) {
-        state.selectedProtocolEvent.status = status;
-        if (notes !== undefined) state.selectedProtocolEvent.notes = notes;
-      }
+      if (event) { event.status = status; if (notes !== undefined) event.notes = notes; }
+      if (state.selectedProtocolEvent?.id === id) { state.selectedProtocolEvent.status = status; if (notes !== undefined) state.selectedProtocolEvent.notes = notes; }
     },
-    updateSecurityRequestOptimistically(
-      state,
-      action: PayloadAction<{ id: string; status: Status; remarks?: string }>,
-    ) {
+    updateSecurityRequestOptimistically(state, action: PayloadAction<{ id: string; status: Status; remarks?: string }>) {
       const { id, status, remarks } = action.payload;
       const request = state.securityRequests.find((r) => r.id === id);
-      if (request) {
-        request.status = status;
-        if (remarks !== undefined) request.remarks = remarks;
-      }
-      if (state.selectedSecurityRequest?.id === id) {
-        state.selectedSecurityRequest.status = status;
-        if (remarks !== undefined) state.selectedSecurityRequest.remarks = remarks;
-      }
+      if (request) { request.status = status; if (remarks !== undefined) request.remarks = remarks; }
+      if (state.selectedSecurityRequest?.id === id) { state.selectedSecurityRequest.status = status; if (remarks !== undefined) state.selectedSecurityRequest.remarks = remarks; }
     },
-    updateTicketOptimistically(
-      state,
-      action: PayloadAction<{ id: string; status: Status; remarks?: string }>,
-    ) {
+    updateTicketOptimistically(state, action: PayloadAction<{ id: string; status: Status; remarks?: string }>) {
       const { id, status, remarks } = action.payload;
       const ticket = state.tickets.find((t) => t.id === id);
-      if (ticket) {
-        ticket.status = status;
-        if (remarks !== undefined) ticket.remarks = remarks;
-      }
-      if (state.selectedTicket?.id === id) {
-        state.selectedTicket.status = status;
-        if (remarks !== undefined) state.selectedTicket.remarks = remarks;
-      }
+      if (ticket) { ticket.status = status; if (remarks !== undefined) ticket.remarks = remarks; }
+      if (state.selectedTicket?.id === id) { state.selectedTicket.status = status; if (remarks !== undefined) state.selectedTicket.remarks = remarks; }
     },
 
-    clearError(state) {
-      state.error = null;
-    },
-    clearSuccess(state) {
-      state.success = false;
-    },
+    clearError(state) { state.error = null; },
+    clearSuccess(state) { state.success = false; },
     resetHelpDeskState: () => initialState,
   },
   extraReducers: (builder) => {
-    /* ──────── UNIFIED GENERAL REQUESTS ────────────────────────────────── */
-    builder
-      .addCase(fetchGeneralRequests.pending, (state) => {
-        state.loading.generalRequests = true;
-        state.error = null;
-      })
-      .addCase(
-        fetchGeneralRequests.fulfilled,
-        (state, action: PayloadAction<GeneralRequest[]>) => {
-          state.loading.generalRequests = false;
-          state.generalRequests = action.payload;
-          state.pagination.generalRequests.total = action.payload.length;
-        }
-      )
-      .addCase(fetchGeneralRequests.rejected, (state, action) => {
-        state.loading.generalRequests = false;
-        state.error = action.payload as string;
-      })
-      .addCase(createGeneralRequest.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(
-        createGeneralRequest.fulfilled,
-        (state, action: PayloadAction<GeneralRequest>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.generalRequests = [action.payload, ...state.generalRequests];
-          if (state.stats) state.stats.total_records += 1;
-        }
-      )
-      .addCase(createGeneralRequest.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      })
-      .addCase(updateGeneralRequest.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(
-        updateGeneralRequest.fulfilled,
-        (state, action: PayloadAction<GeneralRequest>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.generalRequests.findIndex(
-            (r) => r.id === action.payload.id
-          );
-          if (index !== -1) state.generalRequests[index] = action.payload;
-          if (state.selectedGeneralRequest?.id === action.payload.id)
-            state.selectedGeneralRequest = action.payload;
-        }
-      )
-      .addCase(updateGeneralRequest.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      })
-      .addCase(updateGeneralRequestStatus.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(
-        updateGeneralRequestStatus.fulfilled,
-        (state, action: PayloadAction<GeneralRequest>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.generalRequests.findIndex(
-            (r) => r.id === action.payload.id
-          );
-          if (index !== -1) state.generalRequests[index] = action.payload;
-          if (state.selectedGeneralRequest?.id === action.payload.id)
-            state.selectedGeneralRequest = action.payload;
-        }
-      )
-      .addCase(updateGeneralRequestStatus.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      })
-      .addCase(deleteGeneralRequest.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-      })
-      .addCase(
-        deleteGeneralRequest.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          state.generalRequests = state.generalRequests.filter(
-            (r) => r.id !== action.payload
-          );
-          if (state.selectedGeneralRequest?.id === action.payload)
-            state.selectedGeneralRequest = null;
-          if (state.stats) state.stats.total_records -= 1;
-        }
-      )
-      .addCase(deleteGeneralRequest.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-      })
-      .addCase(fetchGeneralRequestsByJudge.pending, (state) => {
-        state.loading.generalRequests = true;
-        state.error = null;
-      })
-      .addCase(
-        fetchGeneralRequestsByJudge.fulfilled,
-        (state, action: PayloadAction<GeneralRequest[]>) => {
-          state.loading.generalRequests = false;
-          state.generalRequests = action.payload;
-        }
-      )
-      .addCase(fetchGeneralRequestsByJudge.rejected, (state, action) => {
-        state.loading.generalRequests = false;
-        state.error = action.payload as string;
-      })
-      .addCase(fetchGeneralRequestsByType.pending, (state) => {
-        state.loading.generalRequests = true;
-        state.error = null;
-      })
-      .addCase(
-        fetchGeneralRequestsByType.fulfilled,
-        (state, action: PayloadAction<GeneralRequest[]>) => {
-          state.loading.generalRequests = false;
-          state.generalRequests = action.payload;
-        }
-      )
-      .addCase(fetchGeneralRequestsByType.rejected, (state, action) => {
-        state.loading.generalRequests = false;
-        state.error = action.payload as string;
-      })
-      .addCase(fetchGeneralRequestsByRemarkType.pending, (state) => {
-        state.loading.generalRequests = true;
-        state.error = null;
-      })
-      .addCase(
-        fetchGeneralRequestsByRemarkType.fulfilled,
-        (state, action: PayloadAction<GeneralRequest[]>) => {
-          state.loading.generalRequests = false;
-          state.generalRequests = action.payload;
-        }
-      )
-      .addCase(fetchGeneralRequestsByRemarkType.rejected, (state, action) => {
-        state.loading.generalRequests = false;
-        state.error = action.payload as string;
-      });
-
-    /* ──────── LEGACY SECURITY REQUESTS ────────────────────────────────── */
-    builder
-      .addCase(fetchSecurityRequests.pending, (state) => {
-        state.loading.security = true;
-        state.error = null;
-      })
-      .addCase(
-        fetchSecurityRequests.fulfilled,
-        (state, action: PayloadAction<SecurityRequest[]>) => {
-          state.loading.security = false;
-          state.securityRequests = action.payload;
-          state.pagination.security.total = action.payload.length;
-        }
-      )
-      .addCase(fetchSecurityRequests.rejected, (state, action) => {
-        state.loading.security = false;
-        state.error = action.payload as string;
-      })
-      .addCase(createSecurityRequest.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(
-        createSecurityRequest.fulfilled,
-        (state, action: PayloadAction<SecurityRequest>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.securityRequests = [action.payload, ...state.securityRequests];
-          if (state.stats) state.stats.total_records += 1;
-        }
-      )
-      .addCase(createSecurityRequest.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      })
-      .addCase(updateSecurityRequest.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(
-        updateSecurityRequest.fulfilled,
-        (state, action: PayloadAction<SecurityRequest>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.securityRequests.findIndex(
-            (r) => r.id === action.payload.id
-          );
-          if (index !== -1) state.securityRequests[index] = action.payload;
-          if (state.selectedSecurityRequest?.id === action.payload.id)
-            state.selectedSecurityRequest = action.payload;
-        }
-      )
-      .addCase(updateSecurityRequest.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      })
-      .addCase(updateSecurityRequestStatus.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(
-        updateSecurityRequestStatus.fulfilled,
-        (state, action: PayloadAction<SecurityRequest>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.securityRequests.findIndex(
-            (r) => r.id === action.payload.id
-          );
-          if (index !== -1) state.securityRequests[index] = action.payload;
-          if (state.selectedSecurityRequest?.id === action.payload.id)
-            state.selectedSecurityRequest = action.payload;
-        }
-      )
-      .addCase(updateSecurityRequestStatus.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      })
-      .addCase(deleteSecurityRequest.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-      })
-      .addCase(
-        deleteSecurityRequest.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          state.securityRequests = state.securityRequests.filter(
-            (r) => r.id !== action.payload
-          );
-          if (state.selectedSecurityRequest?.id === action.payload)
-            state.selectedSecurityRequest = null;
-          if (state.stats) state.stats.total_records -= 1;
-        }
-      )
-      .addCase(deleteSecurityRequest.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-      });
-
-    /* ──────── REPORTS ────────────────────────────────────────────────── */
-    builder
-      .addCase(fetchDSAReport.pending, (state) => {
-        state.loading.reports = true;
-        state.error = null;
-      })
-      .addCase(
-        fetchDSAReport.fulfilled,
-        (state, action: PayloadAction<DSAReportRow[]>) => {
-          state.loading.reports = false;
-          state.dsaReport = action.payload;
-          state.pagination.reports.total = action.payload.length;
-        }
-      )
-      .addCase(fetchDSAReport.rejected, (state, action) => {
-        state.loading.reports = false;
-        state.error = action.payload as string;
-      });
-
-    /* ──────── STATS ───────────────────────────────────────────────────── */
+    // ─── fetchHelpDeskStats ──────────────────────────────────────────────────
     builder
       .addCase(fetchHelpDeskStats.pending, (state) => {
         state.loading.stats = true;
         state.error = null;
       })
-      .addCase(
-        fetchHelpDeskStats.fulfilled,
-        (state, action: PayloadAction<HelpDeskStats>) => {
-          state.loading.stats = false;
-          state.stats = action.payload;
-        }
-      )
+      .addCase(fetchHelpDeskStats.fulfilled, (state, action: PayloadAction<HelpDeskStats>) => {
+        state.loading.stats = false;
+        state.stats = action.payload;
+      })
       .addCase(fetchHelpDeskStats.rejected, (state, action) => {
         state.loading.stats = false;
         state.error = action.payload as string;
       });
 
-    /* ──────── AUDIT ────────────────────────────────────────────────────── */
+    // ─── fetchHelpDeskAudit ──────────────────────────────────────────────────
     builder
       .addCase(fetchHelpDeskAudit.pending, (state) => {
         state.loading.audit = true;
         state.error = null;
       })
-      .addCase(
-        fetchHelpDeskAudit.fulfilled,
-        (state, action: PayloadAction<HelpDeskAuditEntry[]>) => {
-          state.loading.audit = false;
-          state.auditLog = action.payload;
-        }
-      )
+      .addCase(fetchHelpDeskAudit.fulfilled, (state, action: PayloadAction<HelpDeskAuditEntry[]>) => {
+        state.loading.audit = false;
+        state.auditLog = action.payload;
+      })
       .addCase(fetchHelpDeskAudit.rejected, (state, action) => {
         state.loading.audit = false;
         state.error = action.payload as string;
       });
 
-    /* ──────── DOCUMENT TRACKING ───────────────────────────────────────── */
-    builder
-      .addCase(markDocumentViewed.pending, (state) => {
-        state.loading.documentTracking = true;
-        state.error = null;
-      })
-      .addCase(
-        markDocumentViewed.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.documentTracking = false;
-          state.success = true;
-          const docId = action.payload;
-          for (const visa of state.visaRequests) {
-            const doc = visa.documents?.find((d) => d.id === docId);
-            if (doc) {
-              doc.view_count = (doc.view_count || 0) + 1;
-              doc.viewed_at = doc.viewed_at || new Date().toISOString();
-              break;
-            }
-          }
-          if (state.documentViewStatus && state.documentViewStatus.id === docId) {
-            state.documentViewStatus.view_count += 1;
-            state.documentViewStatus.viewed_at =
-              state.documentViewStatus.viewed_at || new Date().toISOString();
-          }
-        }
-      )
-      .addCase(markDocumentViewed.rejected, (state, action) => {
-        state.loading.documentTracking = false;
-        state.error = action.payload as string;
-        state.success = false;
-      })
-      .addCase(fetchDocumentViewStatus.pending, (state) => {
-        state.loading.documentTracking = true;
-        state.error = null;
-      })
-      .addCase(
-        fetchDocumentViewStatus.fulfilled,
-        (state, action: PayloadAction<DocumentWithViewStatus>) => {
-          state.loading.documentTracking = false;
-          state.documentViewStatus = action.payload;
-        }
-      )
-      .addCase(fetchDocumentViewStatus.rejected, (state, action) => {
-        state.loading.documentTracking = false;
-        state.error = action.payload as string;
-      });
-
-    /* ──────── TICKETS ──────────────────────────────────────────────────── */
-    builder
-      .addCase(fetchTickets.pending, (state) => {
-        state.loading.tickets = true;
-        state.error = null;
-      })
-      .addCase(
-        fetchTickets.fulfilled,
-        (state, action: PayloadAction<Ticket[]>) => {
-          state.loading.tickets = false;
-          state.tickets = action.payload;
-          state.pagination.tickets.total = action.payload.length;
-        }
-      )
-      .addCase(fetchTickets.rejected, (state, action) => {
-        state.loading.tickets = false;
-        state.error = action.payload as string;
-      })
-      .addCase(createTicket.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(
-        createTicket.fulfilled,
-        (state, action: PayloadAction<Ticket>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.tickets = [action.payload, ...state.tickets];
-          if (state.stats) state.stats.total_records += 1;
-        }
-      )
-      .addCase(createTicket.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      })
-      .addCase(updateTicket.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-        state.success = false;
-      })
-      .addCase(
-        updateTicket.fulfilled,
-        (state, action: PayloadAction<Ticket>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.tickets.findIndex((t) => t.id === action.payload.id);
-          if (index !== -1) state.tickets[index] = action.payload;
-          if (state.selectedTicket?.id === action.payload.id)
-            state.selectedTicket = action.payload;
-        }
-      )
-      .addCase(updateTicket.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-        state.success = false;
-      })
-      .addCase(deleteTicket.pending, (state) => {
-        state.loading.mutating = true;
-        state.error = null;
-      })
-      .addCase(
-        deleteTicket.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          state.tickets = state.tickets.filter((t) => t.id !== action.payload);
-          if (state.selectedTicket?.id === action.payload)
-            state.selectedTicket = null;
-          if (state.stats) state.stats.total_records -= 1;
-        }
-      )
-      .addCase(deleteTicket.rejected, (state, action) => {
-        state.loading.mutating = false;
-        state.error = action.payload as string;
-      });
-
-    /* ──────── UTILITIES ───────────────────────────────────────────────── */
+    // ─── fetchUtilities ──────────────────────────────────────────────────────
     builder
       .addCase(fetchUtilities.pending, (state) => {
         state.loading.utilities = true;
         state.error = null;
       })
-      .addCase(
-        fetchUtilities.fulfilled,
-        (state, action: PayloadAction<JudgeUtility[]>) => {
-          state.loading.utilities = false;
-          state.utilities = action.payload;
-          state.pagination.utilities.total = action.payload.length;
-        }
-      )
+      .addCase(fetchUtilities.fulfilled, (state, action: PayloadAction<JudgeUtility[]>) => {
+        state.loading.utilities = false;
+        state.utilities = action.payload;
+        state.pagination.utilities.total = action.payload.length;
+      })
       .addCase(fetchUtilities.rejected, (state, action) => {
         state.loading.utilities = false;
         state.error = action.payload as string;
+      });
+
+    // ─── fetchUtilityById ────────────────────────────────────────────────────
+    builder
+      .addCase(fetchUtilityById.pending, (state) => {
+        state.loading.utilities = true;
+        state.error = null;
       })
+      .addCase(fetchUtilityById.fulfilled, (state, action: PayloadAction<JudgeUtility>) => {
+        state.loading.utilities = false;
+        state.selectedUtility = action.payload;
+      })
+      .addCase(fetchUtilityById.rejected, (state, action) => {
+        state.loading.utilities = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── fetchUtilityByPjNumber ─────────────────────────────────────────────
+    builder
+      .addCase(fetchUtilityByPjNumber.pending, (state) => {
+        state.loading.utilities = true;
+        state.error = null;
+      })
+      .addCase(fetchUtilityByPjNumber.fulfilled, (state, action: PayloadAction<JudgeUtility>) => {
+        state.loading.utilities = false;
+        state.selectedUtility = action.payload;
+      })
+      .addCase(fetchUtilityByPjNumber.rejected, (state, action) => {
+        state.loading.utilities = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── createUtility ──────────────────────────────────────────────────────
+    builder
       .addCase(createUtility.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        createUtility.fulfilled,
-        (state, action: PayloadAction<JudgeUtility>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.utilities = [action.payload, ...state.utilities];
-          if (state.stats) state.stats.total_records += 1;
-        }
-      )
+      .addCase(createUtility.fulfilled, (state, action: PayloadAction<JudgeUtility>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.utilities = [action.payload, ...state.utilities];
+        if (state.stats) state.stats.total_records += 1;
+      })
       .addCase(createUtility.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── addUtilityItem ─────────────────────────────────────────────────────
+    builder
       .addCase(addUtilityItem.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        addUtilityItem.fulfilled,
-        (state, action: PayloadAction<JudgeUtility>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.utilities.findIndex(
-            (u) => u.id === action.payload.id
-          );
-          if (index !== -1) state.utilities[index] = action.payload;
-          if (state.selectedUtility?.id === action.payload.id)
-            state.selectedUtility = action.payload;
+      .addCase(addUtilityItem.fulfilled, (state, action: PayloadAction<JudgeUtility>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.utilities.findIndex((u) => u.id === action.payload.id);
+        if (index !== -1) state.utilities[index] = action.payload;
+        if (state.selectedUtility?.id === action.payload.id) {
+          state.selectedUtility = action.payload;
         }
-      )
+      })
       .addCase(addUtilityItem.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateUtilityItem ──────────────────────────────────────────────────
+    builder
       .addCase(updateUtilityItem.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateUtilityItem.fulfilled,
-        (state, action: PayloadAction<JudgeUtility>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.utilities.findIndex(
-            (u) => u.id === action.payload.id
-          );
-          if (index !== -1) state.utilities[index] = action.payload;
-          if (state.selectedUtility?.id === action.payload.id)
-            state.selectedUtility = action.payload;
+      .addCase(updateUtilityItem.fulfilled, (state, action: PayloadAction<JudgeUtility>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.utilities.findIndex((u) => u.id === action.payload.id);
+        if (index !== -1) state.utilities[index] = action.payload;
+        if (state.selectedUtility?.id === action.payload.id) {
+          state.selectedUtility = action.payload;
         }
-      )
+      })
       .addCase(updateUtilityItem.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
+      });
+
+    // ─── updateUtility ──────────────────────────────────────────────────────
+    builder
+      .addCase(updateUtility.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
       })
+      .addCase(updateUtility.fulfilled, (state, action: PayloadAction<JudgeUtility>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.utilities.findIndex((u) => u.id === action.payload.id);
+        if (index !== -1) state.utilities[index] = action.payload;
+        if (state.selectedUtility?.id === action.payload.id) {
+          state.selectedUtility = action.payload;
+        }
+      })
+      .addCase(updateUtility.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    // ─── deleteUtilityItem ──────────────────────────────────────────────────
+    builder
       .addCase(deleteUtilityItem.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
       })
-      .addCase(
-        deleteUtilityItem.fulfilled,
-        (state, action: PayloadAction<{ id: string; itemId: string }>) => {
-          state.loading.mutating = false;
-          const { id, itemId } = action.payload;
-          const utility = state.utilities.find((u) => u.id === id);
-          if (utility) {
-            utility.items = utility.items.filter((i) => i.id !== itemId);
-          }
-          if (state.selectedUtility?.id === id) {
-            state.selectedUtility.items = state.selectedUtility.items.filter(
-              (i) => i.id !== itemId
-            );
-          }
+      .addCase(deleteUtilityItem.fulfilled, (state, action: PayloadAction<{ id: string; itemId: string }>) => {
+        state.loading.mutating = false;
+        const { id, itemId } = action.payload;
+        const utility = state.utilities.find((u) => u.id === id);
+        if (utility) {
+          utility.items = utility.items.filter((i) => i.id !== itemId);
         }
-      )
+        if (state.selectedUtility?.id === id) {
+          state.selectedUtility.items = state.selectedUtility.items.filter((i) => i.id !== itemId);
+        }
+      })
       .addCase(deleteUtilityItem.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
-      })
+      });
+
+    // ─── deleteUtility ──────────────────────────────────────────────────────
+    builder
       .addCase(deleteUtility.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
       })
-      .addCase(
-        deleteUtility.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          state.utilities = state.utilities.filter(
-            (u) => u.id !== action.payload
-          );
-          if (state.selectedUtility?.id === action.payload)
-            state.selectedUtility = null;
-          if (state.stats) state.stats.total_records -= 1;
+      .addCase(deleteUtility.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.utilities = state.utilities.filter((u) => u.id !== action.payload);
+        if (state.selectedUtility?.id === action.payload) {
+          state.selectedUtility = null;
         }
-      )
+        if (state.stats) state.stats.total_records -= 1;
+      })
       .addCase(deleteUtility.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
       });
 
-    /* ──────── CLUB MEMBERSHIPS ────────────────────────────────────────── */
+    // ─── fetchClubMemberships ──────────────────────────────────────────────
     builder
       .addCase(fetchClubMemberships.pending, (state) => {
         state.loading.club = true;
         state.error = null;
       })
-      .addCase(
-        fetchClubMemberships.fulfilled,
-        (state, action: PayloadAction<ClubMembership[]>) => {
-          state.loading.club = false;
-          state.clubMemberships = action.payload;
-          state.pagination.club.total = action.payload.length;
-        }
-      )
+      .addCase(fetchClubMemberships.fulfilled, (state, action: PayloadAction<ClubMembership[]>) => {
+        state.loading.club = false;
+        state.clubMemberships = action.payload;
+        state.pagination.club.total = action.payload.length;
+      })
       .addCase(fetchClubMemberships.rejected, (state, action) => {
         state.loading.club = false;
         state.error = action.payload as string;
-      })
+      });
+
+    // ─── createClubMembership ──────────────────────────────────────────────
+    builder
       .addCase(createClubMembership.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        createClubMembership.fulfilled,
-        (state, action: PayloadAction<ClubMembership>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.clubMemberships = [action.payload, ...state.clubMemberships];
-          if (state.stats) state.stats.total_records += 1;
-        }
-      )
+      .addCase(createClubMembership.fulfilled, (state, action: PayloadAction<ClubMembership>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.clubMemberships = [action.payload, ...state.clubMemberships];
+        if (state.stats) state.stats.total_records += 1;
+      })
       .addCase(createClubMembership.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateClubMembershipStatus ────────────────────────────────────────
+    builder
       .addCase(updateClubMembershipStatus.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateClubMembershipStatus.fulfilled,
-        (state, action: PayloadAction<ClubMembership>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.clubMemberships.findIndex(
-            (c) => c.id === action.payload.id
-          );
-          if (index !== -1) state.clubMemberships[index] = action.payload;
-          if (state.selectedClubMembership?.id === action.payload.id)
-            state.selectedClubMembership = action.payload;
+      .addCase(updateClubMembershipStatus.fulfilled, (state, action: PayloadAction<ClubMembership>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.clubMemberships.findIndex((c) => c.id === action.payload.id);
+        if (index !== -1) state.clubMemberships[index] = action.payload;
+        if (state.selectedClubMembership?.id === action.payload.id) {
+          state.selectedClubMembership = action.payload;
         }
-      )
+      })
       .addCase(updateClubMembershipStatus.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── deleteClubMembership ──────────────────────────────────────────────
+    builder
       .addCase(deleteClubMembership.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
       })
-      .addCase(
-        deleteClubMembership.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          state.clubMemberships = state.clubMemberships.filter(
-            (c) => c.id !== action.payload
-          );
-          if (state.selectedClubMembership?.id === action.payload)
-            state.selectedClubMembership = null;
-          if (state.stats) state.stats.total_records -= 1;
+      .addCase(deleteClubMembership.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.clubMemberships = state.clubMemberships.filter((c) => c.id !== action.payload);
+        if (state.selectedClubMembership?.id === action.payload) {
+          state.selectedClubMembership = null;
         }
-      )
+        if (state.stats) state.stats.total_records -= 1;
+      })
       .addCase(deleteClubMembership.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
       });
 
-    /* ──────── CIRCUITS ─────────────────────────────────────────────────── */
+    // ─── fetchCircuits ──────────────────────────────────────────────────────
     builder
       .addCase(fetchCircuits.pending, (state) => {
         state.loading.circuits = true;
         state.error = null;
       })
-      .addCase(
-        fetchCircuits.fulfilled,
-        (state, action: PayloadAction<Circuit[]>) => {
-          state.loading.circuits = false;
-          state.circuits = action.payload;
-          state.pagination.circuits.total = action.payload.length;
-        }
-      )
+      .addCase(fetchCircuits.fulfilled, (state, action: PayloadAction<Circuit[]>) => {
+        state.loading.circuits = false;
+        state.circuits = action.payload;
+        state.pagination.circuits.total = action.payload.length;
+      })
       .addCase(fetchCircuits.rejected, (state, action) => {
         state.loading.circuits = false;
         state.error = action.payload as string;
-      })
+      });
+
+    // ─── createCircuit ──────────────────────────────────────────────────────
+    builder
       .addCase(createCircuit.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        createCircuit.fulfilled,
-        (state, action: PayloadAction<Circuit>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.circuits = [action.payload, ...state.circuits];
-          if (state.stats) state.stats.total_records += 1;
-        }
-      )
+      .addCase(createCircuit.fulfilled, (state, action: PayloadAction<Circuit>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.circuits = [action.payload, ...state.circuits];
+        if (state.stats) state.stats.total_records += 1;
+      })
       .addCase(createCircuit.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateCircuitStatus ────────────────────────────────────────────────
+    builder
       .addCase(updateCircuitStatus.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateCircuitStatus.fulfilled,
-        (state, action: PayloadAction<Circuit>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.circuits.findIndex(
-            (c) => c.id === action.payload.id
-          );
-          if (index !== -1) state.circuits[index] = action.payload;
-          if (state.selectedCircuit?.id === action.payload.id)
-            state.selectedCircuit = action.payload;
+      .addCase(updateCircuitStatus.fulfilled, (state, action: PayloadAction<Circuit>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.circuits.findIndex((c) => c.id === action.payload.id);
+        if (index !== -1) state.circuits[index] = action.payload;
+        if (state.selectedCircuit?.id === action.payload.id) {
+          state.selectedCircuit = action.payload;
         }
-      )
+      })
       .addCase(updateCircuitStatus.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateCircuit ──────────────────────────────────────────────────────
+    builder
       .addCase(updateCircuit.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateCircuit.fulfilled,
-        (state, action: PayloadAction<Circuit>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.circuits.findIndex(
-            (c) => c.id === action.payload.id
-          );
-          if (index !== -1) state.circuits[index] = action.payload;
-          if (state.selectedCircuit?.id === action.payload.id)
-            state.selectedCircuit = action.payload;
+      .addCase(updateCircuit.fulfilled, (state, action: PayloadAction<Circuit>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.circuits.findIndex((c) => c.id === action.payload.id);
+        if (index !== -1) state.circuits[index] = action.payload;
+        if (state.selectedCircuit?.id === action.payload.id) {
+          state.selectedCircuit = action.payload;
         }
-      )
+      })
       .addCase(updateCircuit.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateCircuitDSADetails ────────────────────────────────────────────
+    builder
       .addCase(updateCircuitDSADetails.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateCircuitDSADetails.fulfilled,
-        (state, action: PayloadAction<Circuit>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.circuits.findIndex(
-            (c) => c.id === action.payload.id
-          );
-          if (index !== -1) state.circuits[index] = action.payload;
-          if (state.selectedCircuit?.id === action.payload.id)
-            state.selectedCircuit = action.payload;
+      .addCase(updateCircuitDSADetails.fulfilled, (state, action: PayloadAction<Circuit>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.circuits.findIndex((c) => c.id === action.payload.id);
+        if (index !== -1) state.circuits[index] = action.payload;
+        if (state.selectedCircuit?.id === action.payload.id) {
+          state.selectedCircuit = action.payload;
         }
-      )
+      })
       .addCase(updateCircuitDSADetails.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── deleteCircuit ──────────────────────────────────────────────────────
+    builder
       .addCase(deleteCircuit.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
       })
-      .addCase(
-        deleteCircuit.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          state.circuits = state.circuits.filter(
-            (c) => c.id !== action.payload
-          );
-          if (state.selectedCircuit?.id === action.payload)
-            state.selectedCircuit = null;
-          if (state.stats) state.stats.total_records -= 1;
+      .addCase(deleteCircuit.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.circuits = state.circuits.filter((c) => c.id !== action.payload);
+        if (state.selectedCircuit?.id === action.payload) {
+          state.selectedCircuit = null;
         }
-      )
+        if (state.stats) state.stats.total_records -= 1;
+      })
       .addCase(deleteCircuit.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
       });
 
-    /* ──────── OTHER PAYMENTS ───────────────────────────────────────────── */
+    // ─── fetchOtherPayments ─────────────────────────────────────────────────
     builder
       .addCase(fetchOtherPayments.pending, (state) => {
         state.loading.otherPayments = true;
         state.error = null;
       })
-      .addCase(
-        fetchOtherPayments.fulfilled,
-        (state, action: PayloadAction<OtherPayment[]>) => {
-          state.loading.otherPayments = false;
-          state.otherPayments = action.payload;
-          state.pagination.otherPayments.total = action.payload.length;
-        }
-      )
+      .addCase(fetchOtherPayments.fulfilled, (state, action: PayloadAction<OtherPayment[]>) => {
+        state.loading.otherPayments = false;
+        state.otherPayments = action.payload;
+        state.pagination.otherPayments.total = action.payload.length;
+      })
       .addCase(fetchOtherPayments.rejected, (state, action) => {
         state.loading.otherPayments = false;
         state.error = action.payload as string;
-      })
+      });
+
+    // ─── createOtherPayment ─────────────────────────────────────────────────
+    builder
       .addCase(createOtherPayment.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        createOtherPayment.fulfilled,
-        (state, action: PayloadAction<OtherPayment>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.otherPayments = [action.payload, ...state.otherPayments];
-          if (state.stats) state.stats.total_records += 1;
-        }
-      )
+      .addCase(createOtherPayment.fulfilled, (state, action: PayloadAction<OtherPayment>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.otherPayments = [action.payload, ...state.otherPayments];
+        if (state.stats) state.stats.total_records += 1;
+      })
       .addCase(createOtherPayment.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateOtherPaymentStatus ──────────────────────────────────────────
+    builder
       .addCase(updateOtherPaymentStatus.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateOtherPaymentStatus.fulfilled,
-        (state, action: PayloadAction<OtherPayment>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.otherPayments.findIndex(
-            (p) => p.id === action.payload.id
-          );
-          if (index !== -1) state.otherPayments[index] = action.payload;
-          if (state.selectedOtherPayment?.id === action.payload.id)
-            state.selectedOtherPayment = action.payload;
+      .addCase(updateOtherPaymentStatus.fulfilled, (state, action: PayloadAction<OtherPayment>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.otherPayments.findIndex((p) => p.id === action.payload.id);
+        if (index !== -1) state.otherPayments[index] = action.payload;
+        if (state.selectedOtherPayment?.id === action.payload.id) {
+          state.selectedOtherPayment = action.payload;
         }
-      )
+      })
       .addCase(updateOtherPaymentStatus.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateOtherPaymentDSADetails ──────────────────────────────────────
+    builder
       .addCase(updateOtherPaymentDSADetails.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateOtherPaymentDSADetails.fulfilled,
-        (state, action: PayloadAction<OtherPayment>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.otherPayments.findIndex(
-            (p) => p.id === action.payload.id
-          );
-          if (index !== -1) state.otherPayments[index] = action.payload;
-          if (state.selectedOtherPayment?.id === action.payload.id)
-            state.selectedOtherPayment = action.payload;
+      .addCase(updateOtherPaymentDSADetails.fulfilled, (state, action: PayloadAction<OtherPayment>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.otherPayments.findIndex((p) => p.id === action.payload.id);
+        if (index !== -1) state.otherPayments[index] = action.payload;
+        if (state.selectedOtherPayment?.id === action.payload.id) {
+          state.selectedOtherPayment = action.payload;
         }
-      )
+      })
       .addCase(updateOtherPaymentDSADetails.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateOtherPayment ─────────────────────────────────────────────────
+    builder
       .addCase(updateOtherPayment.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateOtherPayment.fulfilled,
-        (state, action: PayloadAction<OtherPayment>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.otherPayments.findIndex(
-            (p) => p.id === action.payload.id
-          );
-          if (index !== -1) state.otherPayments[index] = action.payload;
-          if (state.selectedOtherPayment?.id === action.payload.id)
-            state.selectedOtherPayment = action.payload;
+      .addCase(updateOtherPayment.fulfilled, (state, action: PayloadAction<OtherPayment>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.otherPayments.findIndex((p) => p.id === action.payload.id);
+        if (index !== -1) state.otherPayments[index] = action.payload;
+        if (state.selectedOtherPayment?.id === action.payload.id) {
+          state.selectedOtherPayment = action.payload;
         }
-      )
+      })
       .addCase(updateOtherPayment.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── deleteOtherPayment ─────────────────────────────────────────────────
+    builder
       .addCase(deleteOtherPayment.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
       })
-      .addCase(
-        deleteOtherPayment.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          state.otherPayments = state.otherPayments.filter(
-            (p) => p.id !== action.payload
-          );
-          if (state.selectedOtherPayment?.id === action.payload)
-            state.selectedOtherPayment = null;
-          if (state.stats) state.stats.total_records -= 1;
+      .addCase(deleteOtherPayment.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.otherPayments = state.otherPayments.filter((p) => p.id !== action.payload);
+        if (state.selectedOtherPayment?.id === action.payload) {
+          state.selectedOtherPayment = null;
         }
-      )
+        if (state.stats) state.stats.total_records -= 1;
+      })
       .addCase(deleteOtherPayment.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
       });
 
-    /* ──────── BENCHES ──────────────────────────────────────────────────── */
+    // ─── fetchBenches ──────────────────────────────────────────────────────
     builder
       .addCase(fetchBenches.pending, (state) => {
         state.loading.benches = true;
         state.error = null;
       })
-      .addCase(
-        fetchBenches.fulfilled,
-        (state, action: PayloadAction<SpecialBench[]>) => {
-          state.loading.benches = false;
-          state.benches = action.payload;
-          state.pagination.benches.total = action.payload.length;
-        }
-      )
+      .addCase(fetchBenches.fulfilled, (state, action: PayloadAction<SpecialBench[]>) => {
+        state.loading.benches = false;
+        state.benches = action.payload;
+        state.pagination.benches.total = action.payload.length;
+      })
       .addCase(fetchBenches.rejected, (state, action) => {
         state.loading.benches = false;
         state.error = action.payload as string;
-      })
+      });
+
+    // ─── createBench ──────────────────────────────────────────────────────
+    builder
       .addCase(createBench.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        createBench.fulfilled,
-        (state, action: PayloadAction<SpecialBench>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.benches = [action.payload, ...state.benches];
-          if (state.stats) state.stats.total_records += 1;
-        }
-      )
+      .addCase(createBench.fulfilled, (state, action: PayloadAction<SpecialBench>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.benches = [action.payload, ...state.benches];
+        if (state.stats) state.stats.total_records += 1;
+      })
       .addCase(createBench.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateBench ──────────────────────────────────────────────────────
+    builder
       .addCase(updateBench.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateBench.fulfilled,
-        (state, action: PayloadAction<SpecialBench>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.benches.findIndex(
-            (b) => b.id === action.payload.id
-          );
-          if (index !== -1) state.benches[index] = action.payload;
-          if (state.selectedBench?.id === action.payload.id)
-            state.selectedBench = action.payload;
+      .addCase(updateBench.fulfilled, (state, action: PayloadAction<SpecialBench>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.benches.findIndex((b) => b.id === action.payload.id);
+        if (index !== -1) state.benches[index] = action.payload;
+        if (state.selectedBench?.id === action.payload.id) {
+          state.selectedBench = action.payload;
         }
-      )
+      })
       .addCase(updateBench.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateBenchStatus ──────────────────────────────────────────────────
+    builder
       .addCase(updateBenchStatus.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateBenchStatus.fulfilled,
-        (state, action: PayloadAction<SpecialBench>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.benches.findIndex(
-            (b) => b.id === action.payload.id
-          );
-          if (index !== -1) state.benches[index] = action.payload;
-          if (state.selectedBench?.id === action.payload.id)
-            state.selectedBench = action.payload;
+      .addCase(updateBenchStatus.fulfilled, (state, action: PayloadAction<SpecialBench>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.benches.findIndex((b) => b.id === action.payload.id);
+        if (index !== -1) state.benches[index] = action.payload;
+        if (state.selectedBench?.id === action.payload.id) {
+          state.selectedBench = action.payload;
         }
-      )
+      })
       .addCase(updateBenchStatus.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── deleteBench ──────────────────────────────────────────────────────
+    builder
       .addCase(deleteBench.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
       })
-      .addCase(
-        deleteBench.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          state.benches = state.benches.filter((b) => b.id !== action.payload);
-          if (state.selectedBench?.id === action.payload)
-            state.selectedBench = null;
-          if (state.stats) state.stats.total_records -= 1;
+      .addCase(deleteBench.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.benches = state.benches.filter((b) => b.id !== action.payload);
+        if (state.selectedBench?.id === action.payload) {
+          state.selectedBench = null;
         }
-      )
+        if (state.stats) state.stats.total_records -= 1;
+      })
       .addCase(deleteBench.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
       });
 
-    /* ──────── PART-HEARDS ─────────────────────────────────────────────── */
+    // ─── fetchPartHeards ───────────────────────────────────────────────────
     builder
       .addCase(fetchPartHeards.pending, (state) => {
         state.loading.partHeards = true;
         state.error = null;
       })
-      .addCase(
-        fetchPartHeards.fulfilled,
-        (state, action: PayloadAction<PartHeard[]>) => {
-          state.loading.partHeards = false;
-          state.partHeards = action.payload;
-          state.pagination.partHeards.total = action.payload.length;
-        }
-      )
+      .addCase(fetchPartHeards.fulfilled, (state, action: PayloadAction<PartHeard[]>) => {
+        state.loading.partHeards = false;
+        state.partHeards = action.payload;
+        state.pagination.partHeards.total = action.payload.length;
+      })
       .addCase(fetchPartHeards.rejected, (state, action) => {
         state.loading.partHeards = false;
         state.error = action.payload as string;
-      })
+      });
+
+    // ─── createPartHeard ────────────────────────────────────────────────────
+    builder
       .addCase(createPartHeard.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        createPartHeard.fulfilled,
-        (state, action: PayloadAction<PartHeard>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.partHeards = [action.payload, ...state.partHeards];
-          if (state.stats) state.stats.total_records += 1;
-        }
-      )
+      .addCase(createPartHeard.fulfilled, (state, action: PayloadAction<PartHeard>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.partHeards = [action.payload, ...state.partHeards];
+        if (state.stats) state.stats.total_records += 1;
+      })
       .addCase(createPartHeard.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updatePartHeard ────────────────────────────────────────────────────
+    builder
       .addCase(updatePartHeard.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updatePartHeard.fulfilled,
-        (state, action: PayloadAction<PartHeard>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.partHeards.findIndex(
-            (p) => p.id === action.payload.id
-          );
-          if (index !== -1) state.partHeards[index] = action.payload;
-          if (state.selectedPartHeard?.id === action.payload.id)
-            state.selectedPartHeard = action.payload;
+      .addCase(updatePartHeard.fulfilled, (state, action: PayloadAction<PartHeard>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.partHeards.findIndex((p) => p.id === action.payload.id);
+        if (index !== -1) state.partHeards[index] = action.payload;
+        if (state.selectedPartHeard?.id === action.payload.id) {
+          state.selectedPartHeard = action.payload;
         }
-      )
+      })
       .addCase(updatePartHeard.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
-      .addCase(updatePartHeardStatus.pending, (state) => {
+      });
+
+    // ─── updatePartHeardStatus ──────────────────────────────────────────────
+    builder      .addCase(updatePartHeardStatus.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updatePartHeardStatus.fulfilled,
-        (state, action: PayloadAction<PartHeard>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.partHeards.findIndex(
-            (p) => p.id === action.payload.id
-          );
-          if (index !== -1) state.partHeards[index] = action.payload;
-          if (state.selectedPartHeard?.id === action.payload.id)
-            state.selectedPartHeard = action.payload;
+      .addCase(updatePartHeardStatus.fulfilled, (state, action: PayloadAction<PartHeard>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.partHeards.findIndex((p) => p.id === action.payload.id);
+        if (index !== -1) state.partHeards[index] = action.payload;
+        if (state.selectedPartHeard?.id === action.payload.id) {
+          state.selectedPartHeard = action.payload;
         }
-      )
+      })
       .addCase(updatePartHeardStatus.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── deletePartHeard ────────────────────────────────────────────────────
+    builder
       .addCase(deletePartHeard.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
       })
-      .addCase(
-        deletePartHeard.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          state.partHeards = state.partHeards.filter(
-            (p) => p.id !== action.payload
-          );
-          if (state.selectedPartHeard?.id === action.payload)
-            state.selectedPartHeard = null;
-          if (state.stats) state.stats.total_records -= 1;
+      .addCase(deletePartHeard.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.partHeards = state.partHeards.filter((p) => p.id !== action.payload);
+        if (state.selectedPartHeard?.id === action.payload) {
+          state.selectedPartHeard = null;
         }
-      )
+        if (state.stats) state.stats.total_records -= 1;
+      })
       .addCase(deletePartHeard.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
       });
 
-    /* ──────── SERVICE WEEKS ───────────────────────────────────────────── */
+    // ─── fetchServiceWeeks ──────────────────────────────────────────────────
     builder
       .addCase(fetchServiceWeeks.pending, (state) => {
         state.loading.serviceWeeks = true;
         state.error = null;
       })
-      .addCase(
-        fetchServiceWeeks.fulfilled,
-        (state, action: PayloadAction<ServiceWeek[]>) => {
-          state.loading.serviceWeeks = false;
-          state.serviceWeeks = action.payload;
-          state.pagination.serviceWeeks.total = action.payload.length;
-        }
-      )
+      .addCase(fetchServiceWeeks.fulfilled, (state, action: PayloadAction<ServiceWeek[]>) => {
+        state.loading.serviceWeeks = false;
+        state.serviceWeeks = action.payload;
+        state.pagination.serviceWeeks.total = action.payload.length;
+      })
       .addCase(fetchServiceWeeks.rejected, (state, action) => {
         state.loading.serviceWeeks = false;
         state.error = action.payload as string;
-      })
+      });
+
+    // ─── createServiceWeek ──────────────────────────────────────────────────
+    builder
       .addCase(createServiceWeek.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        createServiceWeek.fulfilled,
-        (state, action: PayloadAction<ServiceWeek>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.serviceWeeks = [action.payload, ...state.serviceWeeks];
-          if (state.stats) state.stats.total_records += 1;
-        }
-      )
+      .addCase(createServiceWeek.fulfilled, (state, action: PayloadAction<ServiceWeek>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.serviceWeeks = [action.payload, ...state.serviceWeeks];
+        if (state.stats) state.stats.total_records += 1;
+      })
       .addCase(createServiceWeek.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateServiceWeekStatus ────────────────────────────────────────────
+    builder
       .addCase(updateServiceWeekStatus.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateServiceWeekStatus.fulfilled,
-        (state, action: PayloadAction<ServiceWeek>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.serviceWeeks.findIndex(
-            (w) => w.id === action.payload.id
-          );
-          if (index !== -1) state.serviceWeeks[index] = action.payload;
-          if (state.selectedServiceWeek?.id === action.payload.id)
-            state.selectedServiceWeek = action.payload;
+      .addCase(updateServiceWeekStatus.fulfilled, (state, action: PayloadAction<ServiceWeek>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.serviceWeeks.findIndex((w) => w.id === action.payload.id);
+        if (index !== -1) state.serviceWeeks[index] = action.payload;
+        if (state.selectedServiceWeek?.id === action.payload.id) {
+          state.selectedServiceWeek = action.payload;
         }
-      )
+      })
       .addCase(updateServiceWeekStatus.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateServiceWeek ──────────────────────────────────────────────────
+    builder
       .addCase(updateServiceWeek.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateServiceWeek.fulfilled,
-        (state, action: PayloadAction<ServiceWeek>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.serviceWeeks.findIndex(
-            (w) => w.id === action.payload.id
-          );
-          if (index !== -1) state.serviceWeeks[index] = action.payload;
-          if (state.selectedServiceWeek?.id === action.payload.id)
-            state.selectedServiceWeek = action.payload;
+      .addCase(updateServiceWeek.fulfilled, (state, action: PayloadAction<ServiceWeek>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.serviceWeeks.findIndex((w) => w.id === action.payload.id);
+        if (index !== -1) state.serviceWeeks[index] = action.payload;
+        if (state.selectedServiceWeek?.id === action.payload.id) {
+          state.selectedServiceWeek = action.payload;
         }
-      )
+      })
       .addCase(updateServiceWeek.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── deleteServiceWeek ──────────────────────────────────────────────────
+    builder
       .addCase(deleteServiceWeek.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
       })
-      .addCase(
-        deleteServiceWeek.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          state.serviceWeeks = state.serviceWeeks.filter(
-            (w) => w.id !== action.payload
-          );
-          if (state.selectedServiceWeek?.id === action.payload)
-            state.selectedServiceWeek = null;
-          if (state.stats) state.stats.total_records -= 1;
+      .addCase(deleteServiceWeek.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.serviceWeeks = state.serviceWeeks.filter((w) => w.id !== action.payload);
+        if (state.selectedServiceWeek?.id === action.payload) {
+          state.selectedServiceWeek = null;
         }
-      )
+        if (state.stats) state.stats.total_records -= 1;
+      })
       .addCase(deleteServiceWeek.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
       });
 
-    /* ──────── MEDICAL CLAIMS ───────────────────────────────────────────── */
+    // ─── fetchMedicalClaims ─────────────────────────────────────────────────
     builder
       .addCase(fetchMedicalClaims.pending, (state) => {
         state.loading.medicalClaims = true;
         state.error = null;
       })
-      .addCase(
-        fetchMedicalClaims.fulfilled,
-        (state, action: PayloadAction<MedicalClaim[]>) => {
-          state.loading.medicalClaims = false;
-          state.medicalClaims = action.payload;
-          state.pagination.medicalClaims.total = action.payload.length;
-        }
-      )
+      .addCase(fetchMedicalClaims.fulfilled, (state, action: PayloadAction<MedicalClaim[]>) => {
+        state.loading.medicalClaims = false;
+        state.medicalClaims = action.payload;
+        state.pagination.medicalClaims.total = action.payload.length;
+      })
       .addCase(fetchMedicalClaims.rejected, (state, action) => {
         state.loading.medicalClaims = false;
         state.error = action.payload as string;
-      })
+      });
+
+    // ─── createMedicalClaim ─────────────────────────────────────────────────
+    builder
       .addCase(createMedicalClaim.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        createMedicalClaim.fulfilled,
-        (state, action: PayloadAction<MedicalClaim>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.medicalClaims = [action.payload, ...state.medicalClaims];
-          if (state.stats) state.stats.total_records += 1;
-        }
-      )
+      .addCase(createMedicalClaim.fulfilled, (state, action: PayloadAction<MedicalClaim>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.medicalClaims = [action.payload, ...state.medicalClaims];
+        if (state.stats) state.stats.total_records += 1;
+      })
       .addCase(createMedicalClaim.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateMedicalClaimStatus ──────────────────────────────────────────
+    builder
       .addCase(updateMedicalClaimStatus.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateMedicalClaimStatus.fulfilled,
-        (state, action: PayloadAction<MedicalClaim>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.medicalClaims.findIndex(
-            (c) => c.id === action.payload.id
-          );
-          if (index !== -1) state.medicalClaims[index] = action.payload;
-          if (state.selectedMedicalClaim?.id === action.payload.id)
-            state.selectedMedicalClaim = action.payload;
+      .addCase(updateMedicalClaimStatus.fulfilled, (state, action: PayloadAction<MedicalClaim>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.medicalClaims.findIndex((c) => c.id === action.payload.id);
+        if (index !== -1) state.medicalClaims[index] = action.payload;
+        if (state.selectedMedicalClaim?.id === action.payload.id) {
+          state.selectedMedicalClaim = action.payload;
         }
-      )
+      })
       .addCase(updateMedicalClaimStatus.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── deleteMedicalClaim ─────────────────────────────────────────────────
+    builder
       .addCase(deleteMedicalClaim.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
       })
-      .addCase(
-        deleteMedicalClaim.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          state.medicalClaims = state.medicalClaims.filter(
-            (c) => c.id !== action.payload
-          );
-          if (state.selectedMedicalClaim?.id === action.payload)
-            state.selectedMedicalClaim = null;
-          if (state.stats) state.stats.total_records -= 1;
+      .addCase(deleteMedicalClaim.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.medicalClaims = state.medicalClaims.filter((c) => c.id !== action.payload);
+        if (state.selectedMedicalClaim?.id === action.payload) {
+          state.selectedMedicalClaim = null;
         }
-      )
+        if (state.stats) state.stats.total_records -= 1;
+      })
       .addCase(deleteMedicalClaim.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
       });
 
-    /* ──────── VISA REQUESTS ───────────────────────────────────────────── */
+    // ─── fetchGeneralRequests ──────────────────────────────────────────────
+    builder
+      .addCase(fetchGeneralRequests.pending, (state) => {
+        state.loading.generalRequests = true;
+        state.error = null;
+      })
+      .addCase(fetchGeneralRequests.fulfilled, (state, action: PayloadAction<GeneralRequest[]>) => {
+        state.loading.generalRequests = false;
+        state.generalRequests = action.payload;
+        state.pagination.generalRequests.total = action.payload.length;
+      })
+      .addCase(fetchGeneralRequests.rejected, (state, action) => {
+        state.loading.generalRequests = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── createGeneralRequest ──────────────────────────────────────────────
+    builder
+      .addCase(createGeneralRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(createGeneralRequest.fulfilled, (state, action: PayloadAction<GeneralRequest>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.generalRequests = [action.payload, ...state.generalRequests];
+        if (state.stats) state.stats.total_records += 1;
+      })
+      .addCase(createGeneralRequest.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    // ─── updateGeneralRequest ──────────────────────────────────────────────
+    builder
+      .addCase(updateGeneralRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(updateGeneralRequest.fulfilled, (state, action: PayloadAction<GeneralRequest>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.generalRequests.findIndex((r) => r.id === action.payload.id);
+        if (index !== -1) state.generalRequests[index] = action.payload;
+        if (state.selectedGeneralRequest?.id === action.payload.id) {
+          state.selectedGeneralRequest = action.payload;
+        }
+      })
+      .addCase(updateGeneralRequest.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    // ─── updateGeneralRequestStatus ────────────────────────────────────────
+    builder
+      .addCase(updateGeneralRequestStatus.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(updateGeneralRequestStatus.fulfilled, (state, action: PayloadAction<GeneralRequest>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.generalRequests.findIndex((r) => r.id === action.payload.id);
+        if (index !== -1) state.generalRequests[index] = action.payload;
+        if (state.selectedGeneralRequest?.id === action.payload.id) {
+          state.selectedGeneralRequest = action.payload;
+        }
+      })
+      .addCase(updateGeneralRequestStatus.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    // ─── deleteGeneralRequest ──────────────────────────────────────────────
+    builder
+      .addCase(deleteGeneralRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+      })
+      .addCase(deleteGeneralRequest.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.generalRequests = state.generalRequests.filter((r) => r.id !== action.payload);
+        if (state.selectedGeneralRequest?.id === action.payload) {
+          state.selectedGeneralRequest = null;
+        }
+        if (state.stats) state.stats.total_records -= 1;
+      })
+      .addCase(deleteGeneralRequest.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── fetchVisaRequests ──────────────────────────────────────────────────
     builder
       .addCase(fetchVisaRequests.pending, (state) => {
         state.loading.visa = true;
         state.error = null;
       })
-      .addCase(
-        fetchVisaRequests.fulfilled,
-        (state, action: PayloadAction<VisaRequest[]>) => {
-          state.loading.visa = false;
-          state.visaRequests = action.payload;
-          state.pagination.visa.total = action.payload.length;
-        }
-      )
+      .addCase(fetchVisaRequests.fulfilled, (state, action: PayloadAction<VisaRequest[]>) => {
+        state.loading.visa = false;
+        state.visaRequests = action.payload;
+        state.pagination.visa.total = action.payload.length;
+      })
       .addCase(fetchVisaRequests.rejected, (state, action) => {
         state.loading.visa = false;
         state.error = action.payload as string;
-      })
+      });
+
+    // ─── createVisaRequest ──────────────────────────────────────────────────
+    builder
       .addCase(createVisaRequest.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        createVisaRequest.fulfilled,
-        (state, action: PayloadAction<VisaRequest>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.visaRequests = [action.payload, ...state.visaRequests];
-          if (state.stats) {
-            state.stats.total_records += 1;
-            if (action.payload.status === "Active") state.stats.visa_active += 1;
-          }
-        }
-      )
+      .addCase(createVisaRequest.fulfilled, (state, action: PayloadAction<VisaRequest>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.visaRequests = [action.payload, ...state.visaRequests];
+        if (state.stats) state.stats.total_records += 1;
+      })
       .addCase(createVisaRequest.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateVisaStatus ──────────────────────────────────────────────────
+    builder
       .addCase(updateVisaStatus.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateVisaStatus.fulfilled,
-        (state, action: PayloadAction<VisaRequest>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.visaRequests.findIndex(
-            (v) => v.id === action.payload.id
-          );
-          if (index !== -1) state.visaRequests[index] = action.payload;
-          if (state.selectedVisaRequest?.id === action.payload.id)
-            state.selectedVisaRequest = action.payload;
+      .addCase(updateVisaStatus.fulfilled, (state, action: PayloadAction<VisaRequest>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.visaRequests.findIndex((v) => v.id === action.payload.id);
+        if (index !== -1) state.visaRequests[index] = action.payload;
+        if (state.selectedVisaRequest?.id === action.payload.id) {
+          state.selectedVisaRequest = action.payload;
         }
-      )
+      })
       .addCase(updateVisaStatus.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── deleteVisaRequest ──────────────────────────────────────────────────
+    builder
       .addCase(deleteVisaRequest.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
       })
-      .addCase(
-        deleteVisaRequest.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          const deleted = state.visaRequests.find(
-            (v) => v.id === action.payload
-          );
-          state.visaRequests = state.visaRequests.filter(
-            (v) => v.id !== action.payload
-          );
-          if (state.selectedVisaRequest?.id === action.payload)
-            state.selectedVisaRequest = null;
-          if (state.stats && deleted?.status === "Active")
-            state.stats.visa_active -= 1;
-          if (state.stats) state.stats.total_records -= 1;
+      .addCase(deleteVisaRequest.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.visaRequests = state.visaRequests.filter((v) => v.id !== action.payload);
+        if (state.selectedVisaRequest?.id === action.payload) {
+          state.selectedVisaRequest = null;
         }
-      )
+        if (state.stats) state.stats.total_records -= 1;
+      })
       .addCase(deleteVisaRequest.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
       });
 
-    /* ──────── PROTOCOL EVENTS (UPDATED with venue) ───────────────────── */
+    // ─── markDocumentViewed ─────────────────────────────────────────────────
+    builder
+  .addCase(markDocumentViewed.pending, (state) => {
+    state.loading.documentTracking = true;
+    state.error = null;
+  })
+  .addCase(markDocumentViewed.fulfilled, (state) => {
+    state.loading.documentTracking = false;
+    state.success = true;
+    // The actual view count update is handled by the backend
+    // We just mark it as successful
+  })
+  .addCase(markDocumentViewed.rejected, (state, action) => {
+    state.loading.documentTracking = false;
+    state.error = action.payload as string;
+    state.success = false;
+  });
+
+    // ─── fetchDocumentViewStatus ────────────────────────────────────────────
+    builder
+      .addCase(fetchDocumentViewStatus.pending, (state) => {
+        state.loading.documentTracking = true;
+        state.error = null;
+      })
+      .addCase(fetchDocumentViewStatus.fulfilled, (state, action: PayloadAction<DocumentWithViewStatus>) => {
+        state.loading.documentTracking = false;
+        state.documentViewStatus = action.payload;
+      })
+      .addCase(fetchDocumentViewStatus.rejected, (state, action) => {
+        state.loading.documentTracking = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── fetchProtocolEvents ────────────────────────────────────────────────
     builder
       .addCase(fetchProtocolEvents.pending, (state) => {
         state.loading.protocol = true;
         state.error = null;
       })
-      .addCase(
-        fetchProtocolEvents.fulfilled,
-        (state, action: PayloadAction<ProtocolEvent[]>) => {
-          state.loading.protocol = false;
-          state.protocolEvents = action.payload;
-          state.pagination.protocol.total = action.payload.length;
-        }
-      )
+      .addCase(fetchProtocolEvents.fulfilled, (state, action: PayloadAction<ProtocolEvent[]>) => {
+        state.loading.protocol = false;
+        state.protocolEvents = action.payload;
+        state.pagination.protocol.total = action.payload.length;
+      })
       .addCase(fetchProtocolEvents.rejected, (state, action) => {
         state.loading.protocol = false;
         state.error = action.payload as string;
-      })
+      });
+
+    // ─── createProtocolEvent ────────────────────────────────────────────────
+    builder
       .addCase(createProtocolEvent.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        createProtocolEvent.fulfilled,
-        (state, action: PayloadAction<ProtocolEvent>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          state.protocolEvents = [action.payload, ...state.protocolEvents];
-          if (state.stats) state.stats.total_records += 1;
-        }
-      )
+      .addCase(createProtocolEvent.fulfilled, (state, action: PayloadAction<ProtocolEvent>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.protocolEvents = [action.payload, ...state.protocolEvents];
+        if (state.stats) state.stats.total_records += 1;
+      })
       .addCase(createProtocolEvent.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── updateProtocolStatus ──────────────────────────────────────────────
+    builder
       .addCase(updateProtocolStatus.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
         state.success = false;
       })
-      .addCase(
-        updateProtocolStatus.fulfilled,
-        (state, action: PayloadAction<ProtocolEvent>) => {
-          state.loading.mutating = false;
-          state.success = true;
-          const index = state.protocolEvents.findIndex(
-            (p) => p.id === action.payload.id
-          );
-          if (index !== -1) state.protocolEvents[index] = action.payload;
-          if (state.selectedProtocolEvent?.id === action.payload.id)
-            state.selectedProtocolEvent = action.payload;
+      .addCase(updateProtocolStatus.fulfilled, (state, action: PayloadAction<ProtocolEvent>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.protocolEvents.findIndex((p) => p.id === action.payload.id);
+        if (index !== -1) state.protocolEvents[index] = action.payload;
+        if (state.selectedProtocolEvent?.id === action.payload.id) {
+          state.selectedProtocolEvent = action.payload;
         }
-      )
+      })
       .addCase(updateProtocolStatus.rejected, (state, action) => {
         state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
-      })
+      });
+
+    // ─── deleteProtocolEvent ──────────────────────────────────────────────
+    builder
       .addCase(deleteProtocolEvent.pending, (state) => {
         state.loading.mutating = true;
         state.error = null;
       })
-      .addCase(
-        deleteProtocolEvent.fulfilled,
-        (state, action: PayloadAction<string>) => {
-          state.loading.mutating = false;
-          const deleted = state.protocolEvents.find(
-            (p) => p.id === action.payload
-          );
-          state.protocolEvents = state.protocolEvents.filter(
-            (p) => p.id !== action.payload
-          );
-          if (state.selectedProtocolEvent?.id === action.payload)
-            state.selectedProtocolEvent = null;
-          if (state.stats && deleted?.status === "Pending")
-            state.stats.protocol_pending -= 1;
-          if (state.stats) state.stats.total_records -= 1;
+      .addCase(deleteProtocolEvent.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.protocolEvents = state.protocolEvents.filter((p) => p.id !== action.payload);
+        if (state.selectedProtocolEvent?.id === action.payload) {
+          state.selectedProtocolEvent = null;
         }
-      )
+        if (state.stats) state.stats.total_records -= 1;
+      })
       .addCase(deleteProtocolEvent.rejected, (state, action) => {
         state.loading.mutating = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── fetchSecurityRequests ──────────────────────────────────────────────
+    builder
+      .addCase(fetchSecurityRequests.pending, (state) => {
+        state.loading.security = true;
+        state.error = null;
+      })
+      .addCase(fetchSecurityRequests.fulfilled, (state, action: PayloadAction<SecurityRequest[]>) => {
+        state.loading.security = false;
+        state.securityRequests = action.payload;
+        state.pagination.security.total = action.payload.length;
+      })
+      .addCase(fetchSecurityRequests.rejected, (state, action) => {
+        state.loading.security = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── createSecurityRequest ──────────────────────────────────────────────
+    builder
+      .addCase(createSecurityRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(createSecurityRequest.fulfilled, (state, action: PayloadAction<SecurityRequest>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.securityRequests = [action.payload, ...state.securityRequests];
+        if (state.stats) state.stats.total_records += 1;
+      })
+      .addCase(createSecurityRequest.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    // ─── updateSecurityRequest ──────────────────────────────────────────────
+    builder
+      .addCase(updateSecurityRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(updateSecurityRequest.fulfilled, (state, action: PayloadAction<SecurityRequest>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.securityRequests.findIndex((r) => r.id === action.payload.id);
+        if (index !== -1) state.securityRequests[index] = action.payload;
+        if (state.selectedSecurityRequest?.id === action.payload.id) {
+          state.selectedSecurityRequest = action.payload;
+        }
+      })
+      .addCase(updateSecurityRequest.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    // ─── updateSecurityRequestStatus ──────────────────────────────────────
+    builder
+      .addCase(updateSecurityRequestStatus.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(updateSecurityRequestStatus.fulfilled, (state, action: PayloadAction<SecurityRequest>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.securityRequests.findIndex((r) => r.id === action.payload.id);
+        if (index !== -1) state.securityRequests[index] = action.payload;
+        if (state.selectedSecurityRequest?.id === action.payload.id) {
+          state.selectedSecurityRequest = action.payload;
+        }
+      })
+      .addCase(updateSecurityRequestStatus.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    // ─── deleteSecurityRequest ──────────────────────────────────────────────
+    builder
+      .addCase(deleteSecurityRequest.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+      })
+      .addCase(deleteSecurityRequest.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.securityRequests = state.securityRequests.filter((r) => r.id !== action.payload);
+        if (state.selectedSecurityRequest?.id === action.payload) {
+          state.selectedSecurityRequest = null;
+        }
+        if (state.stats) state.stats.total_records -= 1;
+      })
+      .addCase(deleteSecurityRequest.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── fetchTickets ────────────────────────────────────────────────────────
+    builder
+      .addCase(fetchTickets.pending, (state) => {
+        state.loading.tickets = true;
+        state.error = null;
+      })
+      .addCase(fetchTickets.fulfilled, (state, action: PayloadAction<Ticket[]>) => {
+        state.loading.tickets = false;
+        state.tickets = action.payload;
+        state.pagination.tickets.total = action.payload.length;
+      })
+      .addCase(fetchTickets.rejected, (state, action) => {
+        state.loading.tickets = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── createTicket ──────────────────────────────────────────────────────
+    builder
+      .addCase(createTicket.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(createTicket.fulfilled, (state, action: PayloadAction<Ticket>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.tickets = [action.payload, ...state.tickets];
+        if (state.stats) state.stats.total_records += 1;
+      })
+      .addCase(createTicket.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    // ─── updateTicket ──────────────────────────────────────────────────────
+    builder
+      .addCase(updateTicket.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+        state.success = false;
+      })
+      .addCase(updateTicket.fulfilled, (state, action: PayloadAction<Ticket>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.tickets.findIndex((t) => t.id === action.payload.id);
+        if (index !== -1) state.tickets[index] = action.payload;
+        if (state.selectedTicket?.id === action.payload.id) {
+          state.selectedTicket = action.payload;
+        }
+      })
+      .addCase(updateTicket.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    // ─── deleteTicket ──────────────────────────────────────────────────────
+    builder
+      .addCase(deleteTicket.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+      })
+      .addCase(deleteTicket.fulfilled, (state, action: PayloadAction<string>) => {
+        state.loading.mutating = false;
+        state.tickets = state.tickets.filter((t) => t.id !== action.payload);
+        if (state.selectedTicket?.id === action.payload) {
+          state.selectedTicket = null;
+        }
+        if (state.stats) state.stats.total_records -= 1;
+      })
+      .addCase(deleteTicket.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── fetchDSAReport ──────────────────────────────────────────────────────
+    builder
+      .addCase(fetchDSAReport.pending, (state) => {
+        state.loading.reports = true;
+        state.error = null;
+      })
+      .addCase(fetchDSAReport.fulfilled, (state, action: PayloadAction<DSAReportRow[]>) => {
+        state.loading.reports = false;
+        state.dsaReport = action.payload;
+        state.pagination.reports.total = action.payload.length;
+      })
+      .addCase(fetchDSAReport.rejected, (state, action) => {
+        state.loading.reports = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── fetchGeneralRequestStats ────────────────────────────────────────────
+    builder
+      .addCase(fetchGeneralRequestStats.pending, (state) => {
+        state.loading.generalRequests = true;
+        state.error = null;
+      })
+      .addCase(fetchGeneralRequestStats.fulfilled, (state) => {
+        state.loading.generalRequests = false;
+        // The stats are not stored in state, but the component uses selectGeneralRequestStats selector
+      })
+      .addCase(fetchGeneralRequestStats.rejected, (state, action) => {
+        state.loading.generalRequests = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── fetchSecurityRequestStats ──────────────────────────────────────────
+    builder
+      .addCase(fetchSecurityRequestStats.pending, (state) => {
+        state.loading.security = true;
+        state.error = null;
+      })
+      .addCase(fetchSecurityRequestStats.fulfilled, (state) => {
+        state.loading.security = false;
+        // The stats are not stored in state, but the component uses selectSecurityRequestStats selector
+      })
+      .addCase(fetchSecurityRequestStats.rejected, (state, action) => {
+        state.loading.security = false;
         state.error = action.payload as string;
       });
   },
@@ -4170,281 +3806,166 @@ export const {
 ============================================================ */
 
 // ─── All Data ──────────────────────────────────────────────────────────────
-export const selectAllUtilities = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.utilities;
-export const selectAllClubMemberships = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.clubMemberships;
-export const selectAllCircuits = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.circuits;
-export const selectAllOtherPayments = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.otherPayments;
-export const selectAllBenches = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.benches;
-export const selectAllPartHeards = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.partHeards;
-export const selectAllServiceWeeks = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.serviceWeeks;
-export const selectAllMedicalClaims = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.medicalClaims;
-export const selectAllGeneralRequests = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.generalRequests;
-export const selectAllVisaRequests = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.visaRequests;
-export const selectAllProtocolEvents = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.protocolEvents;
-export const selectAllSecurityRequests = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.securityRequests;
-export const selectAllTickets = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.tickets;
-export const selectHelpDeskAudit = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.auditLog;
-export const selectHelpDeskStats = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.stats;
+export const selectAllUtilities = (state: { helpdesk: HelpDeskState }) => state.helpdesk.utilities;
+export const selectAllClubMemberships = (state: { helpdesk: HelpDeskState }) => state.helpdesk.clubMemberships;
+export const selectAllCircuits = (state: { helpdesk: HelpDeskState }) => state.helpdesk.circuits;
+export const selectAllOtherPayments = (state: { helpdesk: HelpDeskState }) => state.helpdesk.otherPayments;
+export const selectAllBenches = (state: { helpdesk: HelpDeskState }) => state.helpdesk.benches;
+export const selectAllPartHeards = (state: { helpdesk: HelpDeskState }) => state.helpdesk.partHeards;
+export const selectAllServiceWeeks = (state: { helpdesk: HelpDeskState }) => state.helpdesk.serviceWeeks;
+export const selectAllMedicalClaims = (state: { helpdesk: HelpDeskState }) => state.helpdesk.medicalClaims;
+export const selectAllGeneralRequests = (state: { helpdesk: HelpDeskState }) => state.helpdesk.generalRequests;
+export const selectAllVisaRequests = (state: { helpdesk: HelpDeskState }) => state.helpdesk.visaRequests;
+export const selectAllProtocolEvents = (state: { helpdesk: HelpDeskState }) => state.helpdesk.protocolEvents;
+export const selectAllSecurityRequests = (state: { helpdesk: HelpDeskState }) => state.helpdesk.securityRequests;
+export const selectAllTickets = (state: { helpdesk: HelpDeskState }) => state.helpdesk.tickets;
+export const selectHelpDeskAudit = (state: { helpdesk: HelpDeskState }) => state.helpdesk.auditLog;
+export const selectHelpDeskStats = (state: { helpdesk: HelpDeskState }) => state.helpdesk.stats;
 
 // ─── Reports ────────────────────────────────────────────────────────────────
-export const selectDSAReport = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.dsaReport;
-export const selectDSAReportFilters = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.dsaReportFilters;
-export const selectDSAReportLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.reports;
+export const selectDSAReport = (state: { helpdesk: HelpDeskState }) => state.helpdesk.dsaReport;
+export const selectDSAReportFilters = (state: { helpdesk: HelpDeskState }) => state.helpdesk.dsaReportFilters;
+export const selectDSAReportLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.reports;
 
 // ─── Selected Items ────────────────────────────────────────────────────────
-export const selectSelectedUtility = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.selectedUtility;
-export const selectSelectedClubMembership = (state: {
-  helpdesk: HelpDeskState;
-}) => state.helpdesk.selectedClubMembership;
-export const selectSelectedCircuit = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.selectedCircuit;
-export const selectSelectedOtherPayment = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.selectedOtherPayment;
-export const selectSelectedBench = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.selectedBench;
-export const selectSelectedPartHeard = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.selectedPartHeard;
-export const selectSelectedServiceWeek = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.selectedServiceWeek;
-export const selectSelectedMedicalClaim = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.selectedMedicalClaim;
-export const selectSelectedGeneralRequest = (state: {
-  helpdesk: HelpDeskState;
-}) => state.helpdesk.selectedGeneralRequest;
-export const selectSelectedVisaRequest = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.selectedVisaRequest;
-export const selectSelectedProtocolEvent = (state: {
-  helpdesk: HelpDeskState;
-}) => state.helpdesk.selectedProtocolEvent;
-export const selectSelectedSecurityRequest = (state: {
-  helpdesk: HelpDeskState;
-}) => state.helpdesk.selectedSecurityRequest;
-export const selectSelectedTicket = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.selectedTicket;
-export const selectDocumentViewStatus = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.documentViewStatus;
+export const selectSelectedUtility = (state: { helpdesk: HelpDeskState }) => state.helpdesk.selectedUtility;
+export const selectSelectedClubMembership = (state: { helpdesk: HelpDeskState }) => state.helpdesk.selectedClubMembership;
+export const selectSelectedCircuit = (state: { helpdesk: HelpDeskState }) => state.helpdesk.selectedCircuit;
+export const selectSelectedOtherPayment = (state: { helpdesk: HelpDeskState }) => state.helpdesk.selectedOtherPayment;
+export const selectSelectedBench = (state: { helpdesk: HelpDeskState }) => state.helpdesk.selectedBench;
+export const selectSelectedPartHeard = (state: { helpdesk: HelpDeskState }) => state.helpdesk.selectedPartHeard;
+export const selectSelectedServiceWeek = (state: { helpdesk: HelpDeskState }) => state.helpdesk.selectedServiceWeek;
+export const selectSelectedMedicalClaim = (state: { helpdesk: HelpDeskState }) => state.helpdesk.selectedMedicalClaim;
+export const selectSelectedGeneralRequest = (state: { helpdesk: HelpDeskState }) => state.helpdesk.selectedGeneralRequest;
+export const selectSelectedVisaRequest = (state: { helpdesk: HelpDeskState }) => state.helpdesk.selectedVisaRequest;
+export const selectSelectedProtocolEvent = (state: { helpdesk: HelpDeskState }) => state.helpdesk.selectedProtocolEvent;
+export const selectSelectedSecurityRequest = (state: { helpdesk: HelpDeskState }) => state.helpdesk.selectedSecurityRequest;
+export const selectSelectedTicket = (state: { helpdesk: HelpDeskState }) => state.helpdesk.selectedTicket;
+export const selectDocumentViewStatus = (state: { helpdesk: HelpDeskState }) => state.helpdesk.documentViewStatus;
 
 // ─── Filters & UI ──────────────────────────────────────────────────────────
-export const selectActiveTab = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.activeTab;
-export const selectHelpDeskFilters = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.filters;
-export const selectUtilityFilters = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.utilityFilters;
-export const selectTicketFilters = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.ticketFilters;
-export const selectHelpDeskSearch = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.searchQuery;
+export const selectActiveTab = (state: { helpdesk: HelpDeskState }) => state.helpdesk.activeTab;
+export const selectHelpDeskFilters = (state: { helpdesk: HelpDeskState }) => state.helpdesk.filters;
+export const selectUtilityFilters = (state: { helpdesk: HelpDeskState }) => state.helpdesk.utilityFilters;
+export const selectTicketFilters = (state: { helpdesk: HelpDeskState }) => state.helpdesk.ticketFilters;
+export const selectHelpDeskSearch = (state: { helpdesk: HelpDeskState }) => state.helpdesk.searchQuery;
 
 // ─── Loading States ────────────────────────────────────────────────────────
-export const selectUtilitiesLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.utilities;
-export const selectClubLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.club;
-export const selectCircuitsLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.circuits;
-export const selectOtherPaymentsLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.otherPayments;
-export const selectBenchesLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.benches;
-export const selectPartHeardsLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.partHeards;
-export const selectServiceWeeksLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.serviceWeeks;
-export const selectMedicalClaimsLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.medicalClaims;
-export const selectGeneralRequestsLoading = (state: {
-  helpdesk: HelpDeskState;
-}) => state.helpdesk.loading.generalRequests;
-export const selectVisaLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.visa;
-export const selectProtocolLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.protocol;
-export const selectSecurityLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.security;
-export const selectTicketsLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.tickets;
-export const selectAuditLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.audit;
-export const selectStatsLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.stats;
-export const selectHelpDeskMutating = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.mutating;
-export const selectDocumentTrackingLoading = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.loading.documentTracking;
+export const selectUtilitiesLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.utilities;
+export const selectClubLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.club;
+export const selectCircuitsLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.circuits;
+export const selectOtherPaymentsLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.otherPayments;
+export const selectBenchesLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.benches;
+export const selectPartHeardsLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.partHeards;
+export const selectServiceWeeksLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.serviceWeeks;
+export const selectMedicalClaimsLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.medicalClaims;
+export const selectGeneralRequestsLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.generalRequests;
+export const selectVisaLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.visa;
+export const selectProtocolLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.protocol;
+export const selectSecurityLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.security;
+export const selectTicketsLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.tickets;
+export const selectAuditLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.audit;
+export const selectStatsLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.stats;
+export const selectHelpDeskMutating = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.mutating;
+export const selectDocumentTrackingLoading = (state: { helpdesk: HelpDeskState }) => state.helpdesk.loading.documentTracking;
 
 // ─── Status ────────────────────────────────────────────────────────────────
-export const selectHelpDeskError = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.error;
-export const selectHelpDeskSuccess = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.success;
+export const selectHelpDeskError = (state: { helpdesk: HelpDeskState }) => state.helpdesk.error;
+export const selectHelpDeskSuccess = (state: { helpdesk: HelpDeskState }) => state.helpdesk.success;
 
 // ─── Pagination ────────────────────────────────────────────────────────────
-export const selectUtilitiesPagination = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.pagination.utilities;
-export const selectClubPagination = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.pagination.club;
-export const selectCircuitsPagination = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.pagination.circuits;
-export const selectOtherPaymentsPagination = (state: {
-  helpdesk: HelpDeskState;
-}) => state.helpdesk.pagination.otherPayments;
-export const selectBenchesPagination = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.pagination.benches;
-export const selectPartHeardsPagination = (state: {
-  helpdesk: HelpDeskState;
-}) => state.helpdesk.pagination.partHeards;
-export const selectServiceWeeksPagination = (state: {
-  helpdesk: HelpDeskState;
-}) => state.helpdesk.pagination.serviceWeeks;
-export const selectMedicalClaimsPagination = (state: {
-  helpdesk: HelpDeskState;
-}) => state.helpdesk.pagination.medicalClaims;
-export const selectGeneralRequestsPagination = (state: {
-  helpdesk: HelpDeskState;
-}) => state.helpdesk.pagination.generalRequests;
-export const selectVisaPagination = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.pagination.visa;
-export const selectProtocolPagination = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.pagination.protocol;
-export const selectSecurityPagination = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.pagination.security;
-export const selectTicketsPagination = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.pagination.tickets;
-export const selectReportsPagination = (state: { helpdesk: HelpDeskState }) =>
-  state.helpdesk.pagination.reports;
+export const selectUtilitiesPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.utilities;
+export const selectClubPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.club;
+export const selectCircuitsPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.circuits;
+export const selectOtherPaymentsPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.otherPayments;
+export const selectBenchesPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.benches;
+export const selectPartHeardsPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.partHeards;
+export const selectServiceWeeksPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.serviceWeeks;
+export const selectMedicalClaimsPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.medicalClaims;
+export const selectGeneralRequestsPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.generalRequests;
+export const selectVisaPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.visa;
+export const selectProtocolPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.protocol;
+export const selectSecurityPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.security;
+export const selectTicketsPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.tickets;
+export const selectReportsPagination = (state: { helpdesk: HelpDeskState }) => state.helpdesk.pagination.reports;
 
 // ─── Derived Selectors ──────────────────────────────────────────────────────
-
 export const selectAllUtilityItems = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.utilities.flatMap((u) => u.items.map((item) => ({ ...item, judge_name: u.judge_name })));
+
+export const selectUtilityItemsByStatus = (status: UtilityStatus) => (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.utilities.flatMap((u) =>
-    u.items.map((item) => ({ ...item, judge_name: u.judge_name })),
+    u.items.filter((item) => item.status === status).map((item) => ({ ...item, judge_name: u.judge_name }))
   );
 
-export const selectUtilityItemsByStatus =
-  (status: UtilityStatus) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.utilities.flatMap((u) =>
-      u.items
-        .filter((item) => item.status === status)
-        .map((item) => ({ ...item, judge_name: u.judge_name })),
-    );
+export const selectCircuitsByStatus = (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.circuits.filter((c) => c.status === status);
 
-export const selectCircuitsByStatus =
-  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.circuits.filter((c) => c.status === status);
+export const selectOtherPaymentsByStatus = (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.otherPayments.filter((p) => p.status === status);
 
-export const selectOtherPaymentsByStatus =
-  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.otherPayments.filter((p) => p.status === status);
+export const selectBenchesByStatus = (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.benches.filter((b) => b.status === status);
 
-export const selectBenchesByStatus =
-  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.benches.filter((b) => b.status === status);
+export const selectPartHeardsByStatus = (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.partHeards.filter((p) => p.status === status);
 
-export const selectPartHeardsByStatus =
-  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.partHeards.filter((p) => p.status === status);
+export const selectMedicalClaimsByStatus = (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.medicalClaims.filter((c) => c.status === status);
 
-export const selectMedicalClaimsByStatus =
-  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.medicalClaims.filter((c) => c.status === status);
+export const selectGeneralRequestsByStatus = (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.generalRequests.filter((r) => r.status === status);
 
-export const selectGeneralRequestsByStatus =
-  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.generalRequests.filter((r) => r.status === status);
+export const selectGeneralRequestsByType = (requestType: RequestType) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.generalRequests.filter((r) => r.request_type === requestType);
 
-export const selectGeneralRequestsByType =
-  (requestType: RequestType) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.generalRequests.filter((r) => r.request_type === requestType);
+export const selectGeneralRequestsByRemarkType = (remarkType: RemarkType) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.generalRequests.filter((r) => r.remark_type === remarkType);
 
-export const selectGeneralRequestsByRemarkType =
-  (remarkType: RemarkType) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.generalRequests.filter((r) => r.remark_type === remarkType);
-
-export const selectGeneralRequestsByCategory =
-  (category: GeneralRequestCategory) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.generalRequests.filter((r) => r.category === category);
+export const selectGeneralRequestsByCategory = (category: GeneralRequestCategory) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.generalRequests.filter((r) => r.category === category);
 
 // ─── Legacy Security Request Selectors ────────────────────────────────────
+export const selectSecurityRequestsByStatus = (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.securityRequests.filter((r) => r.status === status);
 
-export const selectSecurityRequestsByStatus =
-  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.securityRequests.filter((r) => r.status === status);
+export const selectSecurityRequestsByType = (requestType: RequestType) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.securityRequests.filter((r) => r.request_type === requestType);
 
-export const selectSecurityRequestsByType =
-  (requestType: RequestType) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.securityRequests.filter((r) => r.request_type === requestType);
-
-export const selectSecurityRequestsByRemarkType =
-  (remarkType: RemarkType) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.securityRequests.filter((r) => r.remark_type === remarkType);
+export const selectSecurityRequestsByRemarkType = (remarkType: RemarkType) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.securityRequests.filter((r) => r.remark_type === remarkType);
 
 // ─── Ticket Selectors ──────────────────────────────────────────────────────
+export const selectTicketsByStatus = (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.tickets.filter((t) => t.status === status);
 
-export const selectTicketsByStatus =
-  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.tickets.filter((t) => t.status === status);
+export const selectTicketsByType = (ticketType: "Bench" | "Part-Heard" | "General") => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.tickets.filter((t) => t.ticket_type === ticketType);
 
-export const selectTicketsByType =
-  (ticketType: "Bench" | "Part-Heard" | "General") =>
-  (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.tickets.filter((t) => t.ticket_type === ticketType);
-
-export const selectTicketsByReference =
-  (referenceId: string) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.tickets.filter((t) => t.reference_id === referenceId);
+export const selectTicketsByReference = (referenceId: string) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.tickets.filter((t) => t.reference_id === referenceId);
 
 // ─── Report Derived Selectors ──────────────────────────────────────────────
+export const selectDSAReportByModule = (module: ReportModule) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.dsaReport.filter((row) => row.module === module);
 
-export const selectDSAReportByModule =
-  (module: ReportModule) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.dsaReport.filter((row) => row.module === module);
-
-export const selectDSAReportByPaymentStatus =
-  (status: DSAPaymentStatus) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.dsaReport.filter((row) => row.payment_status === status);
+export const selectDSAReportByPaymentStatus = (status: DSAPaymentStatus) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.dsaReport.filter((row) => row.payment_status === status);
 
 export const selectDSAReportTotal = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.dsaReport.reduce((sum, row) => sum + row.total, 0);
 
-export const selectDSAReportByJudge =
-  (judgeName: string) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.dsaReport.filter(
-      (row) => row.judge_name.toLowerCase().includes(judgeName.toLowerCase()),
-    );
+export const selectDSAReportByJudge = (judgeName: string) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.dsaReport.filter((row) => row.judge_name.toLowerCase().includes(judgeName.toLowerCase()));
 
 // ─── Document Tracking Selectors ───────────────────────────────────────────
-
 export const selectDocumentViewCount = (documentId: string) => (state: { helpdesk: HelpDeskState }) => {
-  const doc = state.helpdesk.visaRequests
-    .flatMap(v => v.documents || [])
-    .find(d => d.id === documentId);
+  const doc = state.helpdesk.visaRequests.flatMap(v => v.documents || []).find(d => d.id === documentId);
   return doc?.view_count || 0;
 };
 
 export const selectDocumentViewedAt = (documentId: string) => (state: { helpdesk: HelpDeskState }) => {
-  const doc = state.helpdesk.visaRequests
-    .flatMap(v => v.documents || [])
-    .find(d => d.id === documentId);
+  const doc = state.helpdesk.visaRequests.flatMap(v => v.documents || []).find(d => d.id === documentId);
   return doc?.viewed_at || null;
 };
 
@@ -4452,22 +3973,14 @@ export const selectDocumentViewers = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.documentViewStatus?.viewers || [];
 
 // ─── Protocol Selectors with Venue ─────────────────────────────────────────
+export const selectProtocolEventsByStatus = (status: Status) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.protocolEvents.filter((p) => p.status === status);
 
-export const selectProtocolEventsByStatus =
-  (status: Status) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.protocolEvents.filter((p) => p.status === status);
+export const selectProtocolEventsByVenue = (venue: string) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.protocolEvents.filter((p) => p.venue && p.venue.toLowerCase().includes(venue.toLowerCase()));
 
-export const selectProtocolEventsByVenue =
-  (venue: string) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.protocolEvents.filter(
-      (p) => p.venue && p.venue.toLowerCase().includes(venue.toLowerCase())
-    );
-
-export const selectProtocolEventsByActivity =
-  (activity: string) => (state: { helpdesk: HelpDeskState }) =>
-    state.helpdesk.protocolEvents.filter(
-      (p) => p.activity.toLowerCase().includes(activity.toLowerCase())
-    );
+export const selectProtocolEventsByActivity = (activity: string) => (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.protocolEvents.filter((p) => p.activity.toLowerCase().includes(activity.toLowerCase()));
 
 export const selectProtocolEventsWithDSA = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.protocolEvents.filter((p) => p.dsa_required === true);
@@ -4475,9 +3988,7 @@ export const selectProtocolEventsWithDSA = (state: { helpdesk: HelpDeskState }) 
 export const selectProtocolEventsWithoutDSA = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.protocolEvents.filter((p) => p.dsa_required === false);
 
-export const selectPendingProtocolCount = (state: {
-  helpdesk: HelpDeskState;
-}) =>
+export const selectPendingProtocolCount = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.protocolEvents.filter((p) => p.status === "Pending").length;
 
 export const selectTotalProtocolDSA = (state: { helpdesk: HelpDeskState }) =>
@@ -4485,151 +3996,63 @@ export const selectTotalProtocolDSA = (state: { helpdesk: HelpDeskState }) =>
 
 export const selectProtocolVenueSummary = (state: { helpdesk: HelpDeskState }) => {
   const venues: Record<string, { count: number; events: ProtocolEvent[] }> = {};
-  
   state.helpdesk.protocolEvents.forEach((event) => {
     const key = event.venue || "No Venue";
-    if (!venues[key]) {
-      venues[key] = { count: 0, events: [] };
-    }
+    if (!venues[key]) venues[key] = { count: 0, events: [] };
     venues[key].count += 1;
     venues[key].events.push(event);
   });
-  
   return venues;
 };
 
 // ─── Pending Counts ─────────────────────────────────────────────────────────
-
-export const selectAwaitingUtilityItemsCount = (state: {
-  helpdesk: HelpDeskState;
-}) =>
+export const selectAwaitingUtilityItemsCount = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.utilities.reduce(
-    (sum, u) =>
-      sum +
-      u.items.filter((item) =>
-        [
-          "Awaiting",
-          "Awaiting Documentation",
-          "Awaiting Funding",
-          "In Process",
-        ].includes(item.status),
-      ).length,
-    0,
+    (sum, u) => sum + u.items.filter((item) => ["Awaiting", "Awaiting Documentation", "Awaiting Funding", "In Process"].includes(item.status)).length,
+    0
   );
 
 export const selectPendingClubCount = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.clubMemberships.filter((c) => c.status === "Pending").length;
 
-export const selectPendingCircuitsCount = (state: {
-  helpdesk: HelpDeskState;
-}) =>
-  state.helpdesk.circuits.filter(
-    (c) => c.status === "Pending" || c.status === "In Progress",
-  ).length;
+export const selectPendingCircuitsCount = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.circuits.filter((c) => c.status === "Pending" || c.status === "In Progress").length;
 
-export const selectPendingOtherPaymentsCount = (state: {
-  helpdesk: HelpDeskState;
-}) =>
-  state.helpdesk.otherPayments.filter(
-    (p) => p.status === "Pending" || p.status === "In Progress",
-  ).length;
+export const selectPendingOtherPaymentsCount = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.otherPayments.filter((p) => p.status === "Pending" || p.status === "In Progress").length;
 
-export const selectPendingMedicalClaimsCount = (state: {
-  helpdesk: HelpDeskState;
-}) =>
-  state.helpdesk.medicalClaims.filter(
-    (c) => c.status === "Pending" || c.status === "In Progress",
-  ).length;
+export const selectPendingMedicalClaimsCount = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.medicalClaims.filter((c) => c.status === "Pending" || c.status === "In Progress").length;
 
-export const selectPendingGeneralRequestsCount = (state: {
-  helpdesk: HelpDeskState;
-}) =>
-  state.helpdesk.generalRequests.filter(
-    (r) => r.status === "Pending" || r.status === "In Progress",
-  ).length;
+export const selectPendingGeneralRequestsCount = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.generalRequests.filter((r) => r.status === "Pending" || r.status === "In Progress").length;
 
-export const selectPendingSecurityRequestsCount = (state: {
-  helpdesk: HelpDeskState;
-}) =>
-  state.helpdesk.securityRequests.filter(
-    (r) => r.status === "Pending" || r.status === "In Progress",
-  ).length;
+export const selectPendingSecurityRequestsCount = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.securityRequests.filter((r) => r.status === "Pending" || r.status === "In Progress").length;
 
-export const selectPendingTicketsCount = (state: {
-  helpdesk: HelpDeskState;
-}) =>
-  state.helpdesk.tickets.filter(
-    (t) => t.status === "Pending" || t.status === "In Progress",
-  ).length;
+export const selectPendingTicketsCount = (state: { helpdesk: HelpDeskState }) =>
+  state.helpdesk.tickets.filter((t) => t.status === "Pending" || t.status === "In Progress").length;
 
 // ─── Unified General Request Stats ────────────────────────────────────────
-
 export const selectGeneralRequestStats = (state: { helpdesk: HelpDeskState }) => {
   const requests = state.helpdesk.generalRequests;
-  const byType = requests.reduce((acc, r) => {
-    acc[r.request_type] = (acc[r.request_type] || 0) + 1;
-    return acc;
-  }, {} as Record<RequestType, number>);
-
-  const byStatus = requests.reduce((acc, r) => {
-    acc[r.status] = (acc[r.status] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-
-  const byRemarkType = requests.reduce((acc, r) => {
-    if (r.remark_type) {
-      acc[r.remark_type] = (acc[r.remark_type] || 0) + 1;
-    }
-    return acc;
-  }, {} as Record<RemarkType, number>);
-
-  const byCategory = requests.reduce((acc, r) => {
-    if (r.category) {
-      acc[r.category] = (acc[r.category] || 0) + 1;
-    }
-    return acc;
-  }, {} as Record<GeneralRequestCategory, number>);
-
-  return {
-    total: requests.length,
-    byType,
-    byStatus,
-    byRemarkType,
-    byCategory,
-  };
+  const byType = requests.reduce((acc, r) => { acc[r.request_type] = (acc[r.request_type] || 0) + 1; return acc; }, {} as Record<RequestType, number>);
+  const byStatus = requests.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; }, {} as Record<string, number>);
+  const byRemarkType = requests.reduce((acc, r) => { if (r.remark_type) acc[r.remark_type] = (acc[r.remark_type] || 0) + 1; return acc; }, {} as Record<RemarkType, number>);
+  const byCategory = requests.reduce((acc, r) => { if (r.category) acc[r.category] = (acc[r.category] || 0) + 1; return acc; }, {} as Record<GeneralRequestCategory, number>);
+  return { total: requests.length, byType, byStatus, byRemarkType, byCategory };
 };
 
 // ─── Legacy Security Request Stats ────────────────────────────────────────
-
 export const selectSecurityRequestStats = (state: { helpdesk: HelpDeskState }) => {
   const requests = state.helpdesk.securityRequests;
-  const byType = requests.reduce((acc, r) => {
-    acc[r.request_type] = (acc[r.request_type] || 0) + 1;
-    return acc;
-  }, {} as Record<RequestType, number>);
-
-  const byStatus = requests.reduce((acc, r) => {
-    acc[r.status] = (acc[r.status] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
-
-  const byRemarkType = requests.reduce((acc, r) => {
-    if (r.remark_type) {
-      acc[r.remark_type] = (acc[r.remark_type] || 0) + 1;
-    }
-    return acc;
-  }, {} as Record<RemarkType, number>);
-
-  return {
-    total: requests.length,
-    byType,
-    byStatus,
-    byRemarkType,
-  };
+  const byType = requests.reduce((acc, r) => { acc[r.request_type] = (acc[r.request_type] || 0) + 1; return acc; }, {} as Record<RequestType, number>);
+  const byStatus = requests.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; }, {} as Record<string, number>);
+  const byRemarkType = requests.reduce((acc, r) => { if (r.remark_type) acc[r.remark_type] = (acc[r.remark_type] || 0) + 1; return acc; }, {} as Record<RemarkType, number>);
+  return { total: requests.length, byType, byStatus, byRemarkType };
 };
 
 // ─── Total DSA ──────────────────────────────────────────────────────────────
-
 export const selectTotalCircuitDSA = (state: { helpdesk: HelpDeskState }) =>
   state.helpdesk.circuits.reduce((sum, c) => sum + c.total_dsa, 0);
 

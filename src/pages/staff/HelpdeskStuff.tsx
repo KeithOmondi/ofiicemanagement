@@ -102,7 +102,7 @@ import {
 } from '../../store/slices/helpdeskDocumentsSlice';
 
 // ─── Consolidated Memo imports ───────────────────────────────────────────────
-import { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
+import UtilitiesModal, { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
 import {
   getConsolidatedMemoEntityId,
 } from '../../types/helpdesk-documents.types';
@@ -144,7 +144,6 @@ import {
   CircleCheckBig,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
-import UtilitiesModal from '../../components/modals/UtilitiesModal';
 import { ProtocolModal } from '../../components/modals/ProtocolModal';
 import { VisaModal } from '../../components/modals/VisaModal';
 import { RequestModal } from '../../components/modals/RequestModal';
@@ -1982,7 +1981,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      {/* 🔴 FIX: Use stamped_file_url if available, otherwise fallback to file_url */}
                       <a
                         href={doc.stamped_file_url || doc.file_url}
                         target="_blank"
@@ -4443,7 +4441,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      {/* 🔴 FIX: Use stamped_file_url if available, otherwise fallback to file_url */}
                       <a
                         href={doc.stamped_file_url || doc.file_url}
                         target="_blank"

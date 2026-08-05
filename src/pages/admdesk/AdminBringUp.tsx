@@ -17,6 +17,7 @@ import type {
   RoutePriority, 
   FollowUpStatus,
   DocumentAnnotation,
+  BringUpStatus,
 } from '../../types/documents.types';
 
 import type { RootState } from '../../store/store';
@@ -92,6 +93,32 @@ const BUCKET_COLOR: Record<BringUpBucket, string> = {
   upcoming: 'bg-[#F0FDF4] text-[#15803D] border-[#DCFCE7]',
 };
 
+// ─── Bring Up Status Badge ────────────────────────────────────────────────────
+
+const BRING_UP_STATUS_STYLES: Record<BringUpStatus, string> = {
+  pending: 'bg-amber-100 text-amber-700 border border-amber-200',
+  completed: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+  overdue: 'bg-red-100 text-red-700 border border-red-200',
+  filed_away: 'bg-slate-100 text-slate-600 border border-slate-200',
+  all: 'bg-stone-100 text-stone-600 border border-stone-200',
+};
+
+const BRING_UP_STATUS_LABELS: Record<BringUpStatus, string> = {
+  pending: 'PENDING',
+  completed: 'COMPLETED',
+  overdue: 'OVERDUE',
+  filed_away: 'FILED AWAY',
+  all: 'ALL',
+};
+
+const BringUpStatusBadge: React.FC<{ status: BringUpStatus }> = ({ status }) => (
+  <span
+    className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${BRING_UP_STATUS_STYLES[status]}`}
+  >
+    {BRING_UP_STATUS_LABELS[status]}
+  </span>
+);
+
 // ─── PriorityBadge ──────────────────────────────────────────────────────────
 
 const PRIORITY_BADGE: Record<RoutePriority, string> = {
@@ -158,9 +185,10 @@ interface StickyNoteProps {
   authorName: string;
   text: string;
   bringUpDate?: string | null;
+  bringUpStatus?: BringUpStatus | null;
 }
 
-const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate }) => {
+const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate, bringUpStatus }) => {
   const [minimized, setMinimized] = useState(false);
   const [pos, setPos] = useState({ x: 24, y: 24 });
   const dragging = useRef(false);
@@ -187,6 +215,8 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate }
     };
   }, []);
 
+  const isFiledAway = bringUpStatus === 'filed_away';
+  const isCompleted = bringUpStatus === 'completed';
   const showDateChip = bringUpDate && parseDate(bringUpDate) !== null;
 
   const isOverdue = (dateStr: string): boolean => {
@@ -206,6 +236,9 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate }
     d.setHours(0, 0, 0, 0);
     return d.getTime() === today.getTime();
   };
+
+  const bgColor = isFiledAway ? '#f1f5f9' : '#FEF08A';
+  const headerBg = isFiledAway ? '#e2e8f0' : '#FDE047';
 
   if (minimized) {
     return (
@@ -237,13 +270,13 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate }
       <div
         className="rounded-md overflow-hidden"
         style={{
-          background: '#FEF08A',
+          background: bgColor,
           boxShadow: '2px 4px 12px rgba(0,0,0,0.18), inset 0 -2px 0 rgba(0,0,0,0.06)',
         }}
       >
         <div
           className="flex items-center justify-between px-2.5 pt-2 pb-1.5 cursor-grab active:cursor-grabbing"
-          style={{ background: '#FDE047' }}
+          style={{ background: headerBg }}
         >
           <div className="flex items-center gap-1.5 min-w-0">
             <svg className="h-3 w-3 text-[#7A4E0D] flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
@@ -285,6 +318,18 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate }
             >
               <span>📅</span>
               <span>Bring up: {formatDateDisplay(bringUpDate!)}</span>
+            </div>
+          )}
+
+          {isCompleted && !isFiledAway && (
+            <div className="mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+              ✅ Completed
+            </div>
+          )}
+
+          {isFiledAway && (
+            <div className="mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium bg-slate-200 text-slate-700 border border-slate-300">
+              📁 Filed Away
             </div>
           )}
         </div>
@@ -357,6 +402,11 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
       onClose();
     }
   };
+
+  // ─── Determine bring up status for display ────────────────────────────────
+  //const isBringUpFiledAway = document.bring_up_status === 'filed_away';
+  //const isBringUpCompleted = document.bring_up_status === 'completed' && !isBringUpFiledAway;
+  //const hasBringUp = !!document.bring_up_date;
 
   const renderPreview = () => {
     if (isComposed && fileUrl && isPdf) {
@@ -541,6 +591,11 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
               {document.title}
             </span>
             
+            {/* ─── Bring Up Status Badge ────────────────────────────────────── */}
+            {document.bring_up_status && (
+              <BringUpStatusBadge status={document.bring_up_status} />
+            )}
+            
             {/* ─── Registrar's Note Indicator ──────────────────────────────── */}
             {document.active_mark?.instructions && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-100 text-amber-700 border border-amber-200">
@@ -702,6 +757,9 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
                       📅 Bring up: {formatDateDisplay(document.bring_up_date)}
                     </span>
                   )}
+                  {document.bring_up_status && (
+                    <BringUpStatusBadge status={document.bring_up_status} />
+                  )}
                   {document.active_mark.priority && document.active_mark.priority !== 'normal' && (
                     <PriorityBadge priority={document.active_mark.priority} />
                   )}
@@ -838,6 +896,7 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
               authorName={document.active_mark.marked_by_name ?? 'Registrar'}
               text={document.active_mark.instructions}
               bringUpDate={document.bring_up_date}
+              bringUpStatus={document.bring_up_status}
             />
           )}
           {renderPreview()}
@@ -1198,7 +1257,7 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
   const [expanded, setExpanded] = useState(false);
   
   const mark = document.active_mark;
-  // ─── UPDATED: Use document.bring_up_date instead of mark.bring_up_date ────
+  // ─── UPDATED: Use document.bring_up_date ──────────────────────────────────
   const bringUpDate = document.bring_up_date;
   if (!bringUpDate) return null;
 
@@ -1209,6 +1268,8 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
   const hasAnnotations = annotations.length > 0;
   const hasSuperAdminRemarks = !!mark?.instructions;
   const hasUrgentAnnotations = annotations.some((a: DocumentAnnotation) => a.is_urgent);
+  const isBringUpFiledAway = document.bring_up_status === 'filed_away';
+  const isBringUpCompleted = document.bring_up_status === 'completed' && !isBringUpFiledAway;
 
   const canDelete = followUps.length > 0 && followUps.every(
     f => f.status === 'filed_away' || f.status === 'completed' || f.status === 'cancelled'
@@ -1228,24 +1289,38 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
   if (hasAnnotations) statusIndicators.push({ label: `${annotations.length} Annotation${annotations.length > 1 ? 's' : ''}`, color: 'purple' });
   if (hasSuperAdminRemarks) statusIndicators.push({ label: 'Registrar\'s Note', color: 'amber' });
 
+  // Determine if the row should be grayed out (filed away)
+  const isTerminal = isBringUpFiledAway || isBringUpCompleted;
+
   return (
     <>
       <div 
-        className={`group rounded-xl border transition-all duration-200 bg-white ${
-          expanded ? 'border-amber-200 shadow-md' : 'border-slate-100 hover:shadow-md hover:border-slate-200'
-        }`}
+        className={`group rounded-xl border transition-all duration-200 ${
+          isTerminal 
+            ? 'bg-slate-50/50 border-slate-200 opacity-70' 
+            : 'bg-white border-slate-100 hover:shadow-md hover:border-slate-200'
+        } ${expanded ? 'border-amber-200 shadow-md' : ''}`}
       >
         {/* ─── Main Row ────────────────────────────────────────────────────── */}
         <div className="flex items-start justify-between gap-4 p-4">
           <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onPreview(document)}>
             {/* Title & Status */}
             <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm font-semibold text-slate-800 truncate">{document.title}</p>
+              <p className={`text-sm font-semibold truncate ${isTerminal ? 'text-slate-500' : 'text-slate-800'}`}>
+                {document.title}
+              </p>
               
               {/* Bucket Badge */}
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${BUCKET_COLOR[bucket]}`}>
-                {BUCKET_LABEL[bucket]}
-              </span>
+              {!isTerminal && (
+                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${BUCKET_COLOR[bucket]}`}>
+                  {BUCKET_LABEL[bucket]}
+                </span>
+              )}
+
+              {/* Bring Up Status Badge */}
+              {document.bring_up_status && (
+                <BringUpStatusBadge status={document.bring_up_status} />
+              )}
 
               {/* Status Indicators - Compact pills */}
               {statusIndicators.map((ind, idx) => (
@@ -1289,7 +1364,7 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
             </div>
 
             {/* ─── Registrar's Note Preview (collapsible) ────────────────── */}
-            {hasSuperAdminRemarks && (
+            {hasSuperAdminRemarks && !isTerminal && (
               <div 
                 className="mt-2 flex items-start gap-2 cursor-pointer hover:bg-amber-50/50 rounded-md p-1.5 -ml-1.5 transition-colors"
                 onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
@@ -1309,7 +1384,7 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
             )}
 
             {/* ─── Expanded Details ──────────────────────────────────────── */}
-            {expanded && (
+            {expanded && !isTerminal && (
               <div className="mt-3 space-y-3 border-t border-slate-100 pt-3">
                 {/* Full Registrar's Note */}
                 {hasSuperAdminRemarks && (
@@ -1329,6 +1404,9 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
                             <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
                               📅 {formatDateDisplay(document.bring_up_date)}
                             </span>
+                          )}
+                          {document.bring_up_status && (
+                            <BringUpStatusBadge status={document.bring_up_status} />
                           )}
                         </div>
                         <p className="mt-1 text-sm text-stone-700 whitespace-pre-wrap">
@@ -1462,7 +1540,7 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
             )}
 
             {/* Expand/Collapse toggle */}
-            {((hasSuperAdminRemarks || hasAnnotations || followUps.length > 0)) && (
+            {((hasSuperAdminRemarks || hasAnnotations || followUps.length > 0)) && !isTerminal && (
               <button
                 onClick={() => setExpanded(!expanded)}
                 className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors flex items-center gap-1"
@@ -1540,17 +1618,17 @@ const AdminBringUp: React.FC = () => {
     }
   }, [dispatch, currentUser]);
 
-  const fetchDocs = useCallback(() => {
-    if (!currentUser) return;
-    dispatch(
-      fetchDocuments({
-        page: 1,
-        limit: PAGE_SIZE,
-        for_my_action: true,
-        ...(currentUser.department_id ? { department_id: currentUser.department_id } : {}),
-      })
-    );
-  }, [dispatch, currentUser]);
+const fetchDocs = useCallback(() => {
+  if (!currentUser) return;
+  dispatch(
+    fetchDocuments({
+      page: 1,
+      limit: PAGE_SIZE,
+      // ✅ CORRECT: Use the existing property name from DocumentFilters
+      has_bring_up_date: true,
+    })
+  );
+}, [dispatch, currentUser]);
 
   useEffect(() => {
     fetchDocs();
@@ -1563,7 +1641,7 @@ const AdminBringUp: React.FC = () => {
     }
   }, [error, dispatch]);
 
-  // ─── UPDATED: Filter documents with bring_up_date at document level ────
+  // ─── Filter documents with bring_up_date at document level ──────────────
   const grouped = useMemo(() => {
     const withBringUp = documents.filter((d) => !!d.bring_up_date);
 
@@ -1574,6 +1652,10 @@ const AdminBringUp: React.FC = () => {
     };
 
     withBringUp.forEach((doc) => {
+      // Only show documents that are NOT filed away or completed
+      if (doc.bring_up_status === 'filed_away' || doc.bring_up_status === 'completed') {
+        return;
+      }
       const bucket = getBucket(doc.bring_up_date!);
       buckets[bucket].push(doc);
     });
@@ -1635,11 +1717,9 @@ const AdminBringUp: React.FC = () => {
     try {
       await dispatch(deleteDocument(docId)).unwrap();
       toast.success('Document deleted successfully');
-      // Close the preview panel if the deleted document was selected
       if (selectedDocument?.id === docId) {
         setSelectedDocument(null);
       }
-      // Refresh the document list
       fetchDocs();
     } catch (error) {
       toast.error(typeof error === 'string' ? error : 'Failed to delete document');
@@ -1705,7 +1785,7 @@ const AdminBringUp: React.FC = () => {
           </div>
         ) : totalCount === 0 ? (
           <div className="rounded-xl border-2 border-dashed border-slate-200 bg-white p-12 text-center">
-            <p className="text-sm text-slate-500">No documents currently have a bring-up deadline assigned.</p>
+            <p className="text-sm text-slate-500">No active documents with bring-up deadlines.</p>
           </div>
         ) : (
           <div className="space-y-8">

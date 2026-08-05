@@ -40,6 +40,7 @@ import type {
   FollowUpComment,
   FollowUpPaginationResponse,
   CreateFollowUpInput,
+  SendFollowUpInput,
   FileAwayFollowUpInput,
   UpdateFollowUpInput,
   CompleteFollowUpInput,
@@ -56,6 +57,7 @@ import type {
   SetBringUpInput,
   UpdateBringUpInput,
   CompleteBringUpInput,
+  FileAwayBringUpInput,
   BringUpStatus,
   DocumentStatus,
 } from "../../types/documents.types";
@@ -64,6 +66,7 @@ import type {
 
 interface DocumentState {
   documents: Document[];
+  bringUpDocuments: Document[];
   currentDocument: DocumentWithAnnotations | null;
   myMarked: Document[];
   markHistory: DocumentMark[];
@@ -121,6 +124,7 @@ interface DocumentState {
     regeneratingPdf?: string;
     // ── Follow-up actions ────────────────────────────────────────────────
     creatingFollowUp?: boolean;
+    sendingFollowUp?: boolean;
     filingAwayFollowUp?: boolean;
     updatingFollowUp?: string;
     completingFollowUp?: string;
@@ -132,6 +136,7 @@ interface DocumentState {
     settingBringUp?: string;
     updatingBringUp?: string;
     completingBringUp?: string;
+    filingAwayBringUp?: string;
     fetchingBringUps?: boolean;
     fetchingBringUpSummary?: boolean;
   };
@@ -139,6 +144,7 @@ interface DocumentState {
 
 const initialState: DocumentState = {
   documents: [],
+  bringUpDocuments: [],
   currentDocument: null,
   myMarked: [],
   markHistory: [],
@@ -420,7 +426,6 @@ export const createUploadDocument = createAsyncThunk(
   },
 );
 
-
 // ── Update document file (replace file with stamped version) ─────────────────
 
 export const updateDocumentFile = createAsyncThunk(
@@ -472,6 +477,28 @@ export const updateDocument = createAsyncThunk(
       return rejectWithValue(getErrorMessage(error));
     }
   },
+);
+
+// ── Update document metadata (specifically for fromFirst) ────────────────────
+
+export const updateDocumentMetadata = createAsyncThunk(
+  "documents/updateDocumentMetadata",
+  async (
+    { id, fromFirst }: { id: string; fromFirst: boolean },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.put<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}`, {
+        metadata: { fromFirst }
+      });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
 );
 
 // ── Soft delete ─────────────────────────────────────────────────────────────
@@ -554,7 +581,6 @@ export const releaseDocument = createAsyncThunk(
     }
   }
 );
-
 
 // ── Send document ───────────────────────────────────────────────────────────
 
@@ -732,7 +758,7 @@ export const deleteAnnotation = createAsyncThunk(
   },
 );
 
-// ── Update Mark (instructions only - bring_up_date removed) ──────────────────
+// ── Update Mark (instructions only) ──────────────────────────────────────────
 
 export const updateMark = createAsyncThunk(
   "documents/updateMark",
@@ -754,7 +780,7 @@ export const updateMark = createAsyncThunk(
 );
 
 // ════════════════════════════════════════════════════════════════════════════
-//  BRING UP THUNKS (NEW)
+//  BRING UP THUNKS
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── Set Bring Up Date (Super Admin only) ────────────────────────────────────
@@ -817,6 +843,26 @@ export const completeBringUp = createAsyncThunk(
   }
 );
 
+// ── NEW: File Away Bring Up ──────────────────────────────────────────────────
+
+export const fileAwayBringUp = createAsyncThunk(
+  "documents/fileAwayBringUp",
+  async (
+    { id, input }: { id: string; input: FileAwayBringUpInput },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.patch<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/bring-up/file-away`, input);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
 // ── Fetch Bring Ups ──────────────────────────────────────────────────────────
 
 export const fetchBringUps = createAsyncThunk(
@@ -869,92 +915,25 @@ export const fetchBringUpHistory = createAsyncThunk(
 );
 
 // ════════════════════════════════════════════════════════════════════════════
-//  Folder Operations
+//  FOLLOW-UP THUNKS
 // ════════════════════════════════════════════════════════════════════════════
 
-// ── Redirect Document to Folder ────────────────────────────────────────────
+// ── NEW: Send Follow Up (simplified - just notes and send) ──────────────────
 
-export const redirectDocumentToFolder = createAsyncThunk(
-  "documents/redirectDocumentToFolder",
-  async (
-    { id, folder_id, note }: { id: string; folder_id: string; note?: string },
-    { rejectWithValue }
-  ) => {
+export const sendFollowUp = createAsyncThunk(
+  "documents/sendFollowUp",
+  async (input: SendFollowUpInput, { rejectWithValue }) => {
     try {
       const response = await axiosClient.post<{
         success: boolean;
-        data: Document;
-      }>(`/documents/${id}/redirect-to-folder`, { folder_id, note });
+        data: FollowUp;
+      }>("/documents/follow-ups/send", input);
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
   }
 );
-
-// ── Remove Document from Folder ────────────────────────────────────────────
-
-export const removeDocumentFromFolder = createAsyncThunk(
-  "documents/removeDocumentFromFolder",
-  async (
-    { id, note }: { id: string; note?: string },
-    { rejectWithValue }
-  ) => {
-    try {
-      const response = await axiosClient.delete<{
-        success: boolean;
-        data: Document;
-      }>(`/documents/${id}/remove-from-folder`, { data: { note } });
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(getErrorMessage(error));
-    }
-  }
-);
-
-// ── Fetch Documents by Folder ──────────────────────────────────────────────
-
-export const fetchDocumentsByFolder = createAsyncThunk(
-  "documents/fetchDocumentsByFolder",
-  async (
-    { folderId, page, limit, search, type, status }: 
-    { folderId: string; page?: number; limit?: number; search?: string; type?: string; status?: string },
-    { rejectWithValue }
-  ) => {
-    try {
-      const response = await axiosClient.get<{
-        success: boolean;
-        data: DocumentPaginationResponse;
-      }>(`/documents/folder/${folderId}`, {
-        params: { page, limit, search, type, status }
-      });
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(getErrorMessage(error));
-    }
-  }
-);
-
-// ── Regenerate PDF from current edited fields/body ──────────────────────────
-
-export const regeneratePdf = createAsyncThunk(
-  "documents/regeneratePdf",
-  async (id: string, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.post<{
-        success: boolean;
-        data: Document;
-      }>(`/documents/${id}/regenerate-pdf`);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(getErrorMessage(error));
-    }
-  },
-);
-
-// ════════════════════════════════════════════════════════════════════════════
-//  FOLLOW-UP THUNKS (UPDATED - SIMPLIFIED)
-// ════════════════════════════════════════════════════════════════════════════
 
 // ── Fetch Follow-Ups ───────────────────────────────────────────────────────
 
@@ -1064,7 +1043,7 @@ export const fetchFollowUpThread = createAsyncThunk(
   }
 );
 
-// ── Create Follow-Up (Simplified) ──────────────────────────────────────────
+// ── Create Follow-Up (with due date) ──────────────────────────────────────────
 
 export const createFollowUp = createAsyncThunk(
   "documents/createFollowUp",
@@ -1081,7 +1060,7 @@ export const createFollowUp = createAsyncThunk(
   }
 );
 
-// ── File Away Follow-Up (New) ──────────────────────────────────────────────
+// ── File Away Follow-Up ──────────────────────────────────────────────────────
 
 export const fileAwayFollowUp = createAsyncThunk(
   "documents/fileAwayFollowUp",
@@ -1201,6 +1180,90 @@ export const fetchFollowUpComments = createAsyncThunk(
   }
 );
 
+// ════════════════════════════════════════════════════════════════════════════
+//  Folder Operations
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── Redirect Document to Folder ────────────────────────────────────────────
+
+export const redirectDocumentToFolder = createAsyncThunk(
+  "documents/redirectDocumentToFolder",
+  async (
+    { id, folder_id, note }: { id: string; folder_id: string; note?: string },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/redirect-to-folder`, { folder_id, note });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Remove Document from Folder ────────────────────────────────────────────
+
+export const removeDocumentFromFolder = createAsyncThunk(
+  "documents/removeDocumentFromFolder",
+  async (
+    { id, note }: { id: string; note?: string },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.delete<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/remove-from-folder`, { data: { note } });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Fetch Documents by Folder ──────────────────────────────────────────────
+
+export const fetchDocumentsByFolder = createAsyncThunk(
+  "documents/fetchDocumentsByFolder",
+  async (
+    { folderId, page, limit, search, type, status }: 
+    { folderId: string; page?: number; limit?: number; search?: string; type?: string; status?: string },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.get<{
+        success: boolean;
+        data: DocumentPaginationResponse;
+      }>(`/documents/folder/${folderId}`, {
+        params: { page, limit, search, type, status }
+      });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Regenerate PDF from current edited fields/body ──────────────────────────
+
+export const regeneratePdf = createAsyncThunk(
+  "documents/regeneratePdf",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/regenerate-pdf`);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  },
+);
+
 // ─── Slice ────────────────────────────────────────────────────────────────────
 
 const documentSlice = createSlice({
@@ -1239,6 +1302,7 @@ const documentSlice = createSlice({
       state.bringUpHistory = [];
       state.bringUpPagination = null;
       state.bringUpSummary = null;
+      state.bringUpDocuments = [];
     },
     resetState: () => initialState,
     // ── Optimistic follow-up updates ──────────────────────────────────────
@@ -1265,6 +1329,30 @@ const documentSlice = createSlice({
       const myIndex = state.myMarked.findIndex(d => d.id === documentId);
       if (myIndex !== -1) {
         state.myMarked[myIndex].bring_up_status = status;
+      }
+    },
+    // ── Optimistic fromFirst update ────────────────────────────────────────
+    optimisticUpdateFromFirst: (state, action: PayloadAction<{ documentId: string; fromFirst: boolean }>) => {
+      const { documentId, fromFirst } = action.payload;
+      const docIndex = state.documents.findIndex(d => d.id === documentId);
+      if (docIndex !== -1) {
+        if (!state.documents[docIndex].metadata) {
+          state.documents[docIndex].metadata = {};
+        }
+        state.documents[docIndex].metadata.fromFirst = fromFirst;
+      }
+      if (state.currentDocument?.id === documentId) {
+        if (!state.currentDocument.metadata) {
+          state.currentDocument.metadata = {};
+        }
+        state.currentDocument.metadata.fromFirst = fromFirst;
+      }
+      const myIndex = state.myMarked.findIndex(d => d.id === documentId);
+      if (myIndex !== -1) {
+        if (!state.myMarked[myIndex].metadata) {
+          state.myMarked[myIndex].metadata = {};
+        }
+        state.myMarked[myIndex].metadata.fromFirst = fromFirst;
       }
     },
   },
@@ -1570,6 +1658,32 @@ const documentSlice = createSlice({
         },
       )
       .addCase(updateDocument.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ── updateDocumentMetadata ─────────────────────────────────────────────
+      .addCase(updateDocumentMetadata.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(
+        updateDocumentMetadata.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.loading = false;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+        },
+      )
+      .addCase(updateDocumentMetadata.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
@@ -2001,19 +2115,6 @@ const documentSlice = createSlice({
         state.actionInProgress.settingBringUp = action.meta.arg.id;
         state.error = null;
       })
-      .addCase(setBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.actionInProgress.settingBringUp = undefined;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = {
-            ...state.currentDocument,
-            ...action.payload,
-          };
-        }
-        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
-        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
-      })
       .addCase(setBringUp.rejected, (state, action) => {
         state.actionInProgress.settingBringUp = undefined;
         state.error = action.payload as string;
@@ -2023,19 +2124,6 @@ const documentSlice = createSlice({
       .addCase(updateBringUp.pending, (state, action) => {
         state.actionInProgress.updatingBringUp = action.meta.arg.id;
         state.error = null;
-      })
-      .addCase(updateBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.actionInProgress.updatingBringUp = undefined;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = {
-            ...state.currentDocument,
-            ...action.payload,
-          };
-        }
-        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
-        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
       })
       .addCase(updateBringUp.rejected, (state, action) => {
         state.actionInProgress.updatingBringUp = undefined;
@@ -2051,17 +2139,28 @@ const documentSlice = createSlice({
         state.actionInProgress.completingBringUp = undefined;
         const index = state.documents.findIndex(d => d.id === action.payload.id);
         if (index !== -1) state.documents[index] = action.payload;
+
+        const bringUpIndex = state.bringUpDocuments.findIndex(d => d.id === action.payload.id);
+        if (bringUpIndex !== -1) state.bringUpDocuments[bringUpIndex] = action.payload;
+
         if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = {
-            ...state.currentDocument,
-            ...action.payload,
-          };
+          state.currentDocument = { ...state.currentDocument, ...action.payload };
         }
         const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
         if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
       })
       .addCase(completeBringUp.rejected, (state, action) => {
         state.actionInProgress.completingBringUp = undefined;
+        state.error = action.payload as string;
+      })
+
+      // ── fileAwayBringUp ────────────────────────────────────────────────────
+      .addCase(fileAwayBringUp.pending, (state, action) => {
+        state.actionInProgress.filingAwayBringUp = action.meta.arg.id;
+        state.error = null;
+      })
+      .addCase(fileAwayBringUp.rejected, (state, action) => {
+        state.actionInProgress.filingAwayBringUp = undefined;
         state.error = action.payload as string;
       })
 
@@ -2074,7 +2173,7 @@ const documentSlice = createSlice({
       .addCase(fetchBringUps.fulfilled, (state, action) => {
         state.loading = false;
         state.actionInProgress.fetchingBringUps = false;
-        state.documents = action.payload.data;
+        state.bringUpDocuments = action.payload.data;
         state.bringUpPagination = {
           total: action.payload.total,
           page: action.payload.page,
@@ -2122,9 +2221,80 @@ const documentSlice = createSlice({
         state.error = action.payload as string;
       })
 
+      // ── setBringUp.fulfilled (single source of truth, syncs bringUpDocuments) ──
+      .addCase(setBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
+        state.actionInProgress.settingBringUp = undefined;
+        const index = state.documents.findIndex(d => d.id === action.payload.id);
+        if (index !== -1) state.documents[index] = action.payload;
+
+        const bringUpIndex = state.bringUpDocuments.findIndex(d => d.id === action.payload.id);
+        if (bringUpIndex !== -1) state.bringUpDocuments[bringUpIndex] = action.payload;
+
+        if (state.currentDocument?.id === action.payload.id) {
+          state.currentDocument = { ...state.currentDocument, ...action.payload };
+        }
+        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
+        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+      })
+
+      // ── updateBringUp.fulfilled (single source of truth, syncs bringUpDocuments) ──
+      .addCase(updateBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
+        state.actionInProgress.updatingBringUp = undefined;
+        const index = state.documents.findIndex(d => d.id === action.payload.id);
+        if (index !== -1) state.documents[index] = action.payload;
+
+        const bringUpIndex = state.bringUpDocuments.findIndex(d => d.id === action.payload.id);
+        if (bringUpIndex !== -1) state.bringUpDocuments[bringUpIndex] = action.payload;
+
+        if (state.currentDocument?.id === action.payload.id) {
+          state.currentDocument = { ...state.currentDocument, ...action.payload };
+        }
+        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
+        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+      })
+
+      // ── fileAwayBringUp.fulfilled (single source of truth, syncs bringUpDocuments) ──
+      .addCase(fileAwayBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
+        state.actionInProgress.filingAwayBringUp = undefined;
+        const index = state.documents.findIndex(d => d.id === action.payload.id);
+        if (index !== -1) state.documents[index] = action.payload;
+
+        const bringUpIndex = state.bringUpDocuments.findIndex(d => d.id === action.payload.id);
+        if (bringUpIndex !== -1) state.bringUpDocuments[bringUpIndex] = action.payload;
+
+        if (state.currentDocument?.id === action.payload.id) {
+          state.currentDocument = { ...state.currentDocument, ...action.payload };
+        }
+        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
+        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+      })
+
       // ════════════════════════════════════════════════════════════════════════
-      //  FOLLOW-UP EXTRA REDUCERS (UPDATED)
+      //  FOLLOW-UP EXTRA REDUCERS
       // ════════════════════════════════════════════════════════════════════════
+
+      // ── sendFollowUp ──────────────────────────────────────────────────────
+      .addCase(sendFollowUp.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+        state.actionInProgress.sendingFollowUp = true;
+      })
+      .addCase(sendFollowUp.fulfilled, (state, action: PayloadAction<FollowUp>) => {
+        state.loading = false;
+        state.actionInProgress.sendingFollowUp = false;
+        state.followUps = [action.payload, ...state.followUps];
+        if (state.currentDocument) {
+          state.currentDocument.follow_ups = [
+            action.payload,
+            ...(state.currentDocument.follow_ups || []),
+          ];
+        }
+      })
+      .addCase(sendFollowUp.rejected, (state, action) => {
+        state.loading = false;
+        state.actionInProgress.sendingFollowUp = false;
+        state.error = action.payload as string;
+      })
 
       // ── fetchFollowUps ──────────────────────────────────────────────────────
       .addCase(fetchFollowUps.pending, (state) => {
@@ -2437,12 +2607,16 @@ export const {
   resetState,
   optimisticUpdateFollowUpStatus,
   optimisticUpdateBringUpStatus,
+  optimisticUpdateFromFirst,
 } = documentSlice.actions;
 
 // ── Selectors ─────────────────────────────────────────────────────────────────
 
 export const selectDocuments = (state: { documents: DocumentState }) =>
   state.documents.documents;
+
+export const selectBringUpDocuments = (state: { documents: DocumentState }) =>
+  state.documents.bringUpDocuments;
 
 export const selectCurrentDocument = (state: { documents: DocumentState }) =>
   state.documents.currentDocument;
@@ -2482,8 +2656,6 @@ export const selectIsCreatingMemo = (state: { documents: DocumentState }) =>
 
 export const selectIsCreatingLetter = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.creatingLetter || false;
-
-// ─── ADDED: selectIsCreatingCertificate ──────────────────────────────────────
 
 export const selectIsCreatingCertificate = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.creatingCertificate || false;
@@ -2532,6 +2704,9 @@ export const selectFollowUpSummary = (state: { documents: DocumentState }) =>
 export const selectIsCreatingFollowUp = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.creatingFollowUp || false;
 
+export const selectIsSendingFollowUp = (state: { documents: DocumentState }) =>
+  state.documents.actionInProgress.sendingFollowUp || false;
+
 export const selectIsFilingAwayFollowUp = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.filingAwayFollowUp || false;
 
@@ -2573,11 +2748,25 @@ export const selectIsUpdatingBringUp = (state: { documents: DocumentState }, doc
 export const selectIsCompletingBringUp = (state: { documents: DocumentState }, documentId: string) =>
   state.documents.actionInProgress.completingBringUp === documentId;
 
+export const selectIsFilingAwayBringUp = (state: { documents: DocumentState }, documentId: string) =>
+  state.documents.actionInProgress.filingAwayBringUp === documentId;
+
 export const selectIsFetchingBringUps = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.fetchingBringUps || false;
 
 export const selectIsFetchingBringUpSummary = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.fetchingBringUpSummary || false;
+
+// ── fromFirst selectors ──────────────────────────────────────────────────────
+
+export const selectFromFirst = (state: { documents: DocumentState }, documentId: string): boolean => {
+  const doc = state.documents.documents.find(d => d.id === documentId);
+  return doc?.metadata?.fromFirst ?? false;
+};
+
+export const selectCurrentDocumentFromFirst = (state: { documents: DocumentState }): boolean => {
+  return state.documents.currentDocument?.metadata?.fromFirst ?? false;
+};
 
 export type { DocumentState };
 

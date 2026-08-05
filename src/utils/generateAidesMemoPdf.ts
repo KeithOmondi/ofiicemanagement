@@ -1,10 +1,6 @@
 // src/utils/generateAidesMemoPdf.ts
 //
 // Builds a printable PDF memo for AIDE (Officer Attachment) requests.
-// AideMemoParams is now the single source of truth consumed by both the
-// PDF and DOCX generators, and is built entirely from the editable
-// preview state in AidesModal — nothing here re-derives text from the
-// raw form fields, so whatever the user edited is exactly what prints.
 
 import jsPDF from 'jspdf';
 
@@ -12,46 +8,30 @@ const FOOTER_EMBLEM_SRC =
   'https://res.cloudinary.com/do0yflasl/image/upload/v1784364354/ORHC_EMBLEM_wzmp94.jpg';
 
 export interface AideMemoParams {
-  // Header fields
   ref: string;
   date: string;
-
-  // Addressee
-  to: string; // e.g. "The Deputy Inspector General"
-  toOrganization: string; // e.g. "Kenya Police Service"
-  toBuilding?: string; // e.g. "Vigilance House"
-  toPOBox?: string; // e.g. "P.O. Box 53258-00200"
-  toCity?: string; // e.g. "NAIROBI."
-
+  to: string;
+  toOrganization: string;
+  toBuilding?: string;
+  toPOBox?: string;
+  toCity?: string;
   subject: string;
-
-  // Body
   bodyText: string;
   greetingText?: string;
   officerSuitabilityText?: string;
   closingText?: string;
-
-  // Judge details
   judgeName: string;
   judgeTitle?: string;
   judgeLocation?: string;
-
-  // Officer details
   officerName: string;
   officerRank: string;
   officerNumber: string;
   currentStation: string;
   assignmentType: string;
-
-  // Signatory fields
   signatoryName?: string;
   signatoryTitle?: string;
   fromDepartment?: string;
-
-  // Copies (CC)
   ccList?: string[];
-
-  // Images
   crestUrl: string;
 }
 
@@ -157,10 +137,9 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   const margin = 54;
   let cursorY = 40;
 
-  // Use 'helvetica' — built-in sans-serif closest to Tahoma
   const FONT = 'helvetica';
 
-  // ── Crest (left side) ──────────────────────────────────────────────────────
+  // ── Crest ──────────────────────────────────────────────────────────────────
   const crestDataUrl = await urlToDataUrl(params.crestUrl);
   const crestMaxHeight = 55;
   const crestMaxWidth = 90;
@@ -174,7 +153,7 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
     doc.addImage(crestDataUrl, detectImageFormat(crestDataUrl), margin, cursorY, crestW, crestH);
   }
 
-  // ── Title block (next to crest, left-aligned) ────────────────────────────
+  // ── Title block ────────────────────────────────────────────────────────────
   const titleX = margin + crestW + 16;
   doc.setFont(FONT, 'bold');
   doc.setFontSize(15);
@@ -183,17 +162,16 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   doc.setFontSize(12);
   doc.text('OFFICE OF THE REGISTRAR HIGH COURT', titleX, cursorY + 38);
 
-  // Move cursor to just below the crest
   cursorY += crestH + 12;
 
-  // ── Gold divider directly under the header ──────────────────────────────
-  doc.setDrawColor(201, 168, 76); // #c9a84c
+  // ── Gold divider ──────────────────────────────────────────────────────────
+  doc.setDrawColor(201, 168, 76);
   doc.setLineWidth(1.2);
   doc.line(margin, cursorY, pageWidth - margin, cursorY);
   doc.setDrawColor(0, 0, 0);
   cursorY += 20;
 
-  // ── Reference and Date line ──────────────────────────────────────────────
+  // ── Reference and Date ──────────────────────────────────────────────────
   doc.setFont(FONT, 'bold');
   doc.setFontSize(12);
   doc.text(`Ref: ${params.ref}`, margin, cursorY);
@@ -224,7 +202,7 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
     cursorY += 8;
   }
 
-  // ── Subject (RE:) — Helvetica Bold 12pt ───────────────────────────────────
+  // ── Subject ────────────────────────────────────────────────────────────────
   doc.setFont(FONT, 'bold');
   doc.setFontSize(12);
   const subjectText = `RE: ${params.subject.toUpperCase()}`;
@@ -253,14 +231,12 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   doc.text(bodyLines, margin, cursorY);
   cursorY += bodyLines.length * 16 + 8;
 
-  // ─── Officer suitability paragraph ────────────────────────────────────────
   if (params.officerSuitabilityText) {
     const officerLines = doc.splitTextToSize(cleanText(params.officerSuitabilityText), pageWidth - margin * 2);
     doc.text(officerLines, margin, cursorY);
     cursorY += officerLines.length * 16 + 8;
   }
 
-  // ─── Closing paragraph ──────────────────────────────────────────────────
   const closingText =
     params.closingText ||
     'We take this opportunity to thank you for your continued partnership and kindly request your favourable consideration of this matter.';
@@ -268,99 +244,110 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   doc.text(closingLines, margin, cursorY);
   cursorY += closingLines.length * 16 + 20;
 
-  // ─── Yours sincerely ─────────────────────────────────────────────────────
+  // ── Yours sincerely ─────────────────────────────────────────────────────
   doc.setFont(FONT, 'bold');
   doc.text('Yours sincerely,', margin, cursorY);
 
-  // ─── Signature Block ──────────────────────────────────────────────────────
-  const SIGNATURE_BLOCK_HEIGHT = 130;
-  cursorY += 30;
+  // Push cursor down to create a clean gap before the signature graphic/title block
+  cursorY += 45;
 
-  const footerTopY = pageHeight - 78;
-  if (cursorY + SIGNATURE_BLOCK_HEIGHT + 40 > footerTopY) {
+  // ── Layout Calculations & Page Break Protection ──────────────────────────
+  const footerY = pageHeight - 65;
+  const ccCount = params.ccList?.length || 0;
+
+  // Height required for CC section
+  const ccHeight = ccCount > 0 ? 16 + ccCount * 18 + 10 : 0;
+  const signatureSpace = 90; // Space reserved for signature image, name, and title
+
+  // Check if signature space + CC block exceeds printable area before footer
+  if (cursorY + signatureSpace + ccHeight > footerY) {
     doc.addPage();
     cursorY = 60;
   }
 
-  cursorY += SIGNATURE_BLOCK_HEIGHT;
-
-  // ─── Copy to (CC) ────────────────────────────────────────────────────────
-  const maxCcY = footerTopY - 10;
-  const ccCount = params.ccList?.length || 0;
-  const ccHeight = 16 + ccCount * 18 + 8;
-
+  // ── Copy to (CC) - Positioned dynamically right above the footer ───────
   if (ccCount > 0) {
-    if (cursorY + ccHeight > maxCcY) {
-      doc.addPage();
-      cursorY = 60;
-    }
+    let ccY = footerY - ccHeight - 10;
 
     doc.setFont(FONT, 'bold');
     doc.setFontSize(11);
-    doc.text('Copy to:', margin, cursorY);
-    cursorY += 16;
+    doc.text('Copy to:', margin, ccY);
+    ccY += 16;
 
     doc.setFont(FONT, 'normal');
     doc.setFontSize(11);
     params.ccList!.forEach((cc, index) => {
-      const ccText = `${index + 1}. ${cc}`;
-      const ccLines = doc.splitTextToSize(ccText, pageWidth - margin * 2);
-      doc.text(ccLines, margin + 20, cursorY);
-      cursorY += ccLines.length * 16 + 2;
+      let ccText = cc;
+      if (!ccText.toLowerCase().includes('hon') && !ccText.toLowerCase().includes('in-charge')) {
+        ccText = `Hon. ${ccText}`;
+      }
+      const formattedText = `${index + 1}. ${ccText}`;
+      const ccLines = doc.splitTextToSize(formattedText, pageWidth - margin * 2 - 20);
+      doc.text(ccLines, margin + 20, ccY);
+      ccY += ccLines.length * 16 + 2;
     });
-    cursorY += 8;
   }
 
-  // ─── Footer ──────────────────────────────────────────────────────────────
-  const footerY = pageHeight - 78;
+  // Advance cursor for backend signature placement
+  cursorY += signatureSpace;
 
-  doc.setLineWidth(0.7);
+  // ── Footer ──────────────────────────────────────────────────────────────
+  doc.setLineWidth(0.5);
   doc.setDrawColor(180, 180, 180);
   doc.line(margin, footerY, pageWidth - margin, footerY);
 
   const footerEmblemDataUrl = await urlToDataUrl(FOOTER_EMBLEM_SRC);
   if (footerEmblemDataUrl) {
-    const footerScaled = await getScaledImageSize(footerEmblemDataUrl, 50, 38, 38);
+    const footerLogoW = 40;
+    const footerLogoH = 40;
     doc.addImage(
       footerEmblemDataUrl,
       detectImageFormat(footerEmblemDataUrl),
       margin,
-      footerY + 8,
-      footerScaled.width,
-      footerScaled.height,
+      footerY + 6,
+      footerLogoW,
+      footerLogoH,
     );
   }
 
   const footerTextX = pageWidth - margin;
-  const footerTextStartY = footerY + 10;
 
-  doc.setFont(FONT, 'oblique'); // Standard italic equivalent in Helvetica
-  doc.setFontSize(8);
-  doc.setTextColor(85, 85, 85);
-  doc.text('Social Transformation through Access to Justice', footerTextX, footerTextStartY, { align: 'right' });
+  doc.setFont(FONT, 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(30, 30, 30);
+  doc.text(
+    'Social Transformation through Access to Justice',
+    footerTextX,
+    footerY + 10,
+    { align: 'right' },
+  );
 
   doc.setFont(FONT, 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(80, 80, 80);
-
+  doc.setFontSize(7.5);
+  doc.setTextColor(90, 90, 90);
   doc.text(
     'Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi',
     footerTextX,
-    footerTextStartY + 11,
+    footerY + 20,
     { align: 'right' },
   );
 
   doc.text(
     'Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke',
     footerTextX,
-    footerTextStartY + 22,
+    footerY + 29,
     { align: 'right' },
   );
 
   doc.setFont(FONT, 'bold');
-  doc.setFontSize(8.5);
+  doc.setFontSize(8);
   doc.setTextColor(26, 61, 28);
-  doc.text('Justice Be Our Shield and Defender', footerTextX, footerTextStartY + 33, { align: 'right' });
+  doc.text(
+    'Justice Be Our Shield and Defender',
+    footerTextX,
+    footerY + 39,
+    { align: 'right' },
+  );
 
   doc.setTextColor(0, 0, 0);
   doc.setDrawColor(0, 0, 0);
@@ -368,7 +355,7 @@ export async function generateAidesMemoPdf(params: AideMemoParams): Promise<Blob
   return doc.output('blob');
 }
 
-// ─── Helper to build a first-draft AideMemoParams from the request form ────
+// ── Helper to build a first-draft AideMemoParams from the request form ────
 
 export function buildAideMemoParams(data: {
   judgeName: string;
@@ -402,7 +389,7 @@ export function buildAideMemoParams(data: {
   const rankAbbrev = getRankAbbreviation(data.officerRank);
   const judgeTitle = data.judgeTitle || 'Judge of the High Court';
 
-  const subject = `Request for Attachment of ${rankAbbrev} ${data.officerName} (No. ${data.officerNumber}) as a ${assignmentDisplay} to Hon. ${data.judgeName}, ${judgeTitle}`;
+  const subject = `Request for Attachment of ${rankAbbrev} ${data.officerName} (No. ${data.officerNumber}) as a ${assignmentDisplay} to ${data.judgeName}, ${judgeTitle}`;
 
   const bodyText = `Pursuant to the continued collaboration between the Judiciary and the ${
     data.toOrganization || 'Kenya Police Service'

@@ -5,14 +5,12 @@ import { createPortal } from 'react-dom';
 import { toast, Toaster } from 'react-hot-toast';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
-  fetchDocuments,
-  signDocument,
+  fetchBringUps,           // ✅ add
   sendDocument,
   markDocument,
   acknowledgeMark,
   completeMark,
   clearError,
-  requestSignOtp,
   updateMark,
   respondToDocument,
   fetchDocumentById,
@@ -20,10 +18,11 @@ import {
   fileAwayFollowUp,
   completeFollowUp,
   cancelFollowUp,
-  // ── Bring Up thunks ──────────────────────────────────────────────────
-  setBringUp,
   updateBringUp,
   completeBringUp,
+  fileAwayBringUp,
+  sendFollowUp,
+  selectBringUpDocuments,
 } from '../../store/slices/documentSlice';
 import { hasRole } from '../../store/slices/authSlice';
 import {
@@ -40,7 +39,6 @@ import type {
   Document,
   DocumentStatus,
   DocumentType,
-  DocumentFilters,
   FollowUp,
   FollowUpStatus,
   FollowUpPriority,
@@ -48,12 +46,9 @@ import type {
   CompleteFollowUpInput,
   CancelFollowUpInput,
   FileAwayFollowUpInput,
-  // ── Bring Up types ──────────────────────────────────────────────────
   BringUpStatus,
-  SetBringUpInput,
-  UpdateBringUpInput,
-  CompleteBringUpInput,
-  //BringUpFilters,
+  SendFollowUpInput,
+  //FileAwayBringUpInput,
 } from '../../types/documents.types';
 import { format } from 'date-fns';
 import FollowUpModal from './FollowUpModal';
@@ -138,6 +133,7 @@ const BRING_UP_STATUS_STYLES: Record<BringUpStatus, string> = {
   pending: 'bg-amber-100 text-amber-700 border border-amber-200',
   completed: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
   overdue: 'bg-red-100 text-red-700 border border-red-200',
+  filed_away: 'bg-slate-100 text-slate-600 border border-slate-200',
   all: 'bg-stone-100 text-stone-600 border border-stone-200',
 };
 
@@ -145,6 +141,7 @@ const BRING_UP_STATUS_LABELS: Record<BringUpStatus, string> = {
   pending: 'PENDING',
   completed: 'COMPLETED',
   overdue: 'OVERDUE',
+  filed_away: 'FILED AWAY',
   all: 'ALL',
 };
 
@@ -386,6 +383,10 @@ interface StickyNoteProps {
   initialDate?: string | null;
   canEdit: boolean;
   onSave?: (text: string, date: string | null) => void;
+  onCompleteBringUp?: () => void;
+  onFileAwayBringUp?: () => void;
+  isCompleted?: boolean;
+  isFiledAway?: boolean;
 }
 
 const StickyNote: React.FC<StickyNoteProps> = ({
@@ -394,6 +395,10 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   initialDate = null,
   canEdit,
   onSave,
+  onCompleteBringUp,
+  onFileAwayBringUp,
+  isCompleted = false,
+  isFiledAway = false,
 }) => {
   const normalizeDate = (dateStr: string | null | undefined): string | null => {
     if (!dateStr) return null;
@@ -408,6 +413,8 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   const [minimized, setMinimized] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 24, y: 24 });
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showFileAwayModal, setShowFileAwayModal] = useState(false);
+  const [fileAwayNotes, setFileAwayNotes] = useState('');
 
   const dragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -459,6 +466,13 @@ const StickyNote: React.FC<StickyNoteProps> = ({
     onSave?.(text, newDate);
   };
 
+  const handleFileAway = () => {
+    setShowFileAwayModal(false);
+    if (onFileAwayBringUp) {
+      onFileAwayBringUp();
+    }
+  };
+
   const formatDateChip = (dateStr: string): string => {
     const d = parseDate(dateStr);
     if (!d) return 'Invalid Date';
@@ -506,191 +520,276 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   }
 
   return (
-    <div
-      ref={noteRef}
-      style={{ left: pos.x, top: pos.y, width: 240 }}
-      className="absolute z-30 flex flex-col rounded-md shadow-xl select-none"
-      onMouseDown={onMouseDown}
-    >
-      <div className="flex justify-center -mb-1 pointer-events-none">
-        <div className="w-10 h-3 rounded-sm bg-[#F5C24C]/60 border border-[#E8A840]/40 shadow-sm" />
-      </div>
-
+    <>
       <div
-        className="rounded-md overflow-hidden"
-        style={{
-          background: '#FEF08A',
-          boxShadow: '2px 4px 12px rgba(0,0,0,0.18), inset 0 -2px 0 rgba(0,0,0,0.06)',
-        }}
+        ref={noteRef}
+        style={{ left: pos.x, top: pos.y, width: 240 }}
+        className="absolute z-30 flex flex-col rounded-md shadow-xl select-none"
+        onMouseDown={onMouseDown}
       >
+        <div className="flex justify-center -mb-1 pointer-events-none">
+          <div className="w-10 h-3 rounded-sm bg-[#F5C24C]/60 border border-[#E8A840]/40 shadow-sm" />
+        </div>
+
         <div
-          className="flex items-center justify-between px-2.5 pt-2 pb-1.5 cursor-grab active:cursor-grabbing"
-          style={{ background: '#FDE047' }}
+          className="rounded-md overflow-hidden"
+          style={{
+            background: isFiledAway ? '#f1f5f9' : '#FEF08A',
+            boxShadow: '2px 4px 12px rgba(0,0,0,0.18), inset 0 -2px 0 rgba(0,0,0,0.06)',
+          }}
         >
-          <div className="flex items-center gap-1.5 min-w-0">
-            <svg className="h-3 w-3 text-[#7A4E0D] flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M16 2a1 1 0 011 1v1h1a2 2 0 012 2v1a2 2 0 01-2 2h-.5l.5 9H6l.5-9H6a2 2 0 01-2-2V6a2 2 0 012-2h1V3a1 1 0 012 0v1h6V3a1 1 0 011-1z" />
-            </svg>
-            <span className="text-[10px] font-bold text-[#7A4E0D] tracking-wide truncate">
-              {authorName}
-            </span>
+          <div
+            className="flex items-center justify-between px-2.5 pt-2 pb-1.5 cursor-grab active:cursor-grabbing"
+            style={{ background: isFiledAway ? '#e2e8f0' : '#FDE047' }}
+          >
+            <div className="flex items-center gap-1.5 min-w-0">
+              <svg className="h-3 w-3 text-[#7A4E0D] flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M16 2a1 1 0 011 1v1h1a2 2 0 012 2v1a2 2 0 01-2 2h-.5l.5 9H6l.5-9H6a2 2 0 01-2-2V6a2 2 0 012-2h1V3a1 1 0 012 0v1h6V3a1 1 0 011-1z" />
+              </svg>
+              <span className="text-[10px] font-bold text-[#7A4E0D] tracking-wide truncate">
+                {authorName}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-0.5 flex-shrink-0">
+              {canEdit && !editing && !isFiledAway && (
+                <>
+                  <button
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={() => setShowDatePicker((v) => !v)}
+                    className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
+                    title="Set bring‑up date"
+                  >
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="4" width="18" height="18" rx="2" />
+                      <line x1="16" y1="2" x2="16" y2="6" />
+                      <line x1="8" y1="2" x2="8" y2="6" />
+                      <line x1="3" y1="10" x2="21" y2="10" />
+                    </svg>
+                  </button>
+                  <button
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={() => setEditing(true)}
+                    className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
+                    title="Edit note"
+                  >
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 11l6-6 3 3-6 6H9v-3z" />
+                    </svg>
+                  </button>
+                </>
+              )}
+              <button
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={() => setMinimized(true)}
+                className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
+                title="Minimise"
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
+                </svg>
+              </button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-0.5 flex-shrink-0">
-            {canEdit && !editing && (
+          <div className="px-2.5 pb-2.5 pt-1.5">
+            {editing ? (
               <>
-                <button
+                <textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
                   onMouseDown={(e) => e.stopPropagation()}
-                  onClick={() => setShowDatePicker((v) => !v)}
-                  className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
-                  title="Set bring‑up date"
-                >
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="4" width="18" height="18" rx="2" />
-                    <line x1="16" y1="2" x2="16" y2="6" />
-                    <line x1="8" y1="2" x2="8" y2="6" />
-                    <line x1="3" y1="10" x2="21" y2="10" />
-                  </svg>
-                </button>
-                <button
+                  autoFocus
+                  rows={6}
+                  className="w-full resize-none rounded border-0 bg-transparent text-[11px] text-stone-800 leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#E8A840] placeholder:text-stone-400"
+                  placeholder="Add a note…"
+                  style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
+                />
+
+                <div
+                  className="mt-2 flex items-center gap-2"
                   onMouseDown={(e) => e.stopPropagation()}
-                  onClick={() => setEditing(true)}
-                  className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
-                  title="Edit note"
                 >
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 11l6-6 3 3-6 6H9v-3z" />
-                  </svg>
-                </button>
+                  <label className="text-[10px] font-medium text-[#7A4E0D]/70 whitespace-nowrap">
+                    📅 Bring‑up date:
+                  </label>
+                  <input
+                    type="date"
+                    value={date || ''}
+                    onChange={(e) => setDate(e.target.value || null)}
+                    className="flex-1 rounded border border-[#E8A840] bg-white/70 px-2 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-[#E8A840]"
+                  />
+                </div>
+
+                <div
+                  className="flex justify-end gap-1.5 mt-2"
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <button
+                    onClick={handleCancel}
+                    className="px-2 py-0.5 rounded text-[10px] font-medium text-[#7A4E0D]/70 hover:bg-[#FDE047] transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSave}
+                    className="px-2 py-0.5 rounded bg-[#7A4E0D] text-[10px] font-semibold text-white hover:bg-[#5c3a09] transition-colors"
+                  >
+                    Save
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p
+                  className="text-[11px] text-stone-800 leading-relaxed whitespace-pre-wrap break-words min-h-[48px]"
+                  style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
+                >
+                  {text || <span className="italic text-stone-400">No note yet.</span>}
+                </p>
+
+                {showDateChip && (
+                  <div
+                    className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium border ${
+                      isToday(date!)
+                        ? 'bg-amber-100 text-amber-800 border-amber-300'
+                        : isOverdue(date!)
+                          ? 'bg-red-100 text-red-800 border-red-300'
+                          : 'bg-stone-100 text-stone-700 border-stone-200'
+                    }`}
+                  >
+                    <span>📅</span>
+                    <span>Bring up: {formatDateChip(date!)}</span>
+                  </div>
+                )}
+
+                {isCompleted && !isFiledAway && (
+                  <div className="mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+                    ✅ Completed
+                  </div>
+                )}
+
+                {isFiledAway && (
+                  <div className="mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium bg-slate-200 text-slate-700 border border-slate-300">
+                    📁 Filed Away
+                  </div>
+                )}
+
+                {showDatePicker && canEdit && !isFiledAway && (
+                  <div
+                    className="mt-2 p-2 bg-white rounded border border-[#E8A840] shadow-sm"
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="date"
+                        value={date || ''}
+                        onChange={(e) => handleQuickDateChange(e.target.value || null)}
+                        className="flex-1 rounded border border-stone-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => setShowDatePicker(false)}
+                        className="text-[10px] text-stone-400 hover:text-stone-600"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <p className="text-[9px] text-stone-400 mt-1">
+                      Select a date and it saves automatically.
+                    </p>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                {canEdit && date && !isCompleted && !isFiledAway && (
+                  <div className="mt-2 space-y-1.5">
+                    {/* Complete Bring Up button */}
+                    {onCompleteBringUp && (
+                      <button
+                        onClick={onCompleteBringUp}
+                        className="w-full rounded bg-emerald-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-emerald-700 transition-colors"
+                      >
+                        ✓ Complete Bring Up
+                      </button>
+                    )}
+
+                    {/* File Away button */}
+                    {onFileAwayBringUp && (
+                      <button
+                        onClick={() => setShowFileAwayModal(true)}
+                        className="w-full rounded bg-slate-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-slate-700 transition-colors"
+                      >
+                        📁 File Away
+                      </button>
+                    )}
+                  </div>
+                )}
               </>
             )}
-            <button
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={() => setMinimized(true)}
-              className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
-              title="Minimise"
-            >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
-              </svg>
-            </button>
+          </div>
+
+          <div className="px-2.5 pb-1.5 flex items-center justify-between">
+            <span className="text-[9px] text-[#7A4E0D]/50 font-medium">
+              {format(new Date(), 'dd MMM yyyy')}
+            </span>
+            <div
+              className="w-4 h-4 flex-shrink-0"
+              style={{
+                background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.10) 50%)',
+                borderRadius: '0 0 4px 0',
+              }}
+            />
           </div>
         </div>
-
-        <div className="px-2.5 pb-2.5 pt-1.5">
-          {editing ? (
-            <>
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onMouseDown={(e) => e.stopPropagation()}
-                autoFocus
-                rows={6}
-                className="w-full resize-none rounded border-0 bg-transparent text-[11px] text-stone-800 leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#E8A840] placeholder:text-stone-400"
-                placeholder="Add a note…"
-                style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
-              />
-
-              <div
-                className="mt-2 flex items-center gap-2"
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                <label className="text-[10px] font-medium text-[#7A4E0D]/70 whitespace-nowrap">
-                  📅 Bring‑up date:
-                </label>
-                <input
-                  type="date"
-                  value={date || ''}
-                  onChange={(e) => setDate(e.target.value || null)}
-                  className="flex-1 rounded border border-[#E8A840] bg-white/70 px-2 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-[#E8A840]"
-                />
-              </div>
-
-              <div
-                className="flex justify-end gap-1.5 mt-2"
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                <button
-                  onClick={handleCancel}
-                  className="px-2 py-0.5 rounded text-[10px] font-medium text-[#7A4E0D]/70 hover:bg-[#FDE047] transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSave}
-                  className="px-2 py-0.5 rounded bg-[#7A4E0D] text-[10px] font-semibold text-white hover:bg-[#5c3a09] transition-colors"
-                >
-                  Save
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <p
-                className="text-[11px] text-stone-800 leading-relaxed whitespace-pre-wrap break-words min-h-[48px]"
-                style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
-              >
-                {text || <span className="italic text-stone-400">No note yet.</span>}
-              </p>
-
-              {showDateChip && (
-                <div
-                  className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium border ${
-                    isToday(date!)
-                      ? 'bg-amber-100 text-amber-800 border-amber-300'
-                      : isOverdue(date!)
-                        ? 'bg-red-100 text-red-800 border-red-300'
-                        : 'bg-stone-100 text-stone-700 border-stone-200'
-                  }`}
-                >
-                  <span>📅</span>
-                  <span>Bring up: {formatDateChip(date!)}</span>
-                </div>
-              )}
-
-              {showDatePicker && canEdit && (
-                <div
-                  className="mt-2 p-2 bg-white rounded border border-[#E8A840] shadow-sm"
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="date"
-                      value={date || ''}
-                      onChange={(e) => handleQuickDateChange(e.target.value || null)}
-                      className="flex-1 rounded border border-stone-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-                      autoFocus
-                    />
-                    <button
-                      onClick={() => setShowDatePicker(false)}
-                      className="text-[10px] text-stone-400 hover:text-stone-600"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <p className="text-[9px] text-stone-400 mt-1">
-                    Select a date and it saves automatically.
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        <div className="px-2.5 pb-1.5 flex items-center justify-between">
-          <span className="text-[9px] text-[#7A4E0D]/50 font-medium">
-            {format(new Date(), 'dd MMM yyyy')}
-          </span>
-          <div
-            className="w-4 h-4 flex-shrink-0"
-            style={{
-              background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.10) 50%)',
-              borderRadius: '0 0 4px 0',
-            }}
-          />
-        </div>
       </div>
-    </div>
+
+      {/* File Away Modal */}
+      {showFileAwayModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+            <h3 className="text-sm font-bold text-stone-900 flex items-center gap-2">
+              <span className="text-slate-600">📁</span> File Away Bring Up
+            </h3>
+            <p className="text-xs text-stone-500 mt-1">
+              This will mark the bring-up as filed away and send the document back to the helpdesk.
+            </p>
+
+            <div className="mt-4">
+              <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                Notes (Optional)
+              </label>
+              <textarea
+                value={fileAwayNotes}
+                onChange={(e) => setFileAwayNotes(e.target.value)}
+                rows={3}
+                placeholder="Add any notes about filing away..."
+                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
+                autoFocus
+              />
+            </div>
+
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => {
+                  setShowFileAwayModal(false);
+                  setFileAwayNotes('');
+                }}
+                className="flex-1 rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleFileAway}
+                className="flex-1 rounded-lg bg-slate-600 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 transition-colors"
+              >
+                Confirm File Away
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };
 
@@ -747,9 +846,6 @@ const AnnotationsPanel: React.FC<{ document: Document }> = ({ document: doc }) =
       <span className="text-xs font-semibold text-[#1E4620]">
         Registrar's Annotations
       </span>
-      <button className="text-[10px] text-stone-400 hover:text-[#1E4620] transition-colors font-medium whitespace-nowrap">
-        Secretary View Active
-      </button>
     </div>
     <div className="px-3 sm:px-4 py-3 max-h-[140px] overflow-y-auto">
       {doc.active_mark ? (
@@ -771,9 +867,6 @@ const AnnotationsPanel: React.FC<{ document: Document }> = ({ document: doc }) =
       ) : (
         <p className="text-[10px] text-stone-400 italic">No annotations yet.</p>
       )}
-      <button className="mt-2 text-[10px] text-[#1E4620] hover:underline font-medium">
-        + Add New Annotation
-      </button>
     </div>
   </div>
 );
@@ -1484,8 +1577,7 @@ const FollowUpCard: React.FC<FollowUpCardProps> = ({
             ? 'border-stone-200 bg-stone-50/30 opacity-60'
             : isFiledAway
               ? 'border-slate-200 bg-slate-50/30'
-              : isOverdue
-                ? 'border-red-200 bg-red-50/30'
+              : isOverdue                ? 'border-red-200 bg-red-50/30'
                 : 'border-stone-200 bg-white hover:border-stone-300'
       }`}>
         <div className="flex items-start justify-between gap-2">
@@ -1677,6 +1769,7 @@ interface CreateFollowUpModalProps {
   markId: string;
   onClose: () => void;
   onCreate: (input: CreateFollowUpInput) => void;
+  onSend: (input: SendFollowUpInput) => void;  // NEW: Simplified send
   onFileAway: (input: CreateFollowUpInput) => void;
 }
 
@@ -1685,6 +1778,7 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
   markId,
   onClose,
   onCreate,
+  onSend,
   onFileAway,
 }) => {
   const dispatch = useAppDispatch();
@@ -1718,6 +1812,21 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
     });
   };
 
+  // NEW: Simplified send handler
+  const handleSend = () => {
+    if (!notes.trim() || !assignedTo) {
+      setError('Please fill in notes and assign a user');
+      return;
+    }
+    setError(null);
+    onSend({
+      document_id: document.id,
+      mark_id: markId,
+      notes: notes.trim(),
+      assigned_to: assignedTo,
+    });
+  };
+
   const handleFileAway = () => {
     if (!notes.trim() || !assignedTo) {
       setError('Please fill in notes and assign a user');
@@ -1742,7 +1851,7 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
             <svg className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m0 0v3m0 0l3 3m-3-3h-3" />
             </svg>
-            Create Follow-Up
+            Follow-Up
           </h2>
           <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-lg leading-none">
             ✕
@@ -1761,13 +1870,13 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
 
           <div>
             <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Notes / What needs to be done *
+              Notes *
             </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
-              placeholder="Describe what needs to be done or what was done..."
+              placeholder="What needs to be done or what was done..."
               className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
               required
               autoFocus
@@ -1798,7 +1907,7 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
 
           <div>
             <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Due Date <span className="font-normal text-stone-400 normal-case">(optional - leave blank to file away)</span>
+              Due Date <span className="font-normal text-stone-400 normal-case">(optional)</span>
             </label>
             <input
               type="date"
@@ -1807,9 +1916,6 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
               min={new Date().toISOString().split('T')[0]}
               className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
             />
-            <p className="text-[10px] text-stone-400 mt-1">
-              {dueDate ? 'This follow-up will be active with a due date.' : 'Leave blank to file away immediately.'}
-            </p>
           </div>
 
           <div>
@@ -1850,10 +1956,18 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
               📁 File Away
             </button>
             <button
+              type="button"
+              onClick={handleSend}
+              disabled={!notes.trim() || !assignedTo}
+              className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+            >
+              Send
+            </button>
+            <button
               type="submit"
               className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors inline-flex items-center justify-center gap-2"
             >
-              Create Follow-Up
+              Create with Date
             </button>
           </div>
         </form>
@@ -2046,327 +2160,6 @@ const MarkModal: React.FC<MarkModalProps> = ({ document: doc, onClose, onMark })
   );
 };
 
-// ─── OTP Modal ───────────────────────────────────────────────────────────────
-
-interface OtpModalProps {
-  isSigningInProgress: boolean;
-  otpLoading: boolean;
-  otpValue: string;
-  otpError: string | null;
-  signingDocId: string | null;
-  onOtpChange: (val: string) => void;
-  onSubmit: () => void;
-  onCancel: () => void;
-  onResend: () => void;
-}
-
-const OtpModal: React.FC<OtpModalProps> = ({
-  isSigningInProgress,
-  otpLoading,
-  otpValue,
-  otpError,
-  onOtpChange,
-  onSubmit,
-  onCancel,
-  onResend,
-}) => (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
-    <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
-      <div className="flex items-center gap-3 mb-5">
-        <div className="h-9 w-9 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
-          <svg className="h-4 w-4 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-          </svg>
-        </div>
-        <div>
-          <h3 className="text-sm font-bold text-stone-900">Confirm E-Signature</h3>
-          <p className="text-xs text-stone-400 mt-0.5">Enter the OTP sent to your email</p>
-        </div>
-      </div>
-
-      <div className="mb-4">
-        <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-2">
-          One-Time PIN
-        </label>
-        <input
-          type="text"
-          inputMode="numeric"
-          maxLength={6}
-          value={otpValue}
-          onChange={(e) => onOtpChange(e.target.value.replace(/\D/g, '').slice(0, 6))}
-          onKeyDown={(e) =>
-            e.key === 'Enter' &&
-            otpValue.length === 6 &&
-            !isSigningInProgress &&
-            onSubmit()
-          }
-          placeholder="● ● ● ● ● ●"
-          className="w-full rounded-lg border border-stone-200 px-4 py-3 text-center text-xl font-bold tracking-[0.5em] text-stone-900 focus:border-[#1E4620] focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-          autoFocus
-        />
-        <p className="text-[10px] text-stone-400 mt-1.5 text-center">OTP expires in 5 minutes</p>
-      </div>
-
-      {otpError && (
-        <div className="mb-4 flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
-          <svg className="h-3.5 w-3.5 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <p className="text-xs text-red-700">{otpError}</p>
-        </div>
-      )}
-
-      <p className="text-[10px] text-stone-400 text-center mb-5">
-        Didn't receive it?{' '}
-        <button
-          onClick={onResend}
-          disabled={otpLoading || isSigningInProgress}
-          className="text-[#1E4620] font-semibold hover:underline disabled:opacity-50"
-        >
-          {otpLoading ? 'Sending…' : 'Resend OTP'}
-        </button>
-      </p>
-
-      <div className="flex gap-2">
-        <button
-          onClick={onCancel}
-          disabled={isSigningInProgress}
-          className="flex-1 rounded-lg border border-stone-300 px-4 py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors disabled:opacity-50"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={onSubmit}
-          disabled={otpValue.length !== 6 || isSigningInProgress}
-          className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-        >
-          {isSigningInProgress ? (
-            <>
-              <Spinner className="h-3.5 w-3.5" /> Signing…
-            </>
-          ) : (
-            'Confirm & Sign'
-          )}
-        </button>
-      </div>
-    </div>
-  </div>
-);
-
-// ─── Bring Up Modal ───────────────────────────────────────────────────────────
-
-interface BringUpModalProps {
-  document: Document;
-  onClose: () => void;
-  onSetBringUp: (input: SetBringUpInput) => Promise<void>;
-  onUpdateBringUp: (input: UpdateBringUpInput) => Promise<void>;
-  onCompleteBringUp: (input: CompleteBringUpInput) => Promise<void>;
-  isSetting: boolean;
-  isUpdating: boolean;
-  isCompleting: boolean;
-}
-
-const BringUpModal: React.FC<BringUpModalProps> = ({
-  document,
-  onClose,
-  onSetBringUp,
-  onUpdateBringUp,
-  onCompleteBringUp,
-  isSetting,
-  isUpdating,
-  isCompleting,
-}) => {
-  const [bringUpDate, setBringUpDate] = useState<string>(
-    document.bring_up_date ? new Date(document.bring_up_date).toISOString().split('T')[0] : ''
-  );
-  const [notes, setNotes] = useState<string>(document.bring_up_notes || '');
-  const [assignTo, setAssignTo] = useState<string>(document.assigned_to || '');
-  const [error, setError] = useState<string | null>(null);
-
-  const dispatch = useAppDispatch();
-  const users = useAppSelector(selectAllUsers);
-  const usersLoading = useAppSelector(selectUsersListLoading);
-
-  useEffect(() => {
-    dispatch(fetchUsers({ is_active: true, limit: 100 }));
-  }, [dispatch]);
-
-  const isEditing = !!document.bring_up_date;
-  const isCompleted = !!document.bring_up_completed_at;
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!bringUpDate) {
-      setError('Please select a bring up date');
-      return;
-    }
-    setError(null);
-
-    try {
-      if (isEditing) {
-        await onUpdateBringUp({
-          bring_up_date: new Date(bringUpDate).toISOString(),
-          notes: notes || undefined,
-        });
-      } else {
-        await onSetBringUp({
-          bring_up_date: new Date(bringUpDate).toISOString(),
-          notes: notes || undefined,
-          assign_to: assignTo || undefined,
-        });
-      }
-      onClose();
-    } catch (err) {
-      setError(typeof err === 'string' ? err : 'Failed to set bring up date');
-    }
-  };
-
-  const handleComplete = async () => {
-    try {
-      await onCompleteBringUp({
-        notes: notes || undefined,
-      });
-      onClose();
-    } catch (err) {
-      setError(typeof err === 'string' ? err : 'Failed to complete bring up');
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-bold text-stone-900 flex items-center gap-2">
-            <svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            {isEditing ? 'Update Bring Up Date' : 'Set Bring Up Date'}
-          </h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-lg leading-none">
-            ✕
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Document
-            </label>
-            <div className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700 font-medium truncate">
-              {document.title}
-            </div>
-          </div>
-
-          {document.bring_up_date && !document.bring_up_completed_at && (
-            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
-              <p><strong>Current Bring Up Date:</strong> {new Date(document.bring_up_date).toLocaleDateString()}</p>
-              {document.bring_up_notes && <p className="mt-1"><strong>Notes:</strong> {document.bring_up_notes}</p>}
-            </div>
-          )}
-
-          {isCompleted && (
-            <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800">
-              <p><strong>✅ Bring Up Completed</strong></p>
-              <p className="mt-1">Completed on: {new Date(document.bring_up_completed_at!).toLocaleDateString()}</p>
-              {document.bring_up_notes && <p className="mt-1"><strong>Notes:</strong> {document.bring_up_notes}</p>}
-            </div>
-          )}
-
-          {!isCompleted && (
-            <>
-              <div>
-                <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-                  Bring Up Date *
-                </label>
-                <input
-                  type="date"
-                  value={bringUpDate}
-                  onChange={(e) => setBringUpDate(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
-                  className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-                  Notes <span className="font-normal text-stone-400 normal-case">(optional)</span>
-                </label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  rows={3}
-                  placeholder="Add any notes about this bring up..."
-                  className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
-                />
-              </div>
-
-              {!isEditing && (
-                <div>
-                  <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-                    Assign To <span className="font-normal text-stone-400 normal-case">(optional)</span>
-                  </label>
-                  <select
-                    value={assignTo}
-                    onChange={(e) => setAssignTo(e.target.value)}
-                    className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none disabled:bg-stone-50 disabled:text-stone-400"
-                    disabled={usersLoading}
-                  >
-                    <option value="">
-                      {usersLoading ? 'Loading users…' : '— Assign to specific user (optional) —'}
-                    </option>
-                    {users.filter(u => u.is_active).map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.full_name} — {u.pj_number}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </>
-          )}
-
-          {error && (
-            <div className="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-200">
-              {error}
-            </div>
-          )}
-
-          <div className="flex gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
-            >
-              Cancel
-            </button>
-            {isEditing && !isCompleted && (
-              <button
-                type="button"
-                onClick={handleComplete}
-                disabled={isCompleting}
-                className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-              >
-                {isCompleting ? <Spinner className="h-3.5 w-3.5" /> : '✓ Complete'}
-              </button>
-            )}
-            {!isCompleted && (
-              <button
-                type="submit"
-                disabled={isSetting || isUpdating || !bringUpDate}
-                className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-              >
-                {(isSetting || isUpdating) ? <Spinner className="h-3.5 w-3.5" /> : null}
-                {isEditing ? 'Update Bring Up' : 'Set Bring Up'}
-              </button>
-            )}
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
 // ─── Document Editor ──────────────────────────────────────────────────────────
 
 interface DocumentEditorProps {
@@ -2374,13 +2167,13 @@ interface DocumentEditorProps {
   currentUserName: string;
   isSuperAdmin: boolean;
   onBack: () => void;
-  onSign?: () => void;
-  isSigning?: boolean;
   onSend?: () => void;
   onMark?: () => void;
   onAcknowledge?: () => void;
   onComplete?: () => void;
   onUpdateMark?: (markId: string, text: string, date: string | null) => void;
+  onCompleteBringUp?: () => void;
+  onFileAwayBringUp?: () => void;
   onDownload?: () => void;
   onOpenResponses?: () => void;
   onReassign?: () => void;
@@ -2390,11 +2183,6 @@ interface DocumentEditorProps {
   onCompleteFollowUp?: (followUpId: string, input: CompleteFollowUpInput) => Promise<void>;
   onCancelFollowUp?: (followUpId: string, input: CancelFollowUpInput) => Promise<void>;
   onFileAwayFollowUp?: (input: FileAwayFollowUpInput) => Promise<void>;
-  // ── Bring Up handlers ──────────────────────────────────────────────────────
-  onOpenBringUp?: () => void;
-  isSettingBringUp?: boolean;
-  isUpdatingBringUp?: boolean;
-  isCompletingBringUp?: boolean;
 }
 
 const DocumentEditor: React.FC<DocumentEditorProps> = ({
@@ -2402,13 +2190,13 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   currentUserName,
   isSuperAdmin,
   onBack,
-  onSign,
-  isSigning = false,
   onSend,
   onMark,
   onAcknowledge,
   onComplete,
   onUpdateMark,
+  onCompleteBringUp,
+  onFileAwayBringUp,
   onDownload,
   onOpenResponses,
   onReassign,
@@ -2418,10 +2206,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   onCompleteFollowUp,
   onCancelFollowUp,
   onFileAwayFollowUp,
-  onOpenBringUp,
-  isSettingBringUp = false,
-  isUpdatingBringUp = false,
-  isCompletingBringUp = false,
 }) => {
   const { user } = useAppSelector((state) => state.auth);
   const isComposed = document.type === 'memo' || document.type === 'letter';
@@ -2438,6 +2222,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const noteAuthor = document.active_mark
     ? (document.created_by_name ?? currentUserName)
     : currentUserName;
+
+  const isBringUpCompleted = !!document.bring_up_completed_at;
+  const isBringUpFiledAway = document.bring_up_status === 'filed_away';
+  const hasBringUp = !!document.bring_up_date;
+  const isBringUpOverdue = hasBringUp && !isBringUpCompleted && !isBringUpFiledAway && new Date(document.bring_up_date!) < new Date();
 
   const handleStickyNoteSave = (text: string, date: string | null) => {
     if (document.active_mark && onUpdateMark) {
@@ -2486,10 +2275,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   };
 
-  const hasBringUp = !!document.bring_up_date;
-  const isBringUpCompleted = !!document.bring_up_completed_at;
-  const isBringUpOverdue = hasBringUp && !isBringUpCompleted && new Date(document.bring_up_date!) < new Date();
-
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Title bar */}
@@ -2511,7 +2296,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           <span className="text-xs text-stone-400 hidden sm:inline">
             {formattedDate}
           </span>
-          {hasBringUp && !isBringUpCompleted && (
+          {hasBringUp && !isBringUpCompleted && !isBringUpFiledAway && (
             <span className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest ${
               isBringUpOverdue 
                 ? 'bg-red-100 text-red-700 border border-red-200' 
@@ -2521,43 +2306,19 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
               {isBringUpOverdue && ' ⚠️ OVERDUE'}
             </span>
           )}
-          {isBringUpCompleted && (
+          {isBringUpCompleted && !isBringUpFiledAway && (
             <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest bg-emerald-100 text-emerald-700 border border-emerald-200">
               ✅ Completed
+            </span>
+          )}
+          {isBringUpFiledAway && (
+            <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest bg-slate-100 text-slate-600 border border-slate-200">
+              📁 Filed Away
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
-          {/* Bring Up button */}
-          {isSuperAdmin && onOpenBringUp && (
-            <button
-              onClick={onOpenBringUp}
-              disabled={isSettingBringUp || isUpdatingBringUp || isCompletingBringUp}
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
-                hasBringUp && !isBringUpCompleted
-                  ? isBringUpOverdue
-                    ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
-                    : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
-                  : isBringUpCompleted
-                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                    : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-            >
-              {(isSettingBringUp || isUpdatingBringUp || isCompletingBringUp) ? (
-                <Spinner className="h-3 w-3" />
-              ) : (
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <rect x="3" y="4" width="18" height="18" rx="2" />
-                  <line x1="16" y1="2" x2="16" y2="6" />
-                  <line x1="8" y1="2" x2="8" y2="6" />
-                  <line x1="3" y1="10" x2="21" y2="10" />
-                </svg>
-              )}
-              {hasBringUp && !isBringUpCompleted ? 'Update Bring Up' : hasBringUp ? 'Bring Up Completed' : 'Set Bring Up'}
-            </button>
-          )}
-
           {/* Responses button */}
           <button
             onClick={handleOpenResponses}
@@ -2659,23 +2420,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
-          {onSign && (
-            <button
-              onClick={onSign}
-              disabled={isSigning}
-              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSigning ? (
-                <Spinner className="h-3 w-3" />
-              ) : (
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
-              )}
-              {isSigning ? 'Sending OTP…' : 'E-Sign'}
-            </button>
-          )}
-
           {onSend && (
             <button
               onClick={onSend}
@@ -2724,7 +2468,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       </div>
 
-      {/* Canvas (no toolbar) */}
+      {/* Canvas */}
       <div className="flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6 relative">
         {showNote && (
           <StickyNote
@@ -2734,6 +2478,10 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             initialDate={stickyNoteDate}
             canEdit={isSuperAdmin}
             onSave={handleStickyNoteSave}
+            onCompleteBringUp={onCompleteBringUp}
+            onFileAwayBringUp={onFileAwayBringUp}
+            isCompleted={isBringUpCompleted}
+            isFiledAway={isBringUpFiledAway}
           />
         )}
 
@@ -2749,9 +2497,15 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       {/* Footer bar */}
       <div className="flex items-center justify-between gap-2 bg-white border-t border-stone-100 px-3 sm:px-4 py-1.5 flex-shrink-0 flex-wrap">
         <span className="text-[10px] text-stone-400 whitespace-nowrap">
-          {document.is_signed
-            ? `✅ Signed${document.signed_by_name ? ` · ${document.signed_by_name}` : ''}`
-            : 'Not signed'}
+          {isBringUpFiledAway 
+            ? '📁 Filed Away' 
+            : isBringUpCompleted 
+              ? '✅ Bring Up Completed' 
+              : isBringUpOverdue 
+                ? '⚠️ OVERDUE' 
+                : hasBringUp 
+                  ? `📅 Due: ${format(new Date(document.bring_up_date!), 'dd MMM yyyy')}`
+                  : 'No bring-up date set'}
         </span>
         <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto">
           {(document.file_url || onDownload) && (
@@ -2768,16 +2522,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
           <button className="text-[10px] text-stone-400 hover:text-stone-600 transition-colors whitespace-nowrap">
             🖨 Print
           </button>
-          {onSign && (
-            <button
-              onClick={onSign}
-              disabled={isSigning}
-              className="inline-flex items-center gap-1 rounded bg-[#C29B38] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#a8832e] transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSigning && <Spinner className="h-2.5 w-2.5" />}
-              {isSigning ? 'Sending OTP…' : 'E-Sign'}
-            </button>
-          )}
           {onSend && (
             <button
               onClick={onSend}
@@ -2865,9 +2609,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
 const SuperAdminBringUp: React.FC = () => {
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
-  const { documents, loading, error, actionInProgress } = useAppSelector(
-    (state) => state.documents,
-  );
+const documents = useAppSelector(selectBringUpDocuments);
+const { loading, error } = useAppSelector((state) => state.documents);
 
   const isSuperAdmin = hasRole(user, 'super_admin');
   const canView = !!user;
@@ -2875,42 +2618,26 @@ const SuperAdminBringUp: React.FC = () => {
   // Local state
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showMarkModal, setShowMarkModal] = useState(false);
-  const [showOtpModal, setShowOtpModal] = useState(false);
-  const [otpValue, setOtpValue] = useState('');
-  const [otpLoading, setOtpLoading] = useState(false);
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [signingDocId, setSigningDocId] = useState<string | null>(null);
-  const [signToast, setSignToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-
-  // ─── Response modal state ───────────────────────────────────────────
   const [showResponseModal, setShowResponseModal] = useState(false);
   const [responseDocument, setResponseDocument] = useState<Document | null>(null);
-
-  // ─── Push Back state ─────────────────────────────────────────────────
   const [showReassignModal, setShowReassignModal] = useState(false);
   const [reassignLoading, setReassignLoading] = useState(false);
-
-  // ─── Follow-Up state ─────────────────────────────────────────────────
   const [showCreateFollowUp, setShowCreateFollowUp] = useState(false);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [selectedFollowUpId, setSelectedFollowUpId] = useState<string | null>(null);
-
-  // ─── Bring Up state ──────────────────────────────────────────────────
-  const [showBringUpModal, setShowBringUpModal] = useState(false);
-
-  // ─── Fetch document selection ──────────────────────────────────────
   const [isFetchingDocument, setIsFetchingDocument] = useState(false);
 
   // ─── Refresh documents function ─────────────────────────────────────
-  const refreshDocuments = useCallback(() => {
-    if (!canView) return;
-    const params: DocumentFilters = {
-      page: 1,
-      limit: PAGE_SIZE,
-      has_bring_up_date: true,
-    };
-    dispatch(fetchDocuments(params));
-  }, [dispatch, canView]);
+ // after
+const refreshDocuments = useCallback(() => {
+  if (!canView) return;
+  dispatch(fetchBringUps({
+    page: 1,
+    limit: PAGE_SIZE,
+    sort_by: 'bring_up_date',
+    sort_order: 'ASC',
+  }));
+}, [dispatch, canView]);
 
   // Fetch documents with bring-up date
   useEffect(() => {
@@ -2934,29 +2661,32 @@ const SuperAdminBringUp: React.FC = () => {
   }, [error, dispatch]);
 
   // ─── Filter documents by checking the MOST RECENT follow-up ───────────
-  const filteredDocuments = useMemo(() => {
-    return documents.filter((doc) => {
-      const followUps = doc.follow_ups || [];
-      
-      // If there are no follow-ups, keep the document
-      if (followUps.length === 0) return true;
-      
-      // Sort by created_at descending to get the most recent follow-up
-      const sorted = [...followUps].sort((a, b) => 
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-      
-      const mostRecent = sorted[0];
-      
-      // If the most recent follow-up is filed_away, completed, or cancelled, hide it
-      if (mostRecent.status === 'filed_away') return false;
-      if (mostRecent.status === 'completed') return false;
-      if (mostRecent.status === 'cancelled') return false;
-      
-      // Keep the document if the most recent follow-up is active
-      return mostRecent.status === 'pending' || mostRecent.status === 'in_progress';
-    });
-  }, [documents]);
+const filteredDocuments = useMemo(() => {
+  return documents.filter((doc) => {
+    // If document has no bring-up date, exclude it
+    if (!doc.bring_up_date) return false;
+    
+    // If bring-up is completed OR filed away, hide it
+    if (doc.bring_up_status === 'completed') return false;
+    if (doc.bring_up_status === 'filed_away') return false;
+    
+    // Also check follow-ups for additional filtering
+    const followUps = doc.follow_ups || [];
+    if (followUps.length === 0) return true;
+    
+    const sorted = [...followUps].sort((a, b) => 
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    
+    const mostRecent = sorted[0];
+    
+    if (mostRecent.status === 'filed_away') return false;
+    if (mostRecent.status === 'completed') return false;
+    if (mostRecent.status === 'cancelled') return false;
+    
+    return mostRecent.status === 'pending' || mostRecent.status === 'in_progress';
+  });
+}, [documents]);
 
   const grouped = useMemo(() => {
     const withBringUp = filteredDocuments.filter((d) => !!d.bring_up_date);
@@ -2987,7 +2717,6 @@ const SuperAdminBringUp: React.FC = () => {
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
-  // ─── Document selection handler ────────────────────────────────────────────
   const handleSelectDocument = useCallback(async (doc: Document) => {
     setIsFetchingDocument(true);
     try {
@@ -3001,60 +2730,6 @@ const SuperAdminBringUp: React.FC = () => {
       setIsFetchingDocument(false);
     }
   }, [dispatch]);
-
-  const showToast = (toastMsg: { type: 'success' | 'error'; message: string }) => {
-    setSignToast(toastMsg);
-    setTimeout(() => setSignToast(null), 4000);
-  };
-
-  const handleSign = async (id: string) => {
-    setOtpError(null);
-    setOtpValue('');
-    setSigningDocId(id);
-    setOtpLoading(true);
-
-    const result = await dispatch(requestSignOtp(id));
-    setOtpLoading(false);
-
-    if (requestSignOtp.fulfilled.match(result)) {
-      setShowOtpModal(true);
-    } else {
-      showToast({
-        type: 'error',
-        message: (result.payload as string) ?? 'Failed to send OTP. Please try again.',
-      });
-    }
-  };
-
-  const handleOtpSubmit = async () => {
-    if (!signingDocId || !otpValue.trim()) return;
-    setOtpError(null);
-
-    const result = await dispatch(signDocument({ id: signingDocId, otp: otpValue.trim() }));
-
-    if (signDocument.fulfilled.match(result)) {
-      setShowOtpModal(false);
-      setOtpValue('');
-      setSigningDocId(null);
-      const refreshed = await dispatch(fetchDocumentById(signingDocId)).unwrap();
-      setSelectedDocument(refreshed);
-      showToast({ type: 'success', message: 'Document signed successfully.' });
-    } else {
-      setOtpError((result.payload as string) ?? 'Invalid OTP. Please try again.');
-    }
-  };
-
-  const handleOtpCancel = () => {
-    setShowOtpModal(false);
-    setOtpValue('');
-    setOtpError(null);
-    setSigningDocId(null);
-  };
-
-  const handleOtpChange = (val: string) => {
-    setOtpError(null);
-    setOtpValue(val);
-  };
 
   const handleMark = (
     id: string,
@@ -3083,62 +2758,92 @@ const SuperAdminBringUp: React.FC = () => {
   const handleAcknowledge = (id: string) => dispatch(acknowledgeMark(id));
   const handleComplete = (id: string) => dispatch(completeMark(id));
 
-  // ─── Update Mark handler (instructions only) ──────────────────────────────────
-
-const handleUpdateMark = useCallback((markId: string, text: string, date: string | null) => {
-  // 1. Update the mark instructions
-  dispatch(updateMark({ markId, instructions: text }));
-  
-  // 2. Update the local state for the mark
-  if (selectedDocument && selectedDocument.active_mark) {
-    const updatedMark = {
-      ...selectedDocument.active_mark,
-      instructions: text,
-    };
-    setSelectedDocument({
-      ...selectedDocument,
-      active_mark: updatedMark,
-    });
-  }
-  
-  // 3. If there's a date change, update the document's bring_up_date
-  if (selectedDocument) {
-    const currentBringUpDate = selectedDocument.bring_up_date;
-    const newDate = date ? new Date(date).toISOString() : null;
+  const handleUpdateMark = useCallback((markId: string, text: string, date: string | null) => {
+    dispatch(updateMark({ markId, instructions: text }));
     
-    // Only update if the date has changed
-    if (currentBringUpDate !== newDate) {
-      if (newDate) {
-        // If there's a date, update it via the bring up API
-        dispatch(updateBringUp({
-          id: selectedDocument.id,
-          input: {
-            bring_up_date: newDate,
-            notes: selectedDocument.bring_up_notes || undefined
-          }
-        })).then(() => {
-          // Refresh the document after updating
-          if (selectedDocument) {
-            dispatch(fetchDocumentById(selectedDocument.id)).then((result) => {
-              if (fetchDocumentById.fulfilled.match(result)) {
-                setSelectedDocument(result.payload);
-              }
-            });
-            refreshDocuments();
-          }
-        }).catch((error) => {
-          toast.error(typeof error === 'string' ? error : 'Failed to update bring up date');
-        });
-      } else {
-        // If date is null, show a message to use the Bring Up modal
-        toast('To clear the bring up date, please use the "Set Bring Up" button above.', {
-          icon: 'ℹ️',
-          duration: 4000,
-        });
+    if (selectedDocument && selectedDocument.active_mark) {
+      const updatedMark = {
+        ...selectedDocument.active_mark,
+        instructions: text,
+      };
+      setSelectedDocument({
+        ...selectedDocument,
+        active_mark: updatedMark,
+      });
+    }
+    
+    if (selectedDocument) {
+      const currentBringUpDate = selectedDocument.bring_up_date;
+      const newDate = date ? new Date(date).toISOString() : null;
+      
+      if (currentBringUpDate !== newDate) {
+        if (newDate) {
+          dispatch(updateBringUp({
+            id: selectedDocument.id,
+            input: {
+              bring_up_date: newDate,
+              notes: selectedDocument.bring_up_notes || undefined
+            }
+          })).then(() => {
+            if (selectedDocument) {
+              dispatch(fetchDocumentById(selectedDocument.id)).then((result) => {
+                if (fetchDocumentById.fulfilled.match(result)) {
+                  setSelectedDocument(result.payload);
+                }
+              });
+              refreshDocuments();
+            }
+          }).catch((error) => {
+            toast.error(typeof error === 'string' ? error : 'Failed to update bring up date');
+          });
+        } else {
+          toast('To clear the bring up date, please use the note\'s date picker.', {
+            icon: 'ℹ️',
+            duration: 4000,
+          });
+        }
       }
     }
-  }
-}, [dispatch, selectedDocument, refreshDocuments]);
+  }, [dispatch, selectedDocument, refreshDocuments]);
+
+  const handleCompleteBringUp = useCallback(async () => {
+    if (!selectedDocument) return;
+    try {
+      await dispatch(completeBringUp({
+        id: selectedDocument.id,
+        input: {
+          notes: selectedDocument.bring_up_notes || undefined
+        }
+      })).unwrap();
+      
+      const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+      setSelectedDocument(refreshed);
+      refreshDocuments();
+      toast.success('Bring up completed successfully!');
+    } catch (error) {
+      toast.error(typeof error === 'string' ? error : 'Failed to complete bring up');
+    }
+  }, [dispatch, selectedDocument, refreshDocuments]);
+
+  const handleFileAwayBringUp = useCallback(async () => {
+    if (!selectedDocument) return;
+    try {
+      await dispatch(fileAwayBringUp({
+        id: selectedDocument.id,
+        input: {
+          notes: selectedDocument.bring_up_notes || undefined,
+          return_to_helpdesk: true,
+        }
+      })).unwrap();
+      
+      const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+      setSelectedDocument(refreshed);
+      refreshDocuments();
+      toast.success('Bring up filed away successfully!');
+    } catch (error) {
+      toast.error(typeof error === 'string' ? error : 'Failed to file away bring up');
+    }
+  }, [dispatch, selectedDocument, refreshDocuments]);
 
   const handleDownload = () => {
     if (!selectedDocument?.file_url) {
@@ -3148,7 +2853,6 @@ const handleUpdateMark = useCallback((markId: string, text: string, date: string
     window.open(selectedDocument.file_url, '_blank');
   };
 
-  // Open response modal
   const handleOpenResponses = () => {
     if (selectedDocument) {
       setResponseDocument(selectedDocument);
@@ -3164,7 +2868,6 @@ const handleUpdateMark = useCallback((markId: string, text: string, date: string
     refreshDocuments();
   };
 
-  // ─── Push Back handlers ─────────────────────────────────────────────
   const handleOpenReassign = () => {
     setShowReassignModal(true);
   };
@@ -3194,6 +2897,21 @@ const handleUpdateMark = useCallback((markId: string, text: string, date: string
   };
 
   // ─── Follow-Up handlers ─────────────────────────────────────────────────────
+
+  const handleSendFollowUp = async (input: SendFollowUpInput) => {
+    try {
+      await dispatch(sendFollowUp(input)).unwrap();
+      setShowCreateFollowUp(false);
+      toast.success('Follow-up sent successfully');
+      if (selectedDocument) {
+        const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+        setSelectedDocument(refreshed);
+      }
+      refreshDocuments();
+    } catch (error) {
+      toast.error(typeof error === 'string' ? error : 'Failed to send follow-up');
+    }
+  };
 
   const handleCreateAndFileAway = async (input: CreateFollowUpInput) => {
     try {
@@ -3283,39 +3001,6 @@ const handleUpdateMark = useCallback((markId: string, text: string, date: string
     setShowFollowUpModal(true);
   };
 
-  // ─── Bring Up handlers ──────────────────────────────────────────────────────
-
-  const handleOpenBringUp = () => {
-    setShowBringUpModal(true);
-  };
-
-  const handleSetBringUp = async (input: SetBringUpInput) => {
-    if (!selectedDocument) return;
-    await dispatch(setBringUp({ id: selectedDocument.id, input })).unwrap();
-    const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
-    setSelectedDocument(refreshed);
-    refreshDocuments();
-    toast.success('Bring up date set successfully');
-  };
-
-  const handleUpdateBringUp = async (input: UpdateBringUpInput) => {
-    if (!selectedDocument) return;
-    await dispatch(updateBringUp({ id: selectedDocument.id, input })).unwrap();
-    const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
-    setSelectedDocument(refreshed);
-    refreshDocuments();
-    toast.success('Bring up date updated successfully');
-  };
-
-  const handleCompleteBringUp = async (input: CompleteBringUpInput) => {
-    if (!selectedDocument) return;
-    await dispatch(completeBringUp({ id: selectedDocument.id, input })).unwrap();
-    const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
-    setSelectedDocument(refreshed);
-    refreshDocuments();
-    toast.success('Bring up completed successfully');
-  };
-
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   if (!canView) {
@@ -3334,36 +3019,11 @@ const handleUpdateMark = useCallback((markId: string, text: string, date: string
     );
   }
 
-  const isSigningInProgress = !!actionInProgress.signing;
-  const isSettingBringUp = !!actionInProgress.settingBringUp;
-  const isUpdatingBringUp = !!actionInProgress.updatingBringUp;
-  const isCompletingBringUp = !!actionInProgress.completingBringUp;
-
   return (
     <div className="flex flex-col h-full bg-[#F4F7F4]">
       <Toaster position="top-right" />
 
-      {/* Toast for sign operations */}
-      {signToast && (
-        <div
-          className={`fixed bottom-4 right-4 z-50 flex items-center gap-2.5 rounded-lg px-4 py-3 text-sm font-medium shadow-lg transition-all ${
-            signToast.type === 'success'
-              ? 'bg-emerald-600 text-white'
-              : 'bg-red-600 text-white'
-          }`}
-        >
-          <span>{signToast.type === 'success' ? '✅' : '❌'}</span>
-          <span>{signToast.message}</span>
-          <button
-            onClick={() => setSignToast(null)}
-            className="ml-2 text-white/70 hover:text-white text-xs"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-
-      {/* ─── Response Modal (portal) ────────────────────────────────────── */}
+      {/* ─── Response Modal ────────────────────────────────────────────────── */}
       {showResponseModal && responseDocument &&
         createPortal(
           <ResponseModal
@@ -3401,6 +3061,7 @@ const handleUpdateMark = useCallback((markId: string, text: string, date: string
           markId={selectedDocument.active_mark.id}
           onClose={() => setShowCreateFollowUp(false)}
           onCreate={handleCreateFollowUp}
+          onSend={handleSendFollowUp}
           onFileAway={handleCreateAndFileAway}
         />
       )}
@@ -3420,20 +3081,6 @@ const handleUpdateMark = useCallback((markId: string, text: string, date: string
             }
             refreshDocuments();
           }}
-        />
-      )}
-
-      {/* ─── Bring Up Modal ───────────────────────────────────────────────── */}
-      {showBringUpModal && selectedDocument && (
-        <BringUpModal
-          document={selectedDocument}
-          onClose={() => setShowBringUpModal(false)}
-          onSetBringUp={handleSetBringUp}
-          onUpdateBringUp={handleUpdateBringUp}
-          onCompleteBringUp={handleCompleteBringUp}
-          isSetting={isSettingBringUp}
-          isUpdating={isUpdatingBringUp}
-          isCompleting={isCompletingBringUp}
         />
       )}
 
@@ -3515,12 +3162,6 @@ const handleUpdateMark = useCallback((markId: string, text: string, date: string
               currentUserName={user?.full_name ?? 'Registrar'}
               isSuperAdmin={isSuperAdmin}
               onBack={() => setSelectedDocument(null)}
-              onSign={
-                isSuperAdmin && !selectedDocument.is_signed
-                  ? () => handleSign(selectedDocument.id)
-                  : undefined
-              }
-              isSigning={otpLoading || actionInProgress.signing === selectedDocument.id}
               onSend={
                 isSuperAdmin &&
                 !selectedDocument.is_sent &&
@@ -3546,6 +3187,20 @@ const handleUpdateMark = useCallback((markId: string, text: string, date: string
                   : undefined
               }
               onUpdateMark={handleUpdateMark}
+              onCompleteBringUp={
+                selectedDocument.bring_up_date && 
+                !selectedDocument.bring_up_completed_at && 
+                selectedDocument.bring_up_status !== 'filed_away'
+                  ? handleCompleteBringUp 
+                  : undefined
+              }
+              onFileAwayBringUp={
+                selectedDocument.bring_up_date && 
+                !selectedDocument.bring_up_completed_at && 
+                selectedDocument.bring_up_status !== 'filed_away'
+                  ? handleFileAwayBringUp 
+                  : undefined
+              }
               onDownload={handleDownload}
               onOpenResponses={handleOpenResponses}
               onReassign={selectedDocument.active_mark ? handleOpenReassign : undefined}
@@ -3555,10 +3210,6 @@ const handleUpdateMark = useCallback((markId: string, text: string, date: string
               onCompleteFollowUp={handleCompleteFollowUp}
               onCancelFollowUp={handleCancelFollowUp}
               onFileAwayFollowUp={handleFileAwayFollowUp}
-              onOpenBringUp={handleOpenBringUp}
-              isSettingBringUp={isSettingBringUp}
-              isUpdatingBringUp={isUpdatingBringUp}
-              isCompletingBringUp={isCompletingBringUp}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center px-4">
@@ -3583,20 +3234,6 @@ const handleUpdateMark = useCallback((markId: string, text: string, date: string
           document={selectedDocument}
           onClose={() => setShowMarkModal(false)}
           onMark={handleMark}
-        />
-      )}
-
-      {showOtpModal && (
-        <OtpModal
-          isSigningInProgress={isSigningInProgress}
-          otpLoading={otpLoading}
-          otpValue={otpValue}
-          otpError={otpError}
-          signingDocId={signingDocId}
-          onOtpChange={handleOtpChange}
-          onSubmit={handleOtpSubmit}
-          onCancel={handleOtpCancel}
-          onResend={() => signingDocId && handleSign(signingDocId)}
         />
       )}
     </div>
