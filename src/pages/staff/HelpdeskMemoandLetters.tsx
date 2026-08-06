@@ -2513,10 +2513,10 @@ const HelpdeskMemoandLetters: React.FC = () => {
       <div className="flex items-center justify-between gap-3 px-3 sm:px-6 py-3 sm:py-4 border-b border-stone-200 bg-white flex-wrap">
         <div className="min-w-0">
           <h1 className="text-base sm:text-lg font-bold text-stone-900 tracking-tight truncate">
-            Memos, Letters & Certificates
+            Memos, Letters 
           </h1>
           <p className="text-[11px] sm:text-xs text-stone-400 mt-0.5 hidden sm:block">
-            Compose, edit, and manage your official correspondence
+            Compose Your Memo
           </p>
         </div>
 

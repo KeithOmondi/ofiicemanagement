@@ -1731,6 +1731,9 @@ const BringUpModal: React.FC<BringUpModalProps> = ({
 
 // ─── DocumentEditor ────────────────────────────────────────────────────────
 
+// ─── DocumentEditor ────────────────────────────────────────────────────────
+// ─── DocumentEditor ────────────────────────────────────────────────────────
+
 type SaveState = "idle" | "saving" | "saved" | "unsaved" | "error";
 
 const SAVE_LABEL: Record<SaveState, string> = {
@@ -1769,6 +1772,7 @@ interface DocumentEditorProps {
   isSettingBringUp?: boolean;
   isUpdatingBringUp?: boolean;
   isCompletingBringUp?: boolean;
+  onRefreshDocument?: () => Promise<void>;
 }
 
 const DocumentEditor: React.FC<DocumentEditorProps> = ({
@@ -1799,6 +1803,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   isSettingBringUp = false,
   isUpdatingBringUp = false,
   isCompletingBringUp = false,
+  onRefreshDocument,
 }) => {
   const isComposed = document.type === "memo" || document.type === "letter" || document.type === "certificate";
   const isEditable = !!onSave && isComposed;
@@ -2059,8 +2064,12 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const isBringUpCompleted = !!document.bring_up_completed_at;
   const isBringUpOverdue = hasBringUp && !isBringUpCompleted && new Date(document.bring_up_date!) < new Date();
 
+  // ─── Check if document has attachments ──────────────────────────────────
+  const hasAttachments = document.attachments && document.attachments.length > 0;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      {/* Title bar */}
       <div className="flex items-center justify-between gap-2 sm:gap-3 bg-white border-b border-stone-200 px-3 sm:px-4 py-2.5 flex-wrap">
         <div className="flex items-center gap-2 min-w-0">
           <button
@@ -2097,6 +2106,20 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
+          {/* ─── Refresh Button (Super Admin) ────────────────────────────── */}
+          {isSuperAdmin && onRefreshDocument && (
+            <button
+              onClick={onRefreshDocument}
+              className="inline-flex items-center gap-1 rounded-md border border-stone-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-stone-600 hover:bg-stone-50 transition-colors whitespace-nowrap"
+              title="Refresh document to get latest attachments"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.418 0V4h-.582m-15.418 0A9 9 0 0118.84 9.986M21 16v5h-.582m-15.418 0v-5h.582m15.418 0a9 9 0 01-15.24 5.014" />
+              </svg>
+              Refresh
+            </button>
+          )}
+
           {isSuperAdmin && onOpenBringUp && (
             <button
               onClick={onOpenBringUp}
@@ -2282,6 +2305,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       </div>
 
+      {/* Edit mode toolbar */}
       {isEditMode && (
         <div className="flex items-center gap-1 bg-[#1E4620] px-3 py-1.5 overflow-x-auto flex-shrink-0">
           <div className="flex items-center gap-1.5 mr-2 flex-shrink-0">
@@ -2433,6 +2457,38 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       )}
 
+      {/* ─── Attachments Section (Read-only) ───────────────────────────── */}
+      {hasAttachments && (
+        <div className="bg-white border-b border-stone-200 px-4 py-2 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] font-semibold text-stone-500 uppercase tracking-wider">
+              Attachments ({document.attachments!.length}):
+            </span>
+            {document.attachments!.map((att) => (
+              <a
+                key={att.id || att.url}
+                href={att.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 bg-stone-50 border border-stone-200 rounded px-2 py-0.5 text-xs text-[#1E4620] hover:text-[#c9a84c] hover:border-[#c9a84c] transition-colors"
+              >
+                <svg className="h-3 w-3 text-[#c9a84c]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                </svg>
+                {att.name}
+                {att.size && (
+                  <span className="text-[9px] text-stone-400">({formatFileSize(att.size)})</span>
+                )}
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Canvas */}
       <div
         ref={containerRef}
         className={`flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6 relative document-preview-container ${
@@ -2738,6 +2794,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       </div>
 
+      {/* Sign status bar */}
       <div className="flex items-center justify-between gap-2 bg-white border-t border-stone-100 px-3 sm:px-4 py-1.5 flex-shrink-0 flex-wrap">
         <span className="text-[10px] text-stone-400 whitespace-nowrap">
           {document.is_signed
@@ -2780,6 +2837,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       </div>
 
+      {/* Responses Panel */}
       {showResponses && <ResponsesPanel documentId={document.id} />}
 
       <AnnotationsPanel document={document} />
@@ -3913,6 +3971,8 @@ const MemoandLetters: React.FC = () => {
           </div>
         </div>
       )}
+
+      
 
       {showMarkModal && selectedDocument && (
         <MarkModal
