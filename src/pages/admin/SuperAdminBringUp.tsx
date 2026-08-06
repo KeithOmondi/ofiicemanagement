@@ -1,27 +1,22 @@
 // src/pages/documents/SuperAdminBringUp.tsx
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { createPortal } from 'react-dom';
 import { toast, Toaster } from 'react-hot-toast';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
-  fetchBringUps,           // ✅ add
-  sendDocument,
+  fetchBringUps,
   markDocument,
-  acknowledgeMark,
-  completeMark,
   clearError,
-  updateMark,
-  respondToDocument,
   fetchDocumentById,
-  createFollowUp,
-  fileAwayFollowUp,
-  completeFollowUp,
-  cancelFollowUp,
+  updateMark,
   updateBringUp,
   completeBringUp,
-  fileAwayBringUp,
   sendFollowUp,
+  createFollowUp,
+  completeFollowUp,
+  cancelFollowUp,
+  addFollowUpComment,
+  fetchFollowUpThread,
   selectBringUpDocuments,
 } from '../../store/slices/documentSlice';
 import { hasRole } from '../../store/slices/authSlice';
@@ -39,19 +34,19 @@ import type {
   Document,
   DocumentStatus,
   DocumentType,
-  FollowUp,
+  BringUpStatus,
   FollowUpStatus,
   FollowUpPriority,
   CreateFollowUpInput,
+  SendFollowUpInput,
   CompleteFollowUpInput,
   CancelFollowUpInput,
-  FileAwayFollowUpInput,
-  BringUpStatus,
-  SendFollowUpInput,
-  //FileAwayBringUpInput,
+  AddFollowUpCommentInput,
+  CompleteBringUpInput,
+  FollowUpWithComments,
+  FollowUp,
 } from '../../types/documents.types';
 import { format } from 'date-fns';
-import FollowUpModal from './FollowUpModal';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -69,6 +64,12 @@ const startOfDay = (d: Date): Date => {
   const copy = new Date(d);
   copy.setHours(0, 0, 0, 0);
   return copy;
+};
+
+const formatDateDisplay = (dateStr: string | Date): string => {
+  const d = typeof dateStr === 'string' ? parseDate(dateStr) : dateStr;
+  if (!d) return 'Invalid date';
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 };
 
 type BringUpBucket = 'overdue' | 'today' | 'upcoming';
@@ -133,16 +134,12 @@ const BRING_UP_STATUS_STYLES: Record<BringUpStatus, string> = {
   pending: 'bg-amber-100 text-amber-700 border border-amber-200',
   completed: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
   overdue: 'bg-red-100 text-red-700 border border-red-200',
-  filed_away: 'bg-slate-100 text-slate-600 border border-slate-200',
-  all: 'bg-stone-100 text-stone-600 border border-stone-200',
 };
 
 const BRING_UP_STATUS_LABELS: Record<BringUpStatus, string> = {
   pending: 'PENDING',
   completed: 'COMPLETED',
   overdue: 'OVERDUE',
-  filed_away: 'FILED AWAY',
-  all: 'ALL',
 };
 
 const BringUpStatusBadge: React.FC<{ status: BringUpStatus }> = ({ status }) => (
@@ -160,7 +157,6 @@ const FOLLOW_UP_STATUS_STYLES: Record<FollowUpStatus, string> = {
   in_progress: 'bg-blue-100 text-blue-700 border border-blue-200',
   completed: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
   cancelled: 'bg-stone-100 text-stone-500 border border-stone-200',
-  filed_away: 'bg-slate-100 text-slate-600 border border-slate-200',
 };
 
 const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
@@ -168,7 +164,6 @@ const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
   in_progress: 'IN PROGRESS',
   completed: 'COMPLETED',
   cancelled: 'CANCELLED',
-  filed_away: 'FILED AWAY',
 };
 
 const FollowUpStatusBadge: React.FC<{ status: FollowUpStatus }> = ({ status }) => (
@@ -258,6 +253,10 @@ const formatFileSize = (bytes: number | null): string => {
 
 // ─── List Item ───────────────────────────────────────────────────────────────
 
+// ─── List Item ───────────────────────────────────────────────────────────────
+
+// ─── List Item ───────────────────────────────────────────────────────────────
+
 interface ListItemProps {
   document: Document;
   selected: boolean;
@@ -273,6 +272,12 @@ const ListItem: React.FC<ListItemProps> = ({
 }) => {
   const mark = document.active_mark;
   const showMarkInfo = mark && (document.status === 'marked' || document.status === 'dept_assigned' || document.status === 'user_assigned');
+
+  // ─── Check for active follow-ups ──────────────────────────────────────────
+  const followUps = document.follow_ups || [];
+  const activeFollowUps = followUps.filter(f => f.status !== 'completed' && f.status !== 'cancelled');
+  const hasActiveFollowUp = activeFollowUps.length > 0;
+  const hasUnreadMessages = activeFollowUps.some(f => f.comment_count && f.comment_count > 0);
 
   return (
     <div
@@ -291,13 +296,36 @@ const ListItem: React.FC<ListItemProps> = ({
 
       <div className="flex-1 min-w-0">
         <div className="flex items-start justify-between gap-1.5">
-          <p
-            className={`text-xs font-semibold leading-snug truncate ${
-              selected ? 'text-[#1E4620]' : 'text-stone-800'
-            }`}
-          >
-            {document.title}
-          </p>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <p
+              className={`text-xs font-semibold leading-snug truncate ${
+                selected ? 'text-[#1E4620]' : 'text-stone-800'
+              }`}
+            >
+              {document.title}
+            </p>
+            
+            {/* ─── Follow-up indicator next to title ──────────────────────── */}
+            {hasActiveFollowUp && (
+              <span 
+                className={`inline-flex items-center gap-0.5 flex-shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-medium border ${
+                  hasUnreadMessages 
+                    ? 'bg-red-50 text-red-700 border-red-200 animate-pulse' 
+                    : 'bg-blue-50 text-blue-700 border-blue-200'
+                }`}
+                title={`${activeFollowUps.length} active follow-up${activeFollowUps.length > 1 ? 's' : ''}${hasUnreadMessages ? ' - new replies' : ''}`}
+              >
+                <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                {activeFollowUps.length}
+                {hasUnreadMessages && (
+                  <span className="text-red-600 font-bold">!</span>
+                )}
+              </span>
+            )}
+          </div>
+
           <div className="flex items-center gap-1 flex-shrink-0">
             {hasResponse && (
               <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-[8px] font-medium text-blue-700 border border-blue-200">
@@ -335,7 +363,7 @@ const ListItem: React.FC<ListItemProps> = ({
             <>
               <span>·</span>
               <span className="text-amber-600 font-medium">
-                📅 {format(new Date(document.bring_up_date), 'dd MMM yyyy')}
+                📅 {formatDateDisplay(document.bring_up_date)}
               </span>
             </>
           )}
@@ -370,12 +398,31 @@ const ListItem: React.FC<ListItemProps> = ({
             )}
           </div>
         )}
+
+        {/* ─── Active follow-up preview (shows the latest message) ─────────── */}
+        {hasActiveFollowUp && (
+          <div className="mt-1 flex items-center gap-1 text-[9px] text-blue-600 truncate">
+            <svg className="h-2.5 w-2.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            <span className="truncate">
+              {activeFollowUps.length === 1 
+                ? activeFollowUps[0].notes 
+                : `${activeFollowUps.length} active follow-ups`}
+            </span>
+            {hasUnreadMessages && (
+              <span className="flex-shrink-0 text-red-500 font-semibold">
+                · New replies
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
-// ─── Sticky Note ─────────────────────────────────────────────────────────────
+// ─── Sticky Note (DATE ONLY) ────────────────────────────────────────────────
 
 interface StickyNoteProps {
   authorName: string;
@@ -383,10 +430,6 @@ interface StickyNoteProps {
   initialDate?: string | null;
   canEdit: boolean;
   onSave?: (text: string, date: string | null) => void;
-  onCompleteBringUp?: () => void;
-  onFileAwayBringUp?: () => void;
-  isCompleted?: boolean;
-  isFiledAway?: boolean;
 }
 
 const StickyNote: React.FC<StickyNoteProps> = ({
@@ -395,10 +438,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   initialDate = null,
   canEdit,
   onSave,
-  onCompleteBringUp,
-  onFileAwayBringUp,
-  isCompleted = false,
-  isFiledAway = false,
 }) => {
   const normalizeDate = (dateStr: string | null | undefined): string | null => {
     if (!dateStr) return null;
@@ -413,8 +452,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   const [minimized, setMinimized] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 24, y: 24 });
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showFileAwayModal, setShowFileAwayModal] = useState(false);
-  const [fileAwayNotes, setFileAwayNotes] = useState('');
 
   const dragging = useRef(false);
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -466,23 +503,6 @@ const StickyNote: React.FC<StickyNoteProps> = ({
     onSave?.(text, newDate);
   };
 
-  const handleFileAway = () => {
-    setShowFileAwayModal(false);
-    if (onFileAwayBringUp) {
-      onFileAwayBringUp();
-    }
-  };
-
-  const formatDateChip = (dateStr: string): string => {
-    const d = parseDate(dateStr);
-    if (!d) return 'Invalid Date';
-    return d.toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
-  };
-
   const isOverdue = (dateStr: string): boolean => {
     const d = parseDate(dateStr);
     if (!d) return false;
@@ -520,276 +540,191 @@ const StickyNote: React.FC<StickyNoteProps> = ({
   }
 
   return (
-    <>
-      <div
-        ref={noteRef}
-        style={{ left: pos.x, top: pos.y, width: 240 }}
-        className="absolute z-30 flex flex-col rounded-md shadow-xl select-none"
-        onMouseDown={onMouseDown}
-      >
-        <div className="flex justify-center -mb-1 pointer-events-none">
-          <div className="w-10 h-3 rounded-sm bg-[#F5C24C]/60 border border-[#E8A840]/40 shadow-sm" />
-        </div>
-
-        <div
-          className="rounded-md overflow-hidden"
-          style={{
-            background: isFiledAway ? '#f1f5f9' : '#FEF08A',
-            boxShadow: '2px 4px 12px rgba(0,0,0,0.18), inset 0 -2px 0 rgba(0,0,0,0.06)',
-          }}
-        >
-          <div
-            className="flex items-center justify-between px-2.5 pt-2 pb-1.5 cursor-grab active:cursor-grabbing"
-            style={{ background: isFiledAway ? '#e2e8f0' : '#FDE047' }}
-          >
-            <div className="flex items-center gap-1.5 min-w-0">
-              <svg className="h-3 w-3 text-[#7A4E0D] flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M16 2a1 1 0 011 1v1h1a2 2 0 012 2v1a2 2 0 01-2 2h-.5l.5 9H6l.5-9H6a2 2 0 01-2-2V6a2 2 0 012-2h1V3a1 1 0 012 0v1h6V3a1 1 0 011-1z" />
-              </svg>
-              <span className="text-[10px] font-bold text-[#7A4E0D] tracking-wide truncate">
-                {authorName}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-0.5 flex-shrink-0">
-              {canEdit && !editing && !isFiledAway && (
-                <>
-                  <button
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={() => setShowDatePicker((v) => !v)}
-                    className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
-                    title="Set bring‑up date"
-                  >
-                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                      <rect x="3" y="4" width="18" height="18" rx="2" />
-                      <line x1="16" y1="2" x2="16" y2="6" />
-                      <line x1="8" y1="2" x2="8" y2="6" />
-                      <line x1="3" y1="10" x2="21" y2="10" />
-                    </svg>
-                  </button>
-                  <button
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={() => setEditing(true)}
-                    className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
-                    title="Edit note"
-                  >
-                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 11l6-6 3 3-6 6H9v-3z" />
-                    </svg>
-                  </button>
-                </>
-              )}
-              <button
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={() => setMinimized(true)}
-                className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
-                title="Minimise"
-              >
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          <div className="px-2.5 pb-2.5 pt-1.5">
-            {editing ? (
-              <>
-                <textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  autoFocus
-                  rows={6}
-                  className="w-full resize-none rounded border-0 bg-transparent text-[11px] text-stone-800 leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#E8A840] placeholder:text-stone-400"
-                  placeholder="Add a note…"
-                  style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
-                />
-
-                <div
-                  className="mt-2 flex items-center gap-2"
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <label className="text-[10px] font-medium text-[#7A4E0D]/70 whitespace-nowrap">
-                    📅 Bring‑up date:
-                  </label>
-                  <input
-                    type="date"
-                    value={date || ''}
-                    onChange={(e) => setDate(e.target.value || null)}
-                    className="flex-1 rounded border border-[#E8A840] bg-white/70 px-2 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-[#E8A840]"
-                  />
-                </div>
-
-                <div
-                  className="flex justify-end gap-1.5 mt-2"
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <button
-                    onClick={handleCancel}
-                    className="px-2 py-0.5 rounded text-[10px] font-medium text-[#7A4E0D]/70 hover:bg-[#FDE047] transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleSave}
-                    className="px-2 py-0.5 rounded bg-[#7A4E0D] text-[10px] font-semibold text-white hover:bg-[#5c3a09] transition-colors"
-                  >
-                    Save
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <p
-                  className="text-[11px] text-stone-800 leading-relaxed whitespace-pre-wrap break-words min-h-[48px]"
-                  style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
-                >
-                  {text || <span className="italic text-stone-400">No note yet.</span>}
-                </p>
-
-                {showDateChip && (
-                  <div
-                    className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium border ${
-                      isToday(date!)
-                        ? 'bg-amber-100 text-amber-800 border-amber-300'
-                        : isOverdue(date!)
-                          ? 'bg-red-100 text-red-800 border-red-300'
-                          : 'bg-stone-100 text-stone-700 border-stone-200'
-                    }`}
-                  >
-                    <span>📅</span>
-                    <span>Bring up: {formatDateChip(date!)}</span>
-                  </div>
-                )}
-
-                {isCompleted && !isFiledAway && (
-                  <div className="mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
-                    ✅ Completed
-                  </div>
-                )}
-
-                {isFiledAway && (
-                  <div className="mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium bg-slate-200 text-slate-700 border border-slate-300">
-                    📁 Filed Away
-                  </div>
-                )}
-
-                {showDatePicker && canEdit && !isFiledAway && (
-                  <div
-                    className="mt-2 p-2 bg-white rounded border border-[#E8A840] shadow-sm"
-                    onMouseDown={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="date"
-                        value={date || ''}
-                        onChange={(e) => handleQuickDateChange(e.target.value || null)}
-                        className="flex-1 rounded border border-stone-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => setShowDatePicker(false)}
-                        className="text-[10px] text-stone-400 hover:text-stone-600"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    <p className="text-[9px] text-stone-400 mt-1">
-                      Select a date and it saves automatically.
-                    </p>
-                  </div>
-                )}
-
-                {/* Action Buttons */}
-                {canEdit && date && !isCompleted && !isFiledAway && (
-                  <div className="mt-2 space-y-1.5">
-                    {/* Complete Bring Up button */}
-                    {onCompleteBringUp && (
-                      <button
-                        onClick={onCompleteBringUp}
-                        className="w-full rounded bg-emerald-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-emerald-700 transition-colors"
-                      >
-                        ✓ Complete Bring Up
-                      </button>
-                    )}
-
-                    {/* File Away button */}
-                    {onFileAwayBringUp && (
-                      <button
-                        onClick={() => setShowFileAwayModal(true)}
-                        className="w-full rounded bg-slate-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-slate-700 transition-colors"
-                      >
-                        📁 File Away
-                      </button>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-
-          <div className="px-2.5 pb-1.5 flex items-center justify-between">
-            <span className="text-[9px] text-[#7A4E0D]/50 font-medium">
-              {format(new Date(), 'dd MMM yyyy')}
-            </span>
-            <div
-              className="w-4 h-4 flex-shrink-0"
-              style={{
-                background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.10) 50%)',
-                borderRadius: '0 0 4px 0',
-              }}
-            />
-          </div>
-        </div>
+    <div
+      ref={noteRef}
+      style={{ left: pos.x, top: pos.y, width: 240 }}
+      className="absolute z-30 flex flex-col rounded-md shadow-xl select-none"
+      onMouseDown={onMouseDown}
+    >
+      <div className="flex justify-center -mb-1 pointer-events-none">
+        <div className="w-10 h-3 rounded-sm bg-[#F5C24C]/60 border border-[#E8A840]/40 shadow-sm" />
       </div>
 
-      {/* File Away Modal */}
-      {showFileAwayModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
-            <h3 className="text-sm font-bold text-stone-900 flex items-center gap-2">
-              <span className="text-slate-600">📁</span> File Away Bring Up
-            </h3>
-            <p className="text-xs text-stone-500 mt-1">
-              This will mark the bring-up as filed away and send the document back to the helpdesk.
-            </p>
+      <div
+        className="rounded-md overflow-hidden"
+        style={{
+          background: '#FEF08A',
+          boxShadow: '2px 4px 12px rgba(0,0,0,0.18), inset 0 -2px 0 rgba(0,0,0,0.06)',
+        }}
+      >
+        <div
+          className="flex items-center justify-between px-2.5 pt-2 pb-1.5 cursor-grab active:cursor-grabbing"
+          style={{ background: '#FDE047' }}
+        >
+          <div className="flex items-center gap-1.5 min-w-0">
+            <svg className="h-3 w-3 text-[#7A4E0D] flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M16 2a1 1 0 011 1v1h1a2 2 0 012 2v1a2 2 0 01-2 2h-.5l.5 9H6l.5-9H6a2 2 0 01-2-2V6a2 2 0 012-2h1V3a1 1 0 012 0v1h6V3a1 1 0 011-1z" />
+            </svg>
+            <span className="text-[10px] font-bold text-[#7A4E0D] tracking-wide truncate">
+              {authorName}
+            </span>
+          </div>
 
-            <div className="mt-4">
-              <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-                Notes (Optional)
-              </label>
-              <textarea
-                value={fileAwayNotes}
-                onChange={(e) => setFileAwayNotes(e.target.value)}
-                rows={3}
-                placeholder="Add any notes about filing away..."
-                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
-                autoFocus
-              />
-            </div>
-
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => {
-                  setShowFileAwayModal(false);
-                  setFileAwayNotes('');
-                }}
-                className="flex-1 rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleFileAway}
-                className="flex-1 rounded-lg bg-slate-600 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 transition-colors"
-              >
-                Confirm File Away
-              </button>
-            </div>
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            {canEdit && !editing && (
+              <>
+                <button
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => setShowDatePicker((v) => !v)}
+                  className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
+                  title="Set bring‑up date"
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2" />
+                    <line x1="16" y1="2" x2="16" y2="6" />
+                    <line x1="8" y1="2" x2="8" y2="6" />
+                    <line x1="3" y1="10" x2="21" y2="10" />
+                  </svg>
+                </button>
+                <button
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={() => setEditing(true)}
+                  className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
+                  title="Edit note"
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 11l6-6 3 3-6 6H9v-3z" />
+                  </svg>
+                </button>
+              </>
+            )}
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={() => setMinimized(true)}
+              className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
+              title="Minimise"
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
+              </svg>
+            </button>
           </div>
         </div>
-      )}
-    </>
+
+        <div className="px-2.5 pb-2.5 pt-1.5">
+          {editing ? (
+            <>
+              <textarea
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
+                autoFocus
+                rows={6}
+                className="w-full resize-none rounded border-0 bg-transparent text-[11px] text-stone-800 leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#E8A840] placeholder:text-stone-400"
+                placeholder="Add a note…"
+                style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
+              />
+
+              <div
+                className="mt-2 flex items-center gap-2"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <label className="text-[10px] font-medium text-[#7A4E0D]/70 whitespace-nowrap">
+                  📅 Bring‑up date:
+                </label>
+                <input
+                  type="date"
+                  value={date || ''}
+                  onChange={(e) => setDate(e.target.value || null)}
+                  className="flex-1 rounded border border-[#E8A840] bg-white/70 px-2 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-[#E8A840]"
+                />
+              </div>
+
+              <div
+                className="flex justify-end gap-1.5 mt-2"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <button
+                  onClick={handleCancel}
+                  className="px-2 py-0.5 rounded text-[10px] font-medium text-[#7A4E0D]/70 hover:bg-[#FDE047] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSave}
+                  className="px-2 py-0.5 rounded bg-[#7A4E0D] text-[10px] font-semibold text-white hover:bg-[#5c3a09] transition-colors"
+                >
+                  Save
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p
+                className="text-[11px] text-stone-800 leading-relaxed whitespace-pre-wrap break-words min-h-[48px]"
+                style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
+              >
+                {text || <span className="italic text-stone-400">No note yet.</span>}
+              </p>
+
+              {showDateChip && (
+                <div
+                  className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium border ${
+                    isToday(date!)
+                      ? 'bg-amber-100 text-amber-800 border-amber-300'
+                      : isOverdue(date!)
+                        ? 'bg-red-100 text-red-800 border-red-300'
+                        : 'bg-stone-100 text-stone-700 border-stone-200'
+                  }`}
+                >
+                  <span>📅</span>
+                  <span>Bring up: {formatDateDisplay(date!)}</span>
+                </div>
+              )}
+
+              {showDatePicker && canEdit && (
+                <div
+                  className="mt-2 p-2 bg-white rounded border border-[#E8A840] shadow-sm"
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={date || ''}
+                      onChange={(e) => handleQuickDateChange(e.target.value || null)}
+                      className="flex-1 rounded border border-stone-300 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
+                      autoFocus
+                    />
+                    <button
+                      onClick={() => setShowDatePicker(false)}
+                      className="text-[10px] text-stone-400 hover:text-stone-600"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <p className="text-[9px] text-stone-400 mt-1">
+                    Select a date and it saves automatically.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="px-2.5 pb-1.5 flex items-center justify-between">
+          <span className="text-[9px] text-[#7A4E0D]/50 font-medium">
+            {format(new Date(), 'dd MMM yyyy')}
+          </span>
+          <div
+            className="w-4 h-4 flex-shrink-0"
+            style={{
+              background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.10) 50%)',
+              borderRadius: '0 0 4px 0',
+            }}
+          />
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -972,875 +907,37 @@ const FilePreview: React.FC<{ document: Document }> = ({ document: doc }) => {
   );
 };
 
-// ─── Response Modal ──────────────────────────────────────────────────────────
+// ─── COMPLETE MODAL (with required note) ─────────────────────────────────────
 
-interface ResponseModalProps {
+interface CompleteModalProps {
   document: Document;
   onClose: () => void;
-  onResponseSubmitted: () => void;
+  onComplete: (input: CompleteBringUpInput) => Promise<void>;
+  isCompleting: boolean;
 }
 
-const ResponseModal: React.FC<ResponseModalProps> = ({
+const CompleteModal: React.FC<CompleteModalProps> = ({
   document,
   onClose,
-  onResponseSubmitted,
+  onComplete,
+  isCompleting,
 }) => {
-  const dispatch = useAppDispatch();
-  const currentUser = useAppSelector((state) => state.auth.user);
-  const currentDocument = useAppSelector((state) => state.documents.currentDocument);
-
-  const [note, setNote] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const responses = currentDocument?.id === document.id
-    ? currentDocument.responses ?? []
-    : [];
-
-  const isPendingResponse =
-    document.status === 'pending_review' &&
-    document.assigned_to === currentUser?.id;
-
-  const isFormValid = note.trim().length > 0;
-  const nextResponseNumber = responses.length + 1;
-
-  useEffect(() => {
-    dispatch(fetchDocumentById(document.id));
-  }, [dispatch, document.id]);
+  const [notes, setNotes] = useState('');
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isFormValid || isSubmitting) return;
-
-    setIsSubmitting(true);
-    try {
-      const result = await dispatch(
-        respondToDocument({
-          id: document.id,
-          input: { note: note.trim() },
-          file: file ?? undefined,
-        })
-      ).unwrap();
-
-      toast.success(`Response #${result.response.response_number} added successfully`);
-      setNote('');
-      setFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-
-      await dispatch(fetchDocumentById(document.id));
-      onResponseSubmitted();
-    } catch (error) {
-      toast.error(typeof error === 'string' ? error : 'Failed to add response');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const droppedFile = e.dataTransfer.files[0];
-    if (!droppedFile) return;
-    if (droppedFile.size > 25 * 1024 * 1024) {
-      toast.error('File size exceeds 25MB limit');
-      return;
-    }
-    setFile(droppedFile);
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (!selectedFile) return;
-    if (selectedFile.size > 25 * 1024 * 1024) {
-      toast.error('File size exceeds 25MB limit');
-      e.target.value = '';
-      return;
-    }
-    setFile(selectedFile);
-  };
-
-  const clearFile = () => {
-    setFile(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const formatDateTime = (date: string | Date): string =>
-    new Intl.DateTimeFormat('en-KE', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(new Date(date));
-
-  const getTypeBadgeColor = (type: string): string => {
-    const colors: Record<string, string> = {
-      memo: 'bg-blue-100 text-blue-700',
-      letter: 'bg-indigo-100 text-indigo-700',
-      judgment: 'bg-purple-100 text-purple-700',
-      ruling: 'bg-pink-100 text-pink-700',
-      order: 'bg-amber-100 text-amber-700',
-      correspondence: 'bg-green-100 text-green-700',
-      upload: 'bg-gray-100 text-gray-700',
-      ticket: 'bg-purple-500 text-white',
-    };
-    return colors[type] ?? 'bg-slate-100 text-slate-700';
-  };
-
-  return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-      <div className="w-full max-w-2xl max-h-[90vh] rounded-xl bg-white shadow-2xl border border-slate-100 flex flex-col">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
-              <h2 className="text-base font-semibold text-slate-900">Response Thread</h2>
-            </div>
-            {isPendingResponse && (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 animate-pulse">
-                ⚠️ Response Required
-              </span>
-            )}
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition p-1 rounded-lg hover:bg-slate-100">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Document Info */}
-        <div className="px-6 py-3 bg-slate-50 border-b border-slate-100 shrink-0">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Document:</span>
-            <span className="text-sm font-medium text-slate-900 truncate">{document.title}</span>
-            <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${getTypeBadgeColor(document.type)}`}>
-              {document.type}
-            </span>
-          </div>
-          <div className="flex items-center gap-4 mt-1 flex-wrap">
-            <span className="text-xs text-slate-500">
-              Status: <span className={`font-medium ${document.status === 'pending_review' ? 'text-red-600' : 'text-slate-700'}`}>
-                {document.is_draft ? 'draft' : document.status.replace(/_/g, ' ')}
-              </span>
-            </span>
-            <span className="text-xs text-slate-500">
-              Responses: <span className="font-medium text-slate-700">{responses.length}</span>
-            </span>
-          </div>
-        </div>
-
-        {/* Responses List */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 min-h-[200px] max-h-[300px]">
-          {responses.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center py-8">
-              <svg className="w-12 h-12 text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-              </svg>
-              <p className="text-sm text-slate-400">No responses yet</p>
-              <p className="text-xs text-slate-400 mt-1">Add your response below</p>
-            </div>
-          ) : (
-            responses.map((response) => (
-              <div key={response.id} className="flex gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3 hover:bg-slate-100 transition-colors">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
-                  {response.response_number}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                    <span className="text-xs font-semibold text-slate-700">{response.responded_by_name}</span>
-                    <span className="text-[11px] text-slate-400">{formatDateTime(response.created_at)}</span>
-                  </div>
-                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{response.note}</p>
-                  {response.file_url && (
-                    <div className="mt-2 flex items-center gap-2 flex-wrap">
-                      <a href={response.file_url} target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 rounded border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors">
-                        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        {response.original_name || 'View attachment'}
-                        {response.file_size_bytes && (
-                          <span className="text-[10px] text-slate-400">({formatFileSize(response.file_size_bytes)})</span>
-                        )}
-                      </a>
-                      <a href={response.file_url} download className="text-[10px] text-slate-400 hover:text-slate-600 transition-colors">
-                        Download
-                      </a>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Response Form */}
-        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-xl shrink-0">
-          <form onSubmit={handleSubmit}>
-            <div className="flex items-center gap-2 mb-2">
-              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
-              <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
-                Add Response #{nextResponseNumber}
-              </span>
-            </div>
-
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={3}
-              placeholder={isPendingResponse
-                ? 'Type your response to the request for more information…'
-                : 'Type your response…'}
-              className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-shadow"
-            />
-
-            <div
-              className={`mt-2 relative border-2 border-dashed rounded-lg p-3 transition-colors ${
-                isDragging
-                  ? 'border-blue-500 bg-blue-50'
-                  : file
-                    ? 'border-green-500 bg-green-50'
-                    : 'border-slate-200 hover:border-blue-400 hover:bg-slate-50'
-              }`}
-              onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-              onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
-              onDrop={handleFileDrop}
-            >
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-slate-800 flex-shrink-0">
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                    </svg>
-                    {file ? 'Change file' : 'Attach a file (optional)'}
-                    <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
-                  </label>
-                  {file && (
-                    <>
-                      <span className="text-xs font-medium text-slate-700 truncate max-w-[150px]">
-                        {file.name}
-                      </span>
-                      <span className="text-[10px] text-slate-400 flex-shrink-0">
-                        ({(file.size / 1024).toFixed(1)} KB)
-                      </span>
-                      <button type="button" onClick={clearFile}
-                        className="text-red-400 hover:text-red-600 flex-shrink-0 p-0.5 rounded hover:bg-red-50 transition-colors">
-                        <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    </>
-                  )}
-                </div>
-                <div className="flex-shrink-0">
-                  {isDragging ? (
-                    <span className="text-xs font-medium text-blue-600">Drop file here</span>
-                  ) : (
-                    !file && <span className="text-[10px] text-slate-400">or drag & drop</span>
-                  )}
-                </div>
-              </div>
-              <div className="text-[10px] text-slate-400 mt-1">
-                Max file size: 25 MB. Supported: PDF, DOCX, XLSX, JPG, PNG, MP4, MP3
-              </div>
-            </div>
-
-            <div className="mt-3 flex items-center justify-end gap-2">
-              <button type="button" onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
-                Close
-              </button>
-              <button type="submit" disabled={!isFormValid || isSubmitting}
-                className={`inline-flex items-center gap-2 px-6 py-2 text-sm font-medium text-white rounded-lg transition-colors ${
-                  isPendingResponse
-                    ? 'bg-red-600 hover:bg-red-700 focus:ring-2 focus:ring-red-500'
-                    : 'bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-blue-500'
-                } disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none`}>
-                {isSubmitting ? (
-                  <><Spinner className="h-3.5 w-3.5" /> Sending…</>
-                ) : isPendingResponse ? (
-                  '📤 Send Response'
-                ) : (
-                  'Send Response'
-                )}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ─── Reassign Modal ───────────────────────────────────────────────────────────
-
-interface ReassignModalProps {
-  document: Document;
-  currentMark: {
-    id: string;
-    department_id: string;
-    assigned_to: string | null;
-    instructions: string;
-    priority: string;
-  };
-  onClose: () => void;
-  onReassign: (markId: string, data: {
-    department_id: string;
-    assigned_to: string | null;
-    instructions: string;
-    priority: string;
-    note?: string;
-  }) => void;
-  isReassigning: boolean;
-}
-
-const ReassignModal: React.FC<ReassignModalProps> = ({
-  document,
-  currentMark,
-  onClose,
-  onReassign,
-  isReassigning,
-}) => {
-  const dispatch = useAppDispatch();
-  const departments = useAppSelector(selectAllDepartments);
-  const deptsLoading = useAppSelector(selectDepartmentsListLoading);
-  const users = useAppSelector(selectAllUsers);
-  const usersLoading = useAppSelector(selectUsersListLoading);
-
-  const [deptId, setDeptId] = useState(currentMark.department_id);
-  const [userId, setUserId] = useState(currentMark.assigned_to || '');
-  const [instructions, setInstructions] = useState(currentMark.instructions);
-  const [priority, setPriority] = useState(currentMark.priority);
-  const [note, setNote] = useState('');
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    dispatch(fetchDepartments({ is_active: true }));
-  }, [dispatch]);
-
-  useEffect(() => {
-    if (deptId) {
-      dispatch(fetchUsers({ is_active: true, department_id: deptId, limit: 100 }));
-    }
-  }, [dispatch, deptId]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!deptId) {
-      setError('Please select a department');
+    if (!notes.trim()) {
+      setError('Please provide notes/instructions for completing this bring up');
       return;
     }
     setError(null);
-    onReassign(currentMark.id, {
-      department_id: deptId,
-      assigned_to: userId || null,
-      instructions,
-      priority,
-      note: note || undefined,
-    });
-  };
-
-  const activeDepartments = departments.filter(d => d.is_active);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-3 sm:p-4">
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-4 sm:p-6 shadow-xl">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm sm:text-base font-bold text-stone-900 flex items-center gap-2">
-            <span className="text-amber-500">🔄</span> Re‑assign / Push Back
-          </h2>
-          <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-lg leading-none flex-shrink-0">
-            ✕
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
-            <p><strong>Document:</strong> {document.title}</p>
-            <p className="mt-1"><strong>Current mark:</strong> {currentMark.instructions || '(no instruction)'}</p>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Department *
-            </label>
-            <select
-              value={deptId}
-              onChange={(e) => { setDeptId(e.target.value); setUserId(''); }}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
-              required
-              disabled={deptsLoading}
-            >
-              <option value="">
-                {deptsLoading ? 'Loading…' : '— Select Department —'}
-              </option>
-              {activeDepartments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name} {d.code ? `(${d.code})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Assign to (Optional)
-            </label>
-            <select
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
-              disabled={usersLoading || !deptId}
-            >
-              <option value="">
-                {usersLoading
-                  ? 'Loading users…'
-                  : !deptId
-                    ? '— Select a department first —'
-                    : users.length === 0
-                      ? 'No active users in this department'
-                      : '— Assign to specific user (optional) —'}
-              </option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.full_name} — {u.pj_number}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Priority
-            </label>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
-            >
-              <option value="low">Low</option>
-              <option value="normal">Normal</option>
-              <option value="urgent">Urgent</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              New Instructions / Comment
-            </label>
-            <textarea
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              rows={3}
-              placeholder="Add new instructions or context for the reassignment..."
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Reason for push back <span className="font-normal text-stone-400 normal-case">(visible to recipient)</span>
-            </label>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={2}
-              placeholder="Why are you pushing this back?"
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
-            />
-          </div>
-
-          {error && (
-            <div className="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-200">
-              {error}
-            </div>
-          )}
-
-          <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3 pt-2">
-            <button type="button" onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-stone-500 hover:text-stone-800 order-2 sm:order-1">
-              Cancel
-            </button>
-            <button type="submit" disabled={isReassigning || !deptId}
-              className="rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-medium text-white hover:bg-[#163a18] disabled:opacity-40 disabled:cursor-not-allowed order-1 sm:order-2 inline-flex items-center gap-2">
-              {isReassigning && <Spinner className="h-3.5 w-3.5" />}
-              {isReassigning ? 'Reassigning…' : 'Push Back'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-// ─── Follow-Up Card ───────────────────────────────────────────────────────────
-
-interface FollowUpCardProps {
-  followUp: FollowUp;
-  currentUserId: string;
-  isSuperAdmin: boolean;
-  onViewDetails: (followUpId: string) => void;
-  onComplete: (followUpId: string, input: CompleteFollowUpInput) => Promise<void> | void;
-  onCancel: (followUpId: string, input: CancelFollowUpInput) => Promise<void> | void;
-  onFileAway?: (input: FileAwayFollowUpInput) => Promise<void> | void;
-  documentId: string;
-}
-
-const FollowUpCard: React.FC<FollowUpCardProps> = ({
-  followUp,
-  currentUserId,
-  isSuperAdmin,
-  onViewDetails,
-  onComplete,
-  onCancel,
-  onFileAway,
-  documentId,
-}) => {
-  const isAssignedToMe = followUp.assigned_to === currentUserId;
-  const canComplete = isAssignedToMe || isSuperAdmin;
-  const canCancel = followUp.created_by === currentUserId || isAssignedToMe || isSuperAdmin;
-  const isCompleted = followUp.status === 'completed';
-  const isCancelled = followUp.status === 'cancelled';
-  const isFiledAway = followUp.status === 'filed_away';
-  const isActive = !isCompleted && !isCancelled && !isFiledAway;
-
-  const dueDate = followUp.due_date ? new Date(followUp.due_date) : null;
-  const isOverdue = isActive && dueDate && dueDate < new Date();
-
-  const [showCancelModal, setShowCancelModal] = useState(false);
-  const [cancelReason, setCancelReason] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
-
-  const handleComplete = async () => {
-    if (isProcessing) return;
-    setIsProcessing(true);
     try {
-      await onComplete(followUp.id, {});
-    } finally {
-      setIsProcessing(false);
+      await onComplete({ notes: notes.trim() });
+      onClose();
+    } catch (err) {
+      setError(typeof err === 'string' ? err : 'Failed to complete bring up');
     }
-  };
-
-  const handleFileAway = async () => {
-    if (isProcessing) return;
-    setIsProcessing(true);
-    try {
-      await onFileAway?.({
-        document_id: documentId,
-        mark_id: followUp.mark_id || undefined,
-        notes: followUp.notes,
-        completion_notes: `Filed away by ${currentUserId}`,
-      });
-      toast.success('Document filed away successfully');
-    } catch (error) {
-      toast.error(typeof error === 'string' ? error : 'Failed to file away document');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleCancelSubmit = async () => {
-    if (!cancelReason.trim() || isProcessing) return;
-    setIsProcessing(true);
-    try {
-      await onCancel(followUp.id, { cancellation_reason: cancelReason.trim() });
-      setShowCancelModal(false);
-      setCancelReason('');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const dueDateDisplay = followUp.due_date 
-    ? format(new Date(followUp.due_date), 'dd MMM yyyy')
-    : 'Filed Away';
-
-  return (
-    <>
-      <div className={`rounded-lg border p-3 transition-colors ${
-        isCompleted 
-          ? 'border-emerald-200 bg-emerald-50/30' 
-          : isCancelled
-            ? 'border-stone-200 bg-stone-50/30 opacity-60'
-            : isFiledAway
-              ? 'border-slate-200 bg-slate-50/30'
-              : isOverdue                ? 'border-red-200 bg-red-50/30'
-                : 'border-stone-200 bg-white hover:border-stone-300'
-      }`}>
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-sm font-semibold text-stone-800 truncate">
-                {followUp.notes}
-              </span>
-              <FollowUpStatusBadge status={followUp.status} />
-              <FollowUpPriorityBadge priority={followUp.priority} />
-              {isOverdue && (
-                <span className="inline-flex items-center gap-0.5 rounded bg-red-100 px-1.5 py-0.5 text-[9px] font-bold text-red-700">
-                  ⚠️ OVERDUE
-                </span>
-              )}
-              {isFiledAway && (
-                <span className="inline-flex items-center gap-0.5 rounded bg-slate-200 px-1.5 py-0.5 text-[9px] font-bold text-slate-600">
-                  📁 FILED AWAY
-                </span>
-              )}
-            </div>
-            <div className="mt-1.5 flex items-center gap-2 text-[10px] text-stone-400 flex-wrap">
-              <span>
-                Assigned to: <span className="text-stone-600">{followUp.assigned_to_name || 'Unassigned'}</span>
-              </span>
-              <span>·</span>
-              <span>
-                {followUp.due_date ? (
-                  <>
-                    Due: <span className={isOverdue ? 'text-red-600 font-medium' : 'text-stone-600'}>
-                      {dueDateDisplay}
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-slate-500">No due date</span>
-                )}
-              </span>
-              {followUp.comment_count !== undefined && followUp.comment_count > 0 && (
-                <>
-                  <span>·</span>
-                  <span className="flex items-center gap-0.5">
-                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
-                    {followUp.comment_count}
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-1 flex-shrink-0">
-            {isActive && canComplete && (
-              <button
-                onClick={handleComplete}
-                disabled={isProcessing}
-                className="inline-flex items-center gap-1 rounded bg-emerald-100 px-2 py-1 text-[10px] font-semibold text-emerald-700 hover:bg-emerald-200 transition-colors disabled:opacity-50"
-              >
-                {isProcessing ? <Spinner className="h-2.5 w-2.5" /> : '✓ Complete'}
-              </button>
-            )}
-            {isActive && isSuperAdmin && onFileAway && (
-              <button
-                onClick={handleFileAway}
-                disabled={isProcessing}
-                className="inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600 hover:bg-slate-200 transition-colors disabled:opacity-50"
-              >
-                {isProcessing ? <Spinner className="h-2.5 w-2.5" /> : '📁 File Away'}
-              </button>
-            )}
-            {isActive && canCancel && (
-              <button
-                onClick={() => setShowCancelModal(true)}
-                className="inline-flex items-center gap-1 rounded bg-stone-100 px-2 py-1 text-[10px] font-semibold text-stone-600 hover:bg-stone-200 transition-colors"
-              >
-                ✕ Cancel
-              </button>
-            )}
-            <button
-              onClick={() => onViewDetails(followUp.id)}
-              className="inline-flex items-center gap-1 rounded bg-blue-100 px-2 py-1 text-[10px] font-semibold text-blue-700 hover:bg-blue-200 transition-colors"
-            >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-              Details
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Cancel Modal */}
-      {showCancelModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
-            <h3 className="text-sm font-bold text-stone-900">Cancel Follow-Up</h3>
-            <p className="text-xs text-stone-500 mt-1">
-              Are you sure you want to cancel this follow-up?
-            </p>
-            <div className="mt-4">
-              <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-                Cancellation Reason *
-              </label>
-              <textarea
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                rows={2}
-                placeholder="Why is this follow-up being cancelled?"
-                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
-                autoFocus
-              />
-            </div>
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => { setShowCancelModal(false); setCancelReason(''); }}
-                className="flex-1 rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCancelSubmit}
-                disabled={!cancelReason.trim() || isProcessing}
-                className="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-              >
-                {isProcessing ? <Spinner className="h-3.5 w-3.5" /> : 'Confirm Cancel'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-};
-
-// ─── Follow-Ups Panel ─────────────────────────────────────────────────────
-
-interface FollowUpsPanelProps {
-  document: Document;
-  currentUserId: string;
-  isSuperAdmin: boolean;
-  onViewDetails: (followUpId: string) => void;
-  onComplete: (followUpId: string, input: CompleteFollowUpInput) => Promise<void> | void;
-  onCancel: (followUpId: string, input: CancelFollowUpInput) => Promise<void> | void;
-  onFileAway?: (input: FileAwayFollowUpInput) => Promise<void> | void;
-}
-
-const FollowUpsPanel: React.FC<FollowUpsPanelProps> = ({
-  document,
-  currentUserId,
-  isSuperAdmin,
-  onViewDetails,
-  onComplete,
-  onCancel,
-  onFileAway,
-}) => {
-  const followUps = document.follow_ups || [];
-
-  if (followUps.length === 0) {
-    return (
-      <div className="px-3 py-6 text-center">
-        <p className="text-xs text-stone-400">No follow-ups yet.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="px-3 py-3 space-y-2 max-h-[300px] overflow-y-auto">
-      {followUps.map((followUp) => (
-        <FollowUpCard
-          key={followUp.id}
-          followUp={followUp}
-          currentUserId={currentUserId}
-          isSuperAdmin={isSuperAdmin}
-          onViewDetails={onViewDetails}
-          onComplete={onComplete}
-          onCancel={onCancel}
-          onFileAway={onFileAway}
-          documentId={document.id}
-        />
-      ))}
-    </div>
-  );
-};
-
-// ─── Create Follow-Up Modal ──────────────────────────────────────────────────
-
-interface CreateFollowUpModalProps {
-  document: Document;
-  markId: string;
-  onClose: () => void;
-  onCreate: (input: CreateFollowUpInput) => void;
-  onSend: (input: SendFollowUpInput) => void;  // NEW: Simplified send
-  onFileAway: (input: CreateFollowUpInput) => void;
-}
-
-const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
-  document,
-  markId,
-  onClose,
-  onCreate,
-  onSend,
-  onFileAway,
-}) => {
-  const dispatch = useAppDispatch();
-  const users = useAppSelector(selectAllUsers);
-  const usersLoading = useAppSelector(selectUsersListLoading);
-
-  const [notes, setNotes] = useState('');
-  const [assignedTo, setAssignedTo] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [priority, setPriority] = useState<FollowUpPriority>('normal');
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    dispatch(fetchUsers({ is_active: true, limit: 100 }));
-  }, [dispatch]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!notes.trim() || !assignedTo) {
-      setError('Please fill in notes and assign a user');
-      return;
-    }
-    setError(null);
-    onCreate({
-      document_id: document.id,
-      mark_id: markId,
-      notes: notes.trim(),
-      assigned_to: assignedTo,
-      due_date: dueDate || undefined,
-      priority,
-    });
-  };
-
-  // NEW: Simplified send handler
-  const handleSend = () => {
-    if (!notes.trim() || !assignedTo) {
-      setError('Please fill in notes and assign a user');
-      return;
-    }
-    setError(null);
-    onSend({
-      document_id: document.id,
-      mark_id: markId,
-      notes: notes.trim(),
-      assigned_to: assignedTo,
-    });
-  };
-
-  const handleFileAway = () => {
-    if (!notes.trim() || !assignedTo) {
-      setError('Please fill in notes and assign a user');
-      return;
-    }
-    setError(null);
-    onFileAway({
-      document_id: document.id,
-      mark_id: markId,
-      notes: notes.trim(),
-      assigned_to: assignedTo,
-      due_date: null,
-      priority,
-    });
   };
 
   return (
@@ -1848,89 +945,43 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
       <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-xl bg-white p-6 shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-bold text-stone-900 flex items-center gap-2">
-            <svg className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m0 0v3m0 0l3 3m-3-3h-3" />
+            <svg className="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            Follow-Up
+            Complete Bring Up
           </h2>
           <button onClick={onClose} className="text-stone-400 hover:text-stone-600 text-lg leading-none">
             ✕
           </button>
         </div>
 
+        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800 mb-4">
+          <p><strong>Document:</strong> {document.title}</p>
+          <p className="mt-1">
+            <strong>Current Bring Up Date:</strong> {document.bring_up_date ? formatDateDisplay(document.bring_up_date) : 'Not set'}
+          </p>
+          <p className="mt-1 text-amber-600">
+            ⚠️ This will mark the bring up as completed and send the document back to the user.
+          </p>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Document
-            </label>
-            <div className="w-full rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-700 font-medium truncate">
-              {document.title}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Notes *
+              Instructions / Notes <span className="text-red-500">*</span>
             </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-              placeholder="What needs to be done or what was done..."
+              rows={4}
+              placeholder="Provide instructions on what was done or what needs to be done..."
               className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none resize-none"
               required
               autoFocus
             />
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Assign To *
-            </label>
-            <select
-              value={assignedTo}
-              onChange={(e) => setAssignedTo(e.target.value)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none disabled:bg-stone-50 disabled:text-stone-400"
-              required
-              disabled={usersLoading}
-            >
-              <option value="">
-                {usersLoading ? 'Loading users…' : '— Select User —'}
-              </option>
-              {users.filter(u => u.is_active).map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.full_name} — {u.pj_number}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Due Date <span className="font-normal text-stone-400 normal-case">(optional)</span>
-            </label>
-            <input
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              min={new Date().toISOString().split('T')[0]}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
-              Priority
-            </label>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value as FollowUpPriority)}
-              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-[#1E4620] focus:outline-none"
-            >
-              <option value="low">Low</option>
-              <option value="normal">Normal</option>
-              <option value="urgent">Urgent</option>
-            </select>
+            <p className="text-[10px] text-stone-400 mt-1">
+              These notes will be sent to the user when the document is returned.
+            </p>
           </div>
 
           {error && (
@@ -1948,30 +999,765 @@ const CreateFollowUpModal: React.FC<CreateFollowUpModalProps> = ({
               Cancel
             </button>
             <button
-              type="button"
-              onClick={handleFileAway}
-              disabled={!notes.trim() || !assignedTo}
-              className="flex-1 rounded-lg bg-slate-600 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-            >
-              📁 File Away
-            </button>
-            <button
-              type="button"
-              onClick={handleSend}
-              disabled={!notes.trim() || !assignedTo}
-              className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
-            >
-              Send
-            </button>
-            <button
               type="submit"
-              className="flex-1 rounded-lg bg-[#1E4620] px-4 py-2 text-sm font-semibold text-white hover:bg-[#163a18] transition-colors inline-flex items-center justify-center gap-2"
+              disabled={isCompleting || !notes.trim()}
+              className="flex-1 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
             >
-              Create with Date
+              {isCompleting ? <Spinner className="h-3.5 w-3.5" /> : null}
+              {isCompleting ? 'Completing...' : 'Complete & Return'}
             </button>
           </div>
         </form>
       </div>
+    </div>
+  );
+};
+
+// ─── FOLLOW-UP MODAL (Chat style) ────────────────────────────────────────────
+
+interface FollowUpModalProps {
+  document: Document;
+  onClose: () => void;
+  onSend: (input: SendFollowUpInput) => Promise<FollowUp>;
+  onCreate: (input: CreateFollowUpInput) => Promise<FollowUp>;
+  onComplete: (followUpId: string, input: CompleteFollowUpInput) => Promise<void>;
+  onCancel: (followUpId: string, input: CancelFollowUpInput) => Promise<void>;
+  onAddComment: (followUpId: string, input: AddFollowUpCommentInput) => Promise<void>;
+  onViewThread: (followUpId: string) => Promise<FollowUpWithComments | null>;
+  currentUserId: string;
+}
+
+const FollowUpModalComponent: React.FC<FollowUpModalProps> = ({
+  document,
+  onClose,
+  onSend,
+  onComplete,
+  onAddComment,
+  onViewThread,
+  currentUserId,
+}) => {
+  const dispatch = useAppDispatch();
+  const users = useAppSelector(selectAllUsers);
+  const usersLoading = useAppSelector(selectUsersListLoading);
+
+  const [notes, setNotes] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [priority, setPriority] = useState<FollowUpPriority>('normal');
+  const [error, setError] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [selectedFollowUpId, setSelectedFollowUpId] = useState<string | null>(null);
+  const [threadData, setThreadData] = useState<FollowUpWithComments | null>(null);
+  const [replyComment, setReplyComment] = useState('');
+  const [isReplying, setIsReplying] = useState(false);
+  const [showNewForm, setShowNewForm] = useState(false);
+
+  const followUps = document.follow_ups || [];
+  const activeFollowUps = followUps.filter(f => f.status !== 'completed' && f.status !== 'cancelled');
+
+  useEffect(() => {
+    dispatch(fetchUsers({ is_active: true, limit: 100 }));
+  }, [dispatch]);
+
+  const handleViewThread = async (followUpId: string) => {
+    try {
+      const result = await onViewThread(followUpId);
+      if (result) {
+        setThreadData(result);
+        setSelectedFollowUpId(followUpId);
+        setShowNewForm(false);
+      }
+    } catch {
+      toast.error('Failed to load thread');
+    }
+  };
+
+  const handleReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFollowUpId || !replyComment.trim() || isReplying) return;
+    setIsReplying(true);
+    try {
+      await onAddComment(selectedFollowUpId, { comment: replyComment.trim() });
+      setReplyComment('');
+      const result = await onViewThread(selectedFollowUpId);
+      if (result) setThreadData(result);
+      toast.success('Reply sent');
+    } catch {
+      toast.error('Failed to send reply');
+    } finally {
+      setIsReplying(false);
+    }
+  };
+
+  const handleCompleteFollowUp = async (followUpId: string) => {
+    try {
+      const notes = prompt('Enter completion notes:');
+      if (notes === null) return;
+      if (!notes.trim()) {
+        toast.error('Completion notes are required');
+        return;
+      }
+      await onComplete(followUpId, { completion_notes: notes.trim() });
+      toast.success('Follow-up completed');
+      const result = await onViewThread(followUpId);
+      if (result) setThreadData(result);
+    } catch {
+      toast.error('Failed to complete follow-up');
+    }
+  };
+
+  const handleSend = async () => {
+    if (!notes.trim() || !assignedTo) {
+      setError('Please fill in notes and assign a user');
+      return;
+    }
+    setError(null);
+    setIsSending(true);
+    try {
+      const result = await onSend({
+        document_id: document.id,
+        mark_id: document.active_mark?.id,
+        notes: notes.trim(),
+        assigned_to: assignedTo,
+      });
+      setNotes('');
+      setAssignedTo('');
+      setDueDate('');
+      setPriority('normal');
+      setShowNewForm(false);
+      toast.success('Follow-up sent');
+      if (result && result.id) {
+        const refreshed = await onViewThread(result.id);
+        if (refreshed) {
+          setThreadData(refreshed);
+          setSelectedFollowUpId(result.id);
+        }
+      }
+      onClose();
+    } catch {
+      setError('Failed to send follow-up');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleCloseThread = () => {
+    setSelectedFollowUpId(null);
+    setThreadData(null);
+    setShowNewForm(false);
+  };
+
+  // ─── Render chat thread ──────────────────────────────────────────────────────
+
+  if (selectedFollowUpId && threadData) {
+    const assignedUserId = threadData.assigned_to;
+    const isCurrentUserAssigned = currentUserId === assignedUserId;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
+        <div className="w-full max-w-2xl max-h-[90vh] rounded-xl bg-white shadow-xl flex flex-col">
+          {/* Chat Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b bg-blue-600 rounded-t-xl">
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                onClick={handleCloseThread}
+                className="text-white/80 hover:text-white transition-colors"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-white truncate">
+                  {threadData.notes}
+                </h3>
+                <div className="flex items-center gap-2 text-[10px] text-blue-100">
+                  <span>To: {threadData.assigned_to_name || 'Unassigned'}</span>
+                  {threadData.due_date && (
+                    <>
+                      <span>·</span>
+                      <span>Due: {formatDateDisplay(threadData.due_date)}</span>
+                    </>
+                  )}
+                  <span>·</span>
+                  <FollowUpStatusBadge status={threadData.status} />
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {threadData.status !== 'completed' && threadData.status !== 'cancelled' && (
+                <button
+                  onClick={() => handleCompleteFollowUp(threadData.id)}
+                  className="rounded bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 transition-colors"
+                >
+                  Complete
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="text-white/80 hover:text-white transition-colors"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Chat Messages - FIXED ALIGNMENT */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[300px] max-h-[400px] bg-slate-50">
+            {/* Initial message - always on the left */}
+            <div className="flex items-start gap-2.5">
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white">
+                {threadData.created_by_name?.charAt(0) || 'A'}
+              </div>
+              <div className="max-w-[80%]">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-xs font-semibold text-stone-700">
+                    {threadData.created_by_name || 'Admin'}
+                  </span>
+                  <span className="text-[10px] text-stone-400">
+                    {formatDateDisplay(threadData.created_at)}
+                  </span>
+                </div>
+                <div className="rounded-lg bg-blue-100 px-4 py-2 text-sm text-stone-800">
+                  {threadData.notes}
+                </div>
+              </div>
+            </div>
+
+            {/* Replies - aligned based on who sent them */}
+            {threadData.comments.map((c) => {
+              const isCurrentUser = c.user_id === currentUserId;
+              const isAssignedUser = c.user_id === assignedUserId;
+              // If current user is the assigned user, their messages go on the right
+              // If current user is NOT the assigned user, the assigned user's messages go on the right
+              const shouldBeOnRight = isCurrentUser || (isAssignedUser && !isCurrentUserAssigned);
+              
+              return (
+                <div 
+                  key={c.id} 
+                  className={`flex items-start gap-2.5 ${shouldBeOnRight ? 'flex-row-reverse' : ''}`}
+                >
+                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${
+                    shouldBeOnRight ? 'bg-emerald-600' : 'bg-blue-600'
+                  }`}>
+                    {c.user_name?.charAt(0) || 'U'}
+                  </div>
+                  <div className={`max-w-[80%] ${shouldBeOnRight ? 'items-end' : ''}`}>
+                    <div className={`flex items-center gap-2 mb-0.5 ${shouldBeOnRight ? 'flex-row-reverse' : ''}`}>
+                      <span className="text-xs font-semibold text-stone-700">
+                        {c.user_name || 'User'}
+                      </span>
+                      <span className="text-[10px] text-stone-400">
+                        {formatDateDisplay(c.created_at)}
+                      </span>
+                    </div>
+                    <div className={`rounded-lg px-4 py-2 text-sm text-stone-800 ${
+                      shouldBeOnRight ? 'bg-emerald-100' : 'bg-blue-100'
+                    }`}>
+                      {c.comment}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {threadData.comments.length === 0 && (
+              <div className="text-center py-8">
+                <p className="text-sm text-stone-400">No replies yet</p>
+                <p className="text-xs text-stone-300">Be the first to respond</p>
+              </div>
+            )}
+          </div>
+
+          {/* Chat Input */}
+          {threadData.status !== 'completed' && threadData.status !== 'cancelled' && (
+            <div className="px-4 py-3 border-t bg-white rounded-b-xl">
+              <form onSubmit={handleReply} className="flex gap-2">
+                <input
+                  type="text"
+                  value={replyComment}
+                  onChange={(e) => setReplyComment(e.target.value)}
+                  placeholder="Type your reply..."
+                  className="flex-1 rounded-lg border border-stone-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <button
+                  type="submit"
+                  disabled={!replyComment.trim() || isReplying}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                >
+                  {isReplying ? <Spinner className="h-4 w-4" /> : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                  )}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* Completed/Cancelled status */}
+          {(threadData.status === 'completed' || threadData.status === 'cancelled') && (
+            <div className="px-4 py-3 border-t bg-stone-50 rounded-b-xl text-center">
+              <p className="text-xs text-stone-400">
+                {threadData.status === 'completed' ? '✅ This follow-up has been completed' : '❌ This follow-up has been cancelled'}
+                {threadData.completion_notes && (
+                  <span className="block mt-1 text-stone-500 font-medium">
+                    "{threadData.completion_notes}"
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Main modal (list + new form) ──────────────────────────────────────────
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-2xl max-h-[90vh] rounded-xl bg-white shadow-xl flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b bg-blue-600 rounded-t-xl">
+          <h2 className="text-sm font-bold text-white flex items-center gap-2">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            Follow Up
+          </h2>
+          <div className="flex items-center gap-2">
+            {!showNewForm && (
+              <button
+                onClick={() => setShowNewForm(true)}
+                className="rounded bg-white/20 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/30 transition-colors"
+              >
+                + New
+              </button>
+            )}
+            <button onClick={onClose} className="text-white/80 hover:text-white transition-colors">
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Active Follow-ups List */}
+        {activeFollowUps.length > 0 && !showNewForm && (
+          <div className="px-4 py-3 border-b max-h-[200px] overflow-y-auto">
+            <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <span>Active Follow-ups</span>
+              <span className="inline-flex items-center justify-center rounded-full bg-blue-100 px-2 py-0.5 text-[9px] font-bold text-blue-700">
+                {activeFollowUps.length}
+              </span>
+            </h3>
+            <div className="space-y-2">
+              {activeFollowUps.map((f) => (
+                <div
+                  key={f.id}
+                  onClick={() => handleViewThread(f.id)}
+                  className="flex items-center justify-between rounded-lg border border-stone-200 p-3 hover:bg-blue-50 hover:border-blue-300 transition-all cursor-pointer group"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-stone-800 truncate">
+                        {f.notes}
+                      </span>
+                      <FollowUpStatusBadge status={f.status} />
+                      <FollowUpPriorityBadge priority={f.priority} />
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-[10px] text-stone-400">
+                      <span>To: {f.assigned_to_name || 'Unassigned'}</span>
+                      {f.due_date && (
+                        <>
+                          <span>·</span>
+                          <span>Due: {formatDateDisplay(f.due_date)}</span>
+                        </>
+                      )}
+                      {f.comment_count && f.comment_count > 0 && (
+                        <>
+                          <span>·</span>
+                          <span className="flex items-center gap-0.5 text-blue-600">
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                            {f.comment_count}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleViewThread(f.id); }}
+                      className="rounded bg-blue-100 px-2.5 py-1 text-[10px] font-semibold text-blue-700 hover:bg-blue-200 transition-colors"
+                    >
+                      Open Chat
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* No active follow-ups */}
+        {activeFollowUps.length === 0 && !showNewForm && (
+          <div className="px-4 py-8 text-center">
+            <svg className="mx-auto h-12 w-12 text-stone-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            <p className="mt-2 text-sm text-stone-500">No active follow-ups</p>
+            <p className="text-xs text-stone-400">Create a new follow-up to get started</p>
+            <button
+              onClick={() => setShowNewForm(true)}
+              className="mt-3 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+            >
+              + New Follow-up
+            </button>
+          </div>
+        )}
+
+        {/* New Follow-up Form */}
+        {showNewForm && (
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
+                New Follow-up
+              </h3>
+              <button
+                onClick={() => setShowNewForm(false)}
+                className="text-xs text-stone-400 hover:text-stone-600"
+              >
+                ✕ Cancel
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                  Notes *
+                </label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  placeholder="What needs to be done or followed up..."
+                  className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                  Assign To *
+                </label>
+                <select
+                  value={assignedTo}
+                  onChange={(e) => setAssignedTo(e.target.value)}
+                  className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-stone-50"
+                  disabled={usersLoading}
+                >
+                  <option value="">
+                    {usersLoading ? 'Loading users…' : '— Select User —'}
+                  </option>
+                  {users.filter(u => u.is_active).map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.full_name} — {u.pj_number}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                    Priority
+                  </label>
+                  <select
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value as FollowUpPriority)}
+                    className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="low">Low</option>
+                    <option value="normal">Normal</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                    Due Date <span className="font-normal text-stone-400 normal-case">(optional)</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <div className="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-200">
+                  {error}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNewForm(false)}
+                  className="flex-1 rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSend}
+                  disabled={!notes.trim() || !assignedTo || isSending}
+                  className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+                >
+                  {isSending ? <Spinner className="h-3.5 w-3.5" /> : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                  )}
+                  {isSending ? 'Sending...' : 'Send Follow-up'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Document Editor (SIMPLIFIED - only 4 buttons) ─────────────────────────
+
+interface DocumentEditorProps {
+  document: Document;
+  currentUserName: string;
+  isSuperAdmin: boolean;
+  onBack: () => void;
+  onUpdateMark?: (markId: string, text: string, date: string | null) => void;
+  onOpenComplete: () => void;
+  onOpenFollowUp: () => void;
+  onMark: () => void;
+  isCompleting: boolean;
+  onDownload?: () => void;
+}
+
+const DocumentEditor: React.FC<DocumentEditorProps> = ({
+  document,
+  currentUserName,
+  isSuperAdmin,
+  onBack,
+  onUpdateMark,
+  onOpenComplete,
+  onOpenFollowUp,
+  onMark,
+  isCompleting,
+  onDownload,
+}) => {
+  const formattedDate = document.created_at
+    ? format(new Date(document.created_at), 'dd MMM yyyy')
+    : '—';
+
+  const hasMarkNote = !!document.active_mark?.instructions;
+  const [showNote, setShowNote] = useState(hasMarkNote);
+
+  const stickyNoteText = document.active_mark?.instructions ?? '';
+  const stickyNoteDate = document.bring_up_date ?? null;
+  const noteAuthor = document.active_mark
+    ? (document.created_by_name ?? currentUserName)
+    : currentUserName;
+
+  const handleStickyNoteSave = (text: string, date: string | null) => {
+    if (document.active_mark && onUpdateMark) {
+      onUpdateMark(document.active_mark.id, text, date);
+    }
+  };
+
+  const handleDownload = () => {
+    if (onDownload) {
+      onDownload();
+    } else if (document.file_url) {
+      window.open(document.file_url, '_blank');
+    } else {
+      toast.error('No file available to download');
+    }
+  };
+
+  const isBringUpCompleted = !!document.bring_up_completed_at;
+  const hasBringUp = !!document.bring_up_date;
+  const isBringUpOverdue = hasBringUp && !isBringUpCompleted && new Date(document.bring_up_date!) < new Date();
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Title bar */}
+      <div className="flex items-center justify-between gap-2 sm:gap-3 bg-white border-b border-stone-200 px-3 sm:px-4 py-2.5 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <button
+            onClick={onBack}
+            className="lg:hidden flex-shrink-0 rounded-md p-1 text-stone-500 hover:bg-stone-100 transition-colors -ml-1"
+            aria-label="Back to document list"
+          >
+            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <span className="text-sm font-semibold text-stone-900 truncate">
+            {document.title}
+          </span>
+          <span className="text-stone-300 text-xs hidden sm:inline">—</span>
+          <span className="text-xs text-stone-400 hidden sm:inline">
+            {formattedDate}
+          </span>
+          {hasBringUp && !isBringUpCompleted && (
+            <span className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest ${
+              isBringUpOverdue 
+                ? 'bg-red-100 text-red-700 border border-red-200' 
+                : 'bg-amber-100 text-amber-700 border border-amber-200'
+            }`}>
+              📅 {formatDateDisplay(document.bring_up_date!)}
+              {isBringUpOverdue && ' ⚠️ OVERDUE'}
+            </span>
+          )}
+          {isBringUpCompleted && (
+            <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest bg-emerald-100 text-emerald-700 border border-emerald-200">
+              ✅ Completed
+            </span>
+          )}
+        </div>
+
+        {/* ─── 4 BUTTONS ONLY ────────────────────────────────────────────── */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
+          {/* 1. Note toggle */}
+          {(isSuperAdmin || hasMarkNote) && (
+            <button
+              onClick={() => setShowNote((v) => !v)}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                showNote
+                  ? 'border-[#E8A840] bg-[#FEF08A] text-[#7A4E0D]'
+                  : 'border-stone-200 bg-white text-stone-500 hover:bg-stone-50'
+              }`}
+            >
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m0 0v3m0 0l3 3m-3-3h-3" />
+              </svg>
+              Note
+            </button>
+          )}
+
+          {/* 2. Follow Up */}
+          <button
+            onClick={onOpenFollowUp}
+            className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors whitespace-nowrap"
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+            </svg>
+            Follow Up
+            {(document.follow_ups?.filter(f => f.status !== 'completed' && f.status !== 'cancelled').length || 0) > 0 && (
+              <span className="ml-0.5 rounded-full bg-blue-200 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">
+                {document.follow_ups?.filter(f => f.status !== 'completed' && f.status !== 'cancelled').length}
+              </span>
+            )}
+          </button>
+
+          {/* 3. Mark */}
+          {onMark && document.status !== 'filed' && (
+            <button
+              onClick={onMark}
+              className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 transition-colors whitespace-nowrap"
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+              </svg>
+              Mark
+            </button>
+          )}
+
+          {/* 4. Complete */}
+          {hasBringUp && !isBringUpCompleted && (
+            <button
+              onClick={onOpenComplete}
+              disabled={isCompleting}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                isBringUpOverdue
+                  ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {isCompleting ? <Spinner className="h-3 w-3" /> : (
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              )}
+              {isCompleting ? 'Completing...' : 'Complete'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Canvas */}
+      <div className="flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6 relative">
+        {showNote && (
+          <StickyNote
+            key={document.id}
+            authorName={noteAuthor}
+            initialText={stickyNoteText}
+            initialDate={stickyNoteDate}
+            canEdit={isSuperAdmin}
+            onSave={handleStickyNoteSave}
+          />
+        )}
+
+        <div className="mx-auto max-w-[794px] w-full min-h-[600px] sm:min-h-[900px] bg-white shadow-sm rounded-sm">
+          {document.type === 'memo' || document.type === 'letter' ? (
+            <DocumentFallback document={document} />
+          ) : (
+            <FilePreview document={document} />
+          )}
+        </div>
+      </div>
+
+      {/* Footer bar */}
+      <div className="flex items-center justify-between gap-2 bg-white border-t border-stone-100 px-3 sm:px-4 py-1.5 flex-shrink-0 flex-wrap">
+        <span className="text-[10px] text-stone-400 whitespace-nowrap">
+          {isBringUpCompleted 
+            ? '✅ Bring Up Completed' 
+            : isBringUpOverdue 
+              ? '⚠️ OVERDUE' 
+              : hasBringUp 
+                ? `📅 Due: ${formatDateDisplay(document.bring_up_date!)}`
+                : 'No bring-up date set'}
+        </span>
+        <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto">
+          {(document.file_url || onDownload) && (
+            <button
+              onClick={handleDownload}
+              className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-blue-700 transition-colors whitespace-nowrap"
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download
+            </button>
+          )}
+          <button className="text-[10px] text-stone-400 hover:text-stone-600 transition-colors whitespace-nowrap">
+            🖨 Print
+          </button>
+        </div>
+      </div>
+
+      <AnnotationsPanel document={document} />
     </div>
   );
 };
@@ -2160,457 +1946,13 @@ const MarkModal: React.FC<MarkModalProps> = ({ document: doc, onClose, onMark })
   );
 };
 
-// ─── Document Editor ──────────────────────────────────────────────────────────
-
-interface DocumentEditorProps {
-  document: Document;
-  currentUserName: string;
-  isSuperAdmin: boolean;
-  onBack: () => void;
-  onSend?: () => void;
-  onMark?: () => void;
-  onAcknowledge?: () => void;
-  onComplete?: () => void;
-  onUpdateMark?: (markId: string, text: string, date: string | null) => void;
-  onCompleteBringUp?: () => void;
-  onFileAwayBringUp?: () => void;
-  onDownload?: () => void;
-  onOpenResponses?: () => void;
-  onReassign?: () => void;
-  isReassigning?: boolean;
-  onAddFollowUp?: () => void;
-  onViewFollowUpDetails?: (followUpId: string) => void;
-  onCompleteFollowUp?: (followUpId: string, input: CompleteFollowUpInput) => Promise<void>;
-  onCancelFollowUp?: (followUpId: string, input: CancelFollowUpInput) => Promise<void>;
-  onFileAwayFollowUp?: (input: FileAwayFollowUpInput) => Promise<void>;
-}
-
-const DocumentEditor: React.FC<DocumentEditorProps> = ({
-  document,
-  currentUserName,
-  isSuperAdmin,
-  onBack,
-  onSend,
-  onMark,
-  onAcknowledge,
-  onComplete,
-  onUpdateMark,
-  onCompleteBringUp,
-  onFileAwayBringUp,
-  onDownload,
-  onOpenResponses,
-  onReassign,
-  isReassigning = false,
-  onAddFollowUp,
-  onViewFollowUpDetails,
-  onCompleteFollowUp,
-  onCancelFollowUp,
-  onFileAwayFollowUp,
-}) => {
-  const { user } = useAppSelector((state) => state.auth);
-  const isComposed = document.type === 'memo' || document.type === 'letter';
-  const formattedDate = document.created_at
-    ? format(new Date(document.created_at), 'dd MMM yyyy')
-    : '—';
-
-  const hasMarkNote = !!document.active_mark?.instructions;
-  const [showNote, setShowNote] = useState(hasMarkNote);
-  const [showFollowUps, setShowFollowUps] = useState(true);
-
-  const stickyNoteText = document.active_mark?.instructions ?? '';
-  const stickyNoteDate = document.bring_up_date ?? null;
-  const noteAuthor = document.active_mark
-    ? (document.created_by_name ?? currentUserName)
-    : currentUserName;
-
-  const isBringUpCompleted = !!document.bring_up_completed_at;
-  const isBringUpFiledAway = document.bring_up_status === 'filed_away';
-  const hasBringUp = !!document.bring_up_date;
-  const isBringUpOverdue = hasBringUp && !isBringUpCompleted && !isBringUpFiledAway && new Date(document.bring_up_date!) < new Date();
-
-  const handleStickyNoteSave = (text: string, date: string | null) => {
-    if (document.active_mark && onUpdateMark) {
-      onUpdateMark(document.active_mark.id, text, date);
-    }
-  };
-
-  const handleDownload = () => {
-    if (onDownload) {
-      onDownload();
-    } else if (document.file_url) {
-      window.open(document.file_url, '_blank');
-    } else {
-      toast.error('No file available to download');
-    }
-  };
-
-  const handleOpenResponses = () => {
-    if (onOpenResponses) {
-      onOpenResponses();
-    }
-  };
-
-  const followUps = document.follow_ups || [];
-
-  const handleViewFollowUps = () => {
-    if (followUps.length === 0) {
-      toast('No follow-ups have been created for this document yet.', {
-        icon: 'ℹ️',
-        duration: 3000,
-      });
-      return;
-    }
-
-    const sorted = [...followUps].sort((a, b) => {
-      const dateA = new Date(a.created_at).getTime();
-      const dateB = new Date(b.created_at).getTime();
-      return dateB - dateA;
-    });
-
-    const mostRecent = sorted[0];
-    if (onViewFollowUpDetails && mostRecent?.id) {
-      onViewFollowUpDetails(mostRecent.id);
-    } else {
-      toast.error('Unable to open follow-up details');
-    }
-  };
-
-  return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Title bar */}
-      <div className="flex items-center justify-between gap-2 sm:gap-3 bg-white border-b border-stone-200 px-3 sm:px-4 py-2.5 flex-wrap">
-        <div className="flex items-center gap-2 min-w-0">
-          <button
-            onClick={onBack}
-            className="lg:hidden flex-shrink-0 rounded-md p-1 text-stone-500 hover:bg-stone-100 transition-colors -ml-1"
-            aria-label="Back to document list"
-          >
-            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <span className="text-sm font-semibold text-stone-900 truncate">
-            {document.title}
-          </span>
-          <span className="text-stone-300 text-xs hidden sm:inline">—</span>
-          <span className="text-xs text-stone-400 hidden sm:inline">
-            {formattedDate}
-          </span>
-          {hasBringUp && !isBringUpCompleted && !isBringUpFiledAway && (
-            <span className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest ${
-              isBringUpOverdue 
-                ? 'bg-red-100 text-red-700 border border-red-200' 
-                : 'bg-amber-100 text-amber-700 border border-amber-200'
-            }`}>
-              📅 {format(new Date(document.bring_up_date!), 'dd MMM yyyy')}
-              {isBringUpOverdue && ' ⚠️ OVERDUE'}
-            </span>
-          )}
-          {isBringUpCompleted && !isBringUpFiledAway && (
-            <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest bg-emerald-100 text-emerald-700 border border-emerald-200">
-              ✅ Completed
-            </span>
-          )}
-          {isBringUpFiledAway && (
-            <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest bg-slate-100 text-slate-600 border border-slate-200">
-              📁 Filed Away
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
-          {/* Responses button */}
-          <button
-            onClick={handleOpenResponses}
-            className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap border-stone-200 bg-white text-stone-500 hover:bg-stone-50"
-          >
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round"
-                d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-4 4-4-4z" />
-            </svg>
-            Responses
-            {document.response_count && document.response_count > 0 && (
-              <span className="ml-0.5 rounded-full bg-[#1E4620]/20 px-1.5 py-0.5 text-[9px] font-bold text-[#1E4620]">
-                {document.response_count}
-              </span>
-            )}
-          </button>
-
-          {/* Note toggle */}
-          {(isSuperAdmin || hasMarkNote) && (
-            <button
-              onClick={() => setShowNote((v) => !v)}
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
-                showNote
-                  ? 'border-[#E8A840] bg-[#FEF08A] text-[#7A4E0D]'
-                  : 'border-stone-200 bg-white text-stone-500 hover:bg-stone-50'
-              }`}
-            >
-              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-5M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m0 0v3m0 0l3 3m-3-3h-3" />
-              </svg>
-              Note
-            </button>
-          )}
-
-          {/* Follow-ups toggle */}
-          {isSuperAdmin && followUps.length > 0 && (
-            <button
-              onClick={() => setShowFollowUps((v) => !v)}
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
-                showFollowUps
-                  ? 'border-blue-200 bg-blue-50 text-blue-700'
-                  : 'border-stone-200 bg-white text-stone-500 hover:bg-stone-50'
-              }`}
-            >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-              Follow-ups
-              {followUps.length > 0 && (
-                <span className="ml-0.5 rounded-full bg-blue-200 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">
-                  {followUps.length}
-                </span>
-              )}
-            </button>
-          )}
-
-          {onMark && document.status !== 'filed' && (
-            <button
-              onClick={onMark}
-              className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 transition-colors whitespace-nowrap"
-            >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-              </svg>
-              Mark
-            </button>
-          )}
-
-          {onReassign && document.active_mark && (
-            <button
-              onClick={onReassign}
-              disabled={isReassigning}
-              className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] font-semibold text-amber-700 hover:bg-amber-100 transition-colors whitespace-nowrap disabled:opacity-50"
-            >
-              {isReassigning ? <Spinner className="h-3 w-3" /> : (
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              )}
-              {isReassigning ? 'Pushing…' : 'Push Back'}
-            </button>
-          )}
-
-          {onAcknowledge && (
-            <button
-              onClick={onAcknowledge}
-              className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors whitespace-nowrap"
-            >
-              Acknowledge
-            </button>
-          )}
-
-          {onComplete && (
-            <button
-              onClick={onComplete}
-              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap"
-            >
-              Complete
-            </button>
-          )}
-
-          {onSend && (
-            <button
-              onClick={onSend}
-              className="hidden sm:inline-flex items-center gap-1 rounded-md bg-[#1E4620] px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap"
-            >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Convert to PDF & Send
-            </button>
-          )}
-
-          {isSuperAdmin && document.active_mark && (
-            <div className="flex items-center gap-1.5">
-              {onAddFollowUp && (
-                <button
-                  onClick={onAddFollowUp}
-                  className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors whitespace-nowrap"
-                >
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                  </svg>
-                  Add Follow-Up
-                </button>
-              )}
-
-              {onViewFollowUpDetails && (
-                <button
-                  onClick={handleViewFollowUps}
-                  className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100 transition-colors whitespace-nowrap"
-                >
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                  View Details
-                  {followUps.length > 0 && (
-                    <span className="ml-0.5 rounded-full bg-indigo-200 px-1.5 py-0.5 text-[9px] font-bold text-indigo-700">
-                      {followUps.length}
-                    </span>
-                  )}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Canvas */}
-      <div className="flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6 relative">
-        {showNote && (
-          <StickyNote
-            key={document.id}
-            authorName={noteAuthor}
-            initialText={stickyNoteText}
-            initialDate={stickyNoteDate}
-            canEdit={isSuperAdmin}
-            onSave={handleStickyNoteSave}
-            onCompleteBringUp={onCompleteBringUp}
-            onFileAwayBringUp={onFileAwayBringUp}
-            isCompleted={isBringUpCompleted}
-            isFiledAway={isBringUpFiledAway}
-          />
-        )}
-
-        <div className="mx-auto max-w-[794px] w-full min-h-[600px] sm:min-h-[900px] bg-white shadow-sm rounded-sm">
-          {isComposed ? (
-            <DocumentFallback document={document} />
-          ) : (
-            <FilePreview document={document} />
-          )}
-        </div>
-      </div>
-
-      {/* Footer bar */}
-      <div className="flex items-center justify-between gap-2 bg-white border-t border-stone-100 px-3 sm:px-4 py-1.5 flex-shrink-0 flex-wrap">
-        <span className="text-[10px] text-stone-400 whitespace-nowrap">
-          {isBringUpFiledAway 
-            ? '📁 Filed Away' 
-            : isBringUpCompleted 
-              ? '✅ Bring Up Completed' 
-              : isBringUpOverdue 
-                ? '⚠️ OVERDUE' 
-                : hasBringUp 
-                  ? `📅 Due: ${format(new Date(document.bring_up_date!), 'dd MMM yyyy')}`
-                  : 'No bring-up date set'}
-        </span>
-        <div className="flex items-center gap-2 sm:gap-3 overflow-x-auto">
-          {(document.file_url || onDownload) && (
-            <button
-              onClick={handleDownload}
-              className="inline-flex items-center gap-1 rounded bg-blue-600 px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-blue-700 transition-colors whitespace-nowrap"
-            >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Download
-            </button>
-          )}
-          <button className="text-[10px] text-stone-400 hover:text-stone-600 transition-colors whitespace-nowrap">
-            🖨 Print
-          </button>
-          {onSend && (
-            <button
-              onClick={onSend}
-              className="rounded bg-[#1E4620] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap"
-            >
-              Convert to PDF & Send
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Annotations panel */}
-      <AnnotationsPanel document={document} />
-
-      {/* Follow-Ups Panel */}
-      {isSuperAdmin && followUps.length > 0 && showFollowUps && (
-        <div className="bg-white border-t border-stone-200 flex-shrink-0">
-          <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-stone-100 gap-2">
-            <span className="text-xs font-semibold text-[#1E4620] flex items-center gap-2">
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-              Follow-Ups
-              {followUps.length > 0 && (
-                <span className="inline-flex items-center justify-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-100 text-blue-700">
-                  {followUps.length}
-                </span>
-              )}
-            </span>
-            <div className="flex items-center gap-2">
-              {onAddFollowUp && document.active_mark && (
-                <button
-                  onClick={onAddFollowUp}
-                  className="text-[10px] text-[#1E4620] hover:underline font-medium flex items-center gap-1"
-                >
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                  </svg>
-                  Add Follow-Up
-                </button>
-              )}
-              {onViewFollowUpDetails && (
-                <button
-                  onClick={() => {
-                    if (followUps.length === 0) {
-                      toast('No follow-ups have been created for this document yet.', {
-                        icon: 'ℹ️',
-                        duration: 3000,
-                      });
-                      return;
-                    }
-                    const mostRecent = followUps.sort((a, b) => 
-                      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-                    )[0];
-                    if (mostRecent) onViewFollowUpDetails(mostRecent.id);
-                  }}
-                  className="text-[10px] text-indigo-600 hover:underline font-medium flex items-center gap-1"
-                >
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                  View All
-                </button>
-              )}
-            </div>
-          </div>
-          <FollowUpsPanel
-            document={document}
-            currentUserId={user?.id || ''}
-            isSuperAdmin={isSuperAdmin}
-            onViewDetails={onViewFollowUpDetails || (() => {})}
-            onComplete={onCompleteFollowUp || (async () => {})}
-            onCancel={onCancelFollowUp || (async () => {})}
-            onFileAway={onFileAwayFollowUp}
-          />
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const SuperAdminBringUp: React.FC = () => {
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
-const documents = useAppSelector(selectBringUpDocuments);
-const { loading, error } = useAppSelector((state) => state.documents);
+  const documents = useAppSelector(selectBringUpDocuments);
+  const { loading, error } = useAppSelector((state) => state.documents);
 
   const isSuperAdmin = hasRole(user, 'super_admin');
   const canView = !!user;
@@ -2618,26 +1960,21 @@ const { loading, error } = useAppSelector((state) => state.documents);
   // Local state
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showMarkModal, setShowMarkModal] = useState(false);
-  const [showResponseModal, setShowResponseModal] = useState(false);
-  const [responseDocument, setResponseDocument] = useState<Document | null>(null);
-  const [showReassignModal, setShowReassignModal] = useState(false);
-  const [reassignLoading, setReassignLoading] = useState(false);
-  const [showCreateFollowUp, setShowCreateFollowUp] = useState(false);
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
-  const [selectedFollowUpId, setSelectedFollowUpId] = useState<string | null>(null);
   const [isFetchingDocument, setIsFetchingDocument] = useState(false);
+  const [isCompleting, setIsCompleting] = useState(false);
 
   // ─── Refresh documents function ─────────────────────────────────────
- // after
-const refreshDocuments = useCallback(() => {
-  if (!canView) return;
-  dispatch(fetchBringUps({
-    page: 1,
-    limit: PAGE_SIZE,
-    sort_by: 'bring_up_date',
-    sort_order: 'ASC',
-  }));
-}, [dispatch, canView]);
+  const refreshDocuments = useCallback(() => {
+    if (!canView) return;
+    dispatch(fetchBringUps({
+      page: 1,
+      limit: PAGE_SIZE,
+      sort_by: 'bring_up_date',
+      sort_order: 'ASC',
+    }));
+  }, [dispatch, canView]);
 
   // Fetch documents with bring-up date
   useEffect(() => {
@@ -2660,33 +1997,14 @@ const refreshDocuments = useCallback(() => {
     }
   }, [error, dispatch]);
 
-  // ─── Filter documents by checking the MOST RECENT follow-up ───────────
-const filteredDocuments = useMemo(() => {
-  return documents.filter((doc) => {
-    // If document has no bring-up date, exclude it
-    if (!doc.bring_up_date) return false;
-    
-    // If bring-up is completed OR filed away, hide it
-    if (doc.bring_up_status === 'completed') return false;
-    if (doc.bring_up_status === 'filed_away') return false;
-    
-    // Also check follow-ups for additional filtering
-    const followUps = doc.follow_ups || [];
-    if (followUps.length === 0) return true;
-    
-    const sorted = [...followUps].sort((a, b) => 
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-    
-    const mostRecent = sorted[0];
-    
-    if (mostRecent.status === 'filed_away') return false;
-    if (mostRecent.status === 'completed') return false;
-    if (mostRecent.status === 'cancelled') return false;
-    
-    return mostRecent.status === 'pending' || mostRecent.status === 'in_progress';
-  });
-}, [documents]);
+  // ─── Filter documents ───────────────────────────────────────────────
+  const filteredDocuments = useMemo(() => {
+    return documents.filter((doc) => {
+      if (!doc.bring_up_date) return false;
+      if (doc.bring_up_status === 'completed') return false;
+      return true;
+    });
+  }, [documents]);
 
   const grouped = useMemo(() => {
     const withBringUp = filteredDocuments.filter((d) => !!d.bring_up_date);
@@ -2754,10 +2072,6 @@ const filteredDocuments = useMemo(() => {
     setShowMarkModal(false);
   };
 
-  const handleSend = (id: string) => dispatch(sendDocument(id));
-  const handleAcknowledge = (id: string) => dispatch(acknowledgeMark(id));
-  const handleComplete = (id: string) => dispatch(completeMark(id));
-
   const handleUpdateMark = useCallback((markId: string, text: string, date: string | null) => {
     dispatch(updateMark({ markId, instructions: text }));
     
@@ -2772,48 +2086,40 @@ const filteredDocuments = useMemo(() => {
       });
     }
     
-    if (selectedDocument) {
+    if (selectedDocument && date) {
+      const newDate = new Date(date).toISOString();
       const currentBringUpDate = selectedDocument.bring_up_date;
-      const newDate = date ? new Date(date).toISOString() : null;
       
       if (currentBringUpDate !== newDate) {
-        if (newDate) {
-          dispatch(updateBringUp({
-            id: selectedDocument.id,
-            input: {
-              bring_up_date: newDate,
-              notes: selectedDocument.bring_up_notes || undefined
-            }
-          })).then(() => {
-            if (selectedDocument) {
-              dispatch(fetchDocumentById(selectedDocument.id)).then((result) => {
-                if (fetchDocumentById.fulfilled.match(result)) {
-                  setSelectedDocument(result.payload);
-                }
-              });
-              refreshDocuments();
-            }
-          }).catch((error) => {
-            toast.error(typeof error === 'string' ? error : 'Failed to update bring up date');
-          });
-        } else {
-          toast('To clear the bring up date, please use the note\'s date picker.', {
-            icon: 'ℹ️',
-            duration: 4000,
-          });
-        }
+        dispatch(updateBringUp({
+          id: selectedDocument.id,
+          input: {
+            bring_up_date: newDate,
+            notes: selectedDocument.bring_up_notes || undefined
+          }
+        })).then(() => {
+          if (selectedDocument) {
+            dispatch(fetchDocumentById(selectedDocument.id)).then((result) => {
+              if (fetchDocumentById.fulfilled.match(result)) {
+                setSelectedDocument(result.payload);
+              }
+            });
+            refreshDocuments();
+          }
+        }).catch((error) => {
+          toast.error(typeof error === 'string' ? error : 'Failed to update bring up date');
+        });
       }
     }
   }, [dispatch, selectedDocument, refreshDocuments]);
 
-  const handleCompleteBringUp = useCallback(async () => {
+  const handleCompleteBringUp = useCallback(async (input: CompleteBringUpInput) => {
     if (!selectedDocument) return;
+    setIsCompleting(true);
     try {
       await dispatch(completeBringUp({
         id: selectedDocument.id,
-        input: {
-          notes: selectedDocument.bring_up_notes || undefined
-        }
+        input
       })).unwrap();
       
       const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
@@ -2822,26 +2128,8 @@ const filteredDocuments = useMemo(() => {
       toast.success('Bring up completed successfully!');
     } catch (error) {
       toast.error(typeof error === 'string' ? error : 'Failed to complete bring up');
-    }
-  }, [dispatch, selectedDocument, refreshDocuments]);
-
-  const handleFileAwayBringUp = useCallback(async () => {
-    if (!selectedDocument) return;
-    try {
-      await dispatch(fileAwayBringUp({
-        id: selectedDocument.id,
-        input: {
-          notes: selectedDocument.bring_up_notes || undefined,
-          return_to_helpdesk: true,
-        }
-      })).unwrap();
-      
-      const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
-      setSelectedDocument(refreshed);
-      refreshDocuments();
-      toast.success('Bring up filed away successfully!');
-    } catch (error) {
-      toast.error(typeof error === 'string' ? error : 'Failed to file away bring up');
+    } finally {
+      setIsCompleting(false);
     }
   }, [dispatch, selectedDocument, refreshDocuments]);
 
@@ -2853,14 +2141,30 @@ const filteredDocuments = useMemo(() => {
     window.open(selectedDocument.file_url, '_blank');
   };
 
-  const handleOpenResponses = () => {
+  // ─── Follow-Up handlers ─────────────────────────────────────────────────────
+
+  const handleSendFollowUp = async (input: SendFollowUpInput): Promise<FollowUp> => {
+    const result = await dispatch(sendFollowUp(input)).unwrap();
     if (selectedDocument) {
-      setResponseDocument(selectedDocument);
-      setShowResponseModal(true);
+      const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+      setSelectedDocument(refreshed);
     }
+    refreshDocuments();
+    return result;
   };
 
-  const handleResponseSubmitted = async () => {
+  const handleCreateFollowUp = async (input: CreateFollowUpInput): Promise<FollowUp> => {
+    const result = await dispatch(createFollowUp(input)).unwrap();
+    if (selectedDocument) {
+      const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+      setSelectedDocument(refreshed);
+    }
+    refreshDocuments();
+    return result;
+  };
+
+  const handleCancelFollowUp = async (followUpId: string, input: CancelFollowUpInput): Promise<void> => {
+    await dispatch(cancelFollowUp({ followUpId, input })).unwrap();
     if (selectedDocument) {
       const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
       setSelectedDocument(refreshed);
@@ -2868,137 +2172,22 @@ const filteredDocuments = useMemo(() => {
     refreshDocuments();
   };
 
-  const handleOpenReassign = () => {
-    setShowReassignModal(true);
+  const handleCompleteFollowUp = async (followUpId: string, input: CompleteFollowUpInput): Promise<void> => {
+    await dispatch(completeFollowUp({ followUpId, input })).unwrap();
+    if (selectedDocument) {
+      const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+      setSelectedDocument(refreshed);
+    }
+    refreshDocuments();
   };
 
-  const handleReassignSubmit = async (
-    markId: string,
-    data: {
-      department_id: string;
-      assigned_to: string | null;
-      instructions: string;
-      priority: string;
-      note?: string;
-    }
-  ) => {
-    setReassignLoading(true);
-    try {
-      console.warn('reassignMark not implemented yet', { markId, data });
-      toast.error('Push back is not yet available. Please wait for the update.');
-      setTimeout(() => {
-        setShowReassignModal(false);
-        setReassignLoading(false);
-      }, 1000);
-    } catch {
-      toast.error('Something went wrong.');
-      setReassignLoading(false);
-    }
+  const handleAddFollowUpComment = async (followUpId: string, input: AddFollowUpCommentInput): Promise<void> => {
+    await dispatch(addFollowUpComment({ followUpId, input })).unwrap();
   };
 
-  // ─── Follow-Up handlers ─────────────────────────────────────────────────────
-
-  const handleSendFollowUp = async (input: SendFollowUpInput) => {
-    try {
-      await dispatch(sendFollowUp(input)).unwrap();
-      setShowCreateFollowUp(false);
-      toast.success('Follow-up sent successfully');
-      if (selectedDocument) {
-        const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
-        setSelectedDocument(refreshed);
-      }
-      refreshDocuments();
-    } catch (error) {
-      toast.error(typeof error === 'string' ? error : 'Failed to send follow-up');
-    }
-  };
-
-  const handleCreateAndFileAway = async (input: CreateFollowUpInput) => {
-    try {
-      await dispatch(createFollowUp(input)).unwrap();
-      await dispatch(fileAwayFollowUp({
-        document_id: input.document_id,
-        mark_id: input.mark_id,
-        notes: input.notes,
-        completion_notes: `Filed away by ${user?.full_name ?? user?.id}`,
-      })).unwrap();
-
-      toast.success('Document filed away successfully');
-      setShowCreateFollowUp(false);
-      
-      if (selectedDocument && selectedDocument.id === input.document_id) {
-        setSelectedDocument(null);
-      }
-      refreshDocuments();
-    } catch (error) {
-      toast.error(typeof error === 'string' ? error : 'Failed to file away document');
-    }
-  };
-
-  const handleCreateFollowUp = async (input: CreateFollowUpInput) => {
-    try {
-      await dispatch(createFollowUp(input)).unwrap();
-      setShowCreateFollowUp(false);
-      toast.success('Follow-up created successfully');
-      if (selectedDocument) {
-        const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
-        setSelectedDocument(refreshed);
-      }
-      refreshDocuments();
-    } catch (error) {
-      toast.error(typeof error === 'string' ? error : 'Failed to create follow-up');
-    }
-  };
-
-  const handleCompleteFollowUp = async (followUpId: string, input: CompleteFollowUpInput) => {
-    try {
-      await dispatch(completeFollowUp({ followUpId, input })).unwrap();
-      toast.success('Follow-up completed successfully');
-      if (selectedDocument) {
-        const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
-        setSelectedDocument(refreshed);
-      }
-      refreshDocuments();
-    } catch (error) {
-      toast.error(typeof error === 'string' ? error : 'Failed to complete follow-up');
-    }
-  };
-
-  const handleCancelFollowUp = async (followUpId: string, input: CancelFollowUpInput) => {
-    try {
-      await dispatch(cancelFollowUp({ followUpId, input })).unwrap();
-      toast.success('Follow-up cancelled successfully');
-      if (selectedDocument) {
-        const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
-        setSelectedDocument(refreshed);
-      }
-      refreshDocuments();
-    } catch (error) {
-      toast.error(typeof error === 'string' ? error : 'Failed to cancel follow-up');
-    }
-  };
-
-  const handleFileAwayFollowUp = async (input: FileAwayFollowUpInput) => {
-    try {
-      await dispatch(fileAwayFollowUp(input)).unwrap();
-      toast.success('Document filed away successfully');
-      
-      setShowFollowUpModal(false);
-      setSelectedFollowUpId(null);
-      
-      if (selectedDocument && selectedDocument.id === input.document_id) {
-        setSelectedDocument(null);
-      }
-      
-      refreshDocuments();
-    } catch (error) {
-      toast.error(typeof error === 'string' ? error : 'Failed to file away document');
-    }
-  };
-
-  const handleViewFollowUpDetails = (followUpId: string) => {
-    setSelectedFollowUpId(followUpId);
-    setShowFollowUpModal(true);
+  const handleViewFollowUpThread = async (followUpId: string): Promise<FollowUpWithComments | null> => {
+    const result = await dispatch(fetchFollowUpThread(followUpId)).unwrap();
+    return result || null;
   };
 
   // ─── Render ─────────────────────────────────────────────────────────────────
@@ -3023,64 +2212,28 @@ const filteredDocuments = useMemo(() => {
     <div className="flex flex-col h-full bg-[#F4F7F4]">
       <Toaster position="top-right" />
 
-      {/* ─── Response Modal ────────────────────────────────────────────────── */}
-      {showResponseModal && responseDocument &&
-        createPortal(
-          <ResponseModal
-            document={responseDocument}
-            onClose={() => {
-              setShowResponseModal(false);
-              setResponseDocument(null);
-            }}
-            onResponseSubmitted={handleResponseSubmitted}
-          />,
-          document.body
-        )}
-
-      {/* ─── Reassign Modal ─────────────────────────────────────────────── */}
-      {showReassignModal && selectedDocument && selectedDocument.active_mark && (
-        <ReassignModal
+      {/* ─── Complete Modal ───────────────────────────────────────────────── */}
+      {showCompleteModal && selectedDocument && (
+        <CompleteModal
           document={selectedDocument}
-          currentMark={{
-            id: selectedDocument.active_mark.id,
-            department_id: selectedDocument.active_mark.marked_to_dept,
-            assigned_to: selectedDocument.active_mark.assigned_to,
-            instructions: selectedDocument.active_mark.instructions || '',
-            priority: selectedDocument.active_mark.priority || 'normal',
-          }}
-          onClose={() => setShowReassignModal(false)}
-          onReassign={handleReassignSubmit}
-          isReassigning={reassignLoading}
+          onClose={() => setShowCompleteModal(false)}
+          onComplete={handleCompleteBringUp}
+          isCompleting={isCompleting}
         />
       )}
 
-      {/* ─── Create Follow-Up Modal ──────────────────────────────────────── */}
-      {showCreateFollowUp && selectedDocument && selectedDocument.active_mark && (
-        <CreateFollowUpModal
+      {/* ─── Follow-Up Modal ────────────────────────────────────────────── */}
+      {showFollowUpModal && selectedDocument && (
+        <FollowUpModalComponent
           document={selectedDocument}
-          markId={selectedDocument.active_mark.id}
-          onClose={() => setShowCreateFollowUp(false)}
-          onCreate={handleCreateFollowUp}
+          onClose={() => setShowFollowUpModal(false)}
           onSend={handleSendFollowUp}
-          onFileAway={handleCreateAndFileAway}
-        />
-      )}
-
-      {/* ─── Follow-Up Detail Modal ──────────────────────────────────────── */}
-      {showFollowUpModal && selectedFollowUpId && (
-        <FollowUpModal
-          followUpId={selectedFollowUpId}
-          onClose={() => {
-            setShowFollowUpModal(false);
-            setSelectedFollowUpId(null);
-          }}
-          onUpdate={async () => {
-            if (selectedDocument) {
-              const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
-              setSelectedDocument(refreshed);
-            }
-            refreshDocuments();
-          }}
+          onCreate={handleCreateFollowUp}
+          onComplete={handleCompleteFollowUp}
+          onCancel={handleCancelFollowUp}
+          onAddComment={handleAddFollowUpComment}
+          onViewThread={handleViewFollowUpThread}
+          currentUserId={user?.id || ''}
         />
       )}
 
@@ -3162,54 +2315,12 @@ const filteredDocuments = useMemo(() => {
               currentUserName={user?.full_name ?? 'Registrar'}
               isSuperAdmin={isSuperAdmin}
               onBack={() => setSelectedDocument(null)}
-              onSend={
-                isSuperAdmin &&
-                !selectedDocument.is_sent &&
-                selectedDocument.is_signed
-                  ? () => handleSend(selectedDocument.id)
-                  : undefined
-              }
-              onMark={
-                isSuperAdmin && selectedDocument.status !== 'filed'
-                  ? () => setShowMarkModal(true)
-                  : undefined
-              }
-              onAcknowledge={
-                (selectedDocument.status === 'marked' || selectedDocument.status === 'user_assigned') &&
-                (selectedDocument.assigned_to === user?.id || isSuperAdmin)
-                  ? () => handleAcknowledge(selectedDocument.id)
-                  : undefined
-              }
-              onComplete={
-                selectedDocument.status === 'in_progress' &&
-                (selectedDocument.assigned_to === user?.id || isSuperAdmin)
-                  ? () => handleComplete(selectedDocument.id)
-                  : undefined
-              }
               onUpdateMark={handleUpdateMark}
-              onCompleteBringUp={
-                selectedDocument.bring_up_date && 
-                !selectedDocument.bring_up_completed_at && 
-                selectedDocument.bring_up_status !== 'filed_away'
-                  ? handleCompleteBringUp 
-                  : undefined
-              }
-              onFileAwayBringUp={
-                selectedDocument.bring_up_date && 
-                !selectedDocument.bring_up_completed_at && 
-                selectedDocument.bring_up_status !== 'filed_away'
-                  ? handleFileAwayBringUp 
-                  : undefined
-              }
+              onOpenComplete={() => setShowCompleteModal(true)}
+              onOpenFollowUp={() => setShowFollowUpModal(true)}
+              onMark={() => setShowMarkModal(true)}
+              isCompleting={isCompleting}
               onDownload={handleDownload}
-              onOpenResponses={handleOpenResponses}
-              onReassign={selectedDocument.active_mark ? handleOpenReassign : undefined}
-              isReassigning={reassignLoading}
-              onAddFollowUp={() => setShowCreateFollowUp(true)}
-              onViewFollowUpDetails={handleViewFollowUpDetails}
-              onCompleteFollowUp={handleCompleteFollowUp}
-              onCancelFollowUp={handleCancelFollowUp}
-              onFileAwayFollowUp={handleFileAwayFollowUp}
             />
           ) : (
             <div className="flex flex-1 items-center justify-center px-4">

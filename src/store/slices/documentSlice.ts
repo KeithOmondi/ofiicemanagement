@@ -41,7 +41,6 @@ import type {
   FollowUpPaginationResponse,
   CreateFollowUpInput,
   SendFollowUpInput,
-  FileAwayFollowUpInput,
   UpdateFollowUpInput,
   CompleteFollowUpInput,
   CancelFollowUpInput,
@@ -57,7 +56,6 @@ import type {
   SetBringUpInput,
   UpdateBringUpInput,
   CompleteBringUpInput,
-  FileAwayBringUpInput,
   BringUpStatus,
   DocumentStatus,
   DocumentAttachment,
@@ -126,7 +124,6 @@ interface DocumentState {
     // ── Follow-up actions ────────────────────────────────────────────────
     creatingFollowUp?: boolean;
     sendingFollowUp?: boolean;
-    filingAwayFollowUp?: boolean;
     updatingFollowUp?: string;
     completingFollowUp?: string;
     cancellingFollowUp?: string;
@@ -137,7 +134,6 @@ interface DocumentState {
     settingBringUp?: string;
     updatingBringUp?: string;
     completingBringUp?: string;
-    filingAwayBringUp?: string;
     fetchingBringUps?: boolean;
     fetchingBringUpSummary?: boolean;
   };
@@ -360,7 +356,7 @@ export const createLetter = createAsyncThunk(
   }
 );
 
-// ─── ADDED: Create Certificate (generates PDF from HTML template) ──────────
+// ─── Create Certificate (generates PDF from HTML template) ──────────────────
 
 export const createCertificate = createAsyncThunk(
   "documents/createCertificate",
@@ -803,7 +799,7 @@ export const updateMark = createAsyncThunk(
 );
 
 // ════════════════════════════════════════════════════════════════════════════
-//  BRING UP THUNKS
+//  BRING UP THUNKS (Super Admin only - Date-based reminders)
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── Set Bring Up Date (Super Admin only) ────────────────────────────────────
@@ -866,26 +862,6 @@ export const completeBringUp = createAsyncThunk(
   }
 );
 
-// ── NEW: File Away Bring Up ──────────────────────────────────────────────────
-
-export const fileAwayBringUp = createAsyncThunk(
-  "documents/fileAwayBringUp",
-  async (
-    { id, input }: { id: string; input: FileAwayBringUpInput },
-    { rejectWithValue }
-  ) => {
-    try {
-      const response = await axiosClient.patch<{
-        success: boolean;
-        data: Document;
-      }>(`/documents/${id}/bring-up/file-away`, input);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(getErrorMessage(error));
-    }
-  }
-);
-
 // ── Fetch Bring Ups ──────────────────────────────────────────────────────────
 
 export const fetchBringUps = createAsyncThunk(
@@ -938,10 +914,10 @@ export const fetchBringUpHistory = createAsyncThunk(
 );
 
 // ════════════════════════════════════════════════════════════════════════════
-//  FOLLOW-UP THUNKS
+//  FOLLOW-UP THUNKS (Super Admin ↔ User communication)
 // ════════════════════════════════════════════════════════════════════════════
 
-// ── NEW: Send Follow Up (simplified - just notes and send) ──────────────────
+// ── Send Follow Up (simplified - just notes and send) ──────────────────────
 
 export const sendFollowUp = createAsyncThunk(
   "documents/sendFollowUp",
@@ -1076,23 +1052,6 @@ export const createFollowUp = createAsyncThunk(
         success: boolean;
         data: FollowUp;
       }>("/documents/follow-ups", input);
-      return response.data.data;
-    } catch (error) {
-      return rejectWithValue(getErrorMessage(error));
-    }
-  }
-);
-
-// ── File Away Follow-Up ──────────────────────────────────────────────────────
-
-export const fileAwayFollowUp = createAsyncThunk(
-  "documents/fileAwayFollowUp",
-  async (input: FileAwayFollowUpInput, { rejectWithValue }) => {
-    try {
-      const response = await axiosClient.post<{
-        success: boolean;
-        data: FollowUp;
-      }>("/documents/follow-ups/file-away", input);
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
@@ -1654,7 +1613,7 @@ const documentSlice = createSlice({
         state.error = action.payload as string;
       })
 
-      // ─── ADDED: createCertificate ──────────────────────────────────────────
+      // ─── createCertificate ──────────────────────────────────────────────────
       .addCase(createCertificate.pending, (state) => {
         state.loading = true;
         state.error = null;
@@ -2229,6 +2188,20 @@ const documentSlice = createSlice({
         state.actionInProgress.settingBringUp = action.meta.arg.id;
         state.error = null;
       })
+      .addCase(setBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
+        state.actionInProgress.settingBringUp = undefined;
+        const index = state.documents.findIndex(d => d.id === action.payload.id);
+        if (index !== -1) state.documents[index] = action.payload;
+
+        const bringUpIndex = state.bringUpDocuments.findIndex(d => d.id === action.payload.id);
+        if (bringUpIndex !== -1) state.bringUpDocuments[bringUpIndex] = action.payload;
+
+        if (state.currentDocument?.id === action.payload.id) {
+          state.currentDocument = { ...state.currentDocument, ...action.payload };
+        }
+        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
+        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+      })
       .addCase(setBringUp.rejected, (state, action) => {
         state.actionInProgress.settingBringUp = undefined;
         state.error = action.payload as string;
@@ -2238,6 +2211,20 @@ const documentSlice = createSlice({
       .addCase(updateBringUp.pending, (state, action) => {
         state.actionInProgress.updatingBringUp = action.meta.arg.id;
         state.error = null;
+      })
+      .addCase(updateBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
+        state.actionInProgress.updatingBringUp = undefined;
+        const index = state.documents.findIndex(d => d.id === action.payload.id);
+        if (index !== -1) state.documents[index] = action.payload;
+
+        const bringUpIndex = state.bringUpDocuments.findIndex(d => d.id === action.payload.id);
+        if (bringUpIndex !== -1) state.bringUpDocuments[bringUpIndex] = action.payload;
+
+        if (state.currentDocument?.id === action.payload.id) {
+          state.currentDocument = { ...state.currentDocument, ...action.payload };
+        }
+        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
+        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
       })
       .addCase(updateBringUp.rejected, (state, action) => {
         state.actionInProgress.updatingBringUp = undefined;
@@ -2265,16 +2252,6 @@ const documentSlice = createSlice({
       })
       .addCase(completeBringUp.rejected, (state, action) => {
         state.actionInProgress.completingBringUp = undefined;
-        state.error = action.payload as string;
-      })
-
-      // ── fileAwayBringUp ────────────────────────────────────────────────────
-      .addCase(fileAwayBringUp.pending, (state, action) => {
-        state.actionInProgress.filingAwayBringUp = action.meta.arg.id;
-        state.error = null;
-      })
-      .addCase(fileAwayBringUp.rejected, (state, action) => {
-        state.actionInProgress.filingAwayBringUp = undefined;
         state.error = action.payload as string;
       })
 
@@ -2333,54 +2310,6 @@ const documentSlice = createSlice({
       .addCase(fetchBringUpHistory.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
-      })
-
-      // ── setBringUp.fulfilled (single source of truth, syncs bringUpDocuments) ──
-      .addCase(setBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.actionInProgress.settingBringUp = undefined;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
-
-        const bringUpIndex = state.bringUpDocuments.findIndex(d => d.id === action.payload.id);
-        if (bringUpIndex !== -1) state.bringUpDocuments[bringUpIndex] = action.payload;
-
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = { ...state.currentDocument, ...action.payload };
-        }
-        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
-        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
-      })
-
-      // ── updateBringUp.fulfilled (single source of truth, syncs bringUpDocuments) ──
-      .addCase(updateBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.actionInProgress.updatingBringUp = undefined;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
-
-        const bringUpIndex = state.bringUpDocuments.findIndex(d => d.id === action.payload.id);
-        if (bringUpIndex !== -1) state.bringUpDocuments[bringUpIndex] = action.payload;
-
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = { ...state.currentDocument, ...action.payload };
-        }
-        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
-        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
-      })
-
-      // ── fileAwayBringUp.fulfilled (single source of truth, syncs bringUpDocuments) ──
-      .addCase(fileAwayBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.actionInProgress.filingAwayBringUp = undefined;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
-
-        const bringUpIndex = state.bringUpDocuments.findIndex(d => d.id === action.payload.id);
-        if (bringUpIndex !== -1) state.bringUpDocuments[bringUpIndex] = action.payload;
-
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = { ...state.currentDocument, ...action.payload };
-        }
-        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
-        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
       })
 
       // ════════════════════════════════════════════════════════════════════════
@@ -2542,29 +2471,6 @@ const documentSlice = createSlice({
       .addCase(createFollowUp.rejected, (state, action) => {
         state.loading = false;
         state.actionInProgress.creatingFollowUp = false;
-        state.error = action.payload as string;
-      })
-
-      // ── fileAwayFollowUp ──────────────────────────────────────────────────
-      .addCase(fileAwayFollowUp.pending, (state) => {
-        state.loading = true;
-        state.error = null;
-        state.actionInProgress.filingAwayFollowUp = true;
-      })
-      .addCase(fileAwayFollowUp.fulfilled, (state, action) => {
-        state.loading = false;
-        state.actionInProgress.filingAwayFollowUp = false;
-        state.followUps = [action.payload, ...state.followUps];
-        if (state.currentDocument) {
-          state.currentDocument.follow_ups = [
-            action.payload,
-            ...(state.currentDocument.follow_ups || []),
-          ];
-        }
-      })
-      .addCase(fileAwayFollowUp.rejected, (state, action) => {
-        state.loading = false;
-        state.actionInProgress.filingAwayFollowUp = false;
         state.error = action.payload as string;
       })
 
@@ -2822,9 +2728,6 @@ export const selectIsCreatingFollowUp = (state: { documents: DocumentState }) =>
 export const selectIsSendingFollowUp = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.sendingFollowUp || false;
 
-export const selectIsFilingAwayFollowUp = (state: { documents: DocumentState }) =>
-  state.documents.actionInProgress.filingAwayFollowUp || false;
-
 export const selectIsUpdatingFollowUp = (state: { documents: DocumentState }, followUpId: string) =>
   state.documents.actionInProgress.updatingFollowUp === followUpId;
 
@@ -2862,9 +2765,6 @@ export const selectIsUpdatingBringUp = (state: { documents: DocumentState }, doc
 
 export const selectIsCompletingBringUp = (state: { documents: DocumentState }, documentId: string) =>
   state.documents.actionInProgress.completingBringUp === documentId;
-
-export const selectIsFilingAwayBringUp = (state: { documents: DocumentState }, documentId: string) =>
-  state.documents.actionInProgress.filingAwayBringUp === documentId;
 
 export const selectIsFetchingBringUps = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.fetchingBringUps || false;

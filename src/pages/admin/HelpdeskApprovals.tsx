@@ -99,6 +99,10 @@ const UnifiedStatusBadge: React.FC<{ document: HelpdeskDocument }> = ({ document
 
 // ─── Helper: Format Document Type Display ──────────────────────────────────
 
+// src/pages/HelpdeskApprovals.tsx
+
+// Update the getHelpdeskEntityDisplay function to include 'conference'
+
 const getHelpdeskEntityDisplay = (entityType: DocumentEntityType): string => {
   const labels: Record<DocumentEntityType, string> = {
     circuit: "Circuit",
@@ -118,6 +122,7 @@ const getHelpdeskEntityDisplay = (entityType: DocumentEntityType): string => {
     consolidated_fuel_memo: "Consolidated Fuel Memo",
     aide: "Aide Request",
     sentry: "Sentry Request",
+    conference: "Conference Request",  // ← Added this line
   };
   return labels[entityType] || entityType;
 };

@@ -27,7 +27,8 @@ export type DocumentEntityType =
     | 'consolidated_utility_memo'
     | 'consolidated_fuel_memo'
     | 'aide'
-    | 'sentry';
+    | 'sentry'
+    | 'conference';
 
 export type DocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
@@ -85,6 +86,24 @@ export type OfficerRank =
 export type UnitType = 'KPS' | 'APS' | 'GSU' | 'DCI' | 'VIPPU' | 'Other';
 export type AideStatus = 'pending' | 'in_progress' | 'rejected' | 'attached';
 export type SentryStatus = 'pending' | 'active' | 'resolved' | 'rejected';
+
+// ─── Conference Types ─────────────────────────────────────────────────────────
+
+export type ConferenceStatus = 
+    | 'draft' 
+    | 'pending' 
+    | 'approved' 
+    | 'rejected' 
+    | 'completed' 
+    | 'cancelled';
+
+export type ConferenceType = 
+    | 'judicial' 
+    | 'administrative' 
+    | 'training' 
+    | 'workshop' 
+    | 'seminar' 
+    | 'other';
 
 // ─── Document Tracking ──────────────────────────────────────────────────────
 
@@ -259,6 +278,16 @@ export interface HelpdeskDocument {
     residence_location?: string | null;
     sentry_status?: SentryStatus | null;
     
+    // ─── Conference Request Fields ────────────────────────────────────────────
+    conference_type?: ConferenceType | null;
+    start_date?: string | null;
+    end_date?: string | null;
+    number_of_pax?: number | null;
+    venue?: string | null;
+    location?: string | null;
+    budget_estimate?: number | null;
+    conference_status?: ConferenceStatus | null;
+    
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string | null;
 }
@@ -352,6 +381,14 @@ export interface HelpdeskDocumentFilters {
     residence_location?: string;
     sentry_status?: SentryStatus;
     
+    // ─── Conference Request Filters ──────────────────────────────────────────
+    conference_type?: ConferenceType;
+    conference_status?: ConferenceStatus;
+    start_date_from?: string;
+    start_date_to?: string;
+    location?: string;
+    venue?: string;
+    
     // ─── Legacy filters ──────────────────────────────────────────────────────
     rank?: string;
 }
@@ -387,6 +424,16 @@ export interface UploadHelpdeskDocumentPayload {
     // ─── Sentry Request Fields ──────────────────────────────────────────────
     residence_location?: string;
     sentry_status?: SentryStatus;
+    
+    // ─── Conference Request Fields ──────────────────────────────────────────
+    conference_type?: ConferenceType;
+    start_date?: string;
+    end_date?: string;
+    number_of_pax?: number;
+    venue?: string;
+    location?: string;
+    budget_estimate?: number;
+    conference_status?: ConferenceStatus;
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
@@ -558,6 +605,16 @@ export interface LinkHelpdeskDocumentPayload {
     residence_location?: string;
     sentry_status?: SentryStatus;
     
+    // ─── Conference Request Fields ──────────────────────────────────────────
+    conference_type?: ConferenceType;
+    start_date?: string;
+    end_date?: string;
+    number_of_pax?: number;
+    venue?: string;
+    location?: string;
+    budget_estimate?: number;
+    conference_status?: ConferenceStatus;
+    
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
 }
@@ -593,6 +650,16 @@ export interface BulkLinkDocumentsPayload {
     // ─── Sentry Request Fields ──────────────────────────────────────────────
     residence_location?: string;
     sentry_status?: SentryStatus;
+    
+    // ─── Conference Request Fields ──────────────────────────────────────────
+    conference_type?: ConferenceType;
+    start_date?: string;
+    end_date?: string;
+    number_of_pax?: number;
+    venue?: string;
+    location?: string;
+    budget_estimate?: number;
+    conference_status?: ConferenceStatus;
     
     // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
@@ -837,6 +904,14 @@ function buildParams(filters: HelpdeskDocumentFilters): Record<string, string> {
     if (filters.residence_location) params.residence_location = filters.residence_location;
     if (filters.sentry_status) params.sentry_status = filters.sentry_status;
     
+    // Conference Request Filters
+    if (filters.conference_type) params.conference_type = filters.conference_type;
+    if (filters.conference_status) params.conference_status = filters.conference_status;
+    if (filters.start_date_from) params.start_date_from = filters.start_date_from;
+    if (filters.start_date_to) params.start_date_to = filters.start_date_to;
+    if (filters.location) params.location = filters.location;
+    if (filters.venue) params.venue = filters.venue;
+    
     // Legacy filters
     if (filters.rank) params.rank = filters.rank;
 
@@ -964,6 +1039,16 @@ export const uploadHelpdeskDocument = createAsyncThunk<
             if (payload.residence_location) formData.append('residence_location', payload.residence_location);
             if (payload.sentry_status) formData.append('sentry_status', payload.sentry_status);
             
+            // Conference Request Fields
+            if (payload.conference_type) formData.append('conference_type', payload.conference_type);
+            if (payload.start_date) formData.append('start_date', payload.start_date);
+            if (payload.end_date) formData.append('end_date', payload.end_date);
+            if (payload.number_of_pax) formData.append('number_of_pax', String(payload.number_of_pax));
+            if (payload.venue) formData.append('venue', payload.venue);
+            if (payload.location) formData.append('location', payload.location);
+            if (payload.budget_estimate) formData.append('budget_estimate', String(payload.budget_estimate));
+            if (payload.conference_status) formData.append('conference_status', payload.conference_status);
+            
             // Legacy fields
             if (payload.rank) formData.append('rank', payload.rank);
 
@@ -990,6 +1075,14 @@ export const uploadHelpdeskDocument = createAsyncThunk<
                 hasAideStatus: !!payload.aide_status,
                 hasResidenceLocation: !!payload.residence_location,
                 hasSentryStatus: !!payload.sentry_status,
+                hasConferenceType: !!payload.conference_type,
+                hasStartDate: !!payload.start_date,
+                hasEndDate: !!payload.end_date,
+                hasNumberOfPax: !!payload.number_of_pax,
+                hasVenue: !!payload.venue,
+                hasLocation: !!payload.location,
+                hasBudgetEstimate: !!payload.budget_estimate,
+                hasConferenceStatus: !!payload.conference_status,
                 hasRank: !!payload.rank,
             });
 
@@ -1687,6 +1780,14 @@ export const linkHelpdeskDocument = createAsyncThunk<
         aide_status,
         residence_location,
         sentry_status,
+        conference_type,
+        start_date,
+        end_date,
+        number_of_pax,
+        venue,
+        location,
+        budget_estimate,
+        conference_status,
         rank 
     }, { rejectWithValue }) => {
         try {
@@ -1707,6 +1808,14 @@ export const linkHelpdeskDocument = createAsyncThunk<
                 aide_status,
                 residence_location,
                 sentry_status,
+                conference_type,
+                start_date,
+                end_date,
+                number_of_pax,
+                venue,
+                location,
+                budget_estimate,
+                conference_status,
                 rank,
             });
             return data.data as HelpdeskDocument;
@@ -2558,6 +2667,29 @@ export const selectDocumentsByResidenceLocation = (residenceLocation: string) =>
 
 export const selectDocumentsBySentryStatus = (sentryStatus: SentryStatus) => (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.sentry_status === sentryStatus);
+
+// ─── Conference Request Selectors ────────────────────────────────────────────
+
+export const selectDocumentsByConferenceType = (conferenceType: ConferenceType) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.conference_type === conferenceType);
+
+export const selectDocumentsByConferenceStatus = (conferenceStatus: ConferenceStatus) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.conference_status === conferenceStatus);
+
+export const selectDocumentsByVenue = (venue: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter(
+        (d) => d.venue?.toLowerCase().includes(venue.toLowerCase())
+    );
+
+export const selectDocumentsByLocation = (location: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter(
+        (d) => d.location?.toLowerCase().includes(location.toLowerCase())
+    );
+
+export const selectDocumentsByStartDateRange = (startDate: string, endDate: string) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter(
+        (d) => d.start_date && d.start_date >= startDate && d.start_date <= endDate
+    );
 
 // ─── Legacy Selectors ──────────────────────────────────────────────────────
 

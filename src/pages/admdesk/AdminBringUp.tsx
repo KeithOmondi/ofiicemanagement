@@ -10,18 +10,32 @@ import {
   fetchDocumentById,
   respondToDocument,
   deleteDocument,
+  sendFollowUp,
+  createFollowUp,
+  completeFollowUp,
+  cancelFollowUp,
+  addFollowUpComment,
+  fetchFollowUpThread,
 } from '../../store/slices/documentSlice';
 import { selectCurrentUser, fetchCurrentUser } from '../../store/slices/userSlice';
+import { fetchUsers, selectAllUsers, selectUsersListLoading } from '../../store/slices/userSlice';
 import type { 
   Document as DocType, 
   RoutePriority, 
   FollowUpStatus,
   DocumentAnnotation,
   BringUpStatus,
+  FollowUp,
+  FollowUpWithComments,
+  SendFollowUpInput,
+  CreateFollowUpInput,
+  CompleteFollowUpInput,
+  CancelFollowUpInput,
+  AddFollowUpCommentInput,
+  FollowUpPriority,
 } from '../../types/documents.types';
 
 import type { RootState } from '../../store/store';
-import FollowUpModal from '../admin/FollowUpModal';
 
 // ─── Selectors ────────────────────────────────────────────────────────────────
 
@@ -93,22 +107,34 @@ const BUCKET_COLOR: Record<BringUpBucket, string> = {
   upcoming: 'bg-[#F0FDF4] text-[#15803D] border-[#DCFCE7]',
 };
 
+// ─── Spinner ──────────────────────────────────────────────────────────────────
+
+const Spinner: React.FC<{ size?: 'sm' | 'md'; className?: string }> = ({ 
+  size = 'sm', 
+  className = '' 
+}) => (
+  <svg
+    className={`animate-spin ${size === 'sm' ? 'h-4 w-4' : 'h-5 w-5'} ${className}`}
+    fill="none"
+    viewBox="0 0 24 24"
+  >
+    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+  </svg>
+);
+
 // ─── Bring Up Status Badge ────────────────────────────────────────────────────
 
 const BRING_UP_STATUS_STYLES: Record<BringUpStatus, string> = {
   pending: 'bg-amber-100 text-amber-700 border border-amber-200',
   completed: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
   overdue: 'bg-red-100 text-red-700 border border-red-200',
-  filed_away: 'bg-slate-100 text-slate-600 border border-slate-200',
-  all: 'bg-stone-100 text-stone-600 border border-stone-200',
 };
 
 const BRING_UP_STATUS_LABELS: Record<BringUpStatus, string> = {
   pending: 'PENDING',
   completed: 'COMPLETED',
   overdue: 'OVERDUE',
-  filed_away: 'FILED AWAY',
-  all: 'ALL',
 };
 
 const BringUpStatusBadge: React.FC<{ status: BringUpStatus }> = ({ status }) => (
@@ -157,7 +183,6 @@ const FOLLOW_UP_STATUS_STYLES: Record<FollowUpStatus, string> = {
   in_progress: 'bg-blue-100 text-blue-700 border border-blue-200',
   completed: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
   cancelled: 'bg-stone-100 text-stone-500 border border-stone-200',
-  filed_away: 'bg-slate-100 text-slate-600 border border-slate-200',
 };
 
 const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
@@ -165,7 +190,6 @@ const FOLLOW_UP_STATUS_LABELS: Record<FollowUpStatus, string> = {
   in_progress: 'IN PROGRESS',
   completed: 'COMPLETED',
   cancelled: 'CANCELLED',
-  filed_away: 'FILED AWAY',
 };
 
 const FollowUpStatusBadge: React.FC<{ status: FollowUpStatus }> = ({ status }) => {
@@ -179,171 +203,550 @@ const FollowUpStatusBadge: React.FC<{ status: FollowUpStatus }> = ({ status }) =
   );
 };
 
+// ─── Follow-Up Priority Badge ─────────────────────────────────────────────────
+
+const FOLLOW_UP_PRIORITY_STYLES: Record<FollowUpPriority, string> = {
+  low: 'bg-stone-100 text-stone-500',
+  normal: 'bg-blue-100 text-blue-700',
+  urgent: 'bg-red-100 text-red-700',
+};
+
+const FollowUpPriorityBadge: React.FC<{ priority: FollowUpPriority }> = ({ priority }) => (
+  <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] font-bold tracking-widest whitespace-nowrap ${FOLLOW_UP_PRIORITY_STYLES[priority]}`}>
+    {priority.toUpperCase()}
+  </span>
+);
+
 // ─── StickyNote ─────────────────────────────────────────────────────────────
 
-interface StickyNoteProps {
-  authorName: string;
-  text: string;
-  bringUpDate?: string | null;
-  bringUpStatus?: BringUpStatus | null;
+
+
+
+// ─── FOLLOW-UP MODAL (Chat-style - for Dept Head) ───────────────────────────
+
+interface FollowUpModalProps {
+  document: DocType;
+  onClose: () => void;
+  onSend: (input: SendFollowUpInput) => Promise<FollowUp>;
+  onCreate: (input: CreateFollowUpInput) => Promise<FollowUp>;
+  onComplete: (followUpId: string, input: CompleteFollowUpInput) => Promise<void>;
+  onCancel: (followUpId: string, input: CancelFollowUpInput) => Promise<void>;
+  onAddComment: (followUpId: string, input: AddFollowUpCommentInput) => Promise<void>;
+  onViewThread: (followUpId: string) => Promise<FollowUpWithComments | null>;
+  currentUserId: string;
 }
 
-const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate, bringUpStatus }) => {
-  const [minimized, setMinimized] = useState(false);
-  const [pos, setPos] = useState({ x: 24, y: 24 });
-  const dragging = useRef(false);
-  const dragOffset = useRef({ x: 0, y: 0 });
+const FollowUpModalComponent: React.FC<FollowUpModalProps> = ({
+  document,
+  onClose,
+  onSend,
+  //onCreate,
+  onComplete,
+  //onCancel,
+  onAddComment,
+  onViewThread,
+  currentUserId,
+}) => {
+  const dispatch = useAppDispatch();
+  const users = useAppSelector(selectAllUsers);
+  const usersLoading = useAppSelector(selectUsersListLoading);
 
-  const onMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('button')) return;
-    dragging.current = true;
-    dragOffset.current = { x: e.clientX - pos.x, y: e.clientY - pos.y };
-    e.preventDefault();
-  };
+  const [notes, setNotes] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
+  const [dueDate, setDueDate] = useState('');
+  const [priority, setPriority] = useState<FollowUpPriority>('normal');
+  const [error, setError] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [selectedFollowUpId, setSelectedFollowUpId] = useState<string | null>(null);
+  const [threadData, setThreadData] = useState<FollowUpWithComments | null>(null);
+  const [replyComment, setReplyComment] = useState('');
+  const [isReplying, setIsReplying] = useState(false);
+  const [showNewForm, setShowNewForm] = useState(false);
+
+  const followUps = document.follow_ups || [];
+  const activeFollowUps = followUps.filter(f => f.status !== 'completed' && f.status !== 'cancelled');
 
   useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!dragging.current) return;
-      setPos({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y });
-    };
-    const onUp = () => { dragging.current = false; };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, []);
+    dispatch(fetchUsers({ is_active: true, limit: 100 }));
+  }, [dispatch]);
 
-  const isFiledAway = bringUpStatus === 'filed_away';
-  const isCompleted = bringUpStatus === 'completed';
-  const showDateChip = bringUpDate && parseDate(bringUpDate) !== null;
-
-  const isOverdue = (dateStr: string): boolean => {
-    const d = parseDate(dateStr);
-    if (!d) return false;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    d.setHours(0, 0, 0, 0);
-    return d < today;
+  const handleViewThread = async (followUpId: string) => {
+    try {
+      const result = await onViewThread(followUpId);
+      if (result) {
+        setThreadData(result);
+        setSelectedFollowUpId(followUpId);
+        setShowNewForm(false);
+      }
+    } catch {
+      toast.error('Failed to load thread');
+    }
   };
 
-  const isToday = (dateStr: string): boolean => {
-    const d = parseDate(dateStr);
-    if (!d) return false;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    d.setHours(0, 0, 0, 0);
-    return d.getTime() === today.getTime();
+  const handleReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFollowUpId || !replyComment.trim() || isReplying) return;
+    setIsReplying(true);
+    try {
+      await onAddComment(selectedFollowUpId, { comment: replyComment.trim() });
+      setReplyComment('');
+      const result = await onViewThread(selectedFollowUpId);
+      if (result) setThreadData(result);
+      toast.success('Reply sent');
+    } catch {
+      toast.error('Failed to send reply');
+    } finally {
+      setIsReplying(false);
+    }
   };
 
-  const bgColor = isFiledAway ? '#f1f5f9' : '#FEF08A';
-  const headerBg = isFiledAway ? '#e2e8f0' : '#FDE047';
+  const handleCompleteFollowUp = async (followUpId: string) => {
+    try {
+      const notes = prompt('Enter completion notes:');
+      if (notes === null) return;
+      if (!notes.trim()) {
+        toast.error('Completion notes are required');
+        return;
+      }
+      await onComplete(followUpId, { completion_notes: notes.trim() });
+      toast.success('Follow-up completed');
+      const result = await onViewThread(followUpId);
+      if (result) setThreadData(result);
+    } catch {
+      toast.error('Failed to complete follow-up');
+    }
+  };
 
-  if (minimized) {
+  const handleSend = async () => {
+    if (!notes.trim() || !assignedTo) {
+      setError('Please fill in notes and assign a user');
+      return;
+    }
+    setError(null);
+    setIsSending(true);
+    try {
+      const result = await onSend({
+        document_id: document.id,
+        mark_id: document.active_mark?.id,
+        notes: notes.trim(),
+        assigned_to: assignedTo,
+      });
+      setNotes('');
+      setAssignedTo('');
+      setDueDate('');
+      setPriority('normal');
+      setShowNewForm(false);
+      toast.success('Follow-up sent');
+      if (result && result.id) {
+        const refreshed = await onViewThread(result.id);
+        if (refreshed) {
+          setThreadData(refreshed);
+          setSelectedFollowUpId(result.id);
+        }
+      }
+      onClose();
+    } catch {
+      setError('Failed to send follow-up');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleCloseThread = () => {
+    setSelectedFollowUpId(null);
+    setThreadData(null);
+    setShowNewForm(false);
+  };
+
+  // ─── Render chat thread ──────────────────────────────────────────────────────
+
+  if (selectedFollowUpId && threadData) {
     return (
-      <button
-        style={{ left: pos.x, top: pos.y }}
-        className="absolute z-30 flex items-center gap-1.5 rounded-full bg-[#F5C24C] border border-[#E8A840] shadow-md px-3 py-1.5 text-[11px] font-bold text-[#7A4E0D] hover:bg-[#f0bb40] transition-colors cursor-pointer select-none"
-        onClick={() => setMinimized(false)}
-        title="Expand note"
-      >
-        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-          <path strokeLinecap="round" strokeLinejoin="round"
-            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-        Note
-      </button>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
+        <div className="w-full max-w-2xl max-h-[90vh] rounded-xl bg-white shadow-xl flex flex-col">
+          {/* Chat Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b bg-blue-600 rounded-t-xl">
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                onClick={handleCloseThread}
+                className="text-white/80 hover:text-white transition-colors"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-white truncate">
+                  {threadData.notes}
+                </h3>
+                <div className="flex items-center gap-2 text-[10px] text-blue-100">
+                  <span>To: {threadData.assigned_to_name || 'Unassigned'}</span>
+                  {threadData.due_date && (
+                    <>
+                      <span>·</span>
+                      <span>Due: {formatDateDisplay(threadData.due_date)}</span>
+                    </>
+                  )}
+                  <span>·</span>
+                  <FollowUpStatusBadge status={threadData.status} />
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {threadData.status !== 'completed' && threadData.status !== 'cancelled' && threadData.assigned_to === currentUserId && (
+                <button
+                  onClick={() => handleCompleteFollowUp(threadData.id)}
+                  className="rounded bg-emerald-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-600 transition-colors"
+                >
+                  Complete
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="text-white/80 hover:text-white transition-colors"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Chat Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-[300px] max-h-[400px] bg-slate-50">
+            {/* Initial message (admin/super admin) */}
+            <div className="flex items-start gap-2.5">
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white">
+                {threadData.created_by_name?.charAt(0) || 'A'}
+              </div>
+              <div className="max-w-[80%]">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-xs font-semibold text-stone-700">
+                    {threadData.created_by_name || 'Admin'}
+                  </span>
+                  <span className="text-[10px] text-stone-400">
+                    {formatDateDisplay(threadData.created_at)}
+                  </span>
+                </div>
+                <div className="rounded-lg bg-blue-100 px-4 py-2 text-sm text-stone-800">
+                  {threadData.notes}
+                </div>
+              </div>
+            </div>
+
+            {/* Replies */}
+            {threadData.comments.map((c) => {
+              const isUser = c.user_id === currentUserId;
+              return (
+                <div key={c.id} className={`flex items-start gap-2.5 ${isUser ? 'flex-row-reverse' : ''}`}>
+                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white ${
+                    isUser ? 'bg-emerald-600' : 'bg-blue-600'
+                  }`}>
+                    {c.user_name?.charAt(0) || 'U'}
+                  </div>
+                  <div className={`max-w-[80%] ${isUser ? 'items-end' : ''}`}>
+                    <div className={`flex items-center gap-2 mb-0.5 ${isUser ? 'flex-row-reverse' : ''}`}>
+                      <span className="text-xs font-semibold text-stone-700">
+                        {c.user_name || 'User'}
+                      </span>
+                      <span className="text-[10px] text-stone-400">
+                        {formatDateDisplay(c.created_at)}
+                      </span>
+                    </div>
+                    <div className={`rounded-lg px-4 py-2 text-sm text-stone-800 ${
+                      isUser ? 'bg-emerald-100' : 'bg-blue-100'
+                    }`}>
+                      {c.comment}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {threadData.comments.length === 0 && (
+              <div className="text-center py-8">
+                <p className="text-sm text-stone-400">No replies yet</p>
+                <p className="text-xs text-stone-300">Be the first to respond</p>
+              </div>
+            )}
+          </div>
+
+          {/* Chat Input - only if assigned to current user and not completed/cancelled */}
+          {threadData.status !== 'completed' && threadData.status !== 'cancelled' && threadData.assigned_to === currentUserId && (
+            <div className="px-4 py-3 border-t bg-white rounded-b-xl">
+              <form onSubmit={handleReply} className="flex gap-2">
+                <input
+                  type="text"
+                  value={replyComment}
+                  onChange={(e) => setReplyComment(e.target.value)}
+                  placeholder="Type your reply..."
+                  className="flex-1 rounded-lg border border-stone-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <button
+                  type="submit"
+                  disabled={!replyComment.trim() || isReplying}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                >
+                  {isReplying ? <Spinner className="h-4 w-4" /> : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                  )}
+                </button>
+              </form>
+            </div>
+          )}
+
+          {/* Read-only view if not assigned to current user */}
+          {threadData.status !== 'completed' && threadData.status !== 'cancelled' && threadData.assigned_to !== currentUserId && (
+            <div className="px-4 py-3 border-t bg-stone-50 rounded-b-xl text-center">
+              <p className="text-xs text-stone-400">This follow-up is assigned to {threadData.assigned_to_name || 'another user'}</p>
+            </div>
+          )}
+
+          {/* Completed/Cancelled status */}
+          {(threadData.status === 'completed' || threadData.status === 'cancelled') && (
+            <div className="px-4 py-3 border-t bg-stone-50 rounded-b-xl text-center">
+              <p className="text-xs text-stone-400">
+                {threadData.status === 'completed' ? '✅ This follow-up has been completed' : '❌ This follow-up has been cancelled'}
+                {threadData.completion_notes && (
+                  <span className="block mt-1 text-stone-500 font-medium">
+                    "{threadData.completion_notes}"
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
     );
   }
 
+  // ─── Main modal (list + new form) ──────────────────────────────────────────
+
   return (
-    <div
-      style={{ left: pos.x, top: pos.y, width: 240 }}
-      className="absolute z-30 flex flex-col rounded-md shadow-xl select-none"
-      onMouseDown={onMouseDown}
-    >
-      <div className="flex justify-center -mb-1 pointer-events-none">
-        <div className="w-10 h-3 rounded-sm bg-[#F5C24C]/60 border border-[#E8A840]/40 shadow-sm" />
-      </div>
-
-      <div
-        className="rounded-md overflow-hidden"
-        style={{
-          background: bgColor,
-          boxShadow: '2px 4px 12px rgba(0,0,0,0.18), inset 0 -2px 0 rgba(0,0,0,0.06)',
-        }}
-      >
-        <div
-          className="flex items-center justify-between px-2.5 pt-2 pb-1.5 cursor-grab active:cursor-grabbing"
-          style={{ background: headerBg }}
-        >
-          <div className="flex items-center gap-1.5 min-w-0">
-            <svg className="h-3 w-3 text-[#7A4E0D] flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M16 2a1 1 0 011 1v1h1a2 2 0 012 2v1a2 2 0 01-2 2h-.5l.5 9H6l.5-9H6a2 2 0 01-2-2V6a2 2 0 012-2h1V3a1 1 0 012 0v1h6V3a1 1 0 011-1z" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 backdrop-blur-sm p-4">
+      <div className="w-full max-w-2xl max-h-[90vh] rounded-xl bg-white shadow-xl flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b bg-blue-600 rounded-t-xl">
+          <h2 className="text-sm font-bold text-white flex items-center gap-2">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
-            <span className="text-[10px] font-bold text-[#7A4E0D] tracking-wide truncate">
-              {authorName}
-            </span>
+            Follow Up
+          </h2>
+          <div className="flex items-center gap-2">
+            {!showNewForm && (
+              <button
+                onClick={() => setShowNewForm(true)}
+                className="rounded bg-white/20 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/30 transition-colors"
+              >
+                + New
+              </button>
+            )}
+            <button onClick={onClose} className="text-white/80 hover:text-white transition-colors">
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
-          <button
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={() => setMinimized(true)}
-            className="p-0.5 rounded text-[#7A4E0D]/60 hover:text-[#7A4E0D] hover:bg-[#FDE047]/80 transition-colors"
-            title="Minimise"
-          >
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M20 12H4" />
+        </div>
+
+        {/* Active Follow-ups List */}
+        {activeFollowUps.length > 0 && !showNewForm && (
+          <div className="px-4 py-3 border-b max-h-[200px] overflow-y-auto">
+            <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+              <span>Active Follow-ups</span>
+              <span className="inline-flex items-center justify-center rounded-full bg-blue-100 px-2 py-0.5 text-[9px] font-bold text-blue-700">
+                {activeFollowUps.length}
+              </span>
+            </h3>
+            <div className="space-y-2">
+              {activeFollowUps.map((f) => (
+                <div
+                  key={f.id}
+                  onClick={() => handleViewThread(f.id)}
+                  className="flex items-center justify-between rounded-lg border border-stone-200 p-3 hover:bg-blue-50 hover:border-blue-300 transition-all cursor-pointer group"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-stone-800 truncate">
+                        {f.notes}
+                      </span>
+                      <FollowUpStatusBadge status={f.status} />
+                      <FollowUpPriorityBadge priority={f.priority} />
+                      {f.assigned_to === currentUserId && (
+                        <span className="inline-flex items-center rounded bg-emerald-100 px-1.5 py-0.5 text-[8px] font-bold text-emerald-700">
+                          ASSIGNED TO ME
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-[10px] text-stone-400">
+                      <span>From: {f.created_by_name || 'Admin'}</span>
+                      <span>·</span>
+                      <span>To: {f.assigned_to_name || 'Unassigned'}</span>
+                      {f.due_date && (
+                        <>
+                          <span>·</span>
+                          <span>Due: {formatDateDisplay(f.due_date)}</span>
+                        </>
+                      )}
+                      {f.comment_count && f.comment_count > 0 && (
+                        <>
+                          <span>·</span>
+                          <span className="flex items-center gap-0.5 text-blue-600">
+                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                            </svg>
+                            {f.comment_count}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0 ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleViewThread(f.id); }}
+                      className="rounded bg-blue-100 px-2.5 py-1 text-[10px] font-semibold text-blue-700 hover:bg-blue-200 transition-colors"
+                    >
+                      Open Chat
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* No active follow-ups */}
+        {activeFollowUps.length === 0 && !showNewForm && (
+          <div className="px-4 py-8 text-center">
+            <svg className="mx-auto h-12 w-12 text-stone-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
-          </button>
-        </div>
-
-        <div className="px-2.5 pb-2.5 pt-1.5">
-          <p
-            className="text-[11px] text-stone-800 leading-relaxed whitespace-pre-wrap break-words min-h-[48px]"
-            style={{ fontFamily: "'Segoe UI', system-ui, sans-serif" }}
-          >
-            {text || <span className="italic text-stone-400">No instructions.</span>}
-          </p>
-
-          {showDateChip && (
-            <div
-              className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium border ${
-                isToday(bringUpDate!)
-                  ? 'bg-amber-100 text-amber-800 border-amber-300'
-                  : isOverdue(bringUpDate!)
-                    ? 'bg-red-100 text-red-800 border-red-300'
-                    : 'bg-stone-100 text-stone-700 border-stone-200'
-              }`}
+            <p className="mt-2 text-sm text-stone-500">No active follow-ups</p>
+            <p className="text-xs text-stone-400">Create a new follow-up to get started</p>
+            <button
+              onClick={() => setShowNewForm(true)}
+              className="mt-3 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
             >
-              <span>📅</span>
-              <span>Bring up: {formatDateDisplay(bringUpDate!)}</span>
-            </div>
-          )}
+              + New Follow-up
+            </button>
+          </div>
+        )}
 
-          {isCompleted && !isFiledAway && (
-            <div className="mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
-              ✅ Completed
+        {/* New Follow-up Form */}
+        {showNewForm && (
+          <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-xs font-semibold text-stone-500 uppercase tracking-wider">
+                New Follow-up
+              </h3>
+              <button
+                onClick={() => setShowNewForm(false)}
+                className="text-xs text-stone-400 hover:text-stone-600"
+              >
+                ✕ Cancel
+              </button>
             </div>
-          )}
 
-          {isFiledAway && (
-            <div className="mt-1.5 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-medium bg-slate-200 text-slate-700 border border-slate-300">
-              📁 Filed Away
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                  Notes *
+                </label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  placeholder="What needs to be done or followed up..."
+                  className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                  Assign To *
+                </label>
+                <select
+                  value={assignedTo}
+                  onChange={(e) => setAssignedTo(e.target.value)}
+                  className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-stone-50"
+                  disabled={usersLoading}
+                >
+                  <option value="">
+                    {usersLoading ? 'Loading users…' : '— Select User —'}
+                  </option>
+                  {users.filter(u => u.is_active).map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.full_name} — {u.pj_number}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                    Priority
+                  </label>
+                  <select
+                    value={priority}
+                    onChange={(e) => setPriority(e.target.value as FollowUpPriority)}
+                    className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="low">Low</option>
+                    <option value="normal">Normal</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold tracking-widest text-stone-500 uppercase mb-1">
+                    Due Date <span className="font-normal text-stone-400 normal-case">(optional)</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={dueDate}
+                    onChange={(e) => setDueDate(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <div className="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-200">
+                  {error}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNewForm(false)}
+                  className="flex-1 rounded-lg border border-stone-300 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSend}
+                  disabled={!notes.trim() || !assignedTo || isSending}
+                  className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+                >
+                  {isSending ? <Spinner className="h-3.5 w-3.5" /> : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                  )}
+                  {isSending ? 'Sending...' : 'Send Follow-up'}
+                </button>
+              </div>
             </div>
-          )}
-        </div>
-
-        <div className="px-2.5 pb-1.5 flex items-center justify-between">
-          <span className="text-[9px] text-[#7A4E0D]/50 font-medium">Registrar's note</span>
-          <div
-            className="w-4 h-4 flex-shrink-0"
-            style={{
-              background: 'linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.10) 50%)',
-              borderRadius: '0 0 4px 0',
-            }}
-          />
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -351,12 +754,16 @@ const StickyNote: React.FC<StickyNoteProps> = ({ authorName, text, bringUpDate, 
 
 // ─── DocumentPreviewPanel ──────────────────────────────────────────────────
 
+
+// ─── DocumentPreviewPanel ──────────────────────────────────────────────────
+
 interface DocumentPreviewPanelProps {
   document: DocType & { annotations?: DocumentAnnotation[] };
   onClose: () => void;
   onRespond: () => void;
-  onViewFollowUpThread?: (followUpId: string) => void;
+  onViewFollowUpThread: (followUpId: string) => void;
   onDelete?: (docId: string) => void;
+  currentUserId: string;
 }
 
 const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({ 
@@ -365,32 +772,23 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
   onRespond,
   onViewFollowUpThread,
   onDelete,
+  currentUserId,
 }) => {
   const fileUrl = document.file_url;
   const ext = getFileExtension(fileUrl);
-  const fileName = document.original_name || document.title;
-  const isComposed = document.type === 'memo' || document.type === 'letter';
-  const isPdf = document.mime_type === 'application/pdf' || ext === 'pdf';
   const followUps = document.follow_ups || [];
   const hasFollowUps = followUps.length > 0;
-  const annotations = document.annotations || [];
-  const hasAnnotations = annotations.length > 0;
   
-  // Get the most recent active follow-up, or the first one
+  // Get the most recent active follow-up
   const activeFollowUp = followUps
     .filter(f => f.status !== 'completed' && f.status !== 'cancelled')
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0] || followUps[0];
 
-  // ─── Get all follow-ups that are NOT completed or cancelled ──────────────
   const activeFollowUps = followUps.filter(f => f.status !== 'completed' && f.status !== 'cancelled');
-  const completedFollowUps = followUps.filter(f => f.status === 'completed' || f.status === 'cancelled');
 
-  // ─── Check if there are urgent annotations ───────────────────────────────
-  const hasUrgentAnnotations = annotations.some((a: DocumentAnnotation) => a.is_urgent);
-
-  // ─── Check if document can be deleted (all follow-ups are terminal) ──────
+  // ─── Check if document can be deleted ──────────────────────────────────────
   const canDelete = followUps.length > 0 && followUps.every(
-    f => f.status === 'filed_away' || f.status === 'completed' || f.status === 'cancelled'
+    f => f.status === 'completed' || f.status === 'cancelled'
   );
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -403,12 +801,15 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
     }
   };
 
-  // ─── Determine bring up status for display ────────────────────────────────
-  //const isBringUpFiledAway = document.bring_up_status === 'filed_away';
-  //const isBringUpCompleted = document.bring_up_status === 'completed' && !isBringUpFiledAway;
-  //const hasBringUp = !!document.bring_up_date;
+  // ─── Count active follow-ups assigned to current user ──────────────────────
+  const myActiveFollowUps = activeFollowUps.filter(f => f.assigned_to === currentUserId);
 
+  // ─── Render preview based on file type ─────────────────────────────────────
   const renderPreview = () => {
+    const isComposed = document.type === 'memo' || document.type === 'letter';
+    const isPdf = document.mime_type === 'application/pdf' || ext === 'pdf';
+    const fileName = document.original_name || document.title;
+
     if (isComposed && fileUrl && isPdf) {
       return (
         <iframe
@@ -579,19 +980,20 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
     );
   };
 
+  // ─── Main render ────────────────────────────────────────────────────────────
+
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
       <div className="bg-white w-full max-w-6xl max-h-[90vh] rounded-xl overflow-hidden flex flex-col shadow-2xl">
+        
         {/* ─── Header ──────────────────────────────────────────────────────── */}
-        <div className="px-6 py-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
+        <div className="px-6 py-3 border-b flex justify-between items-center bg-slate-50 shrink-0">
           <div className="flex items-center gap-3 min-w-0 flex-wrap">
-            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Preview</span>
-            <span className="text-slate-300">|</span>
             <span className="text-sm font-semibold text-slate-900 truncate max-w-md">
               {document.title}
             </span>
             
-            {/* ─── Bring Up Status Badge ────────────────────────────────────── */}
+            {/* ─── Bring Up Status ────────────────────────────────────────── */}
             {document.bring_up_status && (
               <BringUpStatusBadge status={document.bring_up_status} />
             )}
@@ -602,25 +1004,28 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
                 <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                 </svg>
-                Registrar's Note
+                Note
               </span>
             )}
 
-            {/* ─── Annotation Indicator ────────────────────────────────────── */}
-            {hasAnnotations && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 text-purple-700 border border-purple-200">
+            {/* ─── Follow-ups Indicator ────────────────────────────────────── */}
+            {hasFollowUps && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700 border border-blue-200">
                 <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                 </svg>
-                {annotations.length} annotation{annotations.length > 1 ? 's' : ''}
-                {hasUrgentAnnotations && (
-                  <span className="ml-0.5 text-red-500">· ⚠️ Urgent</span>
+                {activeFollowUps.length} active
+                {myActiveFollowUps.length > 0 && (
+                  <span className="ml-0.5 text-emerald-600">
+                    ({myActiveFollowUps.length} for me)
+                  </span>
                 )}
               </span>
             )}
 
+            {/* ─── File info ────────────────────────────────────────────────── */}
             {document.original_name && (
-              <span className="text-xs text-slate-400 bg-slate-200 px-2 py-0.5 rounded">
+              <span className="text-xs text-slate-400 bg-slate-200 px-2 py-0.5 rounded truncate max-w-[120px]">
                 {document.original_name}
               </span>
             )}
@@ -629,32 +1034,11 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
                 ({formatFileSize(document.file_size_bytes)})
               </span>
             )}
-            {document.priority && document.priority !== 'normal' && (
-              <PriorityBadge priority={document.priority} />
-            )}
-            {hasFollowUps && activeFollowUp && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-700 border border-blue-200">
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-                {activeFollowUps.length} active
-              </span>
-            )}
           </div>
+          
+          {/* ─── Actions ────────────────────────────────────────────────────── */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            {fileUrl && (
-              <a
-                href={fileUrl}
-                download
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                Download
-              </a>
-            )}
+            {/* Respond button */}
             <button
               onClick={onRespond}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
@@ -665,7 +1049,9 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
               </svg>
               Respond
             </button>
-            {hasFollowUps && activeFollowUp && onViewFollowUpThread && (
+
+            {/* Follow-ups button */}
+            {hasFollowUps && activeFollowUp && (
               <button
                 onClick={() => onViewFollowUpThread(activeFollowUp.id)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
@@ -673,9 +1059,26 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                 </svg>
-                Follow-ups
+                Chat
               </button>
             )}
+
+            {/* Download button */}
+            {document.file_url && (
+              <a
+                href={document.file_url}
+                download
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Download
+              </a>
+            )}
+
+            {/* Delete button */}
             {canDelete && onDelete && (
               <button
                 onClick={() => setShowDeleteConfirm(true)}
@@ -688,6 +1091,8 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
                 Delete
               </button>
             )}
+
+            {/* Close button */}
             <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
               <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -714,7 +1119,6 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
               </div>
               <p className="text-sm text-slate-700 mb-4">
                 Are you sure you want to delete <span className="font-semibold">"{document.title}"</span>?
-                All follow-ups and annotations will be permanently removed.
               </p>
               <div className="flex gap-2">
                 <button
@@ -734,190 +1138,43 @@ const DocumentPreviewPanel: React.FC<DocumentPreviewPanelProps> = ({
           </div>
         )}
 
-        {/* ─── Super Admin Remarks Panel ────────────────────────────────────── */}
+        {/* ─── Registrar's Note (Sticky) ───────────────────────────────────── */}
         {document.active_mark?.instructions && (
-          <div className="px-6 py-3 bg-amber-50 border-b border-amber-200 shrink-0">
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 mt-0.5">
-                <svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-              </div>
+          <div className="px-6 py-2 bg-amber-50 border-b border-amber-200 shrink-0">
+            <div className="flex items-start gap-2">
+              <svg className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-semibold text-amber-800">
-                    Registrar's Instructions
+                    Registrar's Note
                   </span>
-                  <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
-                    {document.active_mark.marked_by_name || 'Registrar'}
-                  </span>
-                  {/* ─── UPDATED: Use document.bring_up_date ─────────────────── */}
                   {document.bring_up_date && (
                     <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
-                      📅 Bring up: {formatDateDisplay(document.bring_up_date)}
+                      📅 {formatDateDisplay(document.bring_up_date)}
                     </span>
                   )}
                   {document.bring_up_status && (
                     <BringUpStatusBadge status={document.bring_up_status} />
                   )}
-                  {document.active_mark.priority && document.active_mark.priority !== 'normal' && (
-                    <PriorityBadge priority={document.active_mark.priority} />
-                  )}
                 </div>
-                <p className="mt-1 text-sm text-stone-700 whitespace-pre-wrap">
+                <p className="text-sm text-stone-700 whitespace-pre-wrap">
                   {document.active_mark.instructions}
                 </p>
-                {document.active_mark.marked_to_dept_name && (
-                  <p className="mt-1 text-xs text-amber-600">
-                    Department: <span className="font-medium">{document.active_mark.marked_to_dept_name}</span>
-                    {document.active_mark.assigned_to_name && (
-                      <> · Assigned to: <span className="font-medium">{document.active_mark.assigned_to_name}</span></>
-                    )}
-                  </p>
-                )}
               </div>
             </div>
           </div>
         )}
 
-        {/* ─── Annotations Panel ────────────────────────────────────────────── */}
-        {hasAnnotations && (
-          <div className="px-6 py-3 bg-purple-50 border-b border-purple-200 shrink-0">
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 mt-0.5">
-                <svg className="h-5 w-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                </svg>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-semibold text-purple-800">
-                    Annotations ({annotations.length})
-                  </span>
-                  {hasUrgentAnnotations && (
-                    <span className="text-[10px] text-red-600 bg-red-100 px-2 py-0.5 rounded-full">
-                      ⚠️ Contains urgent annotations
-                    </span>
-                  )}
-                </div>
-                <div className="mt-1 space-y-1.5 max-h-[100px] overflow-y-auto">
-                  {annotations.slice(-3).map((annotation: DocumentAnnotation) => (
-                    <div key={annotation.id} className="flex items-start gap-2 text-xs bg-white rounded-md p-2 border border-purple-100">
-                      <span className="font-semibold text-purple-700 whitespace-nowrap">
-                        {annotation.annotated_by_name || 'Unknown'}:
-                      </span>
-                      <span className="text-stone-700 flex-1">
-                        {annotation.comment}
-                        {annotation.is_urgent && (
-                          <span className="ml-2 text-red-500 font-medium">[URGENT]</span>
-                        )}
-                      </span>
-                      <span className="text-[10px] text-slate-400 whitespace-nowrap">
-                        {formatDateDisplay(annotation.created_at)}
-                      </span>
-                    </div>
-                  ))}
-                  {annotations.length > 3 && (
-                    <p className="text-[10px] text-purple-500 text-center">
-                      +{annotations.length - 3} more annotations
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ─── Follow-ups Summary Panel ─────────────────────────────────────── */}
-        {hasFollowUps && (
-          <div className="px-6 py-3 bg-blue-50 border-b border-blue-200 shrink-0">
-            <div className="flex items-start gap-3">
-              <div className="flex-shrink-0 mt-0.5">
-                <svg className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-semibold text-blue-800">
-                    Follow-ups ({followUps.length})
-                  </span>
-                  {activeFollowUps.length > 0 && (
-                    <span className="text-[10px] text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
-                      {activeFollowUps.length} active
-                    </span>
-                  )}
-                  {completedFollowUps.length > 0 && (
-                    <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                      {completedFollowUps.length} completed
-                    </span>
-                  )}
-                </div>
-                <div className="mt-1 flex flex-wrap gap-2">
-                  {followUps.slice(0, 3).map((f) => (
-                    <div key={f.id} className="inline-flex items-center gap-1.5 bg-white rounded-md px-2.5 py-1 border border-blue-100 text-xs">
-                      <span className="text-stone-700 truncate max-w-[120px]">
-                        {f.notes}
-                      </span>
-                      <FollowUpStatusBadge status={f.status} />
-                      {f.due_date && (
-                        <span className="text-[10px] text-slate-400">
-                          {formatDateDisplay(f.due_date)}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                  {followUps.length > 3 && (
-                    <span className="inline-flex items-center text-xs text-blue-600 font-medium">
-                      +{followUps.length - 3} more
-                    </span>
-                  )}
-                </div>
-                {onViewFollowUpThread && activeFollowUp && (
-                  <button
-                    onClick={() => onViewFollowUpThread(activeFollowUp.id)}
-                    className="mt-1.5 text-xs text-blue-600 hover:underline font-medium flex items-center gap-1"
-                  >
-                    View all follow-ups
-                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
+        {/* ─── Document Content ────────────────────────────────────────────── */}
         <div className="flex-1 overflow-hidden bg-slate-100 relative">
-          {document.active_mark?.instructions && (
-            <StickyNote
-              key={document.id}
-              authorName={document.active_mark.marked_by_name ?? 'Registrar'}
-              text={document.active_mark.instructions}
-              bringUpDate={document.bring_up_date}
-              bringUpStatus={document.bring_up_status}
-            />
-          )}
           {renderPreview()}
         </div>
       </div>
     </div>
   );
 };
-
-// ─── Spinner ──────────────────────────────────────────────────────────────────
-
-const Spinner = ({ size = 'sm' }: { size?: 'sm' | 'md' }) => (
-  <svg
-    className={`animate-spin ${size === 'sm' ? 'h-4 w-4' : 'h-5 w-5'} text-current`}
-    fill="none"
-    viewBox="0 0 24 24"
-  >
-    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-  </svg>
-);
 
 // ─── Response Modal ────────────────────────────────────────────────────────
 
@@ -1243,6 +1500,7 @@ interface BringUpRowProps {
   onRespond: (doc: DocType) => void;
   onPreview: (doc: DocType) => void;
   onDelete?: (docId: string) => void;
+  onViewFollowUpThread: (followUpId: string) => void;
 }
 
 const BringUpRow: React.FC<BringUpRowProps> = ({
@@ -1252,12 +1510,12 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
   onRespond,
   onPreview,
   onDelete,
+  onViewFollowUpThread,
 }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [expanded, setExpanded] = useState(false);
   
   const mark = document.active_mark;
-  // ─── UPDATED: Use document.bring_up_date ──────────────────────────────────
   const bringUpDate = document.bring_up_date;
   if (!bringUpDate) return null;
 
@@ -1268,11 +1526,10 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
   const hasAnnotations = annotations.length > 0;
   const hasSuperAdminRemarks = !!mark?.instructions;
   const hasUrgentAnnotations = annotations.some((a: DocumentAnnotation) => a.is_urgent);
-  const isBringUpFiledAway = document.bring_up_status === 'filed_away';
-  const isBringUpCompleted = document.bring_up_status === 'completed' && !isBringUpFiledAway;
+  const isBringUpCompleted = document.bring_up_status === 'completed';
 
   const canDelete = followUps.length > 0 && followUps.every(
-    f => f.status === 'filed_away' || f.status === 'completed' || f.status === 'cancelled'
+    f => f.status === 'completed' || f.status === 'cancelled'
   );
 
   const handleDelete = () => {
@@ -1289,8 +1546,8 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
   if (hasAnnotations) statusIndicators.push({ label: `${annotations.length} Annotation${annotations.length > 1 ? 's' : ''}`, color: 'purple' });
   if (hasSuperAdminRemarks) statusIndicators.push({ label: 'Registrar\'s Note', color: 'amber' });
 
-  // Determine if the row should be grayed out (filed away)
-  const isTerminal = isBringUpFiledAway || isBringUpCompleted;
+  // Determine if the row should be grayed out (completed)
+  const isTerminal = isBringUpCompleted;
 
   return (
     <>
@@ -1399,7 +1656,6 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
                           <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
                             {mark.marked_by_name || 'Registrar'}
                           </span>
-                          {/* ─── UPDATED: Use document.bring_up_date ──────── */}
                           {document.bring_up_date && (
                             <span className="text-[10px] text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full">
                               📅 {formatDateDisplay(document.bring_up_date)}
@@ -1526,6 +1782,27 @@ const BringUpRow: React.FC<BringUpRowProps> = ({
               Open File
             </button>
 
+            {/* ─── Follow-up button ───────────────────────────────────────── */}
+            {followUps.length > 0 && (
+              <button
+                onClick={() => {
+                  const active = followUps.find(f => f.status !== 'completed' && f.status !== 'cancelled');
+                  onViewFollowUpThread(active ? active.id : followUps[0].id);
+                }}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition shadow-sm"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+                Follow-ups
+                {activeFollowUps.length > 0 && (
+                  <span className="ml-0.5 rounded-full bg-blue-200 px-1.5 py-0.5 text-[9px] font-bold text-blue-700">
+                    {activeFollowUps.length}
+                  </span>
+                )}
+              </button>
+            )}
+
             {canDelete && onDelete && (
               <button
                 onClick={() => setShowDeleteConfirm(true)}
@@ -1611,6 +1888,7 @@ const AdminBringUp: React.FC = () => {
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [selectedFollowUpId, setSelectedFollowUpId] = useState<string | null>(null);
   const [isFetchingDocument, setIsFetchingDocument] = useState(false);
+  const [selectedFollowUpDocument, setSelectedFollowUpDocument] = useState<DocType | null>(null);
 
   useEffect(() => {
     if (!currentUser) {
@@ -1618,17 +1896,16 @@ const AdminBringUp: React.FC = () => {
     }
   }, [dispatch, currentUser]);
 
-const fetchDocs = useCallback(() => {
-  if (!currentUser) return;
-  dispatch(
-    fetchDocuments({
-      page: 1,
-      limit: PAGE_SIZE,
-      // ✅ CORRECT: Use the existing property name from DocumentFilters
-      has_bring_up_date: true,
-    })
-  );
-}, [dispatch, currentUser]);
+  const fetchDocs = useCallback(() => {
+    if (!currentUser) return;
+    dispatch(
+      fetchDocuments({
+        page: 1,
+        limit: PAGE_SIZE,
+        has_bring_up_date: true,
+      })
+    );
+  }, [dispatch, currentUser]);
 
   useEffect(() => {
     fetchDocs();
@@ -1652,8 +1929,8 @@ const fetchDocs = useCallback(() => {
     };
 
     withBringUp.forEach((doc) => {
-      // Only show documents that are NOT filed away or completed
-      if (doc.bring_up_status === 'filed_away' || doc.bring_up_status === 'completed') {
+      // Only show documents that are NOT completed
+      if (doc.bring_up_status === 'completed') {
         return;
       }
       const bucket = getBucket(doc.bring_up_date!);
@@ -1687,9 +1964,11 @@ const fetchDocs = useCallback(() => {
     try {
       const result = await dispatch(fetchDocumentById(doc.id)).unwrap();
       setSelectedDocument(result);
+      setSelectedFollowUpDocument(result);
     } catch (error) {
       console.error('Failed to fetch document details:', error);
       setSelectedDocument(doc);
+      setSelectedFollowUpDocument(doc);
       toast.error('Could not load full document details');
     } finally {
       setIsFetchingDocument(false);
@@ -1701,16 +1980,58 @@ const fetchDocs = useCallback(() => {
     setShowFollowUpModal(true);
   };
 
-  const refreshSelectedDocument = useCallback(async () => {
+  // ─── Follow-Up handlers ─────────────────────────────────────────────────────
+
+  const handleSendFollowUp = async (input: SendFollowUpInput): Promise<FollowUp> => {
+    const result = await dispatch(sendFollowUp(input)).unwrap();
     if (selectedDocument) {
-      try {
-        const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
-        setSelectedDocument(refreshed);
-      } catch {
-        // Silently fail
-      }
+      const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+      setSelectedDocument(refreshed);
+      setSelectedFollowUpDocument(refreshed);
     }
-  }, [dispatch, selectedDocument]);
+    fetchDocs();
+    return result;
+  };
+
+  const handleCreateFollowUp = async (input: CreateFollowUpInput): Promise<FollowUp> => {
+    const result = await dispatch(createFollowUp(input)).unwrap();
+    if (selectedDocument) {
+      const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+      setSelectedDocument(refreshed);
+      setSelectedFollowUpDocument(refreshed);
+    }
+    fetchDocs();
+    return result;
+  };
+
+  const handleCompleteFollowUp = async (followUpId: string, input: CompleteFollowUpInput): Promise<void> => {
+    await dispatch(completeFollowUp({ followUpId, input })).unwrap();
+    if (selectedDocument) {
+      const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+      setSelectedDocument(refreshed);
+      setSelectedFollowUpDocument(refreshed);
+    }
+    fetchDocs();
+  };
+
+  const handleCancelFollowUp = async (followUpId: string, input: CancelFollowUpInput): Promise<void> => {
+    await dispatch(cancelFollowUp({ followUpId, input })).unwrap();
+    if (selectedDocument) {
+      const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+      setSelectedDocument(refreshed);
+      setSelectedFollowUpDocument(refreshed);
+    }
+    fetchDocs();
+  };
+
+  const handleAddFollowUpComment = async (followUpId: string, input: AddFollowUpCommentInput): Promise<void> => {
+    await dispatch(addFollowUpComment({ followUpId, input })).unwrap();
+  };
+
+  const handleViewFollowUpThreadData = async (followUpId: string): Promise<FollowUpWithComments | null> => {
+    const result = await dispatch(fetchFollowUpThread(followUpId)).unwrap();
+    return result || null;
+  };
 
   // ─── Delete handler ──────────────────────────────────────────────────────────
   const handleDeleteDocument = useCallback(async (docId: string) => {
@@ -1719,6 +2040,7 @@ const fetchDocs = useCallback(() => {
       toast.success('Document deleted successfully');
       if (selectedDocument?.id === docId) {
         setSelectedDocument(null);
+        setSelectedFollowUpDocument(null);
       }
       fetchDocs();
     } catch (error) {
@@ -1754,19 +2076,26 @@ const fetchDocs = useCallback(() => {
             }}
             onViewFollowUpThread={handleViewFollowUpThread}
             onDelete={handleDeleteDocument}
+            currentUserId={currentUser?.id || ''}
           />,
           document.body
         )}
 
-      {showFollowUpModal && selectedFollowUpId &&
+      {showFollowUpModal && selectedFollowUpId && selectedFollowUpDocument &&
         createPortal(
-          <FollowUpModal
-            followUpId={selectedFollowUpId}
+          <FollowUpModalComponent
+            document={selectedFollowUpDocument}
             onClose={() => {
               setShowFollowUpModal(false);
               setSelectedFollowUpId(null);
             }}
-            onUpdate={refreshSelectedDocument}
+            onSend={handleSendFollowUp}
+            onCreate={handleCreateFollowUp}
+            onComplete={handleCompleteFollowUp}
+            onCancel={handleCancelFollowUp}
+            onAddComment={handleAddFollowUpComment}
+            onViewThread={handleViewFollowUpThreadData}
+            currentUserId={currentUser?.id || ''}
           />,
           document.body
         )}
@@ -1810,6 +2139,7 @@ const fetchDocs = useCallback(() => {
                         onRespond={handleRespond}
                         onPreview={handlePreview}
                         onDelete={handleDeleteDocument}
+                        onViewFollowUpThread={handleViewFollowUpThread}
                       />
                     ))}
                   </div>
@@ -1823,7 +2153,7 @@ const fetchDocs = useCallback(() => {
       {isFetchingDocument && (
         <div className="fixed inset-0 z-[999] flex items-center justify-center bg-stone-900/30 backdrop-blur-sm">
           <div className="rounded-xl bg-white p-6 shadow-xl flex flex-col items-center gap-3">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-slate-200 border-t-[#1E3F20]" />
+            <Spinner className="h-8 w-8 text-[#1E3F20]" />
             <p className="text-sm text-stone-600 font-medium">Loading document details...</p>
           </div>
         </div>

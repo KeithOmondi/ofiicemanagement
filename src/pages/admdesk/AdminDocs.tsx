@@ -1,4 +1,5 @@
 // src/pages/dept-head/AdminDocs.tsx
+
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { toast, Toaster } from 'react-hot-toast';
@@ -17,8 +18,6 @@ import {
 import { selectCurrentUser, fetchCurrentUser } from '../../store/slices/userSlice';
 import {
   fetchUsers,
-  //selectAllUsers,
-  //selectUsersListLoading,
 } from '../../store/slices/userSlice';
 import {
   fetchRegistryEntries,
@@ -78,8 +77,6 @@ const PRIORITIES: { value: RoutePriority; label: string }[] = [
   { value: 'urgent', label: 'Urgent' },
 ];
 
-// src/components/Helpdesk/DocumentUtils.tsx
-
 const TYPE_BADGE: Record<DocumentType, string> = {
   memo: 'bg-blue-100 text-blue-700',
   letter: 'bg-indigo-100 text-indigo-700',
@@ -91,7 +88,6 @@ const TYPE_BADGE: Record<DocumentType, string> = {
   upload: 'bg-gray-100 text-gray-700',
   ticket: 'text-purple-500',
 };
-
 
 const STATUS_BADGE: Record<string, string> = {
   draft: 'bg-gray-100 text-gray-700',
@@ -201,7 +197,6 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch document with responses
   useEffect(() => {
     dispatch(fetchDocumentById(document.id));
   }, [dispatch, document.id]);
@@ -228,10 +223,7 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
       setFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
 
-      // Refresh data
       dispatch(fetchDocumentById(document.id));
-      dispatch(fetchDocuments({ page: 1, limit: PAGE_SIZE, for_my_action: true }));
-      
       onResponseSubmitted();
     } catch (error) {
       toast.error(typeof error === 'string' ? error : 'Failed to add response');
@@ -283,7 +275,6 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
       <div className="w-full max-w-2xl max-h-[90vh] rounded-xl bg-white shadow-2xl border border-slate-100 flex flex-col">
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex items-center gap-2">
@@ -306,7 +297,6 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
           </button>
         </div>
 
-        {/* Document Info */}
         <div className="px-6 py-3 bg-slate-50 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-3">
             <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">Document:</span>
@@ -330,7 +320,6 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
           </div>
         </div>
 
-        {/* Responses List */}
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3 min-h-[200px] max-h-[300px]">
           {responses.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center py-8">
@@ -385,7 +374,6 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
           )}
         </div>
 
-        {/* Response Form */}
         <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-xl shrink-0">
           <form onSubmit={handleSubmit}>
             <div className="flex items-center gap-2 mb-2">
@@ -408,7 +396,6 @@ const ResponseModal: React.FC<ResponseModalProps> = ({ document, onClose, onResp
               className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
 
-            {/* File Upload Area */}
             <div
               className={`mt-2 relative border-2 border-dashed rounded-lg p-3 transition-colors ${
                 isDragging
@@ -1343,7 +1330,7 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
 
 // ─── Mark / Finalize Draft Modal ──────────────────────────────────────────────
 
-type FinalizeMode = 'user' | 'admin';
+//type FinalizeMode = 'user' | 'admin';
 
 interface FinalizeDraftModalProps {
   document: DocType;
@@ -1360,16 +1347,11 @@ const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({
 }) => {
   const dispatch = useAppDispatch();
   const currentUser = useAppSelector(selectCurrentUser);
-  //const teamMembers = useAppSelector(selectAllUsers);
-  //const usersLoading = useAppSelector(selectUsersListLoading);
 
-  const [mode] = useState<FinalizeMode>('admin'); // Default to admin (Super Admin) as per workflow
-  //const [userId, setUserId] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error] = useState<string | null>(null);
 
   useEffect(() => {
-    // Only load team members if user selects 'user' mode
-    if (mode === 'user' && currentUser?.department_id) {
+    if (currentUser?.department_id) {
       dispatch(fetchUsers({
         is_active: true,
         department_id: currentUser.department_id,
@@ -1378,20 +1360,10 @@ const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({
         sort_order: 'ASC',
       }));
     }
-  }, [dispatch, currentUser?.department_id, mode]);
+  }, [dispatch, currentUser?.department_id]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Updated workflow: Department Head can only send to Super Admin
-    // They cannot directly assign to other users
-    if (mode === 'user') {
-      // Department Heads cannot mark directly to users - must go through Super Admin
-      setError('Department Heads must send documents to Super Admin for review before they can be assigned to users.');
-      return;
-    }
-
-    // Only Super Admin can assign to users (mode === 'admin' sends to Super Admin)
     onSubmit({ send_to_super_admin: true });
   };
 
@@ -1412,7 +1384,6 @@ const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({
 
         <form onSubmit={handleSubmit}>
           <div className="px-6 py-5 space-y-4">
-            {/* Updated workflow info */}
             <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2.5">
               <p className="text-xs text-blue-700 flex items-start gap-1.5">
                 <span className="text-sm">ℹ️</span>
@@ -1424,7 +1395,6 @@ const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({
               </p>
             </div>
 
-            {/* Only show the send to Super Admin option */}
             <div className="rounded-lg border border-blue-200 bg-blue-50/50 px-4 py-3">
               <div className="flex items-start gap-2">
                 <div className="mt-0.5">
@@ -1441,9 +1411,6 @@ const FinalizeDraftModal: React.FC<FinalizeDraftModalProps> = ({
                 </div>
               </div>
             </div>
-
-            {/* Removed the user selection UI since Department Heads can't assign directly */}
-            {/* The old mode toggle and user dropdown are removed */}
 
             {error && (
               <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2">
@@ -1493,7 +1460,6 @@ const AdminDocs = () => {
   const registryLoading = useAppSelector(selectRegistryListLoading);
   const registryError = useAppSelector(selectRegistryError);
 
-  // Folder state
   const folders = useAppSelector(selectAllRHCFolders);
   const foldersLoading = useAppSelector(selectRHCFoldersLoading);
 
@@ -1507,12 +1473,10 @@ const AdminDocs = () => {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<DocumentType | ''>('');
 
-  // Redirect modal state
   const [showRedirectModal, setShowRedirectModal] = useState(false);
   const [redirectTarget, setRedirectTarget] = useState<DocType | null>(null);
   const [redirecting, setRedirecting] = useState(false);
 
-  // Remove from folder modal state
   const [showRemoveModal, setShowRemoveModal] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<DocType | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -1521,6 +1485,23 @@ const AdminDocs = () => {
   const typeFilterRef = useRef<DocumentType | ''>('');
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // ─── Force refresh function ────────────────────────────────────────────────
+  const forceRefresh = useCallback(() => {
+    console.log('[AdminDocs] Force refresh triggered');
+    if (currentUser?.department_id) {
+      const params: DocumentFilters = {
+        page: page,
+        limit: PAGE_SIZE,
+        for_my_action: true,
+        department_id: currentUser.department_id,
+      };
+      if (searchRef.current) params.search = searchRef.current;
+      if (typeFilterRef.current) params.type = typeFilterRef.current;
+      dispatch(fetchDocuments(params));
+    }
+  }, [dispatch, currentUser, page]);
+
+  // ─── Fetch current user ──────────────────────────────────────────────────
   useEffect(() => {
     console.log('[AdminDocs] Checking for current user');
     if (!currentUser) {
@@ -1529,41 +1510,37 @@ const AdminDocs = () => {
     }
   }, [dispatch, currentUser]);
 
+  // ─── Fetch folders ──────────────────────────────────────────────────────
   useEffect(() => {
     console.log('[AdminDocs] Fetching folders...');
     dispatch(fetchRHCFolders({ status: 'active', include_sub_folders: true }));
   }, [dispatch]);
 
-  const departmentId = currentUser?.department_id ?? null;
-
-  const triggerFetch = useCallback((p: number) => {
-    console.log(`[AdminDocs] triggerFetch page: ${p}`);
-    const params: DocumentFilters = {
-      page: p,
-      limit: PAGE_SIZE,
-      for_my_action: true,
-    };
-    if (searchRef.current) params.search = searchRef.current;
-    if (typeFilterRef.current) params.type = typeFilterRef.current;
-    if (departmentId) params.department_id = departmentId;
-
-    dispatch(fetchDocuments(params));
-  }, [dispatch, departmentId]);
-
-  useEffect(() => {
-    if (!currentUser || !currentUser.department_id) {
-      console.log('[AdminDocs] Skipping document fetch - no current user or department');
-      return;
-    }
-    console.log(`[AdminDocs] Initial document fetch for page: ${page}`);
-    triggerFetch(page);
-  }, [page, currentUser, triggerFetch]);
-
+  // ─── Fetch registry entries ────────────────────────────────────────────
   useEffect(() => {
     console.log('[AdminDocs] Fetching registry entries...');
     dispatch(fetchRegistryEntries({ limit: 200, sort_by: 'routed_at', sort_order: 'DESC' }));
   }, [dispatch]);
 
+  // ─── Fetch documents ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!currentUser || !currentUser.department_id) {
+      console.log('[AdminDocs] Skipping document fetch - no current user or department');
+      return;
+    }
+    console.log(`[AdminDocs] Fetching documents for page: ${page}`);
+    const params: DocumentFilters = {
+      page: page,
+      limit: PAGE_SIZE,
+      for_my_action: true,
+      department_id: currentUser.department_id,
+    };
+    if (searchRef.current) params.search = searchRef.current;
+    if (typeFilterRef.current) params.type = typeFilterRef.current;
+    dispatch(fetchDocuments(params));
+  }, [dispatch, currentUser, page]);
+
+  // ─── Error handling ────────────────────────────────────────────────────
   useEffect(() => {
     if (error) { 
       console.error('[AdminDocs] Document error:', error);
@@ -1580,6 +1557,7 @@ const AdminDocs = () => {
     }
   }, [registryError, dispatch]);
 
+  // ─── Memoized active registry map ──────────────────────────────────────
   const activeRegistryByDoc = useMemo(() => {
     const map = new Map<string, RegistryEntry>();
     registryEntries.forEach((entry) => {
@@ -1588,7 +1566,73 @@ const AdminDocs = () => {
     return map;
   }, [registryEntries]);
 
-  // ── Response Handlers ────────────────────────────────────────────────────
+  // ─── Handlers ──────────────────────────────────────────────────────────
+
+  const handleSearchChange = (value: string) => {
+    console.log(`[AdminDocs] Search changed: "${value}"`);
+    setSearch(value);
+    searchRef.current = value;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => { 
+      setPage(1); 
+    }, 400);
+  };
+
+  const handleTypeFilterChange = (value: DocumentType | '') => {
+    console.log(`[AdminDocs] Type filter changed: "${value}"`);
+    setTypeFilter(value);
+    typeFilterRef.current = value;
+    setPage(1);
+  };
+
+  const handleUpload = async (payload: { file: File; metadata: CreateUploadDocumentInput }) => {
+    console.log('[AdminDocs] handleUpload called');
+    setUploading(true);
+    try {
+      const created = await dispatch(
+        createUploadDocument({ input: payload.metadata, file: payload.file })
+      ).unwrap();
+      console.log('[AdminDocs] Upload successful:', created);
+      toast.success('Document saved as draft');
+      setShowUploadModal(false);
+      // Wait for the fetch to complete before setting finalizeTarget
+      await forceRefresh();
+      setFinalizeTarget(created);
+    } catch (err) {
+      console.error('[AdminDocs] Upload failed:', err);
+      toast.error(typeof err === 'string' ? err : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFinalizeDraft = async (input: FinalizeDraftInput) => {
+    if (!finalizeTarget) return;
+    console.log('[AdminDocs] Finalizing draft:', finalizeTarget.id);
+    try {
+      await dispatch(finalizeDraft({ id: finalizeTarget.id, input })).unwrap();
+      toast.success('Document sent to Super Admin for review');
+      setFinalizeTarget(null);
+      await forceRefresh();
+    } catch (err) {
+      console.error('[AdminDocs] Finalize failed:', err);
+      toast.error(typeof err === 'string' ? err : 'Failed to send document');
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    console.log(`[AdminDocs] Delete document: ${id}`);
+    if (!window.confirm('Delete this document? This action cannot be undone.')) return;
+    try {
+      await dispatch(deleteDocument(id)).unwrap();
+      toast.success('Document deleted');
+      if (selectedDocument?.id === id) setSelectedDocument(null);
+      await forceRefresh();
+    } catch (err) {
+      console.error('[AdminDocs] Delete failed:', err);
+      toast.error(typeof err === 'string' ? err : 'Failed to delete document');
+    }
+  };
 
   const handleRespondClick = (doc: DocType) => {
     setResponseDocument(doc);
@@ -1596,15 +1640,17 @@ const AdminDocs = () => {
   };
 
   const handleResponseSubmitted = () => {
-    // Refresh the document list
-    triggerFetch(page);
-    // Refresh the current document if it's the one being viewed
+    forceRefresh();
     if (selectedDocument) {
       dispatch(fetchDocumentById(selectedDocument.id));
     }
   };
 
-  // ── Folder Handlers ─────────────────────────────────────────────────────
+  const handlePreview = (doc: DocType) => {
+    console.log(`[AdminDocs] Previewing document: ${doc.id}`);
+    dispatch(fetchDocumentById(doc.id));
+    setSelectedDocument(doc);
+  };
 
   const handleRedirectClick = (doc: DocType) => {
     setRedirectTarget(doc);
@@ -1623,7 +1669,7 @@ const AdminDocs = () => {
       toast.success('Document redirected to folder successfully');
       setShowRedirectModal(false);
       setRedirectTarget(null);
-      await triggerFetch(page);
+      await forceRefresh();
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to redirect document');
     } finally {
@@ -1647,7 +1693,7 @@ const AdminDocs = () => {
       toast.success('Document removed from folder successfully');
       setShowRemoveModal(false);
       setRemoveTarget(null);
-      await triggerFetch(page);
+      await forceRefresh();
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to remove document from folder');
     } finally {
@@ -1655,96 +1701,22 @@ const AdminDocs = () => {
     }
   };
 
-  // ── Other Handlers ─────────────────────────────────────────────────────
+  // ─── Filtered documents ─────────────────────────────────────────────────
+  const filteredDocuments = useMemo(() => {
+    if (!currentUser) return documents;
 
-  const handleSearchChange = (value: string) => {
-    console.log(`[AdminDocs] Search changed: "${value}"`);
-    setSearch(value);
-    searchRef.current = value;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => { 
-      setPage(1); 
-      triggerFetch(1); 
-    }, 400);
-  };
-
-  const handleTypeFilterChange = (value: DocumentType | '') => {
-    console.log(`[AdminDocs] Type filter changed: "${value}"`);
-    setTypeFilter(value);
-    typeFilterRef.current = value;
-    setPage(1);
-    triggerFetch(1);
-  };
-
-  const handleUpload = async (payload: { file: File; metadata: CreateUploadDocumentInput }) => {
-    console.log('[AdminDocs] handleUpload called');
-    setUploading(true);
-    try {
-      const created = await dispatch(
-        createUploadDocument({ input: payload.metadata, file: payload.file })
-      ).unwrap();
-      console.log('[AdminDocs] Upload successful:', created);
-      toast.success('Document saved as draft');
-      setShowUploadModal(false);
-      await triggerFetch(page);
-      setFinalizeTarget(created);
-    } catch (err) {
-      console.error('[AdminDocs] Upload failed:', err);
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleFinalizeDraft = async (input: FinalizeDraftInput) => {
-    if (!finalizeTarget) return;
-    console.log('[AdminDocs] Finalizing draft:', finalizeTarget.id);
-    try {
-      await dispatch(finalizeDraft({ id: finalizeTarget.id, input })).unwrap();
-      toast.success('Document sent to Super Admin for review');
-      setFinalizeTarget(null);
-      await triggerFetch(page);
-    } catch (err) {
-      console.error('[AdminDocs] Finalize failed:', err);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    console.log(`[AdminDocs] Delete document: ${id}`);
-    if (!window.confirm('Delete this document? This action cannot be undone.')) return;
-    try {
-      await dispatch(deleteDocument(id)).unwrap();
-      toast.success('Document deleted');
-      if (selectedDocument?.id === id) setSelectedDocument(null);
-      const targetPage = documents.length === 1 && page > 1 ? page - 1 : page;
-      setPage(targetPage);
-      if (targetPage === page) await triggerFetch(page);
-    } catch (err) {
-      console.error('[AdminDocs] Delete failed:', err);
-    }
-  };
-
-  const handlePreview = (doc: DocType) => {
-    console.log(`[AdminDocs] Previewing document: ${doc.id}`);
-    dispatch(fetchDocumentById(doc.id));
-    setSelectedDocument(doc);
-  };
-
- const filteredDocuments = useMemo(() => {
-  if (!currentUser) return documents;
-
-  return documents.filter(doc => {
-    if (doc.type === 'memo' || doc.type === 'letter' || doc.type === 'certificate') return false;
-    if (doc.folder_id) return false;
-    if (doc.is_draft) return doc.created_by === currentUser.id;
-    return true;
-  });
-}, [documents, currentUser]);
+    return documents.filter(doc => {
+      if (doc.type === 'memo' || doc.type === 'letter' || doc.type === 'certificate') return false;
+      if (doc.folder_id) return false;
+      if (doc.is_draft) return doc.created_by === currentUser.id;
+      return true;
+    });
+  }, [documents, currentUser]);
 
   return (
     <div className="min-h-screen bg-slate-50">
       <Toaster position="top-right" />
 
-      {/* Modals rendered via portal to body so they appear above sidebar */}
       {showResponseModal && responseDocument &&
         createPortal(
           <ResponseModal
@@ -1777,7 +1749,7 @@ const AdminDocs = () => {
             onClose={() => setShowUploadModal(false)}
             onSubmit={handleUpload}
             loading={uploading}
-            departmentId={departmentId}
+            departmentId={currentUser?.department_id}
           />,
           document.body
         )}
@@ -1834,10 +1806,7 @@ const AdminDocs = () => {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => {
-                console.log('[AdminDocs] Upload Document clicked');
-                setShowUploadModal(true);
-              }}
+              onClick={() => setShowUploadModal(true)}
               className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition shadow-sm"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2013,7 +1982,6 @@ const AdminDocs = () => {
 
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-center gap-1">
-                            {/* Respond Button - shown when document needs response */}
                             {needsMyResponse && (
                               <button
                                 onClick={() => handleRespondClick(doc)}

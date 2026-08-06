@@ -31,6 +31,7 @@ import sentryReducer from './slices/sentrySlice';
 import dashboardReducer from './slices/dashboardSlice';
 import projectsReducer from "./slices/projectsSlice";
 import standaloneReducer from "./slices/standaloneSlice"
+import conferenceReducer from "./slices/conferenceSlice"
 
 export const store = configureStore({
   reducer: {
@@ -63,7 +64,8 @@ export const store = configureStore({
     sentry: sentryReducer,
     dashboard: dashboardReducer,
     projects: projectsReducer,
-    standalone: standaloneReducer
+    standalone: standaloneReducer,
+    conference: conferenceReducer
   },
 });
 

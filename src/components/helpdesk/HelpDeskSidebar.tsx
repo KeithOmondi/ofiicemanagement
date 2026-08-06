@@ -119,6 +119,7 @@ const navigationConfig: NavSection[] = [
       { to: 'tasks',    label: 'Task Management',     icon: Icon.users },
       { to: 'tickets',    label: 'Tickets & Reports',     icon: Icon.users },
       { to: 'aides',    label: 'Aides',     icon: Icon.users },
+      { to: 'conference',    label: 'Conference',     icon: Icon.users },
     ],
   },
   {

@@ -79,6 +79,7 @@ import StuffHelpdeskDocs from '../pages/staff/StuffHelpDeskDoscs';
 import MemoandLetters from '../pages/admin/MemoandLetters';
 import HelpdeskStaffAides from '../pages/staff/HelpdeskStaffAides';
 import HelpdeskMemoandLetters from '../pages/staff/HelpdeskMemoandLetters';
+import HelpdeskConference from '../pages/helpdesk/HelpdeskConference';
 
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
@@ -228,6 +229,7 @@ if (deskKey === 'helpdesk') {
         <Route path="reports" element={<HelpdeskReport />} />
         <Route path="tickets" element={<HelpdeskTickets />} />
         <Route path="aides" element={<HelpdeskAides />} />
+        <Route path="conference" element={<HelpdeskConference />} />
         {/* ─── Memos & Letters route ────────────────────────────────────────── */}
         <Route path="memos" element={<MemoandLetters />} />
       </Route>
