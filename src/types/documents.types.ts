@@ -52,6 +52,20 @@ export interface DocumentMetadata {
   // Example: hideFooter?: boolean;
 }
 
+// ─── Document Attachment Types ───────────────────────────────────────────────
+
+export interface DocumentAttachment {
+  id?: string; // Unique identifier for the attachment
+  name: string;
+  url: string;
+  public_id?: string; // Cloudinary public ID for deletion
+  size?: number;
+  mimeType?: string;
+  uploaded_by?: string; // User ID who uploaded
+  uploaded_by_name?: string; // Name of user who uploaded
+  uploaded_at?: string; // Timestamp when uploaded
+}
+
 // ─── Request Types ─────────────────────────────────────────────────────────────
 
 export type RequestType =
@@ -413,6 +427,8 @@ export interface ComposeMemoInput {
   signatureTitle?: string;
   department_id?: string;
   reference_no?: string;
+  cc?: string; // Added CC field for memos
+  attachments?: DocumentAttachment[]; // Added attachments support for memos
   fromFirst?: boolean; // Added fromFirst flag
   request_details?: Partial<DocumentRequestDetails>;
 }
@@ -498,6 +514,7 @@ export interface UpdateDocumentInput {
   signature_position_height?: number | null;
   from_first?: boolean | null; // Legacy field for backward compatibility
   metadata?: DocumentMetadata | null; // New metadata field
+  attachments?: DocumentAttachment[] | null; // Added attachments support for updates
   request_details?: Partial<DocumentRequestDetails> | null;
 }
 
@@ -695,6 +712,7 @@ export interface Document {
   signature_position_width: number | null;
   signature_position_height: number | null;
   metadata: DocumentMetadata | null; // Added metadata field
+  attachments?: DocumentAttachment[]; // Added attachments support
   request_details: DocumentRequestDetails | null;
   follow_ups?: FollowUp[];
   // ─── Bring Up Fields ──────────────────────────────────────────────────────

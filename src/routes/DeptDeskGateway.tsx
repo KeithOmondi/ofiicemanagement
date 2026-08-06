@@ -78,6 +78,7 @@ import JODocuments from '../pages/JO/JODocuments';
 import StuffHelpdeskDocs from '../pages/staff/StuffHelpDeskDoscs';
 import MemoandLetters from '../pages/admin/MemoandLetters';
 import HelpdeskStaffAides from '../pages/staff/HelpdeskStaffAides';
+import HelpdeskMemoandLetters from '../pages/staff/HelpdeskMemoandLetters';
 
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
@@ -180,6 +181,7 @@ const DeptDeskGateway: React.FC = () => {
               <Route path="helpdesk-docs" element={<StuffHelpdeskDocs />} />
               <Route path="helpdesk-tickets" element={<HelpdeskStuffTickets />} />
               <Route path="aides" element={<HelpdeskStaffAides />} />
+              <Route path="memos-letters" element={<HelpdeskMemoandLetters />} />
             </>
           )}
         </Route>

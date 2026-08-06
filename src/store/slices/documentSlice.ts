@@ -60,6 +60,7 @@ import type {
   FileAwayBringUpInput,
   BringUpStatus,
   DocumentStatus,
+  DocumentAttachment,
 } from "../../types/documents.types";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -493,6 +494,28 @@ export const updateDocumentMetadata = createAsyncThunk(
         data: Document;
       }>(`/documents/${id}`, {
         metadata: { fromFirst }
+      });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Update document attachments ─────────────────────────────────────────────
+
+export const updateDocumentAttachments = createAsyncThunk(
+  "documents/updateDocumentAttachments",
+  async (
+    { id, attachments }: { id: string; attachments: DocumentAttachment[] },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.put<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}`, {
+        attachments
       });
       return response.data.data;
     } catch (error) {
@@ -1264,6 +1287,52 @@ export const regeneratePdf = createAsyncThunk(
   },
 );
 
+
+// ── Add a single attachment to a document ────────────────────────────────────
+
+export const addDocumentAttachment = createAsyncThunk(
+  "documents/addDocumentAttachment",
+  async (
+    { id, file }: { id: string; file: File },
+    { rejectWithValue }
+  ) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/attachments`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
+// ── Remove a single attachment from a document ──────────────────────────────
+
+export const removeDocumentAttachment = createAsyncThunk(
+  "documents/removeDocumentAttachment",
+  async (
+    { id, attachmentId }: { id: string; attachmentId: string },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.delete<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/attachments/${attachmentId}`);
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  }
+);
+
 // ─── Slice ────────────────────────────────────────────────────────────────────
 
 const documentSlice = createSlice({
@@ -1353,6 +1422,21 @@ const documentSlice = createSlice({
           state.myMarked[myIndex].metadata = {};
         }
         state.myMarked[myIndex].metadata.fromFirst = fromFirst;
+      }
+    },
+    // ── Optimistic attachments update ──────────────────────────────────────
+    optimisticUpdateAttachments: (state, action: PayloadAction<{ documentId: string; attachments: DocumentAttachment[] }>) => {
+      const { documentId, attachments } = action.payload;
+      const docIndex = state.documents.findIndex(d => d.id === documentId);
+      if (docIndex !== -1) {
+        state.documents[docIndex].attachments = attachments;
+      }
+      if (state.currentDocument?.id === documentId) {
+        state.currentDocument.attachments = attachments;
+      }
+      const myIndex = state.myMarked.findIndex(d => d.id === documentId);
+      if (myIndex !== -1) {
+        state.myMarked[myIndex].attachments = attachments;
       }
     },
   },
@@ -1684,6 +1768,36 @@ const documentSlice = createSlice({
         },
       )
       .addCase(updateDocumentMetadata.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload as string;
+      })
+
+      // ── updateDocumentAttachments ──────────────────────────────────────────
+      .addCase(updateDocumentAttachments.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(
+        updateDocumentAttachments.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.loading = false;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+          const myIndex = state.myMarked.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+        },
+      )
+      .addCase(updateDocumentAttachments.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload as string;
       })
@@ -2608,6 +2722,7 @@ export const {
   optimisticUpdateFollowUpStatus,
   optimisticUpdateBringUpStatus,
   optimisticUpdateFromFirst,
+  optimisticUpdateAttachments,
 } = documentSlice.actions;
 
 // ── Selectors ─────────────────────────────────────────────────────────────────
@@ -2766,6 +2881,26 @@ export const selectFromFirst = (state: { documents: DocumentState }, documentId:
 
 export const selectCurrentDocumentFromFirst = (state: { documents: DocumentState }): boolean => {
   return state.documents.currentDocument?.metadata?.fromFirst ?? false;
+};
+
+// ── Attachments selectors ───────────────────────────────────────────────────
+
+export const selectDocumentAttachments = (state: { documents: DocumentState }, documentId: string): DocumentAttachment[] => {
+  const doc = state.documents.documents.find(d => d.id === documentId);
+  return doc?.attachments || [];
+};
+
+export const selectCurrentDocumentAttachments = (state: { documents: DocumentState }): DocumentAttachment[] => {
+  return state.documents.currentDocument?.attachments || [];
+};
+
+export const selectHasAttachments = (state: { documents: DocumentState }, documentId: string): boolean => {
+  const doc = state.documents.documents.find(d => d.id === documentId);
+  return (doc?.attachments?.length || 0) > 0;
+};
+
+export const selectCurrentDocumentHasAttachments = (state: { documents: DocumentState }): boolean => {
+  return (state.documents.currentDocument?.attachments?.length || 0) > 0;
 };
 
 export type { DocumentState };

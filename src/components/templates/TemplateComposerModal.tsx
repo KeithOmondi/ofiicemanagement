@@ -6,7 +6,7 @@ import { fetchActiveTemplate } from '../../store/slices/templatesSlice';
 import { type TemplateType } from '../../types/templates.types';
 import { selectCurrentUser } from '../../store/slices/userSlice';
 import { createMemo, createLetter, createCertificate } from '../../store/slices/documentSlice';
-import type { ComposeMemoInput, ComposeLetterInput, Document } from '../../types/documents.types';
+import type { ComposeMemoInput, ComposeLetterInput, Document, DocumentAttachment } from '../../types/documents.types';
 import toast from 'react-hot-toast';
 import { sanitizePastedHtml } from '../../utils/pasteSanitizer';
 
@@ -30,24 +30,6 @@ const Spinner: React.FC<{ size?: 'sm' | 'md' }> = ({ size = 'sm' }) => (
     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
   </svg>
 );
-
-interface CCPreviewEntry {
-  bodyLines: string[];
-  location: string;
-}
-
-const parseCCPreview = (cc: string): CCPreviewEntry[] => {
-  return cc
-    .split(/\n\s*\n/)
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .map((entry) => {
-      const lines = entry.split('\n').map((l) => l.trim()).filter(Boolean);
-      const location = lines[lines.length - 1] || '';
-      const bodyLines = lines.slice(0, -1);
-      return { bodyLines, location };
-    });
-};
 
 export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
   type,
@@ -77,8 +59,12 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
   const [senderTitleField, setSenderTitleField] = useState('Registrar, High Court');
   const [fromFirst, setFromFirst] = useState(false);
 
-  // Letter-specific fields
+  // Memo-specific fields
   const [ccField, setCcField] = useState('');
+  const [attachments, setAttachments] = useState<DocumentAttachment[]>([]);
+
+  // Letter-specific fields
+  const [letterCcField, setLetterCcField] = useState('');
   const [enclosuresField, setEnclosuresField] = useState('');
 
   // ─── Certificate-specific fields ────────────────────────────────────────────
@@ -146,6 +132,25 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
     }
   };
 
+  const handleAddAttachment = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Create a temporary URL for the attachment
+    const url = URL.createObjectURL(file);
+    setAttachments(prev => [...prev, {
+      name: file.name,
+      url: url,
+      size: file.size,
+      mimeType: file.type,
+    }]);
+    e.target.value = '';
+  };
+
+  const handleRemoveAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSaveDraft = async () => {
     if (!title.trim()) {
       toast.error(`Please enter a subject for this ${type === 'memo' ? 'memo' : type === 'letter' ? 'letter' : 'certificate'}`);
@@ -179,6 +184,8 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
           department_id: departmentId ?? undefined,
           reference_no: refField.trim() || undefined,
           fromFirst,
+          cc: ccField.trim() || undefined,
+          attachments: attachments.length > 0 ? attachments : undefined,
         };
         result = await dispatch(createMemo(payload));
       } else if (type === 'letter') {
@@ -192,7 +199,7 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
           signatureTitle: senderTitleField.trim() || 'Registrar, High Court',
           department_id: departmentId ?? undefined,
           reference_no: refField.trim() || undefined,
-          cc: ccField.trim() || undefined,
+          cc: letterCcField.trim() || undefined,
           enclosures: enclosuresField.trim() || undefined,
         };
         result = await dispatch(createLetter(payload));
@@ -231,8 +238,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
 
   const editableLineClasses =
     'flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none';
-
-  const ccPreviewEntries = parseCCPreview(ccField);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
@@ -333,6 +338,7 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                   {[
                     { label: 'TO', value: toField, set: setToField, upper: true, type: 'text' as const },
                     { label: 'FROM', value: fromField, set: setFromField, upper: true, type: 'text' as const },
+                    { label: 'CC', value: ccField, set: setCcField, upper: false, placeholder: 'Optional CC recipients', type: 'text' as const },
                     { label: 'REF', value: refField, set: setRefField, upper: false, placeholder: 'RHC/AIE/___', type: 'text' as const },
                     { label: 'DATE', value: dateField, set: setDateField, upper: false, type: 'date' as const },
                     { label: 'SUBJECT', value: title, set: setTitle, upper: true, placeholder: 'Subject of this memo', type: 'text' as const },
@@ -366,6 +372,56 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                   data-placeholder="Start typing the body of the memo…"
                   className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
                 />
+
+                {/* ─── Attachments Section ───────────────────────────────────── */}
+                <div className="mt-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[10.5pt] font-bold text-stone-700">Attachments:</span>
+                    <label className="cursor-pointer inline-flex items-center gap-1 text-xs text-[#1E4620] hover:text-[#c9a84c] border border-dashed border-[#c9a84c] rounded px-2 py-0.5 hover:border-[#1E4620] transition">
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                      Add File
+                      <input
+                        type="file"
+                        onChange={handleAddAttachment}
+                        className="hidden"
+                        multiple={false}
+                      />
+                    </label>
+                    <span className="text-[9px] text-stone-400">{attachments.length} file(s) attached</span>
+                  </div>
+                  {attachments.length > 0 && (
+                    <ul className="mt-2 list-none p-0 space-y-1">
+                      {attachments.map((att, index) => (
+                        <li key={index} className="flex items-center justify-between py-1 px-2 bg-stone-50 rounded border border-stone-200">
+                          <div className="flex items-center gap-2">
+                            <svg className="h-3.5 w-3.5 text-[#c9a84c]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                              <polyline points="14 2 14 8 20 8" />
+                              <line x1="16" y1="13" x2="8" y2="13" />
+                              <line x1="16" y1="17" x2="8" y2="17" />
+                            </svg>
+                            <span className="text-xs text-stone-700">{att.name}</span>
+                            {att.size && (
+                              <span className="text-[9px] text-stone-400">({formatFileSize(att.size)})</span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAttachment(index)}
+                            className="text-stone-400 hover:text-red-500 transition p-0.5"
+                            title="Remove attachment"
+                          >
+                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
 
                 <div className="mt-10">
                   <div className="space-y-1">
@@ -469,8 +525,8 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                     <span className="font-bold text-xs italic underline">Copy to:</span>
                   </div>
                   <textarea
-                    value={ccField}
-                    onChange={(e) => setCcField(e.target.value)}
+                    value={letterCcField}
+                    onChange={(e) => setLetterCcField(e.target.value)}
                     placeholder={'Presiding Judge,\nCivil Division\nNAIROBI\n\nPresiding Judge,\nTribunals Appeal Division\nNAIROBI'}
                     rows={4}
                     className="w-full resize-y bg-transparent border border-dashed border-stone-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:border-stone-500 placeholder:text-stone-300 placeholder:italic"
@@ -479,20 +535,13 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                     Separate each recipient with a blank line. The last line of each entry (e.g. station) is rendered bold and uppercase (no underline).
                   </p>
 
-                  {ccPreviewEntries.length > 0 && (
+                  {letterCcField && (
                     <div className="mt-3 text-[13px] leading-[1.5]">
                       <div className="ml-6">
-                        {ccPreviewEntries.map((entry, idx) => (
-                          <div key={idx} className="flex mb-4 last:mb-0">
+                        {letterCcField.split('\n').filter(line => line.trim()).map((line, idx) => (
+                          <div key={idx} className="flex mb-2 last:mb-0">
                             <span className="w-6 shrink-0">{idx + 1}.</span>
-                            <div className="flex-1">
-                              {entry.bodyLines.map((line, i) => (
-                                <p key={i} className="m-0">{line}</p>
-                              ))}
-                              {entry.location && (
-                                <p className="m-0 font-bold uppercase">{entry.location}</p>
-                              )}
-                            </div>
+                            <span className="flex-1">{line}</span>
                           </div>
                         ))}
                       </div>
@@ -514,91 +563,88 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
             ) : (
               // ─── CERTIFICATE TEMPLATE ─────────────────────────────────────────────
               <>
-                // ─── CERTIFICATE TEMPLATE ─────────────────────────────────────────────
-{/* Remove Ref and Date from certificate - they are not needed */}
+                <div className="flex justify-center mb-4">
+                  <img 
+                    src={JUDICIARY_CREST_SRC} 
+                    alt="Judiciary of Kenya crest" 
+                    className="h-[78px] w-auto object-contain" 
+                  />
+                </div>
 
-<div className="flex justify-center mb-4">
-  <img 
-    src={JUDICIARY_CREST_SRC} 
-    alt="Judiciary of Kenya crest" 
-    className="h-[78px] w-auto object-contain" 
-  />
-</div>
+                <div className="text-center mb-2">
+                  <p className="text-[19px] font-bold uppercase leading-snug">
+                    OFFICE OF THE REGISTRAR HIGH COURT
+                  </p>
+                </div>
 
-<div className="text-center mb-2">
-  <p className="text-[19px] font-bold uppercase leading-snug">
-    OFFICE OF THE REGISTRAR HIGH COURT
-  </p>
-</div>
+                <div className="border-t-[2.5px] border-black mb-6" />
 
-<div className="border-t-[2.5px] border-black mb-6" />
+                {/* Certificate Title */}
+                <div className="text-center mb-1">
+                  <input
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="CERTIFICATE OF SERVICE OF FOREIGN PROCESS"
+                    className={`${editableLineClasses} w-full text-center text-[16px] font-bold uppercase`}
+                  />
+                </div>
 
-{/* Certificate Title */}
-<div className="text-center mb-1">
-  <input
-    value={title}
-    onChange={(e) => setTitle(e.target.value)}
-    placeholder="CERTIFICATE OF SERVICE OF FOREIGN PROCESS"
-    className={`${editableLineClasses} w-full text-center text-[16px] font-bold uppercase`}
-  />
-</div>
+                {/* Rule Reference */}
+                <div className="text-center mb-6">
+                  <input
+                    value={ruleReference}
+                    onChange={(e) => setRuleReference(e.target.value)}
+                    placeholder="(Order 5 Rule 32(e) of the Civil Procedure Rules)"
+                    className={`${editableLineClasses} w-full text-center text-[13px] font-bold`}
+                  />
+                </div>
 
-{/* Rule Reference */}
-<div className="text-center mb-6">
-  <input
-    value={ruleReference}
-    onChange={(e) => setRuleReference(e.target.value)}
-    placeholder="(Order 5 Rule 32(e) of the Civil Procedure Rules)"
-    className={`${editableLineClasses} w-full text-center text-[13px] font-bold`}
-  />
-</div>
+                {/* Certificate Body - ContentEditable */}
+                <div
+                  ref={editorRef}
+                  contentEditable
+                  suppressContentEditableWarning
+                  onPaste={handlePaste}
+                  data-placeholder="I, [NAME], Registrar of the High Court of Kenya, hereby certify that the documents annexed hereto are as follows:&#10;&#10;1. &#10;2. &#10;3. &#10;&#10;And I certify that such service so proved, and the proof thereof, are such as are required by the law and practice of the High Court of Kenya regulating the service of legal process in Kenya and the proof thereof."
+                  className="min-h-[300px] text-[13px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
+                />
 
-{/* Certificate Body - ContentEditable */}
-<div
-  ref={editorRef}
-  contentEditable
-  suppressContentEditableWarning
-  onPaste={handlePaste}
-  data-placeholder="I, [NAME], Registrar of the High Court of Kenya, hereby certify that the documents annexed hereto are as follows:&#10;&#10;1. &#10;2. &#10;3. &#10;&#10;And I certify that such service so proved, and the proof thereof, are such as are required by the law and practice of the High Court of Kenya regulating the service of legal process in Kenya and the proof thereof."
-  className="min-h-[300px] text-[13px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
-/>
+                {/* Dated Line */}
+                <div className="text-center mt-6">
+                  <input
+                    value={datedLine}
+                    onChange={(e) => setDatedLine(e.target.value)}
+                    placeholder="Dated, Signed and Sealed this 23rd July, 2026."
+                    className={`${editableLineClasses} w-full text-center text-[13px]`}
+                  />
+                </div>
 
-{/* Dated Line */}
-<div className="text-center mt-6">
-  <input
-    value={datedLine}
-    onChange={(e) => setDatedLine(e.target.value)}
-    placeholder="Dated, Signed and Sealed this 23rd July, 2026."
-    className={`${editableLineClasses} w-full text-center text-[13px]`}
-  />
-</div>
+                {/* Signature Block */}
+                <div className="text-center mt-12">
+                  {signatoryLines.map((line, index) => (
+                    <input
+                      key={index}
+                      value={line}
+                      onChange={(e) => {
+                        const newLines = [...signatoryLines];
+                        newLines[index] = e.target.value;
+                        setSignatoryLines(newLines);
+                      }}
+                      placeholder={index === 0 ? "REGISTRAR," : "HIGH COURT OF KENYA"}
+                      className={`${editableLineClasses} block w-full text-center text-[13px] font-bold uppercase`}
+                    />
+                  ))}
+                </div>
 
-{/* Signature Block */}
-<div className="text-center mt-12">
-  {signatoryLines.map((line, index) => (
-    <input
-      key={index}
-      value={line}
-      onChange={(e) => {
-        const newLines = [...signatoryLines];
-        newLines[index] = e.target.value;
-        setSignatoryLines(newLines);
-      }}
-      placeholder={index === 0 ? "REGISTRAR," : "HIGH COURT OF KENYA"}
-      className={`${editableLineClasses} block w-full text-center text-[13px] font-bold uppercase`}
-    />
-  ))}
-</div>
-
-{/* Drafted By Initials */}
-<div className="text-right mt-2">
-  <input
-    value={draftedByInitials}
-    onChange={(e) => setDraftedByInitials(e.target.value)}
-    placeholder="rhc/lnu"
-    className={`${editableLineClasses} text-right text-[11px] italic underline lowercase w-24 ml-auto`}
-  />
-</div>
+                {/* Drafted By Initials */}
+                <div className="text-right mt-2">
+                  <input
+                    value={draftedByInitials}
+                    onChange={(e) => setDraftedByInitials(e.target.value)}
+                    placeholder="rhc/lnu"
+                    className={`${editableLineClasses} text-right text-[11px] italic underline lowercase w-24 ml-auto`}
+                  />
+                </div>
               </>
             )}
 
@@ -651,3 +697,12 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
 };
 
 export default TemplateComposerModal;
+
+// ─── Helper for file size formatting ────────────────────────────────────────
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${Math.round(kb)} KB`;
+  const mb = kb / 1024;
+  return `${Math.round(mb)} MB`;
+}

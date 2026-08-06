@@ -2342,7 +2342,7 @@ const MarkModal: React.FC<MarkModalProps> = ({
 
 // ─── Main AdminMemoandLetters Component ────────────────────────────────────
 
-const AdminMemoandLetters: React.FC = () => {
+const HelpdeskMemoandLetters: React.FC = () => {
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
   const { documents, loading, error, pagination } =
@@ -2753,4 +2753,4 @@ const AdminMemoandLetters: React.FC = () => {
   );
 };
 
-export default AdminMemoandLetters;
+export default HelpdeskMemoandLetters;
