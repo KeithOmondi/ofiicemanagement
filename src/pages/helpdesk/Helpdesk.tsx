@@ -1,10 +1,11 @@
+// src/pages/Helpdesk.tsx - COMPLETE UPDATED VERSION
+
 import React, { useState, useEffect, useRef, type ChangeEvent, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   // Actions
   fetchHelpDeskStats,
   fetchHelpDeskAudit,
-  fetchUtilities,
   fetchClubMemberships,
   fetchCircuits,
   fetchOtherPayments,
@@ -25,7 +26,6 @@ import {
   updateGeneralRequestStatus,
   updateVisaStatus,
   updateProtocolStatus,
-  deleteUtility,
   deleteClubMembership,
   deleteCircuit,
   deleteOtherPayment,
@@ -36,10 +36,8 @@ import {
   deleteGeneralRequest,
   deleteVisaRequest,
   deleteProtocolEvent,
-  updateUtilityItem,
-  // Selectors
+  // Selectors from helpdeskSlice
   selectHelpDeskStats,
-  selectAllUtilities,
   selectAllClubMemberships,
   selectAllCircuits,
   selectAllOtherPayments,
@@ -68,20 +66,28 @@ import {
   type OtherPayment,
   type ServiceWeek,
   type ClubMembership,
-  type JudgeUtility,
   type UtilityStatus,
   type RequestType,
   type RemarkType,
   type UtilityItem,
 } from '../../store/slices/helpdeskSlice';
 
-// ─── Helpdesk Documents imports ───────────────────────────────────────────────
+// ─── IMPORT FROM UTILITIES SLICE ──────────────────────────────────────────
+import {
+  fetchUtilities,
+  deleteUtility,
+  updateUtilityItem,
+  selectAllUtilities as selectAllUtilitiesFromSlice,
+  selectUtilitiesLoading,
+  selectUtilitiesMutating,
+  type JudgeUtility,
+} from '../../store/slices/utilitiesSlice';
+
+// ─── Helpdesk Documents imports ───────────────────────────────────────────
 import {
   fetchHelpdeskDocuments,
   uploadHelpdeskDocument,
   linkHelpdeskDocument,
-  internalApproveDocument,
-  sendBackToRequester,
   selectAllHelpdeskDocuments,
   selectDocumentsUploading,
   selectDocumentActionLoading,
@@ -93,11 +99,10 @@ import {
   submitForApproval,
 } from '../../store/slices/helpdeskDocumentsSlice';
 
-// ─── Consolidated Memo imports ───────────────────────────────────────────────
+// ─── Consolidated Memo imports ───────────────────────────────────────────
 import { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
 import {
   getConsolidatedMemoEntityId,
-  //getConsolidatedMemoEntityType,
 } from '../../types/helpdesk-documents.types';
 
 import {
@@ -142,7 +147,7 @@ import { RequestModal } from '../../components/modals/RequestModal';
 import ClubModal from '../../components/Layout/ClubModal';
 import { toast } from 'react-hot-toast';
 
-// ─── Constants for request types ────────────────────────────────────────────
+// ─── Constants for request types ──────────────────────────────────────────
 const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
   Driver: 'Driver',
   Bodyguard: 'Bodyguard',
@@ -168,7 +173,7 @@ const REMARK_TYPE_LABELS: Record<RemarkType, string> = {
   Release: 'Release',
 };
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────
 
 interface TabDef {
   key: HelpDeskTab | 'overview';
@@ -176,7 +181,7 @@ interface TabDef {
   icon: React.ReactNode;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────
 
 const formatDate = (dateString: string | null | undefined): string => {
   if (!dateString) return '—';
@@ -245,10 +250,10 @@ const FULL_STATUS_OPTIONS: Status[] = [
   'Resolved',
 ];
 
-// Limited list for General Requests (per user request)
+// Limited list for General Requests
 const GENERAL_REQUEST_STATUS_OPTIONS: Status[] = ['Active', 'Rejected', 'Resolved'];
 
-// ─── UI Components ────────────────────────────────────────────────────────────
+// ─── UI Components ──────────────────────────────────────────────────────────
 
 function StatCard({
   icon,
@@ -417,7 +422,7 @@ function SuccessBanner() {
   );
 }
 
-// ─── Modal Components ─────────────────────────────────────────────────────────
+// ─── Modal Components ──────────────────────────────────────────────────────
 
 function ConfirmDialog({
   title,
@@ -458,7 +463,7 @@ function ConfirmDialog({
   );
 }
 
-// ─── Status Dropdown ────────────────────────────────────────────────────────────
+// ─── Status Dropdown ──────────────────────────────────────────────────────
 
 function StatusDropdown({
   status,
@@ -490,7 +495,7 @@ function StatusDropdown({
   );
 }
 
-// ─── Reusable Table with Actions ────────────────────────────────────────────
+// ─── Reusable Table with Actions ──────────────────────────────────────────
 
 interface TableWithActionsProps<T> {
   data: T[];
@@ -600,7 +605,7 @@ function TableWithActions<T extends { id: string }>({
   );
 }
 
-// ─── Overview Tab ─────────────────────────────────────────────────────────────
+// ─── Overview Tab ──────────────────────────────────────────────────────────
 
 function OverviewTab() {
   const stats = useAppSelector(selectHelpDeskStats);
@@ -642,7 +647,8 @@ function OverviewTab() {
   );
 }
 
-// Helper component for Utility Type pill badges
+// ─── Helper component for Utility Type pill badges ──────────────────────
+
 function UtilityTypeBadge({ type }: { type: string }) {
   const normalized = type.toLowerCase();
   
@@ -666,7 +672,7 @@ function UtilityTypeBadge({ type }: { type: string }) {
   );
 }
 
-// ─── Utilities Tab ───────────────────────────────────────────────────────────
+// ─── Utilities Tab (UPDATED to use utilitiesSlice) ──────────────────────
 
 function UtilitiesTab({
   onViewJudge,
@@ -676,9 +682,11 @@ function UtilitiesTab({
   onConsolidatedMemo?: () => void;
 }) {
   const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllUtilities);
-  const loading = useAppSelector((state) => state.helpdesk.loading.utilities);
-  const mutating = useAppSelector(selectHelpDeskMutating);
+  
+  // ─── Use selectors from utilities slice ──────────────────────────────
+  const data = useAppSelector(selectAllUtilitiesFromSlice);
+  const loading = useAppSelector(selectUtilitiesLoading);
+  const mutating = useAppSelector(selectUtilitiesMutating);
 
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState<JudgeUtility | null>(null);
@@ -734,6 +742,7 @@ function UtilitiesTab({
     const groups: Array<{
       judgeId: string;
       judgeName: string;
+      pjNumber: string | null;
       items: Array<{
         id: string;
         item: UtilityItem;
@@ -745,12 +754,14 @@ function UtilitiesTab({
         groups.push({
           judgeId: utility.id,
           judgeName: utility.judge_name,
+          pjNumber: utility.pj_number,
           items: [],
         });
       } else {
         groups.push({
           judgeId: utility.id,
           judgeName: utility.judge_name,
+          pjNumber: utility.pj_number,
           items: utility.items.map((item) => ({
             id: item.id,
             item: item,
@@ -800,6 +811,9 @@ function UtilitiesTab({
                   Judge
                 </th>
                 <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  PJ Number
+                </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
                   Type
                 </th>
                 <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
@@ -834,7 +848,7 @@ function UtilitiesTab({
             <tbody className="divide-y divide-stone-100">
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="px-3 py-16 text-center">
+                  <td colSpan={12} className="px-3 py-16 text-center">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c]" />
                       <span className="text-xs text-stone-400">Loading utility records...</span>
@@ -843,7 +857,7 @@ function UtilitiesTab({
                 </tr>
               ) : groupedData.length === 0 || totalItems === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-3 py-16 text-center">
+                  <td colSpan={12} className="px-3 py-16 text-center">
                     <div className="flex flex-col items-center justify-center gap-1">
                       <Info className="h-5 w-5 text-stone-300" />
                       <span className="text-sm font-medium text-stone-600">No records found</span>
@@ -874,7 +888,7 @@ function UtilitiesTab({
                             rowSpan={rowCount}
                             className="px-3.5 py-3 font-semibold text-stone-800 align-top border-r border-stone-200/60 bg-stone-50/30"
                           >
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-col items-start gap-0.5">
                               <button
                                 onClick={() => {
                                   const utility = data.find(
@@ -887,9 +901,23 @@ function UtilitiesTab({
                                 {group.judgeName}
                               </button>
                               <span className="inline-flex items-center justify-center rounded-full bg-stone-200/70 px-2 py-0.5 text-[10px] font-bold text-stone-600">
-                                {rowCount}
+                                {rowCount} item{rowCount !== 1 ? 's' : ''}
                               </span>
                             </div>
+                          </td>
+                        )}
+
+                        {/* PJ Number (Sticky Rowspan Cell) */}
+                        {isFirstRow && (
+                          <td
+                            rowSpan={rowCount}
+                            className="px-3.5 py-3 align-top border-r border-stone-200/60 bg-stone-50/30"
+                          >
+                            <span className="font-mono text-xs text-stone-600">
+                              {group.pjNumber || (
+                                <span className="text-stone-300 italic">Not assigned</span>
+                              )}
+                            </span>
                           </td>
                         )}
 
@@ -1389,26 +1417,21 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
     }
   };
 
-// ─── In EntityDetailModal - replace handleSendForApproval ───────────────────
-
-const handleSendForApproval = async (docId: string) => {
+  const handleSendForApproval = async (docId: string) => {
     try {
-        // ✅ Use submitForApproval instead of internalApproveDocument + sendBackToRequester
-        // This sends the document to the approval queue for Super Admin review
-        await dispatch(submitForApproval({ 
-            id: docId,
-            comments: `Submitted for approval by ${title}.`,
-        })).unwrap();
-
-        toast.success('Document submitted for approval. Super Admin will review it.');
-        dispatch(fetchHelpdeskDocuments({ 
-            entity_type: entityType, 
-            entity_id: item.id 
-        }));
+      await dispatch(submitForApproval({ 
+        id: docId,
+        comments: `Submitted for approval by ${title}.`,
+      })).unwrap();
+      toast.success('Document submitted for approval. Super Admin will review it.');
+      dispatch(fetchHelpdeskDocuments({ 
+        entity_type: entityType, 
+        entity_id: item.id 
+      }));
     } catch (err) {
-        toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
+      toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
     }
-};
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1437,7 +1460,7 @@ const handleSendForApproval = async (docId: string) => {
           {/* Custom Content */}
           <div className="mb-6">{renderContent(item)}</div>
 
-          {/* ─── Documents Section ─────────────────────────────────────────────── */}
+          {/* ─── Documents Section ──────────────────────────────────────── */}
           <div className="mt-6 border-t border-stone-200 pt-6">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
@@ -2962,7 +2985,6 @@ function ProtocolTab() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterVenue, setFilterVenue] = useState<string>('');
 
-  // Get unique venues for filter dropdown
   const uniqueVenues = useMemo(() => {
     const venues = new Set<string>();
     data.forEach(item => {
@@ -2971,7 +2993,6 @@ function ProtocolTab() {
     return Array.from(venues).sort();
   }, [data]);
 
-  // Filter data by search term and venue
   const filteredData = useMemo(() => {
     let filtered = data;
     
@@ -3035,7 +3056,6 @@ function ProtocolTab() {
           </div>
         }
       >
-        {/* Filter Bar */}
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <div className="flex-1 min-w-[200px]">
             <input
@@ -3155,7 +3175,6 @@ function ProtocolTab() {
           renderContent={(item) => (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
-                {/* Venue field */}
                 <div className="col-span-2">
                   <span className="text-stone-500">Venue / Location:</span>
                   <p className="font-medium flex items-center gap-2">
@@ -3197,7 +3216,6 @@ function ProtocolTab() {
                 </div>
               </div>
 
-              {/* DSA Details Table */}
               {item.dsa_required && item.dsa_details && item.dsa_details.length > 0 && (
                 <div className="mt-4 border-t border-stone-200 pt-4">
                   <span className="text-stone-500 block mb-3 font-semibold">DSA Details:</span>
@@ -3240,7 +3258,6 @@ function ProtocolTab() {
                 </div>
               )}
 
-              {/* Show message when DSA is required but no details */}
               {item.dsa_required && (!item.dsa_details || item.dsa_details.length === 0) && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center">
                   <p className="text-sm text-amber-700">
@@ -3249,7 +3266,6 @@ function ProtocolTab() {
                 </div>
               )}
 
-              {/* Show message when DSA is not required */}
               {!item.dsa_required && (
                 <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50 p-4 text-center">
                   <p className="text-sm text-stone-500">
@@ -3296,7 +3312,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
   const [showLinkPicker, setShowLinkPicker] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Get all utility IDs
   const utilityIds = utilities.map(u => u.id);
 
   const docs = allDocs.filter(d => 
@@ -3305,7 +3320,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
     utilityIds.includes(d.entity_id)
   );
 
-  // Fetch documents for each utility
   useEffect(() => {
     utilityIds.forEach(id => {
       dispatch(fetchHelpdeskDocuments({ 
@@ -3351,7 +3365,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
       return;
     }
 
-    // Attach to the first utility (or you could let user choose which one)
     const targetUtilityId = utilityIds[0];
     if (!targetUtilityId) {
       toast.error('No utility record found to attach this document to.');
@@ -3372,7 +3385,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
         })
       ).unwrap();
       toast.success('Document attached successfully.');
-      // Refresh documents for all utilities
       utilityIds.forEach(id => {
         dispatch(fetchHelpdeskDocuments({ 
           entity_type: 'utility_memo', 
@@ -3414,23 +3426,11 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
 
   const handleSendForApproval = async (docId: string) => {
     try {
-      // Step 1: Approve internally
-      const approvedDoc = await dispatch(internalApproveDocument({
+      await dispatch(submitForApproval({ 
         id: docId,
-        action: 'approve',
-        comments: `Document approved for ${judgeName}.`,
-        generate_e_stamp: true,
+        comments: `Submitted for approval for ${judgeName}.`,
       })).unwrap();
-
-      // Step 2: Send back to requester
-      await dispatch(sendBackToRequester({
-        id: approvedDoc.id,
-        final_status: 'approved',
-        comments: 'Document approved and sent back to requester.',
-        notify_requester: true,
-      })).unwrap();
-
-      toast.success('Document approved and sent back to requester.');
+      toast.success('Document submitted for approval. Super Admin will review it.');
       utilityIds.forEach(id => {
         dispatch(fetchHelpdeskDocuments({ 
           entity_type: 'utility_memo', 
@@ -3438,7 +3438,7 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
         }));
       });
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to process document approval.');
+      toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
     }
   };
 
@@ -3465,7 +3465,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
         </div>
 
         <div className="max-h-[65vh] overflow-y-auto p-6">
-          {/* Utility Items */}
           {totalItems === 0 ? (
             <EmptyState message={`No utility records found for ${judgeName}.`} />
           ) : (
@@ -3525,7 +3524,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
             </div>
           )}
 
-          {/* ─── Documents Section ──────────────────────────────────────── */}
           <div className="border-t border-stone-200 pt-6">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
@@ -3695,11 +3693,10 @@ const Helpdesk: React.FC = () => {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedJudgeForDetail, setSelectedJudgeForDetail] = useState<string | null>(null);
 
-  // ─── Consolidated Memo State ───────────────────────────────────────────────
   const [consolidatedMemoOpen, setConsolidatedMemoOpen] = useState(false);
   const [consolidatedEntityId, setConsolidatedEntityId] = useState<string>('');
 
-  const utilities = useAppSelector(selectAllUtilities);
+  const utilities = useAppSelector(selectAllUtilitiesFromSlice);
 
   const handleViewJudge = (judgeName: string) => {
     setSelectedJudgeForDetail(judgeName);
@@ -3725,9 +3722,7 @@ const Helpdesk: React.FC = () => {
     setEditingUtility(null);
   };
 
-  // ─── Consolidated Memo Handler ─────────────────────────────────────────────
   const handleOpenConsolidatedMemo = () => {
-    // Generate a monthly entity ID (stable for the current month)
     const entityId = getConsolidatedMemoEntityId('all');
     setConsolidatedEntityId(entityId);
     setConsolidatedMemoOpen(true);
@@ -3852,7 +3847,6 @@ const Helpdesk: React.FC = () => {
         editingUtility={editingUtility}
       />
 
-      {/* ─── Consolidated Memo Modal ───────────────────────────────────────── */}
       <UtilitiesMemoModal
         isOpen={consolidatedMemoOpen}
         onClose={() => {
@@ -3864,7 +3858,6 @@ const Helpdesk: React.FC = () => {
         entityIdOverride={consolidatedEntityId}
         onMemoGenerated={(docId) => {
           console.log(`Consolidated memo saved with ID: ${docId}`);
-          // Optionally show a success toast or refresh the document list
           toast.success('Consolidated memo generated successfully.');
         }}
       />

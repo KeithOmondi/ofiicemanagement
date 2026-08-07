@@ -1,12 +1,11 @@
-// src/features/helpdesk/SuperAdminHelpdesk.tsx
+// src/features/helpdesk/SuperAdminHelpdesk.tsx - UPDATED with utilitiesSlice
 
-import React, { useState, useEffect, useRef, type ChangeEvent } from 'react';
+import React, { useState, useEffect, useRef, type ChangeEvent, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   // Actions
   fetchHelpDeskStats,
   fetchHelpDeskAudit,
-  fetchUtilities,
   fetchClubMemberships,
   fetchCircuits,
   fetchOtherPayments,
@@ -27,7 +26,6 @@ import {
   updateGeneralRequestStatus,
   updateVisaStatus,
   updateProtocolStatus,
-  deleteUtility,
   deleteClubMembership,
   deleteCircuit,
   deleteOtherPayment,
@@ -38,10 +36,8 @@ import {
   deleteGeneralRequest,
   deleteVisaRequest,
   deleteProtocolEvent,
-  updateUtilityItem,
-  // Selectors
+  // Selectors from helpdeskSlice
   selectHelpDeskStats,
-  selectAllUtilities,
   selectAllClubMemberships,
   selectAllCircuits,
   selectAllOtherPayments,
@@ -70,11 +66,22 @@ import {
   type OtherPayment,
   type ServiceWeek,
   type ClubMembership,
-  type JudgeUtility,
   type UtilityStatus,
+  type UtilityItem,
 } from '../../store/slices/helpdeskSlice';
 
-// ─── Helpdesk Documents imports ───────────────────────────────────────────────
+// ─── IMPORT FROM UTILITIES SLICE ──────────────────────────────────────────
+import {
+  fetchUtilities,
+  deleteUtility,
+  updateUtilityItem,
+  selectAllUtilities as selectAllUtilitiesFromSlice,
+  selectUtilitiesLoading,
+  selectUtilitiesMutating,
+  type JudgeUtility,
+} from '../../store/slices/utilitiesSlice';
+
+// ─── Helpdesk Documents imports ───────────────────────────────────────────
 import {
   fetchHelpdeskDocuments,
   uploadHelpdeskDocument,
@@ -139,6 +146,7 @@ import {
   User,
   RefreshCw,
   Check,
+  Info,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
 import UtilitiesModal, { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
@@ -3208,7 +3216,7 @@ function ClubTab() {
   );
 }
 
-// ─── Utilities Tab ───────────────────────────────────────────────────────────
+// ─── Utilities Tab (UPDATED to use utilitiesSlice) ──────────────────────────
 
 function UtilitiesTab({
   onViewJudge,
@@ -3216,9 +3224,11 @@ function UtilitiesTab({
   onViewJudge?: (judgeName: string) => void;
 }) {
   const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllUtilities);
-  const loading = useAppSelector((state) => state.helpdesk.loading.utilities);
-  const mutating = useAppSelector(selectHelpDeskMutating);
+  
+  // ─── Use selectors from utilities slice ──────────────────────────────
+  const data = useAppSelector(selectAllUtilitiesFromSlice);
+  const loading = useAppSelector(selectUtilitiesLoading);
+  const mutating = useAppSelector(selectUtilitiesMutating);
 
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState<JudgeUtility | null>(null);
@@ -3271,13 +3281,45 @@ function UtilitiesTab({
     dispatch(fetchUtilities({}));
   };
 
+  // ─── Flatten data for table ──────────────────────────────────────────────
+  const flattenedData = useMemo(() => {
+    const rows: Array<{
+      judgeId: string;
+      judgeName: string;
+      pjNumber: string | null;
+      itemId: string;
+      item: UtilityItem;
+      isFirstRow: boolean;
+      rowSpan: number;
+    }> = [];
+
+    data.forEach((utility) => {
+      const items = utility.items.length > 0 ? utility.items : [];
+      const rowSpan = items.length || 1;
+
+      items.forEach((item, index) => {
+        rows.push({
+          judgeId: utility.id,
+          judgeName: utility.judge_name,
+          pjNumber: utility.pj_number,
+          itemId: item.id,
+          item: item,
+          isFirstRow: index === 0,
+          rowSpan: rowSpan,
+        });
+      });
+    });
+
+    return rows;
+  }, [data]);
+
   return (
     <>
       <Panel
         title="Judge Utilities"
         icon={<Wallet className="h-4 w-4" />}
         action={
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <GhostButton icon={<FileSpreadsheet className="h-3.5 w-3.5" />}>Export</GhostButton>
             <GoldOutlineButton icon={<FileText className="h-3.5 w-3.5" />} onClick={() => setShowMemoModal(true)}>
               Generate Memo
@@ -3288,53 +3330,164 @@ function UtilitiesTab({
           </div>
         }
       >
-        <TableWithActions
-          data={data}
-          loading={loading}
-          columns={[
-            { key: 'judge_name', label: 'Judge' },
-            { key: 'requisition', label: 'Requisition #' },
-            { key: 'utility_type', label: 'Type' },
-            { key: 'amount', label: 'Amount', align: 'right' },
-            { key: 'period', label: 'Period' },
-            { key: 'status', label: 'Status', align: 'center' },
-          ]}
-          renderRow={(utility: JudgeUtility) => {
-            const firstItem = utility.items?.[0];
-            return (
-              <>
-                <td className="px-3 py-2 font-medium text-stone-800">{utility.judge_name}</td>
-                <td className="px-3 py-2 text-stone-600">
-                  {firstItem?.requisition_number || '—'}
-                </td>
-                <td className="px-3 py-2 text-stone-600">
-                  {firstItem?.utility_type || '—'}
-                </td>
-                <td className="px-3 py-2 text-right text-stone-600">
-                  {firstItem ? formatCurrency(firstItem.amount) : '—'}
-                </td>
-                <td className="px-3 py-2 text-stone-600">
-                  {firstItem?.period || '—'}
-                </td>
-                <td className="px-3 py-2 text-center">
-                  {firstItem ? (
-                    <UtilityStatusDropdown
-                      status={firstItem.status}
-                      onStatusChange={(s) => handleStatusChange(utility.id, firstItem.id, s)}
-                      disabled={mutating}
-                    />
-                  ) : (
-                    <span className="text-xs text-stone-400">No items</span>
-                  )}
-                </td>
-              </>
-            );
-          }}
-          onEdit={handleEdit}
-          onDelete={(id) => setDeleteTarget(id)}
-          mutating={mutating}
-          onView={handleView}
-        />
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c]" />
+          </div>
+        ) : flattenedData.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12">
+            <Info className="h-8 w-8 text-stone-300 mb-2" />
+            <p className="text-sm font-medium text-stone-600">No utility records found</p>
+            <p className="text-xs text-stone-400">Click 'Add Utility' to create a new entry.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-stone-50/80 border-b border-stone-200">
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    Judge
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    PJ Number
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    Type
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    Requisition #
+                  </th>
+                  <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    Amount (KES)
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    Period
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    Description
+                  </th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    Status
+                  </th>
+                  <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-stone-500">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {flattenedData.map((row) => (
+                  <tr key={row.itemId} className="hover:bg-amber-50/30 transition-colors duration-150">
+                    {row.isFirstRow && (
+                      <>
+                        <td
+                          rowSpan={row.rowSpan}
+                          className="px-3 py-2.5 align-top border-r border-stone-100 bg-stone-50/30"
+                        >
+                          <button
+                            onClick={() => {
+                              const utility = data.find((u) => u.id === row.judgeId);
+                              if (utility) handleView(utility);
+                            }}
+                            className="text-sm font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left transition-colors"
+                          >
+                            {row.judgeName}
+                          </button>
+                          <span className="block text-[10px] text-stone-400 mt-0.5">
+                            {row.rowSpan} item{row.rowSpan !== 1 ? 's' : ''}
+                          </span>
+                        </td>
+                        <td
+                          rowSpan={row.rowSpan}
+                          className="px-3 py-2.5 align-top border-r border-stone-100 bg-stone-50/30"
+                        >
+                          <span className="font-mono text-sm text-stone-600">
+                            {row.pjNumber || (
+                              <span className="text-stone-300 italic text-xs">Not assigned</span>
+                            )}
+                          </span>
+                        </td>
+                      </>
+                    )}
+
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      <UtilityTypeBadge type={row.item.utility_type} />
+                    </td>
+
+                    <td className="px-3 py-2.5 font-mono text-xs text-stone-600 whitespace-nowrap">
+                      {row.item.requisition_number ? (
+                        <span className="bg-stone-100 px-1.5 py-0.5 rounded text-stone-700">
+                          {row.item.requisition_number}
+                        </span>
+                      ) : (
+                        <span className="text-stone-300">—</span>
+                      )}
+                    </td>
+
+                    <td className="px-3 py-2.5 text-right font-medium text-stone-800 whitespace-nowrap">
+                      {formatCurrency(row.item.amount)}
+                    </td>
+
+                    <td className="px-3 py-2.5 text-stone-600 whitespace-nowrap">
+                      {row.item.period}
+                    </td>
+
+                    <td
+                      className="px-3 py-2.5 text-stone-500 max-w-[150px] truncate"
+                      title={row.item.description || ""}
+                    >
+                      {row.item.description || <span className="text-stone-300">—</span>}
+                    </td>
+
+                    <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                      <UtilityStatusDropdown
+                        status={row.item.status}
+                        onStatusChange={(s) =>
+                          handleStatusChange(row.judgeId, row.itemId, s)
+                        }
+                        disabled={mutating}
+                      />
+                    </td>
+
+                    <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => {
+                            const utility = data.find((u) => u.id === row.judgeId);
+                            if (utility) handleView(utility);
+                          }}
+                          disabled={mutating}
+                          className="rounded-lg p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-100 transition-all duration-150 disabled:opacity-40"
+                          title="View Details"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            const utility = data.find((u) => u.id === row.judgeId);
+                            if (utility) handleEdit(utility);
+                          }}
+                          disabled={mutating}
+                          className="rounded-lg p-1.5 text-stone-500 hover:text-blue-600 hover:bg-blue-50 transition-all duration-150 disabled:opacity-40"
+                          title="Edit"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget(row.judgeId)}
+                          disabled={mutating}
+                          className="rounded-lg p-1.5 text-stone-500 hover:text-red-600 hover:bg-red-50 transition-all duration-150 disabled:opacity-40"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Panel>
 
       <UtilitiesModal
@@ -3361,6 +3514,31 @@ function UtilitiesTab({
         onMemoGenerated={handleMemoGenerated}
       />
     </>
+  );
+}
+
+// ─── Utility Type Badge ──────────────────────────────────────────────────────
+
+function UtilityTypeBadge({ type }: { type: string }) {
+  const normalized = type.toLowerCase();
+  
+  let style = "bg-stone-100 text-stone-700 border-stone-200";
+  if (normalized.includes("internet") || normalized.includes("wifi")) {
+    style = "bg-blue-50 text-blue-700 border-blue-200/60";
+  } else if (normalized.includes("airtime") || normalized.includes("phone")) {
+    style = "bg-purple-50 text-purple-700 border-purple-200/60";
+  } else if (normalized.includes("electricity") || normalized.includes("power")) {
+    style = "bg-amber-50 text-amber-700 border-amber-200/60";
+  } else if (normalized.includes("water")) {
+    style = "bg-cyan-50 text-cyan-700 border-cyan-200/60";
+  } else if (normalized.includes("fuel")) {
+    style = "bg-emerald-50 text-emerald-700 border-emerald-200/60";
+  }
+
+  return (
+    <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border ${style}`}>
+      {type}
+    </span>
   );
 }
 
@@ -3593,7 +3771,8 @@ const SuperAdminHelpdesk: React.FC = () => {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedJudgeForDetail, setSelectedJudgeForDetail] = useState<string | null>(null);
 
-  const utilities = useAppSelector(selectAllUtilities);
+  // ─── Use utilities from utilities slice ──────────────────────────────────
+  const utilities = useAppSelector(selectAllUtilitiesFromSlice);
 
   const handleViewJudge = (judgeName: string) => {
     setSelectedJudgeForDetail(judgeName);
