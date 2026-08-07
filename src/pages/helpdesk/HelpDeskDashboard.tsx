@@ -1,10 +1,10 @@
-// src/features/helpdesk/components/HelpDeskDashboard.tsx
+// src/features/helpdesk/components/HelpDeskDashboard.tsx - UPDATED with utilitiesSlice
+
 import React, { useEffect, useState, useCallback } from "react";
 import { useAppDispatch, useAppSelector } from "../../store/hook";
 import {
   fetchHelpDeskStats,
   fetchHelpDeskAudit,
-  fetchUtilities,
   fetchClubMemberships,
   fetchCircuits,
   fetchOtherPayments,
@@ -19,7 +19,6 @@ import {
   selectHelpDeskAudit,
   selectHelpDeskError,
   selectHelpDeskSuccess,
-  selectAllUtilities,
   selectAllClubMemberships,
   selectAllCircuits,
   selectAllOtherPayments,
@@ -31,6 +30,14 @@ import {
   type HelpDeskTab,
   type Status,
 } from "../../store/slices/helpdeskSlice";
+
+// ─── IMPORT FROM UTILITIES SLICE ──────────────────────────────────────────
+import {
+  fetchUtilities,
+  selectAllUtilities as selectAllUtilitiesFromSlice,
+  //selectUtilitiesLoading,
+  type JudgeUtility,
+} from "../../store/slices/utilitiesSlice";
 
 import {
   fetchMyMarked,
@@ -62,7 +69,6 @@ import {
 
 // ─── Import Modals ──────────────────────────────────────────────────────────
 import { UtilitiesModal } from "../../components/modals/UtilitiesModal";
-import type { JudgeUtility } from "../../store/slices/helpdeskSlice";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -260,8 +266,11 @@ const HelpDeskDashboard: React.FC = () => {
   const error = useAppSelector(selectHelpDeskError);
   const success = useAppSelector(selectHelpDeskSuccess);
 
-  // Data counts
-  const utilities = useAppSelector(selectAllUtilities);
+  // ─── Data from utilities slice ──────────────────────────────────────────
+  const utilities = useAppSelector(selectAllUtilitiesFromSlice);
+  //const utilitiesLoading = useAppSelector(selectUtilitiesLoading);
+
+  // Other data from helpdesk slice
   const clubMemberships = useAppSelector(selectAllClubMemberships);
   const circuits = useAppSelector(selectAllCircuits);
   const otherPayments = useAppSelector(selectAllOtherPayments);
@@ -272,8 +281,6 @@ const HelpDeskDashboard: React.FC = () => {
   // ─── Modal State ──────────────────────────────────────────────────────────
   const [isUtilitiesModalOpen, setIsUtilitiesModalOpen] = useState(false);
   const [editingUtility, setEditingUtility] = useState<JudgeUtility | null>(null);
-
- 
 
   // ─── Data Loading ────────────────────────────────────────────────────────
 
@@ -314,8 +321,6 @@ const HelpDeskDashboard: React.FC = () => {
   }, [success, dispatch]);
 
   // ─── Handlers ────────────────────────────────────────────────────────────
-
- 
 
   const navigateToTab = (tab: HelpDeskTab) => {
     dispatch(setActiveTab(tab));
@@ -389,8 +394,6 @@ const HelpDeskDashboard: React.FC = () => {
   return (
     <>
       <div className="min-h-screen bg-gray-50">
-        
-
         {/* ─── Main Content ────────────────────────────────────────────────── */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           {/* Error/Success Alerts */}
