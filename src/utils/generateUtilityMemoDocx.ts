@@ -101,54 +101,14 @@ export async function generateUtilityMemoDocx(data: UtilityMemoData): Promise<Bl
   let totalRow: TableRow;
 
   if (isFuel) {
-    // ─── Fuel‑only table ──────────────────────────────────────────────
-    headerRow = new TableRow({
-      tableHeader: true,
-      children: [
-        headerCell('S/NO.', 10, AlignmentType.CENTER),
-        headerCell('NAMES', 50),
-        headerCell('FUEL', 40, AlignmentType.RIGHT),
-      ],
-    });
-
-    dataRows = data.rows.map(
-      (row, index) =>
-        new TableRow({
-          children: [
-            dataCell(String(index + 1), 10, AlignmentType.CENTER),
-            dataCell(row.judge_name, 50),
-            dataCell(formatAmount(row.total), 40, AlignmentType.RIGHT, true),
-          ],
-        }),
-    );
-
-    totalRow = new TableRow({
-      children: [
-        new TableCell({
-          width: { size: 60, type: WidthType.PERCENTAGE },
-          columnSpan: 2,
-          borders: cellBorders,
-          children: [
-            new Paragraph({
-              alignment: AlignmentType.RIGHT,
-              children: [new TextRun({ text: 'GRAND TOTAL', bold: true, size: 20 })],
-            }),
-          ],
-        }),
-        dataCell(formatAmount(data.grandTotal), 40, AlignmentType.RIGHT, true),
-      ],
-    });
-  } else {
-    // ─── All‑utilities table ──────────────────────────────────────────
+    // ─── Fuel‑only table with PJ Number ──────────────────────────────────
     headerRow = new TableRow({
       tableHeader: true,
       children: [
         headerCell('S/NO.', 8, AlignmentType.CENTER),
-        headerCell('NAMES', 32),
-        headerCell('KPLC', 15, AlignmentType.RIGHT),
-        headerCell('WATER', 15, AlignmentType.RIGHT),
-        headerCell('WIFI', 15, AlignmentType.RIGHT),
-        headerCell('TOTAL', 15, AlignmentType.RIGHT),
+        headerCell('NAMES', 35),
+        headerCell('PJ NO.', 15, AlignmentType.CENTER),  // ← ADD PJ NUMBER COLUMN
+        headerCell('FUEL', 30, AlignmentType.RIGHT),
       ],
     });
 
@@ -157,11 +117,9 @@ export async function generateUtilityMemoDocx(data: UtilityMemoData): Promise<Bl
         new TableRow({
           children: [
             dataCell(String(index + 1), 8, AlignmentType.CENTER),
-            dataCell(row.judge_name, 32),
-            dataCell(formatAmount(row.kplc), 15, AlignmentType.RIGHT),
-            dataCell(formatAmount(row.water), 15, AlignmentType.RIGHT),
-            dataCell(formatAmount(row.wifi), 15, AlignmentType.RIGHT),
-            dataCell(formatAmount(row.total), 15, AlignmentType.RIGHT, true),
+            dataCell(row.judge_name, 35),
+            dataCell(row.pj_number || '', 15, AlignmentType.CENTER),  // ← ADD PJ NUMBER
+            dataCell(formatAmount(row.total), 30, AlignmentType.RIGHT, true),
           ],
         }),
     );
@@ -169,8 +127,8 @@ export async function generateUtilityMemoDocx(data: UtilityMemoData): Promise<Bl
     totalRow = new TableRow({
       children: [
         new TableCell({
-          width: { size: 40, type: WidthType.PERCENTAGE },
-          columnSpan: 2,
+          width: { size: 58, type: WidthType.PERCENTAGE },
+          columnSpan: 3,
           borders: cellBorders,
           children: [
             new Paragraph({
@@ -179,10 +137,56 @@ export async function generateUtilityMemoDocx(data: UtilityMemoData): Promise<Bl
             }),
           ],
         }),
-        dataCell(formatAmount(data.grandKplc), 15, AlignmentType.RIGHT, true),
-        dataCell(formatAmount(data.grandWater), 15, AlignmentType.RIGHT, true),
-        dataCell(formatAmount(data.grandWifi), 15, AlignmentType.RIGHT, true),
-        dataCell(formatAmount(data.grandTotal), 15, AlignmentType.RIGHT, true),
+        dataCell(formatAmount(data.grandTotal), 30, AlignmentType.RIGHT, true),
+      ],
+    });
+  } else {
+    // ─── All‑utilities table with PJ Number ──────────────────────────────
+    headerRow = new TableRow({
+      tableHeader: true,
+      children: [
+        headerCell('S/NO.', 7, AlignmentType.CENTER),
+        headerCell('NAMES', 25),
+        headerCell('PJ NO.', 12, AlignmentType.CENTER),  // ← ADD PJ NUMBER COLUMN
+        headerCell('KPLC', 14, AlignmentType.RIGHT),
+        headerCell('WATER', 14, AlignmentType.RIGHT),
+        headerCell('WIFI', 14, AlignmentType.RIGHT),
+        headerCell('TOTAL', 14, AlignmentType.RIGHT),
+      ],
+    });
+
+    dataRows = data.rows.map(
+      (row, index) =>
+        new TableRow({
+          children: [
+            dataCell(String(index + 1), 7, AlignmentType.CENTER),
+            dataCell(row.judge_name, 25),
+            dataCell(row.pj_number || '', 12, AlignmentType.CENTER),  // ← ADD PJ NUMBER
+            dataCell(formatAmount(row.kplc), 14, AlignmentType.RIGHT),
+            dataCell(formatAmount(row.water), 14, AlignmentType.RIGHT),
+            dataCell(formatAmount(row.wifi), 14, AlignmentType.RIGHT),
+            dataCell(formatAmount(row.total), 14, AlignmentType.RIGHT, true),
+          ],
+        }),
+    );
+
+    totalRow = new TableRow({
+      children: [
+        new TableCell({
+          width: { size: 44, type: WidthType.PERCENTAGE },
+          columnSpan: 3,
+          borders: cellBorders,
+          children: [
+            new Paragraph({
+              alignment: AlignmentType.RIGHT,
+              children: [new TextRun({ text: 'GRAND TOTAL', bold: true, size: 20 })],
+            }),
+          ],
+        }),
+        dataCell(formatAmount(data.grandKplc), 14, AlignmentType.RIGHT, true),
+        dataCell(formatAmount(data.grandWater), 14, AlignmentType.RIGHT, true),
+        dataCell(formatAmount(data.grandWifi), 14, AlignmentType.RIGHT, true),
+        dataCell(formatAmount(data.grandTotal), 14, AlignmentType.RIGHT, true),
       ],
     });
   }

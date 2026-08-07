@@ -180,34 +180,37 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
   };
 
   if (isFuel) {
-    // ─── Fuel‑only table ──────────────────────────────────────────────
+    // ─── Fuel‑only table with PJ Number ──────────────────────────────────
     const rows = data.rows.map((row, index) => [
       String(index + 1),
       row.judge_name,
+      row.pj_number || '',  // ← ADD PJ NUMBER
       formatAmount(row.total),
     ]);
 
     autoTable(doc, {
       startY: y,
       margin: { left: marginX, right: marginX, bottom: footerReserveHeight },
-      head: [['S/NO.', 'NAMES', 'FUEL']],
+      head: [['S/NO.', 'NAMES', 'PJ NO.', 'FUEL']],
       body: rows,
       foot: [[
-        { content: 'GRAND TOTAL', colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: 'GRAND TOTAL', colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
         { content: formatAmount(data.grandTotal), styles: { halign: 'right', fontStyle: 'bold' } },
       ]],
       ...sharedTableStyle,
       columnStyles: {
-        0: { halign: 'center', cellWidth: 45 },
-        1: { cellWidth: 220 },
-        2: { halign: 'right', fontStyle: 'bold' },
+        0: { halign: 'center', cellWidth: 40 },
+        1: { cellWidth: 170 },
+        2: { cellWidth: 80, halign: 'center' },  // PJ Number column
+        3: { halign: 'right', fontStyle: 'bold' },
       },
     });
   } else {
-    // ─── All‑utilities table ──────────────────────────────────────────
+    // ─── All‑utilities table with PJ Number ──────────────────────────────
     const rows = data.rows.map((row, index) => [
       String(index + 1),
       row.judge_name,
+      row.pj_number || '',  // ← ADD PJ NUMBER
       formatAmount(row.kplc),
       formatAmount(row.water),
       formatAmount(row.wifi),
@@ -217,10 +220,10 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
     autoTable(doc, {
       startY: y,
       margin: { left: marginX, right: marginX, bottom: footerReserveHeight },
-      head: [['S/NO.', 'NAMES', 'KPLC', 'WATER', 'WIFI', 'TOTAL']],
+      head: [['S/NO.', 'NAMES', 'PJ NO.', 'KPLC', 'WATER', 'WIFI', 'TOTAL']],
       body: rows,
       foot: [[
-        { content: 'GRAND TOTAL', colSpan: 2, styles: { halign: 'right', fontStyle: 'bold' } },
+        { content: 'GRAND TOTAL', colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
         { content: formatAmount(data.grandKplc), styles: { halign: 'right', fontStyle: 'bold' } },
         { content: formatAmount(data.grandWater), styles: { halign: 'right', fontStyle: 'bold' } },
         { content: formatAmount(data.grandWifi), styles: { halign: 'right', fontStyle: 'bold' } },
@@ -228,12 +231,13 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
       ]],
       ...sharedTableStyle,
       columnStyles: {
-        0: { halign: 'center', cellWidth: 40 },
-        1: { cellWidth: 170 },
-        2: { halign: 'right' },
+        0: { halign: 'center', cellWidth: 35 },
+        1: { cellWidth: 150 },
+        2: { cellWidth: 70, halign: 'center' },  // PJ Number column
         3: { halign: 'right' },
         4: { halign: 'right' },
-        5: { halign: 'right', fontStyle: 'bold' },
+        5: { halign: 'right' },
+        6: { halign: 'right', fontStyle: 'bold' },
       },
     });
   }

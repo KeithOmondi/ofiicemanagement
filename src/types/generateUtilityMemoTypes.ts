@@ -2,6 +2,7 @@
 
 export interface UtilityMemoRow {
   judge_name: string;
+  pj_number?: string | null;  // ← ADD THIS
   kplc: number;
   water: number;
   wifi: number;

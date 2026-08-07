@@ -32,6 +32,7 @@ import dashboardReducer from './slices/dashboardSlice';
 import projectsReducer from "./slices/projectsSlice";
 import standaloneReducer from "./slices/standaloneSlice"
 import conferenceReducer from "./slices/conferenceSlice"
+import utilitiesReducer from "./slices/utilitiesSlice"
 
 export const store = configureStore({
   reducer: {
@@ -65,7 +66,8 @@ export const store = configureStore({
     dashboard: dashboardReducer,
     projects: projectsReducer,
     standalone: standaloneReducer,
-    conference: conferenceReducer
+    conference: conferenceReducer,
+    utilities: utilitiesReducer
   },
 });
 

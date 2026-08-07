@@ -1,12 +1,11 @@
-// src/pages/Helpdesk.tsx
+// src/pages/Helpdesk.tsx - COMPLETE UPDATED VERSION
 
-import React, { useState, useEffect, useRef, type ChangeEvent, useMemo } from 'react';
+import React, { useState, useEffect, useRef, type ChangeEvent, useMemo, useCallback } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
-  // Actions
+  // Actions from helpdeskSlice (keep all except utilities)
   fetchHelpDeskStats,
   fetchHelpDeskAudit,
-  fetchUtilities,
   fetchClubMemberships,
   fetchCircuits,
   fetchOtherPayments,
@@ -27,7 +26,6 @@ import {
   updateGeneralRequestStatus,
   updateVisaStatus,
   updateProtocolStatus,
-  deleteUtility,
   deleteClubMembership,
   deleteCircuit,
   deleteOtherPayment,
@@ -38,10 +36,8 @@ import {
   deleteGeneralRequest,
   deleteVisaRequest,
   deleteProtocolEvent,
-  updateUtilityItem,
-  // Selectors
+  // Selectors from helpdeskSlice
   selectHelpDeskStats,
-  selectAllUtilities,
   selectAllClubMemberships,
   selectAllCircuits,
   selectAllOtherPayments,
@@ -70,14 +66,24 @@ import {
   type OtherPayment,
   type ServiceWeek,
   type ClubMembership,
-  type JudgeUtility,
-  type UtilityStatus,
   type RequestType,
   type RemarkType,
-  type UtilityItem,
 } from '../../store/slices/helpdeskSlice';
 
-// ─── Helpdesk Documents imports ───────────────────────────────────────────────
+// ─── IMPORT FROM UTILITIES SLICE ──────────────────────────────────────────
+import {
+  fetchUtilities,
+  deleteUtility,
+  selectAllUtilities as selectAllUtilitiesFromSlice,
+  selectUtilitiesLoading,
+  selectUtilitiesMutating,
+  type JudgeUtility,
+  type UtilityItem,
+  //type UtilityFilters,
+  //type UpdateUtilityItemInput,
+} from '../../store/slices/utilitiesSlice';
+
+// ─── Helpdesk Documents imports ───────────────────────────────────────────
 import {
   fetchHelpdeskDocuments,
   uploadHelpdeskDocument,
@@ -101,7 +107,7 @@ import {
   type StampType,
 } from '../../store/slices/helpdeskDocumentsSlice';
 
-// ─── Consolidated Memo imports ───────────────────────────────────────────────
+// ─── Consolidated Memo imports ───────────────────────────────────────────
 import UtilitiesModal, { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
 import {
   getConsolidatedMemoEntityId,
@@ -150,7 +156,7 @@ import { RequestModal } from '../../components/modals/RequestModal';
 import ClubModal from '../../components/Layout/ClubModal';
 import { toast } from 'react-hot-toast';
 
-// ─── Constants for request types ────────────────────────────────────────────
+// ─── Constants for request types ──────────────────────────────────────────
 const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
   Driver: 'Driver',
   Bodyguard: 'Bodyguard',
@@ -176,7 +182,7 @@ const REMARK_TYPE_LABELS: Record<RemarkType, string> = {
   Release: 'Release',
 };
 
-// ─── Two-Step Approval Constants ────────────────────────────────────────────
+// ─── Two-Step Approval Constants ──────────────────────────────────────────
 
 const INTERNAL_APPROVAL_STATUS_LABELS: Record<InternalApprovalStatus, string> = {
   pending: 'Pending Review',
@@ -212,7 +218,7 @@ const REQUESTER_VISIBLE_STATUS_COLORS: Record<RequesterVisibleStatus, string> = 
   in_revision: 'bg-blue-50 text-blue-700 border-blue-200',
 };
 
-// ─── Stamp Constants ──────────────────────────────────────────────────────────
+// ─── Stamp Constants ──────────────────────────────────────────────────────
 
 const STAMP_TYPE_LABELS: Record<StampType, string> = {
   approved: 'Approved',
@@ -226,7 +232,7 @@ const STAMP_TYPE_COLORS: Record<StampType, string> = {
   official: 'bg-purple-50 text-purple-700 border-purple-200',
 };
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────
 
 interface TabDef {
   key: HelpDeskTab | 'overview';
@@ -234,7 +240,7 @@ interface TabDef {
   icon: React.ReactNode;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────
 
 const formatDate = (dateString: string | null | undefined): string => {
   if (!dateString) return '—';
@@ -248,7 +254,7 @@ const formatCurrency = (amount: number | null | undefined): string => {
   return `KES ${amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
-// ─── Status Helpers ──────────────────────────────────────────────────────────
+// ─── Status Helpers ──────────────────────────────────────────────────────
 
 const getStatusColor = (status: string): string => {
   const map: Record<string, string> = {
@@ -294,7 +300,7 @@ const getStatusIcon = (status: string): React.ReactNode => {
   }
 };
 
-// ─── Document Status Helpers ─────────────────────────────────────────────────
+// ─── Document Status Helpers ─────────────────────────────────────────────
 
 const getInternalStatusColor = (status: InternalApprovalStatus): string => {
   return INTERNAL_APPROVAL_STATUS_COLORS[status] || 'bg-stone-50 text-stone-600 border-stone-200';
@@ -320,7 +326,7 @@ const getStampTypeLabel = (type: StampType): string => {
   return STAMP_TYPE_LABELS[type] || type;
 };
 
-// ─── Full status options ────────────────────────────────────────────────────
+// ─── Full status options ──────────────────────────────────────────────────
 
 const FULL_STATUS_OPTIONS: Status[] = [
   'Pending',
@@ -334,7 +340,7 @@ const FULL_STATUS_OPTIONS: Status[] = [
 
 const GENERAL_REQUEST_STATUS_OPTIONS: Status[] = ['Active', 'Rejected', 'Resolved'];
 
-// ─── UI Components ────────────────────────────────────────────────────────────
+// ─── UI Components ──────────────────────────────────────────────────────────
 
 function StatCard({
   icon,
@@ -503,7 +509,7 @@ function SuccessBanner() {
   );
 }
 
-// ─── Modal Components ─────────────────────────────────────────────────────────
+// ─── Modal Components ──────────────────────────────────────────────────────
 
 function ConfirmDialog({
   title,
@@ -544,7 +550,7 @@ function ConfirmDialog({
   );
 }
 
-// ─── Status Dropdown ────────────────────────────────────────────────────────────
+// ─── Status Dropdown ──────────────────────────────────────────────────────
 
 function StatusDropdown({
   status,
@@ -576,7 +582,7 @@ function StatusDropdown({
   );
 }
 
-// ─── Reusable Table with Actions ────────────────────────────────────────────
+// ─── Reusable Table with Actions ──────────────────────────────────────────
 
 interface TableWithActionsProps<T> {
   data: T[];
@@ -686,7 +692,7 @@ function TableWithActions<T extends { id: string }>({
   );
 }
 
-// ─── Overview Tab ─────────────────────────────────────────────────────────────
+// ─── Overview Tab ──────────────────────────────────────────────────────────
 
 function OverviewTab() {
   const stats = useAppSelector(selectHelpDeskStats);
@@ -728,7 +734,11 @@ function OverviewTab() {
   );
 }
 
-// ─── Utility Type Badge ──────────────────────────────────────────────────────
+// ─── Utility Type Badge ────────────────────────────────────────────────────
+
+// ─── Utility Type Badge ────────────────────────────────────────────────────
+
+// ─── Utility Type Badge ────────────────────────────────────────────────────
 
 function UtilityTypeBadge({ type }: { type: string }) {
   const normalized = type.toLowerCase();
@@ -753,7 +763,9 @@ function UtilityTypeBadge({ type }: { type: string }) {
   );
 }
 
-// ─── Utilities Tab ───────────────────────────────────────────────────────────
+// ─── Utilities Tab (REDESIGNED - PJ Number in own column) ──────────────
+
+// ─── Utilities Tab (UPDATED - Status from Documents) ──────────────────────
 
 function UtilitiesTab({
   onViewJudge,
@@ -763,9 +775,14 @@ function UtilitiesTab({
   onConsolidatedMemo?: () => void;
 }) {
   const dispatch = useAppDispatch();
-  const data = useAppSelector(selectAllUtilities);
-  const loading = useAppSelector((state) => state.helpdesk.loading.utilities);
-  const mutating = useAppSelector(selectHelpDeskMutating);
+  
+  // ─── Use selectors from utilities slice ──────────────────────────────
+  const data = useAppSelector(selectAllUtilitiesFromSlice);
+  const loading = useAppSelector(selectUtilitiesLoading);
+  const mutating = useAppSelector(selectUtilitiesMutating);
+  
+  // ─── Get documents to check statuses ──────────────────────────────────
+  const allDocuments = useAppSelector(selectAllHelpdeskDocuments);
 
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState<JudgeUtility | null>(null);
@@ -786,22 +803,6 @@ function UtilitiesTab({
     setEditingItem(null);
   };
 
-  const handleStatusChange = async (
-    utilityId: string,
-    itemId: string,
-    status: UtilityStatus
-  ) => {
-    await dispatch(
-      updateUtilityItem({
-        id: utilityId,
-        itemId: itemId,
-        updates: { status },
-      })
-    );
-    await dispatch(fetchUtilities({}));
-    await dispatch(fetchHelpDeskStats());
-  };
-
   const handleDelete = async () => {
     if (!deleteTarget) return;
     await dispatch(deleteUtility(deleteTarget));
@@ -816,39 +817,199 @@ function UtilitiesTab({
     }
   };
 
-  const groupedData = useMemo(() => {
-    const groups: Array<{
+  // ─── Get document status for a utility item ────────────────────────────
+  const getDocumentStatusForItem = useCallback((utilityId: string): {
+    status: DocumentStatus | null;
+    requesterStatus: RequesterVisibleStatus | null;
+    internalStatus: InternalApprovalStatus | null;
+    isSigned: boolean;
+    isStamped: boolean;
+    documentId: string | null;
+  } => {
+    // Find documents linked to this utility
+    const docs = allDocuments.filter(
+      d => d.entity_type === 'utility_memo' && d.entity_id === utilityId
+    );
+    
+    // Get the most recent document (by created_at)
+    const sortedDocs = docs.sort((a, b) => 
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    
+    const latestDoc = sortedDocs[0];
+    
+    if (!latestDoc) {
+      return {
+        status: null,
+        requesterStatus: null,
+        internalStatus: null,
+        isSigned: false,
+        isStamped: false,
+        documentId: null,
+      };
+    }
+    
+    return {
+      status: latestDoc.status,
+      requesterStatus: latestDoc.requester_status,
+      internalStatus: latestDoc.internal_approval_status,
+      isSigned: latestDoc.is_signed,
+      isStamped: latestDoc.is_stamped,
+      documentId: latestDoc.id,
+    };
+  }, [allDocuments]);
+
+  // ─── Determine display status for a utility item ────────────────────────
+  const getDisplayStatus = useCallback((utilityId: string): {
+    label: string;
+    color: string;
+    icon: React.ReactNode;
+    isComplete: boolean;
+  } => {
+    const docStatus = getDocumentStatusForItem(utilityId);
+    
+    // If no document, show as "No Memo"
+    if (!docStatus.status) {
+      return {
+        label: 'No Memo',
+        color: 'bg-stone-100 text-stone-500 border-stone-200',
+        icon: <AlertCircle className="h-3 w-3" />,
+        isComplete: false,
+      };
+    }
+    
+    // Check if signed and stamped - fully complete
+    if (docStatus.isSigned && docStatus.isStamped) {
+      return {
+        label: 'Signed & Stamped ✓',
+        color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+        icon: <CheckCircle className="h-3 w-3" />,
+        isComplete: true,
+      };
+    }
+    
+    // Check if signed only
+    if (docStatus.isSigned) {
+      return {
+        label: 'Signed',
+        color: 'bg-blue-50 text-blue-700 border-blue-200',
+        icon: <CheckCircle className="h-3 w-3" />,
+        isComplete: false,
+      };
+    }
+    
+    // Check requester visible status
+    switch (docStatus.requesterStatus) {
+      case 'approved':
+        return {
+          label: 'Approved ✓',
+          color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+          icon: <CheckCircle className="h-3 w-3" />,
+          isComplete: true,
+        };
+      case 'rejected':
+        return {
+          label: 'Rejected ✗',
+          color: 'bg-red-50 text-red-700 border-red-200',
+          icon: <XCircle className="h-3 w-3" />,
+          isComplete: false,
+        };
+      case 'changes_requested':
+        return {
+          label: 'Changes Required',
+          color: 'bg-orange-50 text-orange-700 border-orange-200',
+          icon: <AlertCircle className="h-3 w-3" />,
+          isComplete: false,
+        };
+      case 'in_revision':
+        return {
+          label: 'In Revision',
+          color: 'bg-blue-50 text-blue-700 border-blue-200',
+          icon: <ClockIcon className="h-3 w-3" />,
+          isComplete: false,
+        };
+      case 'pending_approval':
+      default:
+        return {
+          label: 'Pending Approval',
+          color: 'bg-amber-50 text-amber-700 border-amber-200',
+          icon: <ClockIcon className="h-3 w-3" />,
+          isComplete: false,
+        };
+    }
+  }, [getDocumentStatusForItem]);
+
+  // ─── Flatten data for cleaner table ────────────────────────────────────
+  const flattenedData = useMemo(() => {
+    const rows: Array<{
       judgeId: string;
       judgeName: string;
-      items: Array<{
-        id: string;
-        item: UtilityItem;
-      }>;
+      pjNumber: string | null;
+      itemId: string;
+      item: UtilityItem;
+      isFirstRow: boolean;
+      rowSpan: number;
+      docStatus: ReturnType<typeof getDisplayStatus>;
     }> = [];
 
     data.forEach((utility) => {
-      if (utility.items.length === 0) {
-        groups.push({
+      const items = utility.items.length > 0 ? utility.items : [];
+      const rowSpan = items.length || 1;
+
+      // Get document status for this utility
+      const docStatus = getDisplayStatus(utility.id);
+
+      items.forEach((item, index) => {
+        rows.push({
           judgeId: utility.id,
           judgeName: utility.judge_name,
-          items: [],
+          pjNumber: utility.pj_number,
+          itemId: item.id,
+          item: item,
+          isFirstRow: index === 0,
+          rowSpan: rowSpan,
+          docStatus: docStatus,
         });
-      } else {
-        groups.push({
-          judgeId: utility.id,
-          judgeName: utility.judge_name,
-          items: utility.items.map((item) => ({
-            id: item.id,
-            item: item,
-          })),
-        });
-      }
+      });
     });
 
-    return groups;
-  }, [data]);
+    return rows;
+  }, [data, getDisplayStatus]);
 
-  const totalItems = groupedData.reduce((sum, g) => sum + g.items.length, 0);
+  if (loading) {
+    return (
+      <Panel title="Judge Utilities" icon={<Wallet className="h-4 w-4 text-[#c9a84c]" />}>
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c]" />
+        </div>
+      </Panel>
+    );
+  }
+
+  if (flattenedData.length === 0) {
+    return (
+      <Panel
+        title="Judge Utilities"
+        icon={<Wallet className="h-4 w-4 text-[#c9a84c]" />}
+        action={
+          <div className="flex items-center gap-2 flex-wrap">
+            <GoldOutlineButton
+              icon={<Plus className="h-3.5 w-3.5" />}
+              onClick={handleAdd}
+            >
+              Add Utility
+            </GoldOutlineButton>
+          </div>
+        }
+      >
+        <div className="flex flex-col items-center justify-center py-12">
+          <Info className="h-8 w-8 text-stone-300 mb-2" />
+          <p className="text-sm font-medium text-stone-600">No utility records found</p>
+          <p className="text-xs text-stone-400">Click 'Add Utility' to create a new entry.</p>
+        </div>
+      </Panel>
+    );
+  }
 
   return (
     <>
@@ -877,204 +1038,148 @@ function UtilitiesTab({
           </div>
         }
       >
-        <div className="overflow-x-auto rounded-xl border border-stone-200/80 bg-white shadow-sm">
-          <table className="w-full text-left text-xs border-collapse">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
             <thead>
-              <tr className="bg-stone-50/90 border-b border-stone-200/80">
-                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+              <tr className="bg-stone-50/80 border-b border-stone-200">
+                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
                   Judge
                 </th>
-                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
+                  PJ Number
+                </th>
+                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
                   Type
                 </th>
-                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
                   Requisition #
                 </th>
-                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500 text-right">
+                <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-stone-500">
                   Amount (KES)
                 </th>
-                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
                   Period
                 </th>
-                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
                   Description
                 </th>
-                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
-                  Received
-                </th>
-                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
-                  Fwd DASS
-                </th>
-                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
-                  Paid
-                </th>
-                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500 text-center">
+                <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-stone-500">
                   Status
                 </th>
-                <th className="px-3.5 py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-stone-500">
                   Actions
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {loading ? (
-                <tr>
-                  <td colSpan={11} className="px-3 py-16 text-center">
-                    <div className="flex flex-col items-center justify-center gap-2">
-                      <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c]" />
-                      <span className="text-xs text-stone-400">Loading utility records...</span>
-                    </div>
-                  </td>
-                </tr>
-              ) : groupedData.length === 0 || totalItems === 0 ? (
-                <tr>
-                  <td colSpan={11} className="px-3 py-16 text-center">
-                    <div className="flex flex-col items-center justify-center gap-1">
-                      <Info className="h-5 w-5 text-stone-300" />
-                      <span className="text-sm font-medium text-stone-600">No records found</span>
-                      <span className="text-xs text-stone-400">
-                        Click 'Add Utility' to create a new entry for a judge.
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                groupedData.map((group) => {
-                  const rowCount = group.items.length;
-
-                  return group.items.map((row, itemIndex) => {
-                    const isFirstRow = itemIndex === 0;
-                    const isLastRowInGroup = itemIndex === rowCount - 1;
-
-                    return (
-                      <tr
-                        key={row.id}
-                        className={`hover:bg-amber-50/30 transition-colors duration-150 ${
-                          isLastRowInGroup ? "border-b-2 border-stone-200/60" : ""
-                        }`}
+              {flattenedData.map((row) => (
+                <tr key={row.itemId} className="hover:bg-amber-50/30 transition-colors duration-150">
+                  {row.isFirstRow && (
+                    <>
+                      <td
+                        rowSpan={row.rowSpan}
+                        className="px-3 py-2.5 align-top border-r border-stone-100 bg-stone-50/30"
                       >
-                        {isFirstRow && (
-                          <td
-                            rowSpan={rowCount}
-                            className="px-3.5 py-3 font-semibold text-stone-800 align-top border-r border-stone-200/60 bg-stone-50/30"
-                          >
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => {
-                                  const utility = data.find(
-                                    (u) => u.id === group.judgeId
-                                  );
-                                  if (utility) handleView(utility);
-                                }}
-                                className="hover:text-[#c9a84c] hover:underline text-left transition-colors"
-                              >
-                                {group.judgeName}
-                              </button>
-                              <span className="inline-flex items-center justify-center rounded-full bg-stone-200/70 px-2 py-0.5 text-[10px] font-bold text-stone-600">
-                                {rowCount}
-                              </span>
-                            </div>
-                          </td>
-                        )}
-
-                        <td className="px-3.5 py-3 whitespace-nowrap">
-                          <UtilityTypeBadge type={row.item.utility_type} />
-                        </td>
-
-                        <td className="px-3.5 py-3 font-mono text-[11px] text-stone-600 whitespace-nowrap">
-                          {row.item.requisition_number ? (
-                            <span className="bg-stone-100 px-1.5 py-0.5 rounded text-stone-700">
-                              {row.item.requisition_number}
-                            </span>
-                          ) : (
-                            <span className="text-stone-300">—</span>
+                        <button
+                          onClick={() => {
+                            const utility = data.find((u) => u.id === row.judgeId);
+                            if (utility) handleView(utility);
+                          }}
+                          className="text-sm font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left transition-colors"
+                        >
+                          {row.judgeName}
+                        </button>
+                        <span className="block text-[10px] text-stone-400 mt-0.5">
+                          {row.rowSpan} item{row.rowSpan !== 1 ? 's' : ''}
+                        </span>
+                      </td>
+                      <td
+                        rowSpan={row.rowSpan}
+                        className="px-3 py-2.5 align-top border-r border-stone-100 bg-stone-50/30"
+                      >
+                        <span className="font-mono text-sm text-stone-600">
+                          {row.pjNumber || (
+                            <span className="text-stone-300 italic text-xs">Not assigned</span>
                           )}
-                        </td>
+                        </span>
+                      </td>
+                    </>
+                  )}
 
-                        <td className="px-3.5 py-3 text-right font-semibold text-stone-800 whitespace-nowrap">
-                          {formatCurrency(row.item.amount)}
-                        </td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">
+                    <UtilityTypeBadge type={row.item.utility_type} />
+                  </td>
 
-                        <td className="px-3.5 py-3 text-stone-600 whitespace-nowrap font-medium">
-                          {row.item.period}
-                        </td>
+                  <td className="px-3 py-2.5 font-mono text-xs text-stone-600 whitespace-nowrap">
+                    {row.item.requisition_number ? (
+                      <span className="bg-stone-100 px-1.5 py-0.5 rounded text-stone-700">
+                        {row.item.requisition_number}
+                      </span>
+                    ) : (
+                      <span className="text-stone-300">—</span>
+                    )}
+                  </td>
 
-                        <td
-                          className="px-3.5 py-3 text-stone-500 max-w-[180px] truncate"
-                          title={row.item.description || ""}
-                        >
-                          {row.item.description || <span className="text-stone-300">—</span>}
-                        </td>
+                  <td className="px-3 py-2.5 text-right font-medium text-stone-800 whitespace-nowrap">
+                    {formatCurrency(row.item.amount)}
+                  </td>
 
-                        <td className="px-3.5 py-3 text-stone-600 whitespace-nowrap">
-                          {formatDate(row.item.date_received) || <span className="text-stone-300">—</span>}
-                        </td>
-                        <td className="px-3.5 py-3 text-stone-600 whitespace-nowrap">
-                          {formatDate(row.item.date_forwarded_dass) || <span className="text-stone-300">—</span>}
-                        </td>
-                        <td className="px-3.5 py-3 text-stone-600 whitespace-nowrap">
-                          {formatDate(row.item.date_paid) || <span className="text-stone-300">—</span>}
-                        </td>
+                  <td className="px-3 py-2.5 text-stone-600 whitespace-nowrap">
+                    {row.item.period}
+                  </td>
 
-                        <td
-                          className="px-3.5 py-3 text-center whitespace-nowrap"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <UtilityStatusDropdown
-                            status={row.item.status}
-                            onStatusChange={(s) =>
-                              handleStatusChange(group.judgeId, row.id, s)
-                            }
-                            disabled={mutating}
-                          />
-                        </td>
+                  <td
+                    className="px-3 py-2.5 text-stone-500 max-w-[150px] truncate"
+                    title={row.item.description || ""}
+                  >
+                    {row.item.description || <span className="text-stone-300">—</span>}
+                  </td>
 
-                        <td
-                          className="px-3.5 py-3 text-center whitespace-nowrap"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              onClick={() => {
-                                const utility = data.find(
-                                  (u) => u.id === group.judgeId
-                                );
-                                if (utility) handleView(utility);
-                              }}
-                              disabled={mutating}
-                              className="rounded-lg p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-100 transition-all duration-150 disabled:opacity-40"
-                              title="View Details"
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                const utility = data.find(
-                                  (u) => u.id === group.judgeId
-                                );
-                                if (utility) handleEdit(utility);
-                              }}
-                              disabled={mutating}
-                              className="rounded-lg p-1.5 text-stone-500 hover:text-blue-600 hover:bg-blue-50 transition-all duration-150 disabled:opacity-40"
-                              title="Edit"
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              onClick={() => setDeleteTarget(group.judgeId)}
-                              disabled={mutating}
-                              className="rounded-lg p-1.5 text-stone-500 hover:text-red-600 hover:bg-red-50 transition-all duration-150 disabled:opacity-40"
-                              title="Delete"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  });
-                })
-              )}
+                  <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border ${row.docStatus.color}`}
+                    >
+                      {row.docStatus.icon}
+                      {row.docStatus.label}
+                    </span>
+                  </td>
+
+                  <td className="px-3 py-2.5 text-center whitespace-nowrap">
+                    <div className="flex items-center justify-center gap-1">
+                      <button
+                        onClick={() => {
+                          const utility = data.find((u) => u.id === row.judgeId);
+                          if (utility) handleView(utility);
+                        }}
+                        disabled={mutating}
+                        className="rounded-lg p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-100 transition-all duration-150 disabled:opacity-40"
+                        title="View Details"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          const utility = data.find((u) => u.id === row.judgeId);
+                          if (utility) handleEdit(utility);
+                        }}
+                        disabled={mutating}
+                        className="rounded-lg p-1.5 text-stone-500 hover:text-blue-600 hover:bg-blue-50 transition-all duration-150 disabled:opacity-40"
+                        title="Edit"
+                      >
+                        <Edit className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setDeleteTarget(row.judgeId)}
+                        disabled={mutating}
+                        className="rounded-lg p-1.5 text-stone-500 hover:text-red-600 hover:bg-red-50 transition-all duration-150 disabled:opacity-40"
+                        title="Delete"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -1099,77 +1204,14 @@ function UtilitiesTab({
   );
 }
 
-// ─── Utility Status Dropdown ─────────────────────────────────────────────────
+// ─── Utility Status Dropdown (Auto-updating) ──────────────────────────────
 
-function UtilityStatusDropdown({
-  status,
-  onStatusChange,
-  disabled,
-}: {
-  status: UtilityStatus;
-  onStatusChange: (status: UtilityStatus) => void;
-  disabled?: boolean;
-}) {
-  const options: UtilityStatus[] = [
-    'Awaiting',
-    'Awaiting Documentation',
-    'Awaiting Funding',
-    'In Process',
-    'Approved',
-    'Paid',
-    'Payment NA',
-  ];
 
-  const getStatusColor = (s: UtilityStatus): string => {
-    const map: Record<UtilityStatus, string> = {
-      Awaiting: 'bg-stone-100 text-stone-700 border-stone-200',
-      'Awaiting Documentation': 'bg-amber-50 text-amber-700 border-amber-200',
-      'Awaiting Funding': 'bg-amber-50 text-amber-700 border-amber-200',
-      'In Process': 'bg-blue-50 text-blue-700 border-blue-200',
-      Approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-      Paid: 'bg-green-50 text-green-700 border-green-200',
-      'Payment NA': 'bg-stone-100 text-stone-500 border-stone-200',
-    };
-    return map[s] || 'bg-stone-50 text-stone-600 border-stone-200';
-  };
 
-  const getStatusIcon = (s: UtilityStatus): React.ReactNode => {
-    switch (s) {
-      case 'Approved':
-      case 'Paid':
-        return <CheckCircle className="h-3 w-3" />;
-      case 'Awaiting':
-      case 'Awaiting Documentation':
-      case 'Awaiting Funding':
-      case 'In Process':
-        return <ClockIcon className="h-3 w-3" />;
-      case 'Payment NA':
-        return <XCircle className="h-3 w-3" />;
-      default:
-        return <AlertCircle className="h-3 w-3" />;
-    }
-  };
 
-  return (
-    <div className="inline-flex items-center gap-1.5">
-      <span className="text-stone-400">{getStatusIcon(status)}</span>
-      <select
-        value={status}
-        onChange={(e) => onStatusChange(e.target.value as UtilityStatus)}
-        disabled={disabled}
-        className={`rounded-full border-0 px-3 py-1 text-xs font-medium transition-all duration-150 ${getStatusColor(status)} focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]/20 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-sm`}
-      >
-        {options.map((opt) => (
-          <option key={opt} value={opt}>
-            {opt}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
 
-// ─── Club Tab ─────────────────────────────────────────────────────────────────
+
+// ─── Club Tab ──────────────────────────────────────────────────────────────
 
 function ClubTab() {
   const dispatch = useAppDispatch();
@@ -1286,7 +1328,7 @@ function ClubTab() {
   );
 }
 
-// ─── Generic DSA Tab ─────────────────────────────────────────────────────────
+// ─── Generic DSA Tab ──────────────────────────────────────────────────────
 
 interface DSATabProps<T> {
   title: string;
@@ -1342,7 +1384,7 @@ function DSATab<T extends { id: string }>({
   );
 }
 
-// ─── Entity Detail Modal with Documents (Updated with Two-Step Approval) ─────
+// ─── Entity Detail Modal with Documents (Updated with Two-Step Approval) ──
 
 interface EntityDetailModalProps<T> {
   item: T;
@@ -1385,7 +1427,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
     (d) => d.entity_type === entityType && d.entity_id === item.id
   );
 
-  // Get the first document for approval actions
   const currentDoc = docs[0];
 
   useEffect(() => {
@@ -1472,8 +1513,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
       toast.error(typeof err === 'string' ? err : 'Failed to link document.');
     }
   };
-
-  // ─── Two-Step Approval Handlers ───────────────────────────────────────────
 
   const handleSubmitForApproval = async (docId: string) => {
     try {
@@ -1630,7 +1669,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                 <div>
                   <p className="text-sm font-medium text-stone-700">Document Status</p>
                   <div className="mt-2 flex flex-wrap items-center gap-3">
-                    {/* Internal Status */}
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-stone-500">Internal:</span>
                       <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border ${getInternalStatusColor(currentDoc.internal_approval_status)}`}>
@@ -1638,7 +1676,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                       </span>
                     </div>
                     
-                    {/* Requester Status */}
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-stone-500">Requester:</span>
                       <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border ${getRequesterStatusColor(currentDoc.requester_status)}`}>
@@ -1646,7 +1683,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                       </span>
                     </div>
 
-                    {/* Signature Status */}
                     {currentDoc.is_signed && (
                       <div className="flex items-center gap-1 text-xs text-emerald-600">
                         <CheckCircle size={12} />
@@ -1659,7 +1695,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                       </div>
                     )}
 
-                    {/* Stamp Status */}
                     {currentDoc.is_stamped && (
                       <div className={`flex items-center gap-1 text-xs rounded-full px-2 py-0.5 ${getStampTypeColor(currentDoc.stamp_type || 'approved')}`}>
                         <Stamp size={12} />
@@ -1673,7 +1708,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                 </div>
               </div>
 
-              {/* Approval Actions */}
               <div className="mt-4 border-t border-stone-200 pt-4">
                 {currentDoc.internal_approval_status === 'pending' ? (
                   <div className="flex flex-wrap gap-2">
@@ -1863,10 +1897,8 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
             </div>
           )}
 
-          {/* Custom Content */}
           <div className="mb-6">{renderContent(item)}</div>
 
-          {/* ─── Documents Section ─────────────────────────────────────────────── */}
           <div className="mt-6 border-t border-stone-200 pt-6">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
@@ -1946,17 +1978,14 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                             {doc.status === 'pending_approval' ? 'Pending Approval' : doc.status.replace('_', ' ')}
                           </span>
                           
-                          {/* Internal Status Badge */}
                           <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${getInternalStatusColor(doc.internal_approval_status)}`}>
                             Internal: {getInternalStatusLabel(doc.internal_approval_status)}
                           </span>
                           
-                          {/* Requester Status Badge */}
                           <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${getRequesterStatusColor(doc.requester_status)}`}>
                             Requester: {getRequesterStatusLabel(doc.requester_status)}
                           </span>
 
-                          {/* Signature Badge */}
                           {doc.is_signed && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
                               <CheckCircle size={10} />
@@ -1964,7 +1993,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                             </span>
                           )}
 
-                          {/* Stamp Badge */}
                           {doc.is_stamped && (
                             <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${getStampTypeColor(doc.stamp_type || 'approved')}`}>
                               <Stamp size={10} />
@@ -2043,7 +2071,7 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
   );
 }
 
-// ─── Circuits Tab ────────────────────────────────────────────────────────────
+// ─── Circuits Tab ──────────────────────────────────────────────────────────
 
 function CircuitsTab() {
   const dispatch = useAppDispatch();
@@ -2190,7 +2218,7 @@ function CircuitsTab() {
   );
 }
 
-// ─── Other Payments Tab ──────────────────────────────────────────────────────
+// ─── Other Payments Tab ────────────────────────────────────────────────────
 
 function OtherPaymentsTab() {
   const dispatch = useAppDispatch();
@@ -2336,7 +2364,7 @@ function OtherPaymentsTab() {
   );
 }
 
-// ─── Benches Tab ────────────────────────────────────────────────────────────
+// ─── Benches Tab ──────────────────────────────────────────────────────────
 
 function BenchesTab() {
   const dispatch = useAppDispatch();
@@ -2480,7 +2508,7 @@ function BenchesTab() {
   );
 }
 
-// ─── Part-Heards Tab ─────────────────────────────────────────────────────────
+// ─── Part-Heard Tab ──────────────────────────────────────────────────────
 
 function PartHeardTab() {
   const dispatch = useAppDispatch();
@@ -2626,7 +2654,7 @@ function PartHeardTab() {
   );
 }
 
-// ─── Service Week Tab ────────────────────────────────────────────────────────
+// ─── Service Week Tab ─────────────────────────────────────────────────────
 
 function ServiceWeekTab() {
   const dispatch = useAppDispatch();
@@ -2770,7 +2798,7 @@ function ServiceWeekTab() {
   );
 }
 
-// ─── Medical Claims Tab ──────────────────────────────────────────────────────
+// ─── Medical Claims Tab ──────────────────────────────────────────────────
 
 function MedicalClaimsTab() {
   const dispatch = useAppDispatch();
@@ -3223,7 +3251,7 @@ function GeneralRequestsTab() {
   );
 }
 
-// ─── Visa Tab ─────────────────────────────────────────────────────────────────
+// ─── Visa Tab ─────────────────────────────────────────────────────────────
 
 function VisaTab() {
   const dispatch = useAppDispatch();
@@ -3396,7 +3424,7 @@ function VisaTab() {
   );
 }
 
-// ─── Protocol Tab ─────────────────────────────────────────────────────────────
+// ─── Protocol Tab ─────────────────────────────────────────────────────────
 
 function ProtocolTab() {
   const dispatch = useAppDispatch();
@@ -3684,22 +3712,6 @@ function ProtocolTab() {
                   </div>
                 </div>
               )}
-
-              {item.dsa_required && (!item.dsa_details || item.dsa_details.length === 0) && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center">
-                  <p className="text-sm text-amber-700">
-                    <span className="font-medium">⚠️ DSA Required:</span> No DSA details have been added for this event.
-                  </p>
-                </div>
-              )}
-
-              {!item.dsa_required && (
-                <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50 p-4 text-center">
-                  <p className="text-sm text-stone-500">
-                    <span className="font-medium text-stone-700">Note:</span> DSA is not required for this protocol event.
-                  </p>
-                </div>
-              )}
             </div>
           )}
         />
@@ -3718,7 +3730,7 @@ function ProtocolTab() {
   );
 }
 
-// ─── Judge Detail Modal ─────────────────────────────────────────────────────
+// ─── Judge Detail Modal ──────────────────────────────────────────────────
 
 interface JudgeDetailModalProps {
   judgeName: string;
@@ -3752,7 +3764,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
     utilityIds.includes(d.entity_id)
   );
 
-  // Get the first document for approval actions
   const currentDoc = docs[0];
 
   useEffect(() => {
@@ -3858,8 +3869,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
       toast.error(typeof err === 'string' ? err : 'Failed to link document.');
     }
   };
-
-  // ─── Two-Step Approval Handlers ───────────────────────────────────────────
 
   const handleSubmitForApproval = async (docId: string) => {
     try {
@@ -4020,7 +4029,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
         </div>
 
         <div className="max-h-[65vh] overflow-y-auto p-6">
-          {/* Utility Items */}
           {totalItems === 0 ? (
             <EmptyState message={`No utility records found for ${judgeName}.`} />
           ) : (
@@ -4080,14 +4088,12 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
             </div>
           )}
 
-          {/* Document Status Section - Two-Step Approval */}
           {currentDoc && (
             <div className="mb-6 rounded-lg border border-stone-200 bg-stone-50 p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-medium text-stone-700">Document Status</p>
                   <div className="mt-2 flex flex-wrap items-center gap-3">
-                    {/* Internal Status */}
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-stone-500">Internal:</span>
                       <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border ${getInternalStatusColor(currentDoc.internal_approval_status)}`}>
@@ -4095,7 +4101,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                       </span>
                     </div>
                     
-                    {/* Requester Status */}
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-stone-500">Requester:</span>
                       <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border ${getRequesterStatusColor(currentDoc.requester_status)}`}>
@@ -4103,7 +4108,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                       </span>
                     </div>
 
-                    {/* Signature Status */}
                     {currentDoc.is_signed && (
                       <div className="flex items-center gap-1 text-xs text-emerald-600">
                         <CheckCircle size={12} />
@@ -4116,7 +4120,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                       </div>
                     )}
 
-                    {/* Stamp Status */}
                     {currentDoc.is_stamped && (
                       <div className={`flex items-center gap-1 text-xs rounded-full px-2 py-0.5 ${getStampTypeColor(currentDoc.stamp_type || 'approved')}`}>
                         <Stamp size={12} />
@@ -4130,7 +4133,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                 </div>
               </div>
 
-              {/* Approval Actions */}
               <div className="mt-4 border-t border-stone-200 pt-4">
                 {currentDoc.internal_approval_status === 'pending' ? (
                   <div className="flex flex-wrap gap-2">
@@ -4320,7 +4322,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
             </div>
           )}
 
-          {/* ─── Documents Section ──────────────────────────────────────── */}
           <div className="border-t border-stone-200 pt-6">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
@@ -4406,17 +4407,14 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                             {doc.status === 'pending_approval' ? 'Pending Approval' : doc.status.replace('_', ' ')}
                           </span>
                           
-                          {/* Internal Status Badge */}
                           <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${getInternalStatusColor(doc.internal_approval_status)}`}>
                             Internal: {getInternalStatusLabel(doc.internal_approval_status)}
                           </span>
                           
-                          {/* Requester Status Badge */}
                           <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${getRequesterStatusColor(doc.requester_status)}`}>
                             Requester: {getRequesterStatusLabel(doc.requester_status)}
                           </span>
 
-                          {/* Signature Badge */}
                           {doc.is_signed && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
                               <CheckCircle size={10} />
@@ -4424,7 +4422,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                             </span>
                           )}
 
-                          {/* Stamp Badge */}
                           {doc.is_stamped && (
                             <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${getStampTypeColor(doc.stamp_type || 'approved')}`}>
                               <Stamp size={10} />
@@ -4505,7 +4502,7 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Main Component ────────────────────────────────────────────────────────
 
 const HelpdeskStuff: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -4520,7 +4517,7 @@ const HelpdeskStuff: React.FC = () => {
   const [consolidatedMemoOpen, setConsolidatedMemoOpen] = useState(false);
   const [consolidatedEntityId, setConsolidatedEntityId] = useState<string>('');
 
-  const utilities = useAppSelector(selectAllUtilities);
+  const utilities = useAppSelector(selectAllUtilitiesFromSlice);
 
   const handleViewJudge = (judgeName: string) => {
     setSelectedJudgeForDetail(judgeName);

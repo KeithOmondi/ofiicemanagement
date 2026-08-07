@@ -7,7 +7,6 @@ import {
   deleteUtilityItem,
   deleteUtility,
   fetchUtilities,
-  fetchHelpDeskStats,
   fetchUtilityByPjNumber,
   updateUtility,
   type UtilityType,
@@ -16,7 +15,7 @@ import {
   type JudgeUtility,
   type AddUtilityItemInput,
   type UpdateUtilityInput,
-} from '../../store/slices/helpdeskSlice';
+} from '../../store/slices/utilitiesSlice';
 import {
   fetchHelpdeskDocuments,
   uploadHelpdeskDocument,
@@ -110,6 +109,63 @@ const documentFormatIcon = (format: DocumentFormat) => {
   if (format === 'docx') return <FileText size={16} className="text-blue-600" />;
   return <FileText size={16} className="text-red-600" />;
 };
+
+// ─── Sent-Item Tracking (Only for Approved Documents) ────────────────────
+
+const SENT_ITEMS_STORAGE_KEY = 'orhc_helpdesk_sent_utility_items_v1';
+
+interface SentItemRecord {
+  itemId: string;
+  memoRef: string;
+  sentAt: string;
+  approvedAt: string;
+  documentId: string;
+}
+
+function loadSentItems(): Map<string, SentItemRecord> {
+  try {
+    const raw = localStorage.getItem(SENT_ITEMS_STORAGE_KEY);
+    if (!raw) return new Map();
+    const arr: SentItemRecord[] = JSON.parse(raw);
+    return new Map(arr.map((r) => [r.itemId, r]));
+  } catch {
+    return new Map();
+  }
+}
+
+function persistSentItems(map: Map<string, SentItemRecord>) {
+  try {
+    localStorage.setItem(SENT_ITEMS_STORAGE_KEY, JSON.stringify(Array.from(map.values())));
+  } catch {
+    // ignore quota / privacy-mode errors
+  }
+}
+
+function markItemsSent(
+  itemIds: string[],
+  memoRef: string,
+  documentId: string,
+  approvedAt: string
+): Map<string, SentItemRecord> {
+  const map = loadSentItems();
+  const now = new Date().toISOString();
+  itemIds.forEach((id) => {
+    if (!id.startsWith('temp-item-')) {
+      const existing = map.get(id);
+      if (!existing || existing.approvedAt !== approvedAt) {
+        map.set(id, {
+          itemId: id,
+          memoRef,
+          sentAt: now,
+          approvedAt,
+          documentId,
+        });
+      }
+    }
+  });
+  persistSentItems(map);
+  return map;
+}
 
 // ─── UI Helpers ──────────────────────────────────────────────────────────────
 
@@ -493,6 +549,7 @@ const UtilityItemRow: React.FC<UtilityItemRowProps> = ({
 
 interface JudgeTotals {
   judge_name: string;
+  pj_number?: string | null;
   kplc: number;
   water: number;
   wifi: number;
@@ -501,39 +558,150 @@ interface JudgeTotals {
   total: number;
 }
 
-function computeFuelTotals(judges: JudgeUtility[]): JudgeTotals[] {
-  return judges
+interface HiddenSentItem {
+  judge_name: string;
+  item_id: string;
+  utility_type: UtilityType;
+  amount: number;
+  period: string;
+  sentAt?: string;
+  approvedAt?: string;
+  documentId?: string;
+}
+
+interface TotalsResult {
+  rows: JudgeTotals[];
+  includedItemIds: string[];
+  includedItemIdsByJudge: Record<string, string[]>;
+  hiddenSentItems: HiddenSentItem[];
+}
+
+function computeFuelTotals(
+  judges: JudgeUtility[],
+  sentItems: Map<string, SentItemRecord>,
+  manualIncludeIds: Set<string>,
+  approvedDocumentIds: Set<string>,
+): TotalsResult {
+  const includedItemIds: string[] = [];
+  const includedItemIdsByJudge: Record<string, string[]> = {};
+  const hiddenSentItems: HiddenSentItem[] = [];
+
+  const rows = judges
     .map((j) => {
       let fuel = 0;
+      const itemIdsForJudge: string[] = [];
       j.items.forEach((item) => {
-        if (item.utility_type === 'Fuel' && item.status === 'Awaiting') {
-          fuel += item.amount;
+        if (item.utility_type !== 'Fuel' || item.status !== 'Awaiting') return;
+
+        const sentRecord = sentItems.get(item.id);
+        const isSentAndApproved = sentRecord && approvedDocumentIds.has(sentRecord.documentId);
+
+        if (isSentAndApproved && !manualIncludeIds.has(item.id)) {
+          hiddenSentItems.push({
+            judge_name: j.judge_name,
+            item_id: item.id,
+            utility_type: item.utility_type,
+            amount: item.amount,
+            period: item.period,
+            sentAt: sentRecord.sentAt,
+            approvedAt: sentRecord.approvedAt,
+            documentId: sentRecord.documentId,
+          });
+          return;
         }
+
+        fuel += item.amount;
+        includedItemIds.push(item.id);
+        itemIdsForJudge.push(item.id);
       });
-      return { judge_name: j.judge_name, kplc: 0, water: 0, wifi: 0, fuel, other: 0, total: fuel };
+      includedItemIdsByJudge[j.judge_name] = itemIdsForJudge;
+      return {
+        judge_name: j.judge_name,
+        pj_number: j.pj_number ?? undefined,
+        kplc: 0,
+        water: 0,
+        wifi: 0,
+        fuel,
+        other: 0,
+        total: fuel,
+      };
     })
     .filter((row) => row.fuel > 0)
     .sort((a, b) => a.judge_name.localeCompare(b.judge_name));
+
+  return { rows, includedItemIds, includedItemIdsByJudge, hiddenSentItems };
 }
 
-function computeNonFuelTotals(judges: JudgeUtility[]): JudgeTotals[] {
-  return judges
+function computeNonFuelTotals(
+  judges: JudgeUtility[],
+  sentItems: Map<string, SentItemRecord>,
+  manualIncludeIds: Set<string>,
+  approvedDocumentIds: Set<string>,
+): TotalsResult {
+  const includedItemIds: string[] = [];
+  const includedItemIdsByJudge: Record<string, string[]> = {};
+  const hiddenSentItems: HiddenSentItem[] = [];
+
+  const rows = judges
     .map((j) => {
-      let kplc = 0, water = 0, wifi = 0;
+      let kplc = 0,
+        water = 0,
+        wifi = 0;
+      const itemIdsForJudge: string[] = [];
       j.items.forEach((item) => {
         if (item.status !== 'Awaiting') return;
-        switch (item.utility_type) {
-          case 'Electricity': kplc += item.amount; break;
-          case 'Water': water += item.amount; break;
-          case 'Internet': wifi += item.amount; break;
-          default: break;
+        if (!['Electricity', 'Water', 'Internet'].includes(item.utility_type)) return;
+
+        const sentRecord = sentItems.get(item.id);
+        const isSentAndApproved = sentRecord && approvedDocumentIds.has(sentRecord.documentId);
+
+        if (isSentAndApproved && !manualIncludeIds.has(item.id)) {
+          hiddenSentItems.push({
+            judge_name: j.judge_name,
+            item_id: item.id,
+            utility_type: item.utility_type,
+            amount: item.amount,
+            period: item.period,
+            sentAt: sentRecord.sentAt,
+            approvedAt: sentRecord.approvedAt,
+            documentId: sentRecord.documentId,
+          });
+          return;
         }
+
+        switch (item.utility_type) {
+          case 'Electricity':
+            kplc += item.amount;
+            break;
+          case 'Water':
+            water += item.amount;
+            break;
+          case 'Internet':
+            wifi += item.amount;
+            break;
+          default:
+            break;
+        }
+        includedItemIds.push(item.id);
+        itemIdsForJudge.push(item.id);
       });
+      includedItemIdsByJudge[j.judge_name] = itemIdsForJudge;
       const total = kplc + water + wifi;
-      return { judge_name: j.judge_name, kplc, water, wifi, fuel: 0, other: 0, total };
+      return {
+        judge_name: j.judge_name,
+        pj_number: j.pj_number ?? undefined,
+        kplc,
+        water,
+        wifi,
+        fuel: 0,
+        other: 0,
+        total,
+      };
     })
     .filter((row) => row.total > 0)
     .sort((a, b) => a.judge_name.localeCompare(b.judge_name));
+
+  return { rows, includedItemIds, includedItemIdsByJudge, hiddenSentItems };
 }
 
 interface MemoModalProps {
@@ -576,6 +744,36 @@ const MemoModal: React.FC<MemoModalProps> = ({
   // ─── Tab state ──────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'all' | 'fuel'>('all');
 
+  // ─── Sent-item tracking state ──────────────────────────────────────────
+  const [sentItems, setSentItems] = useState<Map<string, SentItemRecord>>(() => loadSentItems());
+  const [manualIncludeIds, setManualIncludeIds] = useState<Set<string>>(new Set());
+  const [showSentPanel, setShowSentPanel] = useState(false);
+  const [wasOpen, setWasOpen] = useState(false);
+
+  // ─── Track approved document IDs - COMPUTED, not state ────────────────
+  const approvedDocumentIds = useMemo(() => {
+    const approvedIds = new Set<string>();
+    allDocuments.forEach((doc) => {
+      if (doc.requester_status === 'approved' || doc.status === 'approved') {
+        approvedIds.add(doc.id);
+      }
+    });
+    return approvedIds;
+  }, [allDocuments]);
+
+  const [excludedJudgeNames, setExcludedJudgeNames] = useState<Set<string>>(new Set());
+
+  // ─── Reload sent items when modal opens ───────────────────────────────
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
+    if (isOpen) {
+      setSentItems(loadSentItems());
+      setManualIncludeIds(new Set());
+      setShowSentPanel(false);
+      setExcludedJudgeNames(new Set());
+    }
+  }
+
   // ─── Memo field state ──────────────────────────────────────────────────
   const [toField, setToField] = useState('DEPUTY DIRECTOR - DASS');
   const [fromField, setFromField] = useState('OFFICE OF THE REGISTRAR');
@@ -611,6 +809,9 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
   const [downloadingFormat, setDownloadingFormat] = useState<DownloadFormat | null>(null);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+
+  // ─── Manual row exclusion ───────────────────────────────────────────────
+  //const [excludedJudgeNames, setExcludedJudgeNames] = useState<Set<string>>(new Set());
 
   // ─── Determine which judges to use ──────────────────────────────────────
   const effectiveJudges = useMemo(() => {
@@ -670,16 +871,50 @@ const MemoModal: React.FC<MemoModalProps> = ({
     return result;
   };
 
-  // ─── Compute totals based on active tab ──────────────────────────────
-  const judgeTotals = activeTab === 'fuel'
-    ? computeFuelTotals(effectiveJudges)
-    : computeNonFuelTotals(effectiveJudges);
+  // ─── Compute totals based on active tab ──────────────────────────────────
+  const { rows: computedRows, includedItemIdsByJudge, hiddenSentItems } = useMemo(() => {
+    return activeTab === 'fuel'
+      ? computeFuelTotals(effectiveJudges, sentItems, manualIncludeIds, approvedDocumentIds)
+      : computeNonFuelTotals(effectiveJudges, sentItems, manualIncludeIds, approvedDocumentIds);
+  }, [activeTab, effectiveJudges, sentItems, manualIncludeIds, approvedDocumentIds]);
+
+  // ─── Rows actually going into the memo ─────────────────────────────────
+  const judgeTotals = useMemo(
+    () => computedRows.filter((row) => !excludedJudgeNames.has(row.judge_name)),
+    [computedRows, excludedJudgeNames],
+  );
+
+  const includedItemIds = useMemo(() => {
+    const ids: string[] = [];
+    judgeTotals.forEach((row) => {
+      ids.push(...(includedItemIdsByJudge[row.judge_name] || []));
+    });
+    return ids;
+  }, [judgeTotals, includedItemIdsByJudge]);
 
   const grandKplc = judgeTotals.reduce((s, r) => s + r.kplc, 0);
   const grandWater = judgeTotals.reduce((s, r) => s + r.water, 0);
   const grandWifi = judgeTotals.reduce((s, r) => s + r.wifi, 0);
   const grandFuel = judgeTotals.reduce((s, r) => s + r.fuel, 0);
   const grandTotal = judgeTotals.reduce((s, r) => s + r.total, 0);
+
+  const toggleManualInclude = (itemId: string, checked: boolean) => {
+    setManualIncludeIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(itemId);
+      else next.delete(itemId);
+      return next;
+    });
+  };
+
+  const toggleJudgeExclusion = (judgeName: string) => {
+    setExcludedJudgeNames((prev) => {
+      const next = new Set(prev);
+      if (next.has(judgeName)) next.delete(judgeName);
+      else next.add(judgeName);
+      return next;
+    });
+  };
 
   // ─── Build memo data ────────────────────────────────────────────────────
   const buildMemoData = (): UtilityMemoData => ({
@@ -691,6 +926,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
     bodyText: bodyText + (additionalNotes ? `\n\n${additionalNotes}` : ''),
     rows: judgeTotals.map((r) => ({
       judge_name: r.judge_name,
+      pj_number: r.pj_number || null,
       kplc: r.kplc,
       water: r.water,
       wifi: r.wifi,
@@ -704,6 +940,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
     crestUrl: JUDICIARY_CREST_SRC,
     footerEmblemUrl: FOOTER_EMBLEM_SRC,
     memoType: activeTab,
+    signatoryName: 'REGISTRAR HIGH COURT',
   });
 
   // ─── Document handlers ──────────────────────────────────────────────────
@@ -793,6 +1030,21 @@ const MemoModal: React.FC<MemoModalProps> = ({
         notify_requester: true,
       })).unwrap();
 
+      // ✅ Mark items as sent ONLY when document is approved
+      const doc = allDocuments.find(d => d.id === docId);
+      if (doc) {
+        const itemIds = includedItemIds;
+        if (itemIds.length > 0) {
+          const newSentItems = markItemsSent(
+            itemIds,
+            doc.ref,
+            doc.id,
+            new Date().toISOString()
+          );
+          setSentItems(newSentItems);
+        }
+      }
+
       toast.success('Document approved and sent back to requester.');
       dispatch(fetchHelpdeskDocuments({
         entity_type: currentEntityType,
@@ -846,6 +1098,9 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
       const result = await dispatch(uploadHelpdeskDocument(uploadPayload)).unwrap();
 
+      // ⚠️ IMPORTANT: Do NOT mark items as sent here - only when document is approved
+      // Items will be marked as sent in handleSendDocumentForApproval
+
       toast.success(`${format.toUpperCase()} memo saved to the system.`);
 
       if (!isConsolidated && entityId) {
@@ -890,8 +1145,8 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
   const linkedDocuments = allDocuments.filter(
     (d) => d.entity_type === currentEntityType &&
-           d.entity_id === currentEntityId &&
-           d.ref === refField
+      d.entity_id === currentEntityId &&
+      d.ref === refField
   );
 
   if (!isOpen) return null;
@@ -929,21 +1184,19 @@ const MemoModal: React.FC<MemoModalProps> = ({
           <div className="flex gap-2 border-b border-stone-200 px-4 py-2">
             <button
               onClick={() => handleTabChange('all')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
-                activeTab === 'all'
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${activeTab === 'all'
                   ? 'bg-[#c9a84c] text-[#1a3d1c]'
                   : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-              }`}
+                }`}
             >
               All Utilities
             </button>
             <button
               onClick={() => handleTabChange('fuel')}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
-                activeTab === 'fuel'
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${activeTab === 'fuel'
                   ? 'bg-[#c9a84c] text-[#1a3d1c]'
                   : 'bg-stone-100 text-stone-600 hover:bg-stone-200'
-              }`}
+                }`}
             >
               Fuel Only
             </button>
@@ -951,7 +1204,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
         )}
 
         <div className="max-h-[70vh] overflow-y-auto p-4 space-y-4">
-          {/* ─── Memo Preview ────────────────────────────────────────────── */}
           {effectiveJudges.length > 0 ? (
             <div className="border border-stone-300 bg-white p-10 shadow-sm font-sans text-black">
               <div className="flex justify-center mb-2">
@@ -977,12 +1229,12 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 <div className="flex">
                   <span className="w-24 shrink-0">FROM</span>
                   <span className="w-4 shrink-0">:</span>
-                  <input 
-                    type="text" 
-                    value={fromField} 
+                  <input
+                    type="text"
+                    value={fromField}
                     onChange={(e) => setFromField(e.target.value)}
-                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase font-bold" 
-                    placeholder="Department/Office" 
+                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase font-bold"
+                    placeholder="Department/Office"
                   />
                 </div>
                 <div className="flex">
@@ -1012,10 +1264,47 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 className="w-full bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none resize-none text-sm leading-relaxed mb-6"
               />
 
+              {hiddenSentItems.length > 0 && (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <button
+                    onClick={() => setShowSentPanel((v) => !v)}
+                    className="flex w-full items-center justify-between text-xs font-medium text-amber-800"
+                  >
+                    <span>
+                      {hiddenSentItems.length} item{hiddenSentItems.length > 1 ? 's' : ''} already approved in a
+                      previous memo — hidden from this one
+                    </span>
+                    <ChevronDown size={14} className={`transition-transform ${showSentPanel ? 'rotate-180' : ''}`} />
+                  </button>
+                  {showSentPanel && (
+                    <ul className="mt-2 divide-y divide-amber-100">
+                      {hiddenSentItems.map((h) => (
+                        <li key={h.item_id} className="flex items-center justify-between gap-2 py-1.5 text-xs text-amber-900">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={manualIncludeIds.has(h.item_id)}
+                              onChange={(e) => toggleManualInclude(h.item_id, e.target.checked)}
+                            />
+                            {h.judge_name} — {h.utility_type} ({h.period})
+                          </label>
+                          <span className="text-amber-500">
+                            {h.approvedAt ? new Date(h.approvedAt).toLocaleDateString('en-KE') : ''}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+
               <div className="overflow-x-auto">
                 <table className="w-full text-sm border-collapse border border-black">
                   <thead>
                     <tr>
+                      <th className="border border-black px-2 py-1 text-center text-xs font-bold w-10">
+                        <span className="sr-only">Include</span>
+                      </th>
                       <th className="border border-black px-2 py-1 text-left text-xs font-bold">S/NO.</th>
                       <th className="border border-black px-2 py-1 text-left text-xs font-bold">NAMES</th>
                       {showNonFuelColumns && (
@@ -1034,30 +1323,41 @@ const MemoModal: React.FC<MemoModalProps> = ({
                     </tr>
                   </thead>
                   <tbody>
-                    {judgeTotals.map((row, index) => (
-                      <tr key={row.judge_name}>
-                        <td className="border border-black px-2 py-1 text-center">{index + 1}</td>
-                        <td className="border border-black px-2 py-1 font-medium">{row.judge_name}</td>
-                        {showNonFuelColumns && (
-                          <>
-                            <td className="border border-black px-2 py-1 text-right">{row.kplc > 0 ? formatAmount(row.kplc) : ''}</td>
-                            <td className="border border-black px-2 py-1 text-right">{row.water > 0 ? formatAmount(row.water) : ''}</td>
-                            <td className="border border-black px-2 py-1 text-right">{row.wifi > 0 ? formatAmount(row.wifi) : ''}</td>
-                          </>
-                        )}
-                        {showFuelColumn && (
-                          <td className="border border-black px-2 py-1 text-right font-medium">{formatAmount(row.fuel)}</td>
-                        )}
-                        {showNonFuelColumns && (
-                          <td className="border border-black px-2 py-1 text-right font-bold">{formatAmount(row.total)}</td>
-                        )}
-                      </tr>
-                    ))}
+                    {computedRows.map((row, index) => {
+                      const isExcluded = excludedJudgeNames.has(row.judge_name);
+                      return (
+                        <tr key={row.judge_name} className={isExcluded ? 'opacity-40' : undefined}>
+                          <td className="border border-black px-2 py-1 text-center">
+                            <input
+                              type="checkbox"
+                              checked={!isExcluded}
+                              onChange={() => toggleJudgeExclusion(row.judge_name)}
+                              title={isExcluded ? 'Excluded from this memo — click to include' : 'Included in this memo — click to exclude'}
+                            />
+                          </td>
+                          <td className="border border-black px-2 py-1 text-center">{index + 1}</td>
+                          <td className="border border-black px-2 py-1 font-medium">{row.judge_name}</td>
+                          {showNonFuelColumns && (
+                            <>
+                              <td className="border border-black px-2 py-1 text-right">{row.kplc > 0 ? formatAmount(row.kplc) : ''}</td>
+                              <td className="border border-black px-2 py-1 text-right">{row.water > 0 ? formatAmount(row.water) : ''}</td>
+                              <td className="border border-black px-2 py-1 text-right">{row.wifi > 0 ? formatAmount(row.wifi) : ''}</td>
+                            </>
+                          )}
+                          {showFuelColumn && (
+                            <td className="border border-black px-2 py-1 text-right font-medium">{formatAmount(row.fuel)}</td>
+                          )}
+                          {showNonFuelColumns && (
+                            <td className="border border-black px-2 py-1 text-right font-bold">{formatAmount(row.total)}</td>
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   {judgeTotals.length > 0 && (
                     <tfoot>
                       <tr>
-                        <td colSpan={showNonFuelColumns ? 2 : (showFuelColumn ? 2 : 1)} className="border border-black px-2 py-2 text-right font-bold">GRAND TOTAL</td>
+                        <td colSpan={showNonFuelColumns ? 3 : (showFuelColumn ? 3 : 2)} className="border border-black px-2 py-2 text-right font-bold">GRAND TOTAL</td>
                         {showNonFuelColumns && (
                           <>
                             <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandKplc)}</td>
@@ -1077,7 +1377,20 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 </table>
               </div>
 
-              {/* ─── Additional Notes Textarea ────────────────────────────── */}
+              {computedRows.length === 0 && hiddenSentItems.length > 0 && (
+                <p className="mt-3 text-xs text-stone-400 italic">
+                  Everything eligible for this memo has already been approved in a previous memo.
+                  Expand the panel above to resend specific items if needed.
+                </p>
+              )}
+
+              {computedRows.length > 0 && judgeTotals.length === 0 && (
+                <p className="mt-3 text-xs text-amber-600 italic">
+                  Every judge has been excluded from this memo. Check the boxes in the table above to include
+                  at least one before saving.
+                </p>
+              )}
+
               <div className="mt-6">
                 <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-stone-500">
                   Additional Notes (Optional)
@@ -1094,7 +1407,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 </p>
               </div>
 
-              {/* ─── Signature block placeholder ──────────────────────────── */}
               <div className="mt-16">
                 <p className="text-xs text-stone-400 italic">
                   Signature block will be added by the system when the document is processed.
@@ -1307,12 +1619,6 @@ interface UtilitiesModalProps {
   editingUtility?: JudgeUtility | null;
 }
 
-interface UtilitiesModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  editingUtility?: JudgeUtility | null;
-}
-
 export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
   isOpen,
   onClose,
@@ -1359,12 +1665,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     setPendingDocumentId(undefined);
   }, []);
 
-  // ─── Sync form state to props DURING RENDER (not in an Effect) ─────────
-  // This replaces the old useEffect + isInitialMount ref combo, which caused
-  // an extra cascading render pass. React supports calling setState while
-  // rendering: if state actually changes, React discards this render output
-  // and re-renders immediately with the new state before anything is painted.
-  // See: https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes
+  // ─── Sync form state to props DURING RENDER ─────────────────────────
   const syncKey = isOpen ? (editingUtility?.id ?? 'new') : null;
   const [lastSyncedKey, setLastSyncedKey] = useState<string | null>(null);
 
@@ -1378,8 +1679,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         resetForm();
       }
     }
-    // syncKey === null means the modal just closed — nothing to sync now;
-    // the next time it opens, syncKey will differ from lastSyncedKey again.
   }
 
   // ─── Helper to get judges for memo ──────────────────────────────────────
@@ -1402,6 +1701,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
       created_by: null,
       items: filledItems.map((item, index) => ({
         id: `temp-item-${index}`,
+        request_id: '',
         utility_type: item.utility_type,
         requisition_number: item.requisition_number || null,
         amount: item.amount,
@@ -1411,10 +1711,12 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         date_forwarded_dass: item.date_forwarded_dass || null,
         date_paid: item.date_paid || null,
         status: item.status,
+        supporting_document_url: null,
+        approval_status: 'pending',
+        memo_id: null,
+        memo_sent_at: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        request_id: '',
-        supporting_document_url: null,
       })),
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -1483,7 +1785,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         return next;
       });
       await dispatch(fetchUtilities({}));
-      await dispatch(fetchHelpDeskStats());
     } catch (err) {
       console.error('Failed to update utility item:', err);
       toast.error('Failed to update utility item.');
@@ -1501,7 +1802,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     try {
       await dispatch(deleteUtilityItem({ id: editingUtility.id, itemId: item.id })).unwrap();
       setItems((prev) => prev.filter((_, i) => i !== index));
-      await dispatch(fetchHelpDeskStats());
     } catch (err) {
       console.error('Failed to delete utility item:', err);
       toast.error('Failed to delete utility item.');
@@ -1510,11 +1810,10 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     }
   };
 
-  // ─── UPDATED: Add item to existing using the new API ──────────────────────
+  // ─── Add item to existing ──────────────────────────────────────────────
   const handleAddItemToExisting = async () => {
     if (!editingUtility) return;
 
-    // Get the PJ number from the editing utility
     const utilityPjNumber = editingUtility.pj_number;
     if (!utilityPjNumber || utilityPjNumber.trim() === '') {
       toast.error('PJ number is required to add a utility item. Please update the utility record first.');
@@ -1524,7 +1823,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     const newItem = buildEmptyItem();
     setSavingItemIndex(items.length);
     try {
-      // Use the new API with pj_number in the body
       const addInput: AddUtilityItemInput = {
         pj_number: utilityPjNumber,
         utility_type: newItem.utility_type,
@@ -1535,7 +1833,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
       };
       const result = await dispatch(addUtilityItem(addInput)).unwrap();
       setItems(buildInitialItems(result));
-      await dispatch(fetchHelpDeskStats());
     } catch (err) {
       console.error('Failed to add utility item:', err);
       toast.error('Failed to add utility item. Please ensure the PJ number is correct.');
@@ -1562,13 +1859,9 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
   };
 
   const handleCreateRecord = async () => {
-    if (isEditing) {
-      return;
-    }
+    if (isEditing) return;
 
-    if (currentStep !== 2) {
-      return;
-    }
+    if (currentStep !== 2) return;
 
     if (!judgeName.trim()) {
       toast.error('Judge name is required.');
@@ -1583,7 +1876,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
 
     setIsSubmitting(true);
     try {
-      // PJ number is now REQUIRED - use the entered value or prompt
       const finalPjNumber = pjNumber.trim();
       if (!finalPjNumber) {
         toast.error('PJ number is required to create a utility record.');
@@ -1625,7 +1917,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
       }
 
       await dispatch(fetchUtilities({}));
-      await dispatch(fetchHelpDeskStats());
       toast.success('Judge utility record created successfully.');
       onClose();
       resetForm();
@@ -1637,7 +1928,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     }
   };
 
-  // ─── UPDATED: Handle update of the main utility record ────────────────────
+  // ─── Update the main utility record ──────────────────────────────────────
   const handleUpdateUtilityRecord = async () => {
     if (!editingUtility) return;
 
@@ -1666,10 +1957,8 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         }),
       ).unwrap();
       await dispatch(fetchUtilities({}));
-      await dispatch(fetchHelpDeskStats());
       toast.success('Utility record updated successfully.');
 
-      // Update the editing utility reference
       if (pjNumber.trim()) {
         try {
           const updated = await dispatch(fetchUtilityByPjNumber(pjNumber.trim())).unwrap();
@@ -1677,7 +1966,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
             setItems(buildInitialItems(updated));
           }
         } catch {
-          // If PJ number lookup fails, refresh the editing utility from the list
           await dispatch(fetchUtilities({}));
         }
       }
@@ -1696,7 +1984,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
       if (deleteTarget === 'judge' && editingUtility) {
         await dispatch(deleteUtility(editingUtility.id)).unwrap();
         await dispatch(fetchUtilities({}));
-        await dispatch(fetchHelpDeskStats());
         setDeleteTarget(null);
         onClose();
         resetForm();
@@ -1792,7 +2079,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                     </p>
                   </div>
 
-                  {/* ─── Update button for editing ──────────────────────── */}
                   <div className="flex justify-end">
                     <GoldButton
                       size="sm"
