@@ -6,7 +6,7 @@ import { fetchActiveTemplate } from '../../store/slices/templatesSlice';
 import { type TemplateType } from '../../types/templates.types';
 import { selectCurrentUser } from '../../store/slices/userSlice';
 import { createMemo, createLetter, createCertificate } from '../../store/slices/documentSlice';
-import type { ComposeMemoInput, ComposeLetterInput, Document, DocumentAttachment } from '../../types/documents.types';
+import type { ComposeMemoInput, ComposeLetterInput, Document } from '../../types/documents.types';
 import toast from 'react-hot-toast';
 import { sanitizePastedHtml } from '../../utils/pasteSanitizer';
 
@@ -61,7 +61,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
 
   // Memo-specific fields
   const [ccField, setCcField] = useState('');
-  const [attachments, setAttachments] = useState<DocumentAttachment[]>([]);
 
   // Letter-specific fields
   const [letterCcField, setLetterCcField] = useState('');
@@ -132,25 +131,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
     }
   };
 
-  const handleAddAttachment = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Create a temporary URL for the attachment
-    const url = URL.createObjectURL(file);
-    setAttachments(prev => [...prev, {
-      name: file.name,
-      url: url,
-      size: file.size,
-      mimeType: file.type,
-    }]);
-    e.target.value = '';
-  };
-
-  const handleRemoveAttachment = (index: number) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index));
-  };
-
   const handleSaveDraft = async () => {
     if (!title.trim()) {
       toast.error(`Please enter a subject for this ${type === 'memo' ? 'memo' : type === 'letter' ? 'letter' : 'certificate'}`);
@@ -185,7 +165,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
           reference_no: refField.trim() || undefined,
           fromFirst,
           cc: ccField.trim() || undefined,
-          attachments: attachments.length > 0 ? attachments : undefined,
         };
         result = await dispatch(createMemo(payload));
       } else if (type === 'letter') {
@@ -372,56 +351,6 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                   data-placeholder="Start typing the body of the memo…"
                   className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none"
                 />
-
-                {/* ─── Attachments Section ───────────────────────────────────── */}
-                <div className="mt-4">
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10.5pt] font-bold text-stone-700">Attachments:</span>
-                    <label className="cursor-pointer inline-flex items-center gap-1 text-xs text-[#1E4620] hover:text-[#c9a84c] border border-dashed border-[#c9a84c] rounded px-2 py-0.5 hover:border-[#1E4620] transition">
-                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                      </svg>
-                      Add File
-                      <input
-                        type="file"
-                        onChange={handleAddAttachment}
-                        className="hidden"
-                        multiple={false}
-                      />
-                    </label>
-                    <span className="text-[9px] text-stone-400">{attachments.length} file(s) attached</span>
-                  </div>
-                  {attachments.length > 0 && (
-                    <ul className="mt-2 list-none p-0 space-y-1">
-                      {attachments.map((att, index) => (
-                        <li key={index} className="flex items-center justify-between py-1 px-2 bg-stone-50 rounded border border-stone-200">
-                          <div className="flex items-center gap-2">
-                            <svg className="h-3.5 w-3.5 text-[#c9a84c]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
-                              <polyline points="14 2 14 8 20 8" />
-                              <line x1="16" y1="13" x2="8" y2="13" />
-                              <line x1="16" y1="17" x2="8" y2="17" />
-                            </svg>
-                            <span className="text-xs text-stone-700">{att.name}</span>
-                            {att.size && (
-                              <span className="text-[9px] text-stone-400">({formatFileSize(att.size)})</span>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveAttachment(index)}
-                            className="text-stone-400 hover:text-red-500 transition p-0.5"
-                            title="Remove attachment"
-                          >
-                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
 
                 <div className="mt-10">
                   <div className="space-y-1">
@@ -697,12 +626,3 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
 };
 
 export default TemplateComposerModal;
-
-// ─── Helper for file size formatting ────────────────────────────────────────
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const kb = bytes / 1024;
-  if (kb < 1024) return `${Math.round(kb)} KB`;
-  const mb = kb / 1024;
-  return `${Math.round(mb)} MB`;
-}
