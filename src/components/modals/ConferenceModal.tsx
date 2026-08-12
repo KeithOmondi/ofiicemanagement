@@ -1025,19 +1025,7 @@ export const ConferenceModal: React.FC<ConferenceModalProps> = ({
                     required
                   />
                 </div>
-                <div>
-                  <label className={labelClasses}>Supporting Staff (body text) *</label>
-                  <input
-                    type="number"
-                    name="supporting_staff"
-                    value={formData.supporting_staff || ''}
-                    onChange={handleNumberChange}
-                    placeholder="e.g., 11"
-                    min="0"
-                    className={inputClasses}
-                    required
-                  />
-                </div>
+               
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

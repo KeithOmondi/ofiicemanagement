@@ -29,8 +29,6 @@ export interface GRMemoParams {
   copyTo: GRMemoCopyToEntry[];
   crestUrl: string;
   fromDepartment?: string; // defaults to `from` if omitted
-  // ❌ REMOVED: signatoryName
-  // ❌ REMOVED: signatureUrl
 }
 
 async function urlToDataUrl(url: string): Promise<string | null> {
@@ -230,13 +228,25 @@ export async function generateGRMemoPdf(params: GRMemoParams): Promise<Blob> {
   // ── Body ──────────────────────────────────────────────────────────────────
   const lineHeightBody = 16;
   const paragraphs = params.bodyText.split(/\n\s*\n/);
+  
   for (const para of paragraphs) {
     const trimmed = para.trim();
     if (!trimmed) continue;
-    const result = renderBoldText(doc, trimmed, margin, cursorY, pageWidth - margin * 2, lineHeightBody, 12);
+    const result = renderBoldText(
+      doc, 
+      trimmed, 
+      margin, 
+      cursorY, 
+      pageWidth - margin * 2, 
+      lineHeightBody, 
+      12
+    );
     cursorY = result.y + lineHeightBody;
   }
-  cursorY += 10;
+  
+  // ─── REDUCED GAP: Only 2pt gap before table ────────────────────────────
+  // Previously this was 10pt, now reduced to 2pt for a tighter layout
+  cursorY += 2;
 
   // ─── Signature block placeholder ────────────────────────────────────────
   // The signature block is handled by the backend via embedSignatureBlockIntoPDF
