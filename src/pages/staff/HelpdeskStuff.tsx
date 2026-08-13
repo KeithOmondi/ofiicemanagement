@@ -1,9 +1,9 @@
 // src/pages/Helpdesk.tsx - COMPLETE UPDATED VERSION
 
-import React, { useState, useEffect, useRef, type ChangeEvent, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, type ChangeEvent, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
-  // Actions from helpdeskSlice (keep all except utilities)
+  // Actions
   fetchHelpDeskStats,
   fetchHelpDeskAudit,
   fetchClubMemberships,
@@ -66,21 +66,21 @@ import {
   type OtherPayment,
   type ServiceWeek,
   type ClubMembership,
+  type UtilityStatus,
   type RequestType,
   type RemarkType,
+  type UtilityItem,
 } from '../../store/slices/helpdeskSlice';
 
 // ─── IMPORT FROM UTILITIES SLICE ──────────────────────────────────────────
 import {
   fetchUtilities,
   deleteUtility,
+  updateUtilityItem,
   selectAllUtilities as selectAllUtilitiesFromSlice,
   selectUtilitiesLoading,
   selectUtilitiesMutating,
   type JudgeUtility,
-  type UtilityItem,
-  //type UtilityFilters,
-  //type UpdateUtilityItemInput,
 } from '../../store/slices/utilitiesSlice';
 
 // ─── Helpdesk Documents imports ───────────────────────────────────────────
@@ -88,12 +88,6 @@ import {
   fetchHelpdeskDocuments,
   uploadHelpdeskDocument,
   linkHelpdeskDocument,
-  submitForApproval,
-  internalApproveDocument,
-  internalRejectDocument,
-  internalRequestChanges,
-  sendBackToRequester,
-  resubmitDocument,
   selectAllHelpdeskDocuments,
   selectDocumentsUploading,
   selectDocumentActionLoading,
@@ -102,13 +96,11 @@ import {
   type DocumentFormat,
   type DocumentStatus,
   type DocumentEntityType,
-  type InternalApprovalStatus,
-  type RequesterVisibleStatus,
-  type StampType,
+  submitForApproval,
 } from '../../store/slices/helpdeskDocumentsSlice';
 
 // ─── Consolidated Memo imports ───────────────────────────────────────────
-import UtilitiesModal, { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
+import { UtilitiesMemoModal } from '../../components/modals/UtilitiesModal';
 import {
   getConsolidatedMemoEntityId,
 } from '../../types/helpdesk-documents.types';
@@ -144,12 +136,11 @@ import {
   Upload,
   ExternalLink,
   Send,
+  ArrowLeft,
   Info,
-  RefreshCw,
-  Pencil,
-  CircleCheckBig,
 } from 'lucide-react';
 import CircuitModal from '../../components/modals/CircuitModal';
+import UtilitiesModal from '../../components/modals/UtilitiesModal';
 import { ProtocolModal } from '../../components/modals/ProtocolModal';
 import { VisaModal } from '../../components/modals/VisaModal';
 import { RequestModal } from '../../components/modals/RequestModal';
@@ -182,56 +173,6 @@ const REMARK_TYPE_LABELS: Record<RemarkType, string> = {
   Release: 'Release',
 };
 
-// ─── Two-Step Approval Constants ──────────────────────────────────────────
-
-const INTERNAL_APPROVAL_STATUS_LABELS: Record<InternalApprovalStatus, string> = {
-  pending: 'Pending Review',
-  previewed: 'Previewed',
-  approved_internal: 'Approved (Pending Send Back)',
-  rejected_internal: 'Rejected (Pending Send Back)',
-  changes_requested_internal: 'Changes Requested (Pending Send Back)',
-  changes_ready: 'Changes Ready for Re-review',
-};
-
-const INTERNAL_APPROVAL_STATUS_COLORS: Record<InternalApprovalStatus, string> = {
-  pending: 'bg-amber-50 text-amber-700 border-amber-200',
-  previewed: 'bg-blue-50 text-blue-700 border-blue-200',
-  approved_internal: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  rejected_internal: 'bg-red-50 text-red-700 border-red-200',
-  changes_requested_internal: 'bg-orange-50 text-orange-700 border-orange-200',
-  changes_ready: 'bg-purple-50 text-purple-700 border-purple-200',
-};
-
-const REQUESTER_VISIBLE_STATUS_LABELS: Record<RequesterVisibleStatus, string> = {
-  pending_approval: 'Pending Approval',
-  approved: 'Approved ✓',
-  rejected: 'Rejected ✗',
-  changes_requested: 'Changes Requested',
-  in_revision: 'In Revision',
-};
-
-const REQUESTER_VISIBLE_STATUS_COLORS: Record<RequesterVisibleStatus, string> = {
-  pending_approval: 'bg-amber-50 text-amber-700 border-amber-200',
-  approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  rejected: 'bg-red-50 text-red-700 border-red-200',
-  changes_requested: 'bg-orange-50 text-orange-700 border-orange-200',
-  in_revision: 'bg-blue-50 text-blue-700 border-blue-200',
-};
-
-// ─── Stamp Constants ──────────────────────────────────────────────────────
-
-const STAMP_TYPE_LABELS: Record<StampType, string> = {
-  approved: 'Approved',
-  received: 'Received',
-  official: 'Official',
-};
-
-const STAMP_TYPE_COLORS: Record<StampType, string> = {
-  approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  received: 'bg-blue-50 text-blue-700 border-blue-200',
-  official: 'bg-purple-50 text-purple-700 border-purple-200',
-};
-
 // ─── Types ────────────────────────────────────────────────────────────────
 
 interface TabDef {
@@ -253,8 +194,6 @@ const formatCurrency = (amount: number | null | undefined): string => {
   if (amount == null || isNaN(amount)) return 'KES 0.00';
   return `KES ${amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
-
-// ─── Status Helpers ──────────────────────────────────────────────────────
 
 const getStatusColor = (status: string): string => {
   const map: Record<string, string> = {
@@ -300,34 +239,7 @@ const getStatusIcon = (status: string): React.ReactNode => {
   }
 };
 
-// ─── Document Status Helpers ─────────────────────────────────────────────
-
-const getInternalStatusColor = (status: InternalApprovalStatus): string => {
-  return INTERNAL_APPROVAL_STATUS_COLORS[status] || 'bg-stone-50 text-stone-600 border-stone-200';
-};
-
-const getInternalStatusLabel = (status: InternalApprovalStatus): string => {
-  return INTERNAL_APPROVAL_STATUS_LABELS[status] || status;
-};
-
-const getRequesterStatusColor = (status: RequesterVisibleStatus): string => {
-  return REQUESTER_VISIBLE_STATUS_COLORS[status] || 'bg-stone-50 text-stone-600 border-stone-200';
-};
-
-const getRequesterStatusLabel = (status: RequesterVisibleStatus): string => {
-  return REQUESTER_VISIBLE_STATUS_LABELS[status] || status;
-};
-
-const getStampTypeColor = (type: StampType): string => {
-  return STAMP_TYPE_COLORS[type] || 'bg-stone-50 text-stone-600 border-stone-200';
-};
-
-const getStampTypeLabel = (type: StampType): string => {
-  return STAMP_TYPE_LABELS[type] || type;
-};
-
-// ─── Full status options ──────────────────────────────────────────────────
-
+// Full list of statuses for most modules
 const FULL_STATUS_OPTIONS: Status[] = [
   'Pending',
   'Signed',
@@ -338,6 +250,7 @@ const FULL_STATUS_OPTIONS: Status[] = [
   'Resolved',
 ];
 
+// Limited list for General Requests
 const GENERAL_REQUEST_STATUS_OPTIONS: Status[] = ['Active', 'Rejected', 'Resolved'];
 
 // ─── UI Components ──────────────────────────────────────────────────────────
@@ -734,11 +647,7 @@ function OverviewTab() {
   );
 }
 
-// ─── Utility Type Badge ────────────────────────────────────────────────────
-
-// ─── Utility Type Badge ────────────────────────────────────────────────────
-
-// ─── Utility Type Badge ────────────────────────────────────────────────────
+// ─── Helper component for Utility Type pill badges ──────────────────────
 
 function UtilityTypeBadge({ type }: { type: string }) {
   const normalized = type.toLowerCase();
@@ -763,9 +672,7 @@ function UtilityTypeBadge({ type }: { type: string }) {
   );
 }
 
-// ─── Utilities Tab (REDESIGNED - PJ Number in own column) ──────────────
-
-// ─── Utilities Tab (UPDATED - Status from Documents) ──────────────────────
+// ─── Utilities Tab (UPDATED to use utilitiesSlice) ──────────────────────
 
 function UtilitiesTab({
   onViewJudge,
@@ -780,9 +687,6 @@ function UtilitiesTab({
   const data = useAppSelector(selectAllUtilitiesFromSlice);
   const loading = useAppSelector(selectUtilitiesLoading);
   const mutating = useAppSelector(selectUtilitiesMutating);
-  
-  // ─── Get documents to check statuses ──────────────────────────────────
-  const allDocuments = useAppSelector(selectAllHelpdeskDocuments);
 
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState<JudgeUtility | null>(null);
@@ -803,6 +707,22 @@ function UtilitiesTab({
     setEditingItem(null);
   };
 
+  const handleStatusChange = async (
+    utilityId: string,
+    itemId: string,
+    status: UtilityStatus
+  ) => {
+    await dispatch(
+      updateUtilityItem({
+        id: utilityId,
+        itemId: itemId,
+        updates: { status },
+      })
+    );
+    await dispatch(fetchUtilities({}));
+    await dispatch(fetchHelpDeskStats());
+  };
+
   const handleDelete = async () => {
     if (!deleteTarget) return;
     await dispatch(deleteUtility(deleteTarget));
@@ -817,199 +737,44 @@ function UtilitiesTab({
     }
   };
 
-  // ─── Get document status for a utility item ────────────────────────────
-  const getDocumentStatusForItem = useCallback((utilityId: string): {
-    status: DocumentStatus | null;
-    requesterStatus: RequesterVisibleStatus | null;
-    internalStatus: InternalApprovalStatus | null;
-    isSigned: boolean;
-    isStamped: boolean;
-    documentId: string | null;
-  } => {
-    // Find documents linked to this utility
-    const docs = allDocuments.filter(
-      d => d.entity_type === 'utility_memo' && d.entity_id === utilityId
-    );
-    
-    // Get the most recent document (by created_at)
-    const sortedDocs = docs.sort((a, b) => 
-      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    );
-    
-    const latestDoc = sortedDocs[0];
-    
-    if (!latestDoc) {
-      return {
-        status: null,
-        requesterStatus: null,
-        internalStatus: null,
-        isSigned: false,
-        isStamped: false,
-        documentId: null,
-      };
-    }
-    
-    return {
-      status: latestDoc.status,
-      requesterStatus: latestDoc.requester_status,
-      internalStatus: latestDoc.internal_approval_status,
-      isSigned: latestDoc.is_signed,
-      isStamped: latestDoc.is_stamped,
-      documentId: latestDoc.id,
-    };
-  }, [allDocuments]);
-
-  // ─── Determine display status for a utility item ────────────────────────
-  const getDisplayStatus = useCallback((utilityId: string): {
-    label: string;
-    color: string;
-    icon: React.ReactNode;
-    isComplete: boolean;
-  } => {
-    const docStatus = getDocumentStatusForItem(utilityId);
-    
-    // If no document, show as "No Memo"
-    if (!docStatus.status) {
-      return {
-        label: 'No Memo',
-        color: 'bg-stone-100 text-stone-500 border-stone-200',
-        icon: <AlertCircle className="h-3 w-3" />,
-        isComplete: false,
-      };
-    }
-    
-    // Check if signed and stamped - fully complete
-    if (docStatus.isSigned && docStatus.isStamped) {
-      return {
-        label: 'Signed & Stamped ✓',
-        color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-        icon: <CheckCircle className="h-3 w-3" />,
-        isComplete: true,
-      };
-    }
-    
-    // Check if signed only
-    if (docStatus.isSigned) {
-      return {
-        label: 'Signed',
-        color: 'bg-blue-50 text-blue-700 border-blue-200',
-        icon: <CheckCircle className="h-3 w-3" />,
-        isComplete: false,
-      };
-    }
-    
-    // Check requester visible status
-    switch (docStatus.requesterStatus) {
-      case 'approved':
-        return {
-          label: 'Approved ✓',
-          color: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-          icon: <CheckCircle className="h-3 w-3" />,
-          isComplete: true,
-        };
-      case 'rejected':
-        return {
-          label: 'Rejected ✗',
-          color: 'bg-red-50 text-red-700 border-red-200',
-          icon: <XCircle className="h-3 w-3" />,
-          isComplete: false,
-        };
-      case 'changes_requested':
-        return {
-          label: 'Changes Required',
-          color: 'bg-orange-50 text-orange-700 border-orange-200',
-          icon: <AlertCircle className="h-3 w-3" />,
-          isComplete: false,
-        };
-      case 'in_revision':
-        return {
-          label: 'In Revision',
-          color: 'bg-blue-50 text-blue-700 border-blue-200',
-          icon: <ClockIcon className="h-3 w-3" />,
-          isComplete: false,
-        };
-      case 'pending_approval':
-      default:
-        return {
-          label: 'Pending Approval',
-          color: 'bg-amber-50 text-amber-700 border-amber-200',
-          icon: <ClockIcon className="h-3 w-3" />,
-          isComplete: false,
-        };
-    }
-  }, [getDocumentStatusForItem]);
-
-  // ─── Flatten data for cleaner table ────────────────────────────────────
-  const flattenedData = useMemo(() => {
-    const rows: Array<{
+  // ─── Group items by judge ──────────────────────────────────────────────────
+  const groupedData = useMemo(() => {
+    const groups: Array<{
       judgeId: string;
       judgeName: string;
       pjNumber: string | null;
-      itemId: string;
-      item: UtilityItem;
-      isFirstRow: boolean;
-      rowSpan: number;
-      docStatus: ReturnType<typeof getDisplayStatus>;
+      items: Array<{
+        id: string;
+        item: UtilityItem;
+      }>;
     }> = [];
 
     data.forEach((utility) => {
-      const items = utility.items.length > 0 ? utility.items : [];
-      const rowSpan = items.length || 1;
-
-      // Get document status for this utility
-      const docStatus = getDisplayStatus(utility.id);
-
-      items.forEach((item, index) => {
-        rows.push({
+      if (utility.items.length === 0) {
+        groups.push({
           judgeId: utility.id,
           judgeName: utility.judge_name,
           pjNumber: utility.pj_number,
-          itemId: item.id,
-          item: item,
-          isFirstRow: index === 0,
-          rowSpan: rowSpan,
-          docStatus: docStatus,
+          items: [],
         });
-      });
+      } else {
+        groups.push({
+          judgeId: utility.id,
+          judgeName: utility.judge_name,
+          pjNumber: utility.pj_number,
+          items: utility.items.map((item) => ({
+            id: item.id,
+            item: item,
+          })),
+        });
+      }
     });
 
-    return rows;
-  }, [data, getDisplayStatus]);
+    return groups;
+  }, [data]);
 
-  if (loading) {
-    return (
-      <Panel title="Judge Utilities" icon={<Wallet className="h-4 w-4 text-[#c9a84c]" />}>
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c]" />
-        </div>
-      </Panel>
-    );
-  }
-
-  if (flattenedData.length === 0) {
-    return (
-      <Panel
-        title="Judge Utilities"
-        icon={<Wallet className="h-4 w-4 text-[#c9a84c]" />}
-        action={
-          <div className="flex items-center gap-2 flex-wrap">
-            <GoldOutlineButton
-              icon={<Plus className="h-3.5 w-3.5" />}
-              onClick={handleAdd}
-            >
-              Add Utility
-            </GoldOutlineButton>
-          </div>
-        }
-      >
-        <div className="flex flex-col items-center justify-center py-12">
-          <Info className="h-8 w-8 text-stone-300 mb-2" />
-          <p className="text-sm font-medium text-stone-600">No utility records found</p>
-          <p className="text-xs text-stone-400">Click 'Add Utility' to create a new entry.</p>
-        </div>
-      </Panel>
-    );
-  }
+  // ─── Calculate total items ──────────────────────────────────────────────────
+  const totalItems = groupedData.reduce((sum, g) => sum + g.items.length, 0);
 
   return (
     <>
@@ -1038,148 +803,230 @@ function UtilitiesTab({
           </div>
         }
       >
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border border-stone-200/80 bg-white shadow-sm">
+          <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-stone-50/80 border-b border-stone-200">
-                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
+              <tr className="bg-stone-50/90 border-b border-stone-200/80">
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
                   Judge
                 </th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
                   PJ Number
                 </th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
                   Type
                 </th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
                   Requisition #
                 </th>
-                <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-stone-500">
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500 text-right">
                   Amount (KES)
                 </th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
                   Period
                 </th>
-                <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500">
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
                   Description
                 </th>
-                <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-stone-500">
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  Received
+                </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  Fwd DASS
+                </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  Paid
+                </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500 text-center">
                   Status
                 </th>
-                <th className="px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wider text-stone-500">
+                <th className="px-3.5 py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-stone-500">
                   Actions
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {flattenedData.map((row) => (
-                <tr key={row.itemId} className="hover:bg-amber-50/30 transition-colors duration-150">
-                  {row.isFirstRow && (
-                    <>
-                      <td
-                        rowSpan={row.rowSpan}
-                        className="px-3 py-2.5 align-top border-r border-stone-100 bg-stone-50/30"
-                      >
-                        <button
-                          onClick={() => {
-                            const utility = data.find((u) => u.id === row.judgeId);
-                            if (utility) handleView(utility);
-                          }}
-                          className="text-sm font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left transition-colors"
-                        >
-                          {row.judgeName}
-                        </button>
-                        <span className="block text-[10px] text-stone-400 mt-0.5">
-                          {row.rowSpan} item{row.rowSpan !== 1 ? 's' : ''}
-                        </span>
-                      </td>
-                      <td
-                        rowSpan={row.rowSpan}
-                        className="px-3 py-2.5 align-top border-r border-stone-100 bg-stone-50/30"
-                      >
-                        <span className="font-mono text-sm text-stone-600">
-                          {row.pjNumber || (
-                            <span className="text-stone-300 italic text-xs">Not assigned</span>
-                          )}
-                        </span>
-                      </td>
-                    </>
-                  )}
-
-                  <td className="px-3 py-2.5 whitespace-nowrap">
-                    <UtilityTypeBadge type={row.item.utility_type} />
-                  </td>
-
-                  <td className="px-3 py-2.5 font-mono text-xs text-stone-600 whitespace-nowrap">
-                    {row.item.requisition_number ? (
-                      <span className="bg-stone-100 px-1.5 py-0.5 rounded text-stone-700">
-                        {row.item.requisition_number}
-                      </span>
-                    ) : (
-                      <span className="text-stone-300">—</span>
-                    )}
-                  </td>
-
-                  <td className="px-3 py-2.5 text-right font-medium text-stone-800 whitespace-nowrap">
-                    {formatCurrency(row.item.amount)}
-                  </td>
-
-                  <td className="px-3 py-2.5 text-stone-600 whitespace-nowrap">
-                    {row.item.period}
-                  </td>
-
-                  <td
-                    className="px-3 py-2.5 text-stone-500 max-w-[150px] truncate"
-                    title={row.item.description || ""}
-                  >
-                    {row.item.description || <span className="text-stone-300">—</span>}
-                  </td>
-
-                  <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border ${row.docStatus.color}`}
-                    >
-                      {row.docStatus.icon}
-                      {row.docStatus.label}
-                    </span>
-                  </td>
-
-                  <td className="px-3 py-2.5 text-center whitespace-nowrap">
-                    <div className="flex items-center justify-center gap-1">
-                      <button
-                        onClick={() => {
-                          const utility = data.find((u) => u.id === row.judgeId);
-                          if (utility) handleView(utility);
-                        }}
-                        disabled={mutating}
-                        className="rounded-lg p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-100 transition-all duration-150 disabled:opacity-40"
-                        title="View Details"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          const utility = data.find((u) => u.id === row.judgeId);
-                          if (utility) handleEdit(utility);
-                        }}
-                        disabled={mutating}
-                        className="rounded-lg p-1.5 text-stone-500 hover:text-blue-600 hover:bg-blue-50 transition-all duration-150 disabled:opacity-40"
-                        title="Edit"
-                      >
-                        <Edit className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setDeleteTarget(row.judgeId)}
-                        disabled={mutating}
-                        className="rounded-lg p-1.5 text-stone-500 hover:text-red-600 hover:bg-red-50 transition-all duration-150 disabled:opacity-40"
-                        title="Delete"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+              {loading ? (
+                <tr>
+                  <td colSpan={12} className="px-3 py-16 text-center">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c]" />
+                      <span className="text-xs text-stone-400">Loading utility records...</span>
                     </div>
                   </td>
                 </tr>
-              ))}
+              ) : groupedData.length === 0 || totalItems === 0 ? (
+                <tr>
+                  <td colSpan={12} className="px-3 py-16 text-center">
+                    <div className="flex flex-col items-center justify-center gap-1">
+                      <Info className="h-5 w-5 text-stone-300" />
+                      <span className="text-sm font-medium text-stone-600">No records found</span>
+                      <span className="text-xs text-stone-400">
+                        Click 'Add Utility' to create a new entry for a judge.
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                groupedData.map((group) => {
+                  const rowCount = group.items.length;
+
+                  return group.items.map((row, itemIndex) => {
+                    const isFirstRow = itemIndex === 0;
+                    const isLastRowInGroup = itemIndex === rowCount - 1;
+
+                    return (
+                      <tr
+                        key={row.id}
+                        className={`hover:bg-amber-50/30 transition-colors duration-150 ${
+                          isLastRowInGroup ? "border-b-2 border-stone-200/60" : ""
+                        }`}
+                      >
+                        {/* Judge Name (Sticky Rowspan Cell) */}
+                        {isFirstRow && (
+                          <td
+                            rowSpan={rowCount}
+                            className="px-3.5 py-3 font-semibold text-stone-800 align-top border-r border-stone-200/60 bg-stone-50/30"
+                          >
+                            <div className="flex flex-col items-start gap-0.5">
+                              <button
+                                onClick={() => {
+                                  const utility = data.find(
+                                    (u) => u.id === group.judgeId
+                                  );
+                                  if (utility) handleView(utility);
+                                }}
+                                className="hover:text-[#c9a84c] hover:underline text-left transition-colors"
+                              >
+                                {group.judgeName}
+                              </button>
+                              <span className="inline-flex items-center justify-center rounded-full bg-stone-200/70 px-2 py-0.5 text-[10px] font-bold text-stone-600">
+                                {rowCount} item{rowCount !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+                          </td>
+                        )}
+
+                        {/* PJ Number (Sticky Rowspan Cell) */}
+                        {isFirstRow && (
+                          <td
+                            rowSpan={rowCount}
+                            className="px-3.5 py-3 align-top border-r border-stone-200/60 bg-stone-50/30"
+                          >
+                            <span className="font-mono text-xs text-stone-600">
+                              {group.pjNumber || (
+                                <span className="text-stone-300 italic">Not assigned</span>
+                              )}
+                            </span>
+                          </td>
+                        )}
+
+                        {/* Utility Type Badge */}
+                        <td className="px-3.5 py-3 whitespace-nowrap">
+                          <UtilityTypeBadge type={row.item.utility_type} />
+                        </td>
+
+                        {/* Requisition Number */}
+                        <td className="px-3.5 py-3 font-mono text-[11px] text-stone-600 whitespace-nowrap">
+                          {row.item.requisition_number ? (
+                            <span className="bg-stone-100 px-1.5 py-0.5 rounded text-stone-700">
+                              {row.item.requisition_number}
+                            </span>
+                          ) : (
+                            <span className="text-stone-300">—</span>
+                          )}
+                        </td>
+
+                        {/* Amount */}
+                        <td className="px-3.5 py-3 text-right font-semibold text-stone-800 whitespace-nowrap">
+                          {formatCurrency(row.item.amount)}
+                        </td>
+
+                        {/* Period */}
+                        <td className="px-3.5 py-3 text-stone-600 whitespace-nowrap font-medium">
+                          {row.item.period}
+                        </td>
+
+                        {/* Description */}
+                        <td
+                          className="px-3.5 py-3 text-stone-500 max-w-[180px] truncate"
+                          title={row.item.description || ""}
+                        >
+                          {row.item.description || <span className="text-stone-300">—</span>}
+                        </td>
+
+                        {/* Dates */}
+                        <td className="px-3.5 py-3 text-stone-600 whitespace-nowrap">
+                          {formatDate(row.item.date_received) || <span className="text-stone-300">—</span>}
+                        </td>
+                        <td className="px-3.5 py-3 text-stone-600 whitespace-nowrap">
+                          {formatDate(row.item.date_forwarded_dass) || <span className="text-stone-300">—</span>}
+                        </td>
+                        <td className="px-3.5 py-3 text-stone-600 whitespace-nowrap">
+                          {formatDate(row.item.date_paid) || <span className="text-stone-300">—</span>}
+                        </td>
+
+                        {/* Status Dropdown */}
+                        <td
+                          className="px-3.5 py-3 text-center whitespace-nowrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <UtilityStatusDropdown
+                            status={row.item.status}
+                            onStatusChange={(s) =>
+                              handleStatusChange(group.judgeId, row.id, s)
+                            }
+                            disabled={mutating}
+                          />
+                        </td>
+
+                        {/* Inline Actions */}
+                        <td
+                          className="px-3.5 py-3 text-center whitespace-nowrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => {
+                                const utility = data.find(
+                                  (u) => u.id === group.judgeId
+                                );
+                                if (utility) handleView(utility);
+                              }}
+                              disabled={mutating}
+                              className="rounded-lg p-1.5 text-stone-500 hover:text-stone-800 hover:bg-stone-100 transition-all duration-150 disabled:opacity-40"
+                              title="View Details"
+                            >
+                              <Eye className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                const utility = data.find(
+                                  (u) => u.id === group.judgeId
+                                );
+                                if (utility) handleEdit(utility);
+                              }}
+                              disabled={mutating}
+                              className="rounded-lg p-1.5 text-stone-500 hover:text-blue-600 hover:bg-blue-50 transition-all duration-150 disabled:opacity-40"
+                              title="Edit"
+                            >
+                              <Edit className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(group.judgeId)}
+                              disabled={mutating}
+                              className="rounded-lg p-1.5 text-stone-500 hover:text-red-600 hover:bg-red-50 transition-all duration-150 disabled:opacity-40"
+                              title="Delete"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  });
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -1204,14 +1051,77 @@ function UtilitiesTab({
   );
 }
 
-// ─── Utility Status Dropdown (Auto-updating) ──────────────────────────────
+// ─── Utility Status Dropdown ─────────────────────────────────────────────────
 
+function UtilityStatusDropdown({
+  status,
+  onStatusChange,
+  disabled,
+}: {
+  status: UtilityStatus;
+  onStatusChange: (status: UtilityStatus) => void;
+  disabled?: boolean;
+}) {
+  const options: UtilityStatus[] = [
+    'Awaiting',
+    'Awaiting Documentation',
+    'Awaiting Funding',
+    'In Process',
+    'Approved',
+    'Paid',
+    'Payment NA',
+  ];
 
+  const getStatusColor = (s: UtilityStatus): string => {
+    const map: Record<UtilityStatus, string> = {
+      Awaiting: 'bg-stone-100 text-stone-700 border-stone-200',
+      'Awaiting Documentation': 'bg-amber-50 text-amber-700 border-amber-200',
+      'Awaiting Funding': 'bg-amber-50 text-amber-700 border-amber-200',
+      'In Process': 'bg-blue-50 text-blue-700 border-blue-200',
+      Approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      Paid: 'bg-green-50 text-green-700 border-green-200',
+      'Payment NA': 'bg-stone-100 text-stone-500 border-stone-200',
+    };
+    return map[s] || 'bg-stone-50 text-stone-600 border-stone-200';
+  };
 
+  const getStatusIcon = (s: UtilityStatus): React.ReactNode => {
+    switch (s) {
+      case 'Approved':
+      case 'Paid':
+        return <CheckCircle className="h-3 w-3" />;
+      case 'Awaiting':
+      case 'Awaiting Documentation':
+      case 'Awaiting Funding':
+      case 'In Process':
+        return <ClockIcon className="h-3 w-3" />;
+      case 'Payment NA':
+        return <XCircle className="h-3 w-3" />;
+      default:
+        return <AlertCircle className="h-3 w-3" />;
+    }
+  };
 
+  return (
+    <div className="inline-flex items-center gap-1.5">
+      <span className="text-stone-400">{getStatusIcon(status)}</span>
+      <select
+        value={status}
+        onChange={(e) => onStatusChange(e.target.value as UtilityStatus)}
+        disabled={disabled}
+        className={`rounded-full border-0 px-3 py-1 text-xs font-medium transition-all duration-150 ${getStatusColor(status)} focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]/20 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-sm`}
+      >
+        {options.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
-
-// ─── Club Tab ──────────────────────────────────────────────────────────────
+// ─── Club Tab ─────────────────────────────────────────────────────────────────
 
 function ClubTab() {
   const dispatch = useAppDispatch();
@@ -1328,7 +1238,7 @@ function ClubTab() {
   );
 }
 
-// ─── Generic DSA Tab ──────────────────────────────────────────────────────
+// ─── Generic DSA Tab ─────────────────────────────────────────────────────────
 
 interface DSATabProps<T> {
   title: string;
@@ -1384,7 +1294,7 @@ function DSATab<T extends { id: string }>({
   );
 }
 
-// ─── Entity Detail Modal with Documents (Updated with Two-Step Approval) ──
+// ─── Entity Detail Modal with Documents ──────────────────────────────────────
 
 interface EntityDetailModalProps<T> {
   item: T;
@@ -1409,25 +1319,18 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
 }: EntityDetailModalProps<T>) {
   const dispatch = useAppDispatch();
   const allDocs = useAppSelector(selectAllHelpdeskDocuments);
-  const actionLoading = useAppSelector(selectDocumentActionLoading);
+  
+  const docs = allDocs.filter(
+    (d) => d.entity_type === entityType && d.entity_id === item.id
+  );
   const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
   const documentsUploading = useAppSelector(selectDocumentsUploading);
+  const documentActionLoading = useAppSelector(selectDocumentActionLoading);
   const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
   const isLinking = useAppSelector(selectDocumentLinking);
 
   const [showLinkPicker, setShowLinkPicker] = useState(false);
-  const [showInternalActions, setShowInternalActions] = useState(false);
-  const [internalComment, setInternalComment] = useState('');
-  const [changesRequested, setChangesRequested] = useState('');
-  const [rejectionReason, setRejectionReason] = useState('');
-  const [requesterMessage, setRequesterMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const docs = allDocs.filter(
-    (d) => d.entity_type === entityType && d.entity_id === item.id
-  );
-
-  const currentDoc = docs[0];
 
   useEffect(() => {
     dispatch(fetchHelpdeskDocuments({ 
@@ -1514,129 +1417,21 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
     }
   };
 
-  const handleSubmitForApproval = async (docId: string) => {
+  const handleSendForApproval = async (docId: string) => {
     try {
-      await dispatch(submitForApproval({ id: docId })).unwrap();
-      toast.success('Document submitted for approval.');
-      dispatch(fetchHelpdeskDocuments({ 
-        entity_type: entityType, 
-        entity_id: item.id 
-      }));
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to submit for approval.');
-    }
-  };
-
-  const handleInternalApprove = async (docId: string) => {
-    try {
-      await dispatch(internalApproveDocument({
+      await dispatch(submitForApproval({ 
         id: docId,
-        action: 'approve',
-        comments: internalComment || undefined,
-        generate_e_stamp: true,
+        comments: `Submitted for approval by ${title}.`,
       })).unwrap();
-      toast.success('Document approved internally. Send back to requester when ready.');
-      setInternalComment('');
-      setShowInternalActions(false);
+      toast.success('Document submitted for approval. Super Admin will review it.');
       dispatch(fetchHelpdeskDocuments({ 
         entity_type: entityType, 
         entity_id: item.id 
       }));
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to approve document internally.');
+      toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
     }
   };
-
-  const handleInternalReject = async (docId: string) => {
-    if (!rejectionReason.trim()) {
-      toast.error('Please provide a rejection reason.');
-      return;
-    }
-    try {
-      await dispatch(internalRejectDocument({
-        id: docId,
-        action: 'reject',
-        rejection_reason: rejectionReason,
-        comments: internalComment || undefined,
-      })).unwrap();
-      toast.success('Document rejected internally. Send back to requester when ready.');
-      setRejectionReason('');
-      setInternalComment('');
-      setShowInternalActions(false);
-      dispatch(fetchHelpdeskDocuments({ 
-        entity_type: entityType, 
-        entity_id: item.id 
-      }));
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to reject document internally.');
-    }
-  };
-
-  const handleRequestChanges = async (docId: string) => {
-    if (!changesRequested.trim()) {
-      toast.error('Please describe the changes requested.');
-      return;
-    }
-    try {
-      await dispatch(internalRequestChanges({
-        id: docId,
-        action: 'request_changes',
-        changes_requested: changesRequested.split('\n').filter(s => s.trim()),
-        comments: internalComment || undefined,
-      })).unwrap();
-      toast.success('Changes requested internally. Send back to requester when ready.');
-      setChangesRequested('');
-      setInternalComment('');
-      setShowInternalActions(false);
-      dispatch(fetchHelpdeskDocuments({ 
-        entity_type: entityType, 
-        entity_id: item.id 
-      }));
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to request changes internally.');
-    }
-  };
-
-  const handleSendBack = async (docId: string, finalStatus: 'approved' | 'rejected' | 'changes_requested') => {
-    try {
-      await dispatch(sendBackToRequester({
-        id: docId,
-        final_status: finalStatus,
-        comments: requesterMessage || undefined,
-        notify_requester: true,
-      })).unwrap();
-      toast.success(`Document sent back to requester with status: ${finalStatus}`);
-      setRequesterMessage('');
-      dispatch(fetchHelpdeskDocuments({ 
-        entity_type: entityType, 
-        entity_id: item.id 
-      }));
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to send document back to requester.');
-    }
-  };
-
-  const handleResubmit = async (docId: string) => {
-    try {
-      await dispatch(resubmitDocument({
-        id: docId,
-        comments: internalComment || undefined,
-      })).unwrap();
-      toast.success('Document resubmitted for review.');
-      setInternalComment('');
-      dispatch(fetchHelpdeskDocuments({ 
-        entity_type: entityType, 
-        entity_id: item.id 
-      }));
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to resubmit document.');
-    }
-  };
-
-  const isInternalApproving = currentDoc && !!actionLoading[currentDoc.id]?.internalApproving;
-  const isSendingBack = currentDoc && !!actionLoading[currentDoc.id]?.sendingBack;
-  const isSubmitting = currentDoc && !!actionLoading[currentDoc.id]?.submitting;
-  const isResubmitting = currentDoc && !!actionLoading[currentDoc.id]?.resubmitting;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -1662,243 +1457,10 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
             />
           </div>
 
-          {/* Document Status Section - Two-Step Approval */}
-          {currentDoc && (
-            <div className="mb-6 rounded-lg border border-stone-200 bg-stone-50 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-stone-700">Document Status</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-stone-500">Internal:</span>
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border ${getInternalStatusColor(currentDoc.internal_approval_status)}`}>
-                        {getInternalStatusLabel(currentDoc.internal_approval_status)}
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-stone-500">Requester:</span>
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border ${getRequesterStatusColor(currentDoc.requester_status)}`}>
-                        {getRequesterStatusLabel(currentDoc.requester_status)}
-                      </span>
-                    </div>
-
-                    {currentDoc.is_signed && (
-                      <div className="flex items-center gap-1 text-xs text-emerald-600">
-                        <CheckCircle size={12} />
-                        <span>Signed by {currentDoc.signed_by_name || 'Unknown'}</span>
-                        {currentDoc.signed_at && (
-                          <span className="text-stone-400">
-                            {formatDate(currentDoc.signed_at)}
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {currentDoc.is_stamped && (
-                      <div className={`flex items-center gap-1 text-xs rounded-full px-2 py-0.5 ${getStampTypeColor(currentDoc.stamp_type || 'approved')}`}>
-                        <Stamp size={12} />
-                        <span>{getStampTypeLabel(currentDoc.stamp_type || 'approved')}</span>
-                        {currentDoc.stamped_by_name && (
-                          <span className="text-stone-400">by {currentDoc.stamped_by_name}</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 border-t border-stone-200 pt-4">
-                {currentDoc.internal_approval_status === 'pending' ? (
-                  <div className="flex flex-wrap gap-2">
-                    <GoldOutlineButton
-                      icon={isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                      onClick={() => handleSubmitForApproval(currentDoc.id)}
-                      disabled={isSubmitting}
-                    >
-                      {isSubmitting ? 'Submitting...' : 'Submit for Approval'}
-                    </GoldOutlineButton>
-                  </div>
-                ) : currentDoc.internal_approval_status === 'previewed' ? (
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => setShowInternalActions(!showInternalActions)}
-                      className="text-sm text-[#c9a84c] hover:underline font-medium"
-                    >
-                      {showInternalActions ? 'Hide Actions' : 'Show Internal Actions'}
-                    </button>
-                    
-                    {showInternalActions && (
-                      <div className="space-y-3 rounded-lg border border-stone-200 bg-white p-4">
-                        <div>
-                          <label className="text-xs font-medium text-stone-600">Internal Comment</label>
-                          <textarea
-                            value={internalComment}
-                            onChange={(e) => setInternalComment(e.target.value)}
-                            placeholder="Add internal comment..."
-                            className="mt-1 w-full rounded-md border border-stone-200 px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
-                            rows={2}
-                          />
-                        </div>
-                        
-                        <div className="flex flex-wrap gap-2">
-                          <GoldOutlineButton
-                            icon={isInternalApproving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                            onClick={() => handleInternalApprove(currentDoc.id)}
-                            disabled={isInternalApproving}
-                          >
-                            {isInternalApproving ? 'Approving...' : 'Approve Internally'}
-                          </GoldOutlineButton>
-                          
-                          <button
-                            onClick={() => {
-                              if (!rejectionReason.trim()) {
-                                toast.error('Please provide a rejection reason.');
-                                return;
-                              }
-                              handleInternalReject(currentDoc.id);
-                            }}
-                            disabled={isInternalApproving}
-                            className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-                          >
-                            {isInternalApproving ? <Loader2 size={14} className="animate-spin" /> : <XCircle size={14} />}
-                            Reject
-                          </button>
-                          
-                          <button
-                            onClick={() => {
-                              if (!changesRequested.trim()) {
-                                toast.error('Please describe the changes requested.');
-                                return;
-                              }
-                              handleRequestChanges(currentDoc.id);
-                            }}
-                            disabled={isInternalApproving}
-                            className="inline-flex items-center gap-2 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
-                          >
-                            {isInternalApproving ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
-                            Request Changes
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : currentDoc.internal_approval_status === 'approved_internal' ? (
-                  <div className="space-y-3">
-                    <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">
-                      Document approved internally. Send back to requester to finalize.
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <GoldOutlineButton
-                        icon={isSendingBack ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                        onClick={() => handleSendBack(currentDoc.id, 'approved')}
-                        disabled={isSendingBack}
-                      >
-                        {isSendingBack ? 'Sending...' : 'Send Back as Approved'}
-                      </GoldOutlineButton>
-                      <div className="flex-1 min-w-[200px]">
-                        <input
-                          type="text"
-                          value={requesterMessage}
-                          onChange={(e) => setRequesterMessage(e.target.value)}
-                          placeholder="Message to requester (optional)"
-                          className="w-full rounded-md border border-stone-200 px-3 py-1.5 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ) : currentDoc.internal_approval_status === 'rejected_internal' ? (
-                  <div className="space-y-3">
-                    <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
-                      Document rejected internally. Send back to requester with rejection reason.
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => handleSendBack(currentDoc.id, 'rejected')}
-                        disabled={isSendingBack}
-                        className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-                      >
-                        {isSendingBack ? <Loader2 size={14} className="animate-spin" /> : <XCircle size={14} />}
-                        Send Back as Rejected
-                      </button>
-                      <div className="flex-1 min-w-[200px]">
-                        <input
-                          type="text"
-                          value={requesterMessage}
-                          onChange={(e) => setRequesterMessage(e.target.value)}
-                          placeholder="Message to requester (optional)"
-                          className="w-full rounded-md border border-stone-200 px-3 py-1.5 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ) : currentDoc.internal_approval_status === 'changes_requested_internal' ? (
-                  <div className="space-y-3">
-                    <div className="rounded-md bg-orange-50 p-3 text-sm text-orange-700">
-                      Changes requested internally. Send back to requester with change requests.
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => handleSendBack(currentDoc.id, 'changes_requested')}
-                        disabled={isSendingBack}
-                        className="inline-flex items-center gap-2 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
-                      >
-                        {isSendingBack ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
-                        Send Back for Changes
-                      </button>
-                      <div className="flex-1 min-w-[200px]">
-                        <input
-                          type="text"
-                          value={requesterMessage}
-                          onChange={(e) => setRequesterMessage(e.target.value)}
-                          placeholder="Message to requester (optional)"
-                          className="w-full rounded-md border border-stone-200 px-3 py-1.5 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ) : currentDoc.requester_status === 'changes_requested' || currentDoc.requester_status === 'rejected' ? (
-                  <div className="space-y-3">
-                    <div className={`rounded-md p-3 text-sm ${currentDoc.requester_status === 'changes_requested' ? 'bg-orange-50 text-orange-700' : 'bg-red-50 text-red-700'}`}>
-                      {currentDoc.requester_status === 'changes_requested' 
-                        ? 'Changes requested by approver. Make changes and resubmit.' 
-                        : 'Document rejected. You can resubmit with corrections.'}
-                      {currentDoc.internal_changes_requested && currentDoc.internal_changes_requested.length > 0 && (
-                        <ul className="mt-2 list-disc pl-4 text-xs">
-                          {currentDoc.internal_changes_requested.map((change, idx) => (
-                            <li key={idx}>{change}</li>
-                          ))}
-                        </ul>
-                      )}
-                      {currentDoc.rejection_reason && (
-                        <p className="mt-2 text-xs text-red-600">Reason: {currentDoc.rejection_reason}</p>
-                      )}
-                    </div>
-                    <GoldOutlineButton
-                      icon={isResubmitting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                      onClick={() => handleResubmit(currentDoc.id)}
-                      disabled={isResubmitting}
-                    >
-                      {isResubmitting ? 'Resubmitting...' : 'Resubmit for Review'}
-                    </GoldOutlineButton>
-                  </div>
-                ) : currentDoc.requester_status === 'approved' ? (
-                  <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700 flex items-center gap-2">
-                    <CircleCheckBig size={18} />
-                    Document Approved ✓
-                  </div>
-                ) : currentDoc.requester_status === 'in_revision' ? (
-                  <div className="rounded-md bg-blue-50 p-3 text-sm text-blue-700 flex items-center gap-2">
-                    <RefreshCw size={18} className="animate-spin" />
-                    Document is being revised
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          )}
-
+          {/* Custom Content */}
           <div className="mb-6">{renderContent(item)}</div>
 
+          {/* ─── Documents Section ──────────────────────────────────────── */}
           <div className="mt-6 border-t border-stone-200 pt-6">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
@@ -1971,35 +1533,12 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                       {documentFormatIcon(doc.format)}
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                        <div className="mt-0.5 flex items-center gap-2">
                           <span
                             className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
                           >
                             {doc.status === 'pending_approval' ? 'Pending Approval' : doc.status.replace('_', ' ')}
                           </span>
-                          
-                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${getInternalStatusColor(doc.internal_approval_status)}`}>
-                            Internal: {getInternalStatusLabel(doc.internal_approval_status)}
-                          </span>
-                          
-                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${getRequesterStatusColor(doc.requester_status)}`}>
-                            Requester: {getRequesterStatusLabel(doc.requester_status)}
-                          </span>
-
-                          {doc.is_signed && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                              <CheckCircle size={10} />
-                              Signed
-                            </span>
-                          )}
-
-                          {doc.is_stamped && (
-                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${getStampTypeColor(doc.stamp_type || 'approved')}`}>
-                              <Stamp size={10} />
-                              {getStampTypeLabel(doc.stamp_type || 'approved')}
-                            </span>
-                          )}
-
                           <span className="text-[11px] text-stone-400">{doc.ref}</span>
                           <span className="text-[11px] text-stone-400 uppercase">{doc.format}</span>
                         </div>
@@ -2010,7 +1549,7 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <a
-                        href={doc.stamped_file_url || doc.file_url}
+                        href={doc.file_url}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
@@ -2020,17 +1559,17 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                       </a>
                       {doc.status === 'draft' && (
                         <GhostButton
-                          onClick={() => handleSubmitForApproval(doc.id)}
-                          disabled={!!actionLoading[doc.id]?.submitting}
+                          onClick={() => handleSendForApproval(doc.id)}
+                          disabled={!!documentActionLoading[doc.id]?.submitting}
                           icon={
-                            actionLoading[doc.id]?.submitting ? (
+                            documentActionLoading[doc.id]?.submitting ? (
                               <Loader2 size={12} className="animate-spin" />
                             ) : (
                               <Send size={12} />
                             )
                           }
                         >
-                          {actionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
+                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
                         </GhostButton>
                       )}
                       {doc.status === 'pending_approval' && (
@@ -2043,6 +1582,12 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
                           <CheckCircle size={12} />
                           Approved
+                        </span>
+                      )}
+                      {doc.status === 'returned' && (
+                        <span className="inline-flex items-center gap-1 text-xs text-blue-600">
+                          <ArrowLeft size={12} />
+                          Returned
                         </span>
                       )}
                     </div>
@@ -2071,7 +1616,9 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
   );
 }
 
-// ─── Circuits Tab ──────────────────────────────────────────────────────────
+// ─── Circuits Tab ────────────────────────────────────────────────────────────
+
+// ─── Circuits Tab ────────────────────────────────────────────────────────────
 
 function CircuitsTab() {
   const dispatch = useAppDispatch();
@@ -2114,6 +1661,13 @@ function CircuitsTab() {
     setDeleteTarget(null);
   };
 
+  // Helper to get unique judge names from DSA details
+  const getJudgeNames = (item: Circuit) => {
+    if (!item.dsa_details || item.dsa_details.length === 0) return null;
+    const uniqueJudges = [...new Set(item.dsa_details.map(d => d.judge_name).filter(Boolean))];
+    return uniqueJudges;
+  };
+
   return (
     <>
       <DSATab
@@ -2123,37 +1677,59 @@ function CircuitsTab() {
         loading={loading}
         mutating={mutating}
         columns={[
+          { key: 'judges', label: 'Judge(s)' },
           { key: 'name', label: 'Circuit' },
           { key: 'start_date', label: 'Start' },
           { key: 'end_date', label: 'End' },
           { key: 'total_dsa', label: 'Total DSA', align: 'right' },
           { key: 'status', label: 'Status', align: 'center' },
         ]}
-        renderRow={(item: Circuit) => (
-          <>
-            <td className="px-3 py-2">
-              <button
-                onClick={() => handleView(item)}
-                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-              >
-                {item.name}
-              </button>
-              {item.location && (
-                <span className="ml-2 text-xs text-stone-400">({item.location})</span>
-              )}
-            </td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
+        renderRow={(item: Circuit) => {
+          const judgeNames = getJudgeNames(item);
+          return (
+            <>
+              <td className="px-3 py-2">
+                {judgeNames ? (
+                  <div className="flex flex-col gap-0.5">
+                    {judgeNames.slice(0, 2).map((name, i) => (
+                      <span key={i} className="text-sm text-stone-700">
+                        {name}
+                      </span>
+                    ))}
+                    {judgeNames.length > 2 && (
+                      <span className="text-xs text-stone-400">
+                        +{judgeNames.length - 2} more
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-stone-400 text-sm">—</span>
+                )}
+              </td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.name}
+                </button>
+                {item.location && (
+                  <span className="ml-2 text-xs text-stone-400">({item.location})</span>
+                )}
+              </td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+            </>
+          );
+        }}
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
@@ -2184,6 +1760,16 @@ function CircuitsTab() {
           mutating={mutating}
           renderContent={(item) => (
             <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Judge(s):</span>
+                <p className="font-medium">
+                  {item.dsa_details && item.dsa_details.length > 0 ? (
+                    [...new Set(item.dsa_details.map(d => d.judge_name))].join(', ')
+                  ) : (
+                    '—'
+                  )}
+                </p>
+              </div>
               <div>
                 <span className="text-stone-500">Location:</span>
                 <p className="font-medium">{item.location || '—'}</p>
@@ -2218,7 +1804,7 @@ function CircuitsTab() {
   );
 }
 
-// ─── Other Payments Tab ────────────────────────────────────────────────────
+// ─── Other Payments Tab ──────────────────────────────────────────────────────
 
 function OtherPaymentsTab() {
   const dispatch = useAppDispatch();
@@ -2261,6 +1847,12 @@ function OtherPaymentsTab() {
     setDeleteTarget(null);
   };
 
+  const getJudgeNames = (item: OtherPayment) => {
+    if (!item.dsa_details || item.dsa_details.length === 0) return null;
+    const uniqueJudges = [...new Set(item.dsa_details.map(d => d.judge_name).filter(Boolean))];
+    return uniqueJudges;
+  };
+
   return (
     <>
       <DSATab
@@ -2270,6 +1862,7 @@ function OtherPaymentsTab() {
         loading={loading}
         mutating={mutating}
         columns={[
+          { key: 'judges', label: 'Judge(s)' },
           { key: 'name', label: 'Payment' },
           { key: 'description', label: 'Description' },
           { key: 'start_date', label: 'Start' },
@@ -2277,29 +1870,50 @@ function OtherPaymentsTab() {
           { key: 'total_dsa', label: 'Total DSA', align: 'right' },
           { key: 'status', label: 'Status', align: 'center' },
         ]}
-        renderRow={(item: OtherPayment) => (
-          <>
-            <td className="px-3 py-2">
-              <button
-                onClick={() => handleView(item)}
-                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-              >
-                {item.name}
-              </button>
-            </td>
-            <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.description || '—'}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
+        renderRow={(item: OtherPayment) => {
+          const judgeNames = getJudgeNames(item);
+          return (
+            <>
+              <td className="px-3 py-2">
+                {judgeNames ? (
+                  <div className="flex flex-col gap-0.5">
+                    {judgeNames.slice(0, 2).map((name, i) => (
+                      <span key={i} className="text-sm text-stone-700">
+                        {name}
+                      </span>
+                    ))}
+                    {judgeNames.length > 2 && (
+                      <span className="text-xs text-stone-400">
+                        +{judgeNames.length - 2} more
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-stone-400 text-sm">—</span>
+                )}
+              </td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.name}
+                </button>
+              </td>
+              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.description || '—'}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+            </>
+          );
+        }}
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
@@ -2330,6 +1944,16 @@ function OtherPaymentsTab() {
           mutating={mutating}
           renderContent={(item) => (
             <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Judge(s):</span>
+                <p className="font-medium">
+                  {item.dsa_details && item.dsa_details.length > 0 ? (
+                    [...new Set(item.dsa_details.map(d => d.judge_name))].join(', ')
+                  ) : (
+                    '—'
+                  )}
+                </p>
+              </div>
               <div>
                 <span className="text-stone-500">Description:</span>
                 <p className="font-medium">{item.description || '—'}</p>
@@ -2364,7 +1988,7 @@ function OtherPaymentsTab() {
   );
 }
 
-// ─── Benches Tab ──────────────────────────────────────────────────────────
+// ─── Benches Tab ────────────────────────────────────────────────────────────
 
 function BenchesTab() {
   const dispatch = useAppDispatch();
@@ -2407,6 +2031,12 @@ function BenchesTab() {
     setDeleteTarget(null);
   };
 
+  const getJudgeNames = (item: SpecialBench) => {
+    if (!item.dsa_details || item.dsa_details.length === 0) return null;
+    const uniqueJudges = [...new Set(item.dsa_details.map(d => d.judge_name).filter(Boolean))];
+    return uniqueJudges;
+  };
+
   return (
     <>
       <DSATab
@@ -2416,34 +2046,56 @@ function BenchesTab() {
         loading={loading}
         mutating={mutating}
         columns={[
+          { key: 'judges', label: 'Judge(s)' },
           { key: 'name', label: 'Bench / Case' },
           { key: 'start_date', label: 'Start' },
           { key: 'end_date', label: 'End' },
           { key: 'total_dsa', label: 'Total DSA', align: 'right' },
           { key: 'status', label: 'Status', align: 'center' },
         ]}
-        renderRow={(item: SpecialBench) => (
-          <>
-            <td className="px-3 py-2">
-              <button
-                onClick={() => handleView(item)}
-                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-              >
-                {item.name}
-              </button>
-            </td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
+        renderRow={(item: SpecialBench) => {
+          const judgeNames = getJudgeNames(item);
+          return (
+            <>
+              <td className="px-3 py-2">
+                {judgeNames ? (
+                  <div className="flex flex-col gap-0.5">
+                    {judgeNames.slice(0, 2).map((name, i) => (
+                      <span key={i} className="text-sm text-stone-700">
+                        {name}
+                      </span>
+                    ))}
+                    {judgeNames.length > 2 && (
+                      <span className="text-xs text-stone-400">
+                        +{judgeNames.length - 2} more
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-stone-400 text-sm">—</span>
+                )}
+              </td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.name}
+                </button>
+              </td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+            </>
+          );
+        }}
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
@@ -2474,6 +2126,16 @@ function BenchesTab() {
           mutating={mutating}
           renderContent={(item) => (
             <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Judge(s):</span>
+                <p className="font-medium">
+                  {item.dsa_details && item.dsa_details.length > 0 ? (
+                    [...new Set(item.dsa_details.map(d => d.judge_name))].join(', ')
+                  ) : (
+                    '—'
+                  )}
+                </p>
+              </div>
               <div>
                 <span className="text-stone-500">Bench Name:</span>
                 <p className="font-medium">{item.name}</p>
@@ -2508,7 +2170,7 @@ function BenchesTab() {
   );
 }
 
-// ─── Part-Heard Tab ──────────────────────────────────────────────────────
+// ─── Part-Heards Tab ─────────────────────────────────────────────────────────
 
 function PartHeardTab() {
   const dispatch = useAppDispatch();
@@ -2551,6 +2213,12 @@ function PartHeardTab() {
     setDeleteTarget(null);
   };
 
+  const getJudgeNames = (item: PartHeard) => {
+    if (!item.dsa_details || item.dsa_details.length === 0) return null;
+    const uniqueJudges = [...new Set(item.dsa_details.map(d => d.judge_name).filter(Boolean))];
+    return uniqueJudges;
+  };
+
   return (
     <>
       <DSATab
@@ -2560,6 +2228,7 @@ function PartHeardTab() {
         loading={loading}
         mutating={mutating}
         columns={[
+          { key: 'judges', label: 'Judge(s)' },
           { key: 'case_reference', label: 'Reference' },
           { key: 'approved_by', label: 'Approved By' },
           { key: 'start_date', label: 'Start' },
@@ -2567,29 +2236,50 @@ function PartHeardTab() {
           { key: 'total_dsa', label: 'Total DSA', align: 'right' },
           { key: 'status', label: 'Status', align: 'center' },
         ]}
-        renderRow={(item: PartHeard) => (
-          <>
-            <td className="px-3 py-2">
-              <button
-                onClick={() => handleView(item)}
-                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-              >
-                {item.case_reference}
-              </button>
-            </td>
-            <td className="px-3 py-2 text-stone-600">{item.approved_by || '—'}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
+        renderRow={(item: PartHeard) => {
+          const judgeNames = getJudgeNames(item);
+          return (
+            <>
+              <td className="px-3 py-2">
+                {judgeNames ? (
+                  <div className="flex flex-col gap-0.5">
+                    {judgeNames.slice(0, 2).map((name, i) => (
+                      <span key={i} className="text-sm text-stone-700">
+                        {name}
+                      </span>
+                    ))}
+                    {judgeNames.length > 2 && (
+                      <span className="text-xs text-stone-400">
+                        +{judgeNames.length - 2} more
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-stone-400 text-sm">—</span>
+                )}
+              </td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.case_reference}
+                </button>
+              </td>
+              <td className="px-3 py-2 text-stone-600">{item.approved_by || '—'}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+            </>
+          );
+        }}
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
@@ -2620,6 +2310,16 @@ function PartHeardTab() {
           mutating={mutating}
           renderContent={(item) => (
             <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Judge(s):</span>
+                <p className="font-medium">
+                  {item.dsa_details && item.dsa_details.length > 0 ? (
+                    [...new Set(item.dsa_details.map(d => d.judge_name))].join(', ')
+                  ) : (
+                    '—'
+                  )}
+                </p>
+              </div>
               <div>
                 <span className="text-stone-500">Approved By:</span>
                 <p className="font-medium">{item.approved_by || '—'}</p>
@@ -2654,7 +2354,7 @@ function PartHeardTab() {
   );
 }
 
-// ─── Service Week Tab ─────────────────────────────────────────────────────
+// ─── Service Week Tab ────────────────────────────────────────────────────────
 
 function ServiceWeekTab() {
   const dispatch = useAppDispatch();
@@ -2697,6 +2397,12 @@ function ServiceWeekTab() {
     setDeleteTarget(null);
   };
 
+  const getJudgeNames = (item: ServiceWeek) => {
+    if (!item.dsa_details || item.dsa_details.length === 0) return null;
+    const uniqueJudges = [...new Set(item.dsa_details.map(d => d.judge_name).filter(Boolean))];
+    return uniqueJudges;
+  };
+
   return (
     <>
       <DSATab
@@ -2706,34 +2412,56 @@ function ServiceWeekTab() {
         loading={loading}
         mutating={mutating}
         columns={[
+          { key: 'judges', label: 'Judge(s)' },
           { key: 'name', label: 'Week Name' },
           { key: 'week_number', label: 'Week #' },
           { key: 'year', label: 'Year' },
           { key: 'total_dsa', label: 'Total DSA', align: 'right' },
           { key: 'status', label: 'Status', align: 'center' },
         ]}
-        renderRow={(item: ServiceWeek) => (
-          <>
-            <td className="px-3 py-2">
-              <button
-                onClick={() => handleView(item)}
-                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-              >
-                {item.name}
-              </button>
-            </td>
-            <td className="px-3 py-2 text-stone-600">{item.week_number}</td>
-            <td className="px-3 py-2 text-stone-600">{item.year}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
+        renderRow={(item: ServiceWeek) => {
+          const judgeNames = getJudgeNames(item);
+          return (
+            <>
+              <td className="px-3 py-2">
+                {judgeNames ? (
+                  <div className="flex flex-col gap-0.5">
+                    {judgeNames.slice(0, 2).map((name, i) => (
+                      <span key={i} className="text-sm text-stone-700">
+                        {name}
+                      </span>
+                    ))}
+                    {judgeNames.length > 2 && (
+                      <span className="text-xs text-stone-400">
+                        +{judgeNames.length - 2} more
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-stone-400 text-sm">—</span>
+                )}
+              </td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.name}
+                </button>
+              </td>
+              <td className="px-3 py-2 text-stone-600">{item.week_number}</td>
+              <td className="px-3 py-2 text-stone-600">{item.year}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+            </>
+          );
+        }}
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
@@ -2764,6 +2492,16 @@ function ServiceWeekTab() {
           mutating={mutating}
           renderContent={(item) => (
             <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Judge(s):</span>
+                <p className="font-medium">
+                  {item.dsa_details && item.dsa_details.length > 0 ? (
+                    [...new Set(item.dsa_details.map(d => d.judge_name))].join(', ')
+                  ) : (
+                    '—'
+                  )}
+                </p>
+              </div>
               <div>
                 <span className="text-stone-500">Week Number:</span>
                 <p className="font-medium">Week {item.week_number}</p>
@@ -2798,7 +2536,7 @@ function ServiceWeekTab() {
   );
 }
 
-// ─── Medical Claims Tab ──────────────────────────────────────────────────
+// ─── Medical Claims Tab ──────────────────────────────────────────────────────
 
 function MedicalClaimsTab() {
   const dispatch = useAppDispatch();
@@ -2954,12 +2692,9 @@ function MedicalClaimsTab() {
   );
 }
 
-// ─── General Requests Tab ─────────────────────────────────────────────────
 
-interface ExtendedGeneralRequest extends GeneralRequest {
-  rank?: string;
-  reporting_date?: string;
-}
+
+// ─── General Requests Tab ─────────────────────────────────────────────────
 
 function GeneralRequestsTab() {
   const dispatch = useAppDispatch();
@@ -3022,18 +2757,13 @@ function GeneralRequestsTab() {
               <tr className="border-b border-stone-200 text-xs uppercase text-stone-400">
                 <th className="px-3 py-2 font-medium">S/No.</th>
                 <th className="px-3 py-2 font-medium">Ticket #</th>
-                <th className="px-3 py-2 font-medium">Judge</th>
-                <th className="px-3 py-2 font-medium">Station</th>
+                <th className="px-3 py-2 font-medium">Requester</th>
                 <th className="px-3 py-2 font-medium">Type</th>
-                <th className="px-3 py-2 font-medium">Firearm Type</th>
-                <th className="px-3 py-2 font-medium">Officer</th>
-                <th className="px-3 py-2 font-medium">Rank</th>
-                <th className="px-3 py-2 font-medium">Force No.</th>
+                <th className="px-3 py-2 font-medium">Category</th>
+                <th className="px-3 py-2 font-medium">Details</th>
                 <th className="px-3 py-2 font-medium">Request Date</th>
-                <th className="px-3 py-2 font-medium">Reporting Date</th>
                 <th className="px-3 py-2 font-medium">Date Recv'd</th>
                 <th className="px-3 py-2 font-medium">Officer Assigned</th>
-                <th className="px-3 py-2 font-medium">Assigned To</th>
                 <th className="px-3 py-2 font-medium">Remark Type</th>
                 <th className="px-3 py-2 font-medium">Remarks</th>
                 <th className="px-3 py-2 font-medium">Status</th>
@@ -3043,97 +2773,99 @@ function GeneralRequestsTab() {
             <tbody className="divide-y divide-stone-100">
               {loading ? (
                 <tr>
-                  <td colSpan={18} className="px-3 py-8 text-center">
+                  <td colSpan={13} className="px-3 py-8 text-center">
                     <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c] mx-auto" />
                   </td>
                 </tr>
               ) : data.length === 0 ? (
                 <tr>
-                  <td colSpan={18} className="px-3 py-8 text-center text-stone-400">
+                  <td colSpan={13} className="px-3 py-8 text-center text-stone-400">
                     No records found. Click 'Add' to create one.
                   </td>
                 </tr>
               ) : (
-                data.map((item) => {
-                  const extended = item as ExtendedGeneralRequest;
-                  return (
-                    <tr key={item.id} className="hover:bg-stone-50 transition-colors">
-                      <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-stone-500">{item.ticket_number || '—'}</td>
-                      <td className="px-3 py-2">
+                data.map((item) => (
+                  <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+                    <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-stone-500">{item.ticket_number || '—'}</td>
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={() => handleView(item)}
+                        className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                      >
+                        {item.judge_name}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                          REQUEST_TYPE_COLORS[item.request_type as RequestType] || 'bg-stone-50 text-stone-600 border-stone-200'
+                        }`}
+                      >
+                        {item.request_type ? REQUEST_TYPE_LABELS[item.request_type as RequestType] : '—'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-stone-600">
+                      {item.category ? (
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                          item.category === 'Security' ? 'bg-red-50 text-red-700' :
+                          item.category === 'Personnel' ? 'bg-blue-50 text-blue-700' :
+                          'bg-stone-50 text-stone-600'
+                        }`}>
+                          {item.category}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-stone-600 max-w-xs truncate" title={item.request}>
+                      {item.request || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-stone-600">{formatDate(item.request_date)}</td>
+                    <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
+                    <td className="px-3 py-2 text-stone-600">{item.officer_assigned || '—'}</td>
+                    <td className="px-3 py-2 text-stone-600">
+                      {item.remark_type ? REMARK_TYPE_LABELS[item.remark_type as RemarkType] : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-stone-600 max-w-xs truncate" title={item.remarks || ''}>
+                      {item.remarks || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <StatusDropdown
+                        status={item.status}
+                        onStatusChange={(s) => handleStatusChange(item.id, s)}
+                        disabled={mutating}
+                        options={GENERAL_REQUEST_STATUS_OPTIONS}
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <div className="flex items-center justify-center gap-1">
                         <button
                           onClick={() => handleView(item)}
-                          className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-                        >
-                          {item.judge_name}
-                        </button>
-                      </td>
-                      <td className="px-3 py-2 text-stone-600">{item.location || '—'}</td>
-                      <td className="px-3 py-2">
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
-                            REQUEST_TYPE_COLORS[item.request_type as RequestType] || 'bg-stone-50 text-stone-600 border-stone-200'
-                          }`}
-                        >
-                          {item.request_type ? REQUEST_TYPE_LABELS[item.request_type as RequestType] : '—'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-stone-600">{item.firearm_type || '—'}</td>
-                      <td className="px-3 py-2 text-stone-600">{item.officer_name || '—'}</td>
-                      <td className="px-3 py-2 text-stone-600">{extended.rank || '—'}</td>
-                      <td className="px-3 py-2 text-stone-600">{item.force_number || '—'}</td>
-                      <td className="px-3 py-2 text-stone-600">{formatDate(item.request_date)}</td>
-                      <td className="px-3 py-2 text-stone-600">
-                        {extended.reporting_date ? formatDate(extended.reporting_date) : '—'}
-                      </td>
-                      <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
-                      <td className="px-3 py-2 text-stone-600">{item.officer_assigned || '—'}</td>
-                      <td className="px-3 py-2 text-stone-600">{item.assigned_to || '—'}</td>
-                      <td className="px-3 py-2 text-stone-600">
-                        {item.remark_type ? REMARK_TYPE_LABELS[item.remark_type as RemarkType] : '—'}
-                      </td>
-                      <td className="px-3 py-2 text-stone-600 max-w-xs truncate" title={item.remarks || ''}>
-                        {item.remarks || '—'}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <StatusDropdown
-                          status={item.status}
-                          onStatusChange={(s) => handleStatusChange(item.id, s)}
                           disabled={mutating}
-                          options={GENERAL_REQUEST_STATUS_OPTIONS}
-                        />
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            onClick={() => handleView(item)}
-                            disabled={mutating}
-                            className="rounded p-1 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50"
-                            title="View Details"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleEdit(item)}
-                            disabled={mutating}
-                            className="rounded p-1 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50"
-                            title="Edit"
-                          >
-                            <Edit className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setDeleteTarget(item.id)}
-                            disabled={mutating}
-                            className="rounded p-1 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                          className="rounded p-1 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50"
+                          title="View Details"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleEdit(item)}
+                          disabled={mutating}
+                          className="rounded p-1 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50"
+                          title="Edit"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget(item.id)}
+                          disabled={mutating}
+                          className="rounded p-1 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
@@ -3162,79 +2894,50 @@ function GeneralRequestsTab() {
           }}
           onStatusChange={handleStatusChange}
           mutating={mutating}
-          renderContent={(item) => {
-            const extended = item as ExtendedGeneralRequest;
-            return (
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <span className="text-stone-500">Request Type:</span>
-                  <p className="font-medium">{item.request_type ? REQUEST_TYPE_LABELS[item.request_type as RequestType] : '—'}</p>
-                </div>
-                <div>
-                  <span className="text-stone-500">Station:</span>
-                  <p className="font-medium">{item.location || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-stone-500">Ticket Number:</span>
-                  <p className="font-mono text-xs">{item.ticket_number || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-stone-500">Request Date:</span>
-                  <p className="font-medium">{formatDate(item.request_date)}</p>
-                </div>
-                {extended.reporting_date && (
-                  <div>
-                    <span className="text-stone-500">Reporting Date:</span>
-                    <p className="font-medium">{formatDate(extended.reporting_date)}</p>
-                  </div>
-                )}
-                {extended.rank && (
-                  <div>
-                    <span className="text-stone-500">Rank:</span>
-                    <p className="font-medium">{extended.rank}</p>
-                  </div>
-                )}
-                {item.force_number && (
-                  <div>
-                    <span className="text-stone-500">Force Number:</span>
-                    <p className="font-medium">{item.force_number}</p>
-                  </div>
-                )}
-                {item.officer_name && (
-                  <div>
-                    <span className="text-stone-500">Officer Name:</span>
-                    <p className="font-medium">{item.officer_name}</p>
-                  </div>
-                )}
-                {item.firearm_type && (
-                  <div>
-                    <span className="text-stone-500">Firearm Type:</span>
-                    <p className="font-medium">{item.firearm_type}</p>
-                  </div>
-                )}
-                <div>
-                  <span className="text-stone-500">Date Received:</span>
-                  <p className="font-medium">{formatDate(item.date_received)}</p>
-                </div>
-                <div>
-                  <span className="text-stone-500">Officer Assigned:</span>
-                  <p className="font-medium">{item.officer_assigned || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-stone-500">Assigned To:</span>
-                  <p className="font-medium">{item.assigned_to || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-stone-500">Remark Type:</span>
-                  <p className="font-medium">{item.remark_type ? REMARK_TYPE_LABELS[item.remark_type as RemarkType] : '—'}</p>
-                </div>
-                <div className="col-span-2">
-                  <span className="text-stone-500">Remarks:</span>
-                  <p className="font-medium">{item.remarks || '—'}</p>
-                </div>
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Requester:</span>
+                <p className="font-medium">{item.judge_name}</p>
               </div>
-            );
-          }}
+              <div>
+                <span className="text-stone-500">Request Type:</span>
+                <p className="font-medium">{item.request_type ? REQUEST_TYPE_LABELS[item.request_type as RequestType] : '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Category:</span>
+                <p className="font-medium">{item.category || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Ticket Number:</span>
+                <p className="font-mono text-xs">{item.ticket_number || '—'}</p>
+              </div>
+              <div className="col-span-2">
+                <span className="text-stone-500">Details of Request:</span>
+                <p className="font-medium bg-stone-50 p-2 rounded border border-stone-200">{item.request || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Request Date:</span>
+                <p className="font-medium">{formatDate(item.request_date)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Date Received:</span>
+                <p className="font-medium">{formatDate(item.date_received)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Officer Assigned:</span>
+                <p className="font-medium">{item.officer_assigned || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Remark Type:</span>
+                <p className="font-medium">{item.remark_type ? REMARK_TYPE_LABELS[item.remark_type as RemarkType] : '—'}</p>
+              </div>
+              <div className="col-span-2">
+                <span className="text-stone-500">Remarks / Marks:</span>
+                <p className="font-medium bg-stone-50 p-2 rounded border border-stone-200">{item.remarks || '—'}</p>
+              </div>
+            </div>
+          )}
         />
       )}
 
@@ -3251,7 +2954,7 @@ function GeneralRequestsTab() {
   );
 }
 
-// ─── Visa Tab ─────────────────────────────────────────────────────────────
+// ─── Visa Tab ─────────────────────────────────────────────────────────────────
 
 function VisaTab() {
   const dispatch = useAppDispatch();
@@ -3424,7 +3127,7 @@ function VisaTab() {
   );
 }
 
-// ─── Protocol Tab ─────────────────────────────────────────────────────────
+// ─── Protocol Tab ─────────────────────────────────────────────────────────────
 
 function ProtocolTab() {
   const dispatch = useAppDispatch();
@@ -3712,6 +3415,22 @@ function ProtocolTab() {
                   </div>
                 </div>
               )}
+
+              {item.dsa_required && (!item.dsa_details || item.dsa_details.length === 0) && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-center">
+                  <p className="text-sm text-amber-700">
+                    <span className="font-medium">⚠️ DSA Required:</span> No DSA details have been added for this event.
+                  </p>
+                </div>
+              )}
+
+              {!item.dsa_required && (
+                <div className="rounded-lg border border-dashed border-stone-300 bg-stone-50 p-4 text-center">
+                  <p className="text-sm text-stone-500">
+                    <span className="font-medium text-stone-700">Note:</span> DSA is not required for this protocol event.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         />
@@ -3730,7 +3449,7 @@ function ProtocolTab() {
   );
 }
 
-// ─── Judge Detail Modal ──────────────────────────────────────────────────
+// ─── Judge Detail Modal ─────────────────────────────────────────────────────
 
 interface JudgeDetailModalProps {
   judgeName: string;
@@ -3742,18 +3461,13 @@ interface JudgeDetailModalProps {
 function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetailModalProps) {
   const dispatch = useAppDispatch();
   const allDocs = useAppSelector(selectAllHelpdeskDocuments);
-  const actionLoading = useAppSelector(selectDocumentActionLoading);
   const documentsLoading = useAppSelector((state) => state.helpdeskDocuments.loading.fetch);
   const documentsUploading = useAppSelector(selectDocumentsUploading);
+  const documentActionLoading = useAppSelector(selectDocumentActionLoading);
   const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
   const isLinking = useAppSelector(selectDocumentLinking);
 
   const [showLinkPicker, setShowLinkPicker] = useState(false);
-  const [showInternalActions, setShowInternalActions] = useState(false);
-  const [internalComment, setInternalComment] = useState('');
-  const [changesRequested, setChangesRequested] = useState('');
-  const [rejectionReason, setRejectionReason] = useState('');
-  const [requesterMessage, setRequesterMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const utilityIds = utilities.map(u => u.id);
@@ -3763,8 +3477,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
     d.entity_id !== null && 
     utilityIds.includes(d.entity_id)
   );
-
-  const currentDoc = docs[0];
 
   useEffect(() => {
     utilityIds.forEach(id => {
@@ -3870,32 +3582,13 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
     }
   };
 
-  const handleSubmitForApproval = async (docId: string) => {
+  const handleSendForApproval = async (docId: string) => {
     try {
-      await dispatch(submitForApproval({ id: docId })).unwrap();
-      toast.success('Document submitted for approval.');
-      utilityIds.forEach(id => {
-        dispatch(fetchHelpdeskDocuments({ 
-          entity_type: 'utility_memo', 
-          entity_id: id 
-        }));
-      });
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to submit for approval.');
-    }
-  };
-
-  const handleInternalApprove = async (docId: string) => {
-    try {
-      await dispatch(internalApproveDocument({
+      await dispatch(submitForApproval({ 
         id: docId,
-        action: 'approve',
-        comments: internalComment || undefined,
-        generate_e_stamp: true,
+        comments: `Submitted for approval for ${judgeName}.`,
       })).unwrap();
-      toast.success('Document approved internally. Send back to requester when ready.');
-      setInternalComment('');
-      setShowInternalActions(false);
+      toast.success('Document submitted for approval. Super Admin will review it.');
       utilityIds.forEach(id => {
         dispatch(fetchHelpdeskDocuments({ 
           entity_type: 'utility_memo', 
@@ -3903,108 +3596,9 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
         }));
       });
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to approve document internally.');
+      toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
     }
   };
-
-  const handleInternalReject = async (docId: string) => {
-    if (!rejectionReason.trim()) {
-      toast.error('Please provide a rejection reason.');
-      return;
-    }
-    try {
-      await dispatch(internalRejectDocument({
-        id: docId,
-        action: 'reject',
-        rejection_reason: rejectionReason,
-        comments: internalComment || undefined,
-      })).unwrap();
-      toast.success('Document rejected internally. Send back to requester when ready.');
-      setRejectionReason('');
-      setInternalComment('');
-      setShowInternalActions(false);
-      utilityIds.forEach(id => {
-        dispatch(fetchHelpdeskDocuments({ 
-          entity_type: 'utility_memo', 
-          entity_id: id 
-        }));
-      });
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to reject document internally.');
-    }
-  };
-
-  const handleRequestChanges = async (docId: string) => {
-    if (!changesRequested.trim()) {
-      toast.error('Please describe the changes requested.');
-      return;
-    }
-    try {
-      await dispatch(internalRequestChanges({
-        id: docId,
-        action: 'request_changes',
-        changes_requested: changesRequested.split('\n').filter(s => s.trim()),
-        comments: internalComment || undefined,
-      })).unwrap();
-      toast.success('Changes requested internally. Send back to requester when ready.');
-      setChangesRequested('');
-      setInternalComment('');
-      setShowInternalActions(false);
-      utilityIds.forEach(id => {
-        dispatch(fetchHelpdeskDocuments({ 
-          entity_type: 'utility_memo', 
-          entity_id: id 
-        }));
-      });
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to request changes internally.');
-    }
-  };
-
-  const handleSendBack = async (docId: string, finalStatus: 'approved' | 'rejected' | 'changes_requested') => {
-    try {
-      await dispatch(sendBackToRequester({
-        id: docId,
-        final_status: finalStatus,
-        comments: requesterMessage || undefined,
-        notify_requester: true,
-      })).unwrap();
-      toast.success(`Document sent back to requester with status: ${finalStatus}`);
-      setRequesterMessage('');
-      utilityIds.forEach(id => {
-        dispatch(fetchHelpdeskDocuments({ 
-          entity_type: 'utility_memo', 
-          entity_id: id 
-        }));
-      });
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to send document back to requester.');
-    }
-  };
-
-  const handleResubmit = async (docId: string) => {
-    try {
-      await dispatch(resubmitDocument({
-        id: docId,
-        comments: internalComment || undefined,
-      })).unwrap();
-      toast.success('Document resubmitted for review.');
-      setInternalComment('');
-      utilityIds.forEach(id => {
-        dispatch(fetchHelpdeskDocuments({ 
-          entity_type: 'utility_memo', 
-          entity_id: id 
-        }));
-      });
-    } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to resubmit document.');
-    }
-  };
-
-  const isInternalApproving = currentDoc && !!actionLoading[currentDoc.id]?.internalApproving;
-  const isSendingBack = currentDoc && !!actionLoading[currentDoc.id]?.sendingBack;
-  const isSubmitting = currentDoc && !!actionLoading[currentDoc.id]?.submitting;
-  const isResubmitting = currentDoc && !!actionLoading[currentDoc.id]?.resubmitting;
 
   const totalItems = utilities.reduce((acc, u) => acc + u.items.length, 0);
 
@@ -4088,240 +3682,6 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
             </div>
           )}
 
-          {currentDoc && (
-            <div className="mb-6 rounded-lg border border-stone-200 bg-stone-50 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-stone-700">Document Status</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-stone-500">Internal:</span>
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border ${getInternalStatusColor(currentDoc.internal_approval_status)}`}>
-                        {getInternalStatusLabel(currentDoc.internal_approval_status)}
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-stone-500">Requester:</span>
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium border ${getRequesterStatusColor(currentDoc.requester_status)}`}>
-                        {getRequesterStatusLabel(currentDoc.requester_status)}
-                      </span>
-                    </div>
-
-                    {currentDoc.is_signed && (
-                      <div className="flex items-center gap-1 text-xs text-emerald-600">
-                        <CheckCircle size={12} />
-                        <span>Signed by {currentDoc.signed_by_name || 'Unknown'}</span>
-                        {currentDoc.signed_at && (
-                          <span className="text-stone-400">
-                            {formatDate(currentDoc.signed_at)}
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {currentDoc.is_stamped && (
-                      <div className={`flex items-center gap-1 text-xs rounded-full px-2 py-0.5 ${getStampTypeColor(currentDoc.stamp_type || 'approved')}`}>
-                        <Stamp size={12} />
-                        <span>{getStampTypeLabel(currentDoc.stamp_type || 'approved')}</span>
-                        {currentDoc.stamped_by_name && (
-                          <span className="text-stone-400">by {currentDoc.stamped_by_name}</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 border-t border-stone-200 pt-4">
-                {currentDoc.internal_approval_status === 'pending' ? (
-                  <div className="flex flex-wrap gap-2">
-                    <GoldOutlineButton
-                      icon={isSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                      onClick={() => handleSubmitForApproval(currentDoc.id)}
-                      disabled={isSubmitting}
-                    >
-                      {isSubmitting ? 'Submitting...' : 'Submit for Approval'}
-                    </GoldOutlineButton>
-                  </div>
-                ) : currentDoc.internal_approval_status === 'previewed' ? (
-                  <div className="space-y-3">
-                    <button
-                      onClick={() => setShowInternalActions(!showInternalActions)}
-                      className="text-sm text-[#c9a84c] hover:underline font-medium"
-                    >
-                      {showInternalActions ? 'Hide Actions' : 'Show Internal Actions'}
-                    </button>
-                    
-                    {showInternalActions && (
-                      <div className="space-y-3 rounded-lg border border-stone-200 bg-white p-4">
-                        <div>
-                          <label className="text-xs font-medium text-stone-600">Internal Comment</label>
-                          <textarea
-                            value={internalComment}
-                            onChange={(e) => setInternalComment(e.target.value)}
-                            placeholder="Add internal comment..."
-                            className="mt-1 w-full rounded-md border border-stone-200 px-3 py-2 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
-                            rows={2}
-                          />
-                        </div>
-                        
-                        <div className="flex flex-wrap gap-2">
-                          <GoldOutlineButton
-                            icon={isInternalApproving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                            onClick={() => handleInternalApprove(currentDoc.id)}
-                            disabled={isInternalApproving}
-                          >
-                            {isInternalApproving ? 'Approving...' : 'Approve Internally'}
-                          </GoldOutlineButton>
-                          
-                          <button
-                            onClick={() => {
-                              if (!rejectionReason.trim()) {
-                                toast.error('Please provide a rejection reason.');
-                                return;
-                              }
-                              handleInternalReject(currentDoc.id);
-                            }}
-                            disabled={isInternalApproving}
-                            className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-                          >
-                            {isInternalApproving ? <Loader2 size={14} className="animate-spin" /> : <XCircle size={14} />}
-                            Reject
-                          </button>
-                          
-                          <button
-                            onClick={() => {
-                              if (!changesRequested.trim()) {
-                                toast.error('Please describe the changes requested.');
-                                return;
-                              }
-                              handleRequestChanges(currentDoc.id);
-                            }}
-                            disabled={isInternalApproving}
-                            className="inline-flex items-center gap-2 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
-                          >
-                            {isInternalApproving ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
-                            Request Changes
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : currentDoc.internal_approval_status === 'approved_internal' ? (
-                  <div className="space-y-3">
-                    <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700">
-                      Document approved internally. Send back to requester to finalize.
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <GoldOutlineButton
-                        icon={isSendingBack ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                        onClick={() => handleSendBack(currentDoc.id, 'approved')}
-                        disabled={isSendingBack}
-                      >
-                        {isSendingBack ? 'Sending...' : 'Send Back as Approved'}
-                      </GoldOutlineButton>
-                      <div className="flex-1 min-w-[200px]">
-                        <input
-                          type="text"
-                          value={requesterMessage}
-                          onChange={(e) => setRequesterMessage(e.target.value)}
-                          placeholder="Message to requester (optional)"
-                          className="w-full rounded-md border border-stone-200 px-3 py-1.5 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ) : currentDoc.internal_approval_status === 'rejected_internal' ? (
-                  <div className="space-y-3">
-                    <div className="rounded-md bg-red-50 p-3 text-sm text-red-700">
-                      Document rejected internally. Send back to requester with rejection reason.
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => handleSendBack(currentDoc.id, 'rejected')}
-                        disabled={isSendingBack}
-                        className="inline-flex items-center gap-2 rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-                      >
-                        {isSendingBack ? <Loader2 size={14} className="animate-spin" /> : <XCircle size={14} />}
-                        Send Back as Rejected
-                      </button>
-                      <div className="flex-1 min-w-[200px]">
-                        <input
-                          type="text"
-                          value={requesterMessage}
-                          onChange={(e) => setRequesterMessage(e.target.value)}
-                          placeholder="Message to requester (optional)"
-                          className="w-full rounded-md border border-stone-200 px-3 py-1.5 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ) : currentDoc.internal_approval_status === 'changes_requested_internal' ? (
-                  <div className="space-y-3">
-                    <div className="rounded-md bg-orange-50 p-3 text-sm text-orange-700">
-                      Changes requested internally. Send back to requester with change requests.
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        onClick={() => handleSendBack(currentDoc.id, 'changes_requested')}
-                        disabled={isSendingBack}
-                        className="inline-flex items-center gap-2 rounded-md bg-orange-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-50"
-                      >
-                        {isSendingBack ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
-                        Send Back for Changes
-                      </button>
-                      <div className="flex-1 min-w-[200px]">
-                        <input
-                          type="text"
-                          value={requesterMessage}
-                          onChange={(e) => setRequesterMessage(e.target.value)}
-                          placeholder="Message to requester (optional)"
-                          className="w-full rounded-md border border-stone-200 px-3 py-1.5 text-sm focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ) : currentDoc.requester_status === 'changes_requested' || currentDoc.requester_status === 'rejected' ? (
-                  <div className="space-y-3">
-                    <div className={`rounded-md p-3 text-sm ${currentDoc.requester_status === 'changes_requested' ? 'bg-orange-50 text-orange-700' : 'bg-red-50 text-red-700'}`}>
-                      {currentDoc.requester_status === 'changes_requested' 
-                        ? 'Changes requested by approver. Make changes and resubmit.' 
-                        : 'Document rejected. You can resubmit with corrections.'}
-                      {currentDoc.internal_changes_requested && currentDoc.internal_changes_requested.length > 0 && (
-                        <ul className="mt-2 list-disc pl-4 text-xs">
-                          {currentDoc.internal_changes_requested.map((change, idx) => (
-                            <li key={idx}>{change}</li>
-                          ))}
-                        </ul>
-                      )}
-                      {currentDoc.rejection_reason && (
-                        <p className="mt-2 text-xs text-red-600">Reason: {currentDoc.rejection_reason}</p>
-                      )}
-                    </div>
-                    <GoldOutlineButton
-                      icon={isResubmitting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                      onClick={() => handleResubmit(currentDoc.id)}
-                      disabled={isResubmitting}
-                    >
-                      {isResubmitting ? 'Resubmitting...' : 'Resubmit for Review'}
-                    </GoldOutlineButton>
-                  </div>
-                ) : currentDoc.requester_status === 'approved' ? (
-                  <div className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-700 flex items-center gap-2">
-                    <CircleCheckBig size={18} />
-                    Document Approved ✓
-                  </div>
-                ) : currentDoc.requester_status === 'in_revision' ? (
-                  <div className="rounded-md bg-blue-50 p-3 text-sm text-blue-700 flex items-center gap-2">
-                    <RefreshCw size={18} className="animate-spin" />
-                    Document is being revised
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          )}
-
           <div className="border-t border-stone-200 pt-6">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
@@ -4400,35 +3760,12 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                       {documentFormatIcon(doc.format)}
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                        <div className="mt-0.5 flex items-center gap-2">
                           <span
                             className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
                           >
                             {doc.status === 'pending_approval' ? 'Pending Approval' : doc.status.replace('_', ' ')}
                           </span>
-                          
-                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${getInternalStatusColor(doc.internal_approval_status)}`}>
-                            Internal: {getInternalStatusLabel(doc.internal_approval_status)}
-                          </span>
-                          
-                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${getRequesterStatusColor(doc.requester_status)}`}>
-                            Requester: {getRequesterStatusLabel(doc.requester_status)}
-                          </span>
-
-                          {doc.is_signed && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
-                              <CheckCircle size={10} />
-                              Signed
-                            </span>
-                          )}
-
-                          {doc.is_stamped && (
-                            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${getStampTypeColor(doc.stamp_type || 'approved')}`}>
-                              <Stamp size={10} />
-                              {getStampTypeLabel(doc.stamp_type || 'approved')}
-                            </span>
-                          )}
-
                           <span className="text-[11px] text-stone-400">{doc.ref}</span>
                           <span className="text-[11px] text-stone-400 uppercase">{doc.format}</span>
                         </div>
@@ -4439,7 +3776,7 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <a
-                        href={doc.stamped_file_url || doc.file_url}
+                        href={doc.file_url}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
@@ -4449,17 +3786,17 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                       </a>
                       {doc.status === 'draft' && (
                         <GhostButton
-                          onClick={() => handleSubmitForApproval(doc.id)}
-                          disabled={!!actionLoading[doc.id]?.submitting}
+                          onClick={() => handleSendForApproval(doc.id)}
+                          disabled={!!documentActionLoading[doc.id]?.submitting}
                           icon={
-                            actionLoading[doc.id]?.submitting ? (
+                            documentActionLoading[doc.id]?.submitting ? (
                               <Loader2 size={12} className="animate-spin" />
                             ) : (
                               <Send size={12} />
                             )
                           }
                         >
-                          {actionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
+                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
                         </GhostButton>
                       )}
                       {doc.status === 'pending_approval' && (
@@ -4502,7 +3839,7 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
   );
 }
 
-// ─── Main Component ────────────────────────────────────────────────────────
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 const HelpdeskStuff: React.FC = () => {
   const dispatch = useAppDispatch();
