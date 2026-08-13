@@ -1728,6 +1728,8 @@ function DSATab<T extends { id: string }>({
 
 // ─── Circuits Tab ────────────────────────────────────────────────────────────
 
+// ─── Circuits Tab ────────────────────────────────────────────────────────────
+
 function CircuitsTab() {
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllCircuits);
@@ -1769,6 +1771,13 @@ function CircuitsTab() {
     setDeleteTarget(null);
   };
 
+  // Helper to get unique judge names from DSA details
+  const getJudgeNames = (item: Circuit) => {
+    if (!item.dsa_details || item.dsa_details.length === 0) return null;
+    const uniqueJudges = [...new Set(item.dsa_details.map(d => d.judge_name).filter(Boolean))];
+    return uniqueJudges;
+  };
+
   return (
     <>
       <DSATab
@@ -1778,37 +1787,59 @@ function CircuitsTab() {
         loading={loading}
         mutating={mutating}
         columns={[
+          { key: 'judges', label: 'Judge(s)' },
           { key: 'name', label: 'Circuit' },
           { key: 'start_date', label: 'Start' },
           { key: 'end_date', label: 'End' },
           { key: 'total_dsa', label: 'Total DSA', align: 'right' },
           { key: 'status', label: 'Status', align: 'center' },
         ]}
-        renderRow={(item: Circuit) => (
-          <>
-            <td className="px-3 py-2">
-              <button
-                onClick={() => handleView(item)}
-                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-              >
-                {item.name}
-              </button>
-              {item.location && (
-                <span className="ml-2 text-xs text-stone-400">({item.location})</span>
-              )}
-            </td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
+        renderRow={(item: Circuit) => {
+          const judgeNames = getJudgeNames(item);
+          return (
+            <>
+              <td className="px-3 py-2">
+                {judgeNames ? (
+                  <div className="flex flex-col gap-0.5">
+                    {judgeNames.slice(0, 2).map((name, i) => (
+                      <span key={i} className="text-sm text-stone-700">
+                        {name}
+                      </span>
+                    ))}
+                    {judgeNames.length > 2 && (
+                      <span className="text-xs text-stone-400">
+                        +{judgeNames.length - 2} more
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-stone-400 text-sm">—</span>
+                )}
+              </td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.name}
+                </button>
+                {item.location && (
+                  <span className="ml-2 text-xs text-stone-400">({item.location})</span>
+                )}
+              </td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+            </>
+          );
+        }}
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
@@ -1840,6 +1871,16 @@ function CircuitsTab() {
           renderContent={(item) => (
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
+                <span className="text-stone-500">Judge(s):</span>
+                <p className="font-medium">
+                  {item.dsa_details && item.dsa_details.length > 0 ? (
+                    [...new Set(item.dsa_details.map(d => d.judge_name))].join(', ')
+                  ) : (
+                    '—'
+                  )}
+                </p>
+              </div>
+              <div>
                 <span className="text-stone-500">Location:</span>
                 <p className="font-medium">{item.location || '—'}</p>
               </div>
@@ -1853,7 +1894,7 @@ function CircuitsTab() {
               </div>
               <div>
                 <span className="text-stone-500">Members:</span>
-                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
               </div>
             </div>
           )}
@@ -1916,6 +1957,12 @@ function OtherPaymentsTab() {
     setDeleteTarget(null);
   };
 
+  const getJudgeNames = (item: OtherPayment) => {
+    if (!item.dsa_details || item.dsa_details.length === 0) return null;
+    const uniqueJudges = [...new Set(item.dsa_details.map(d => d.judge_name).filter(Boolean))];
+    return uniqueJudges;
+  };
+
   return (
     <>
       <DSATab
@@ -1925,6 +1972,7 @@ function OtherPaymentsTab() {
         loading={loading}
         mutating={mutating}
         columns={[
+          { key: 'judges', label: 'Judge(s)' },
           { key: 'name', label: 'Payment' },
           { key: 'description', label: 'Description' },
           { key: 'start_date', label: 'Start' },
@@ -1932,29 +1980,50 @@ function OtherPaymentsTab() {
           { key: 'total_dsa', label: 'Total DSA', align: 'right' },
           { key: 'status', label: 'Status', align: 'center' },
         ]}
-        renderRow={(item: OtherPayment) => (
-          <>
-            <td className="px-3 py-2">
-              <button
-                onClick={() => handleView(item)}
-                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-              >
-                {item.name}
-              </button>
-            </td>
-            <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.description || '—'}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
+        renderRow={(item: OtherPayment) => {
+          const judgeNames = getJudgeNames(item);
+          return (
+            <>
+              <td className="px-3 py-2">
+                {judgeNames ? (
+                  <div className="flex flex-col gap-0.5">
+                    {judgeNames.slice(0, 2).map((name, i) => (
+                      <span key={i} className="text-sm text-stone-700">
+                        {name}
+                      </span>
+                    ))}
+                    {judgeNames.length > 2 && (
+                      <span className="text-xs text-stone-400">
+                        +{judgeNames.length - 2} more
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-stone-400 text-sm">—</span>
+                )}
+              </td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.name}
+                </button>
+              </td>
+              <td className="px-3 py-2 text-stone-600 max-w-xs truncate">{item.description || '—'}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+            </>
+          );
+        }}
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
@@ -1986,6 +2055,16 @@ function OtherPaymentsTab() {
           renderContent={(item) => (
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
+                <span className="text-stone-500">Judge(s):</span>
+                <p className="font-medium">
+                  {item.dsa_details && item.dsa_details.length > 0 ? (
+                    [...new Set(item.dsa_details.map(d => d.judge_name))].join(', ')
+                  ) : (
+                    '—'
+                  )}
+                </p>
+              </div>
+              <div>
                 <span className="text-stone-500">Description:</span>
                 <p className="font-medium">{item.description || '—'}</p>
               </div>
@@ -1999,7 +2078,7 @@ function OtherPaymentsTab() {
               </div>
               <div>
                 <span className="text-stone-500">Members:</span>
-                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
               </div>
             </div>
           )}
@@ -2062,6 +2141,12 @@ function BenchesTab() {
     setDeleteTarget(null);
   };
 
+  const getJudgeNames = (item: SpecialBench) => {
+    if (!item.dsa_details || item.dsa_details.length === 0) return null;
+    const uniqueJudges = [...new Set(item.dsa_details.map(d => d.judge_name).filter(Boolean))];
+    return uniqueJudges;
+  };
+
   return (
     <>
       <DSATab
@@ -2071,34 +2156,56 @@ function BenchesTab() {
         loading={loading}
         mutating={mutating}
         columns={[
+          { key: 'judges', label: 'Judge(s)' },
           { key: 'name', label: 'Bench / Case' },
           { key: 'start_date', label: 'Start' },
           { key: 'end_date', label: 'End' },
           { key: 'total_dsa', label: 'Total DSA', align: 'right' },
           { key: 'status', label: 'Status', align: 'center' },
         ]}
-        renderRow={(item: SpecialBench) => (
-          <>
-            <td className="px-3 py-2">
-              <button
-                onClick={() => handleView(item)}
-                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-              >
-                {item.name}
-              </button>
-            </td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
+        renderRow={(item: SpecialBench) => {
+          const judgeNames = getJudgeNames(item);
+          return (
+            <>
+              <td className="px-3 py-2">
+                {judgeNames ? (
+                  <div className="flex flex-col gap-0.5">
+                    {judgeNames.slice(0, 2).map((name, i) => (
+                      <span key={i} className="text-sm text-stone-700">
+                        {name}
+                      </span>
+                    ))}
+                    {judgeNames.length > 2 && (
+                      <span className="text-xs text-stone-400">
+                        +{judgeNames.length - 2} more
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-stone-400 text-sm">—</span>
+                )}
+              </td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.name}
+                </button>
+              </td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+            </>
+          );
+        }}
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
@@ -2130,6 +2237,16 @@ function BenchesTab() {
           renderContent={(item) => (
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
+                <span className="text-stone-500">Judge(s):</span>
+                <p className="font-medium">
+                  {item.dsa_details && item.dsa_details.length > 0 ? (
+                    [...new Set(item.dsa_details.map(d => d.judge_name))].join(', ')
+                  ) : (
+                    '—'
+                  )}
+                </p>
+              </div>
+              <div>
                 <span className="text-stone-500">Bench Name:</span>
                 <p className="font-medium">{item.name}</p>
               </div>
@@ -2143,7 +2260,7 @@ function BenchesTab() {
               </div>
               <div>
                 <span className="text-stone-500">Members:</span>
-                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
               </div>
             </div>
           )}
@@ -2206,6 +2323,12 @@ function PartHeardTab() {
     setDeleteTarget(null);
   };
 
+  const getJudgeNames = (item: PartHeard) => {
+    if (!item.dsa_details || item.dsa_details.length === 0) return null;
+    const uniqueJudges = [...new Set(item.dsa_details.map(d => d.judge_name).filter(Boolean))];
+    return uniqueJudges;
+  };
+
   return (
     <>
       <DSATab
@@ -2215,6 +2338,7 @@ function PartHeardTab() {
         loading={loading}
         mutating={mutating}
         columns={[
+          { key: 'judges', label: 'Judge(s)' },
           { key: 'case_reference', label: 'Reference' },
           { key: 'approved_by', label: 'Approved By' },
           { key: 'start_date', label: 'Start' },
@@ -2222,29 +2346,50 @@ function PartHeardTab() {
           { key: 'total_dsa', label: 'Total DSA', align: 'right' },
           { key: 'status', label: 'Status', align: 'center' },
         ]}
-        renderRow={(item: PartHeard) => (
-          <>
-            <td className="px-3 py-2">
-              <button
-                onClick={() => handleView(item)}
-                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-              >
-                {item.case_reference}
-              </button>
-            </td>
-            <td className="px-3 py-2 text-stone-600">{item.approved_by || '—'}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
-            <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
+        renderRow={(item: PartHeard) => {
+          const judgeNames = getJudgeNames(item);
+          return (
+            <>
+              <td className="px-3 py-2">
+                {judgeNames ? (
+                  <div className="flex flex-col gap-0.5">
+                    {judgeNames.slice(0, 2).map((name, i) => (
+                      <span key={i} className="text-sm text-stone-700">
+                        {name}
+                      </span>
+                    ))}
+                    {judgeNames.length > 2 && (
+                      <span className="text-xs text-stone-400">
+                        +{judgeNames.length - 2} more
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-stone-400 text-sm">—</span>
+                )}
+              </td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.case_reference}
+                </button>
+              </td>
+              <td className="px-3 py-2 text-stone-600">{item.approved_by || '—'}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.start_date)}</td>
+              <td className="px-3 py-2 text-stone-600">{formatDate(item.end_date)}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+            </>
+          );
+        }}
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
@@ -2276,6 +2421,16 @@ function PartHeardTab() {
           renderContent={(item) => (
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
+                <span className="text-stone-500">Judge(s):</span>
+                <p className="font-medium">
+                  {item.dsa_details && item.dsa_details.length > 0 ? (
+                    [...new Set(item.dsa_details.map(d => d.judge_name))].join(', ')
+                  ) : (
+                    '—'
+                  )}
+                </p>
+              </div>
+              <div>
                 <span className="text-stone-500">Approved By:</span>
                 <p className="font-medium">{item.approved_by || '—'}</p>
               </div>
@@ -2289,7 +2444,7 @@ function PartHeardTab() {
               </div>
               <div>
                 <span className="text-stone-500">Members:</span>
-                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
               </div>
             </div>
           )}
@@ -2352,6 +2507,12 @@ function ServiceWeekTab() {
     setDeleteTarget(null);
   };
 
+  const getJudgeNames = (item: ServiceWeek) => {
+    if (!item.dsa_details || item.dsa_details.length === 0) return null;
+    const uniqueJudges = [...new Set(item.dsa_details.map(d => d.judge_name).filter(Boolean))];
+    return uniqueJudges;
+  };
+
   return (
     <>
       <DSATab
@@ -2361,34 +2522,56 @@ function ServiceWeekTab() {
         loading={loading}
         mutating={mutating}
         columns={[
+          { key: 'judges', label: 'Judge(s)' },
           { key: 'name', label: 'Week Name' },
           { key: 'week_number', label: 'Week #' },
           { key: 'year', label: 'Year' },
           { key: 'total_dsa', label: 'Total DSA', align: 'right' },
           { key: 'status', label: 'Status', align: 'center' },
         ]}
-        renderRow={(item: ServiceWeek) => (
-          <>
-            <td className="px-3 py-2">
-              <button
-                onClick={() => handleView(item)}
-                className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-              >
-                {item.name}
-              </button>
-            </td>
-            <td className="px-3 py-2 text-stone-600">{item.week_number}</td>
-            <td className="px-3 py-2 text-stone-600">{item.year}</td>
-            <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
-            <td className="px-3 py-2 text-center">
-              <StatusDropdown
-                status={item.status}
-                onStatusChange={(s) => handleStatusChange(item.id, s)}
-                disabled={mutating}
-              />
-            </td>
-          </>
-        )}
+        renderRow={(item: ServiceWeek) => {
+          const judgeNames = getJudgeNames(item);
+          return (
+            <>
+              <td className="px-3 py-2">
+                {judgeNames ? (
+                  <div className="flex flex-col gap-0.5">
+                    {judgeNames.slice(0, 2).map((name, i) => (
+                      <span key={i} className="text-sm text-stone-700">
+                        {name}
+                      </span>
+                    ))}
+                    {judgeNames.length > 2 && (
+                      <span className="text-xs text-stone-400">
+                        +{judgeNames.length - 2} more
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-stone-400 text-sm">—</span>
+                )}
+              </td>
+              <td className="px-3 py-2">
+                <button
+                  onClick={() => handleView(item)}
+                  className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                >
+                  {item.name}
+                </button>
+              </td>
+              <td className="px-3 py-2 text-stone-600">{item.week_number}</td>
+              <td className="px-3 py-2 text-stone-600">{item.year}</td>
+              <td className="px-3 py-2 text-right text-stone-600">{formatCurrency(item.total_dsa)}</td>
+              <td className="px-3 py-2 text-center">
+                <StatusDropdown
+                  status={item.status}
+                  onStatusChange={(s) => handleStatusChange(item.id, s)}
+                  disabled={mutating}
+                />
+              </td>
+            </>
+          );
+        }}
         onAdd={handleAdd}
         onEdit={handleEdit}
         onDelete={(id) => setDeleteTarget(id)}
@@ -2420,6 +2603,16 @@ function ServiceWeekTab() {
           renderContent={(item) => (
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
+                <span className="text-stone-500">Judge(s):</span>
+                <p className="font-medium">
+                  {item.dsa_details && item.dsa_details.length > 0 ? (
+                    [...new Set(item.dsa_details.map(d => d.judge_name))].join(', ')
+                  ) : (
+                    '—'
+                  )}
+                </p>
+              </div>
+              <div>
                 <span className="text-stone-500">Week Number:</span>
                 <p className="font-medium">Week {item.week_number}</p>
               </div>
@@ -2433,7 +2626,7 @@ function ServiceWeekTab() {
               </div>
               <div>
                 <span className="text-stone-500">Members:</span>
-                <p className="font-medium">{item.dsa_details?.length || 0} judges</p>
+                <p className="font-medium">{item.dsa_details?.length || 0}</p>
               </div>
             </div>
           )}
