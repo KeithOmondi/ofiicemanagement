@@ -14,8 +14,6 @@ import {
   WidthType,
   VerticalAlign,
   Footer,
-  //Header,
-  //SectionType,
 } from 'docx';
 import type { ConferenceMemoParams } from './generateConferenceMemoPdf';
 
@@ -109,21 +107,9 @@ function dataCell(text: string, widthPct: number, align: typeof AlignmentType[ke
 // ─── Main export ────────────────────────────────────────────────────────────
 
 export async function generateConferenceDocx(params: ConferenceMemoParams): Promise<Blob> {
-  const FOOTER_EMBLEM_SRC =
-    'https://res.cloudinary.com/do0yflasl/image/upload/v1784364354/ORHC_EMBLEM_wzmp94.jpg';
-
-  const [crest, footerEmblem] = await Promise.all([
-    fetchImage(params.crestUrl),
-    fetchImage(params.footerEmblemUrl || FOOTER_EMBLEM_SRC),
-  ]);
-
-  // Fail loudly rather than silently rendering a table row with a made-up headcount.
-  if (params.driversAndGuardsCount === undefined || params.driversAndGuardsCount === null) {
-    throw new Error(
-      'generateConferenceDocx: driversAndGuardsCount is required for the table — it is ' +
-        'distinct from supportingStaff and must not be defaulted from it.'
-    );
-  }
+  // NOTE: the footer emblem image was removed from this generator (footer is now text-only
+  // for reliability), so only the crest needs to be fetched here.
+  const crest = await fetchImage(params.crestUrl);
 
   const children: (Paragraph | Table)[] = [];
 
@@ -202,8 +188,6 @@ export async function generateConferenceDocx(params: ConferenceMemoParams): Prom
   );
 
   // ── Body text ──────────────────────────────────────────────────────────
-  // params.bodyText is expected to already be built (by buildConferenceMemoParams) using
-  // retreatStartDate/retreatEndDate and conferenceDescription — not the table's facility dates.
   const bodyParagraphs = params.bodyText
     .split('\n\n')
     .filter((p) => p.trim().length > 0)
@@ -233,62 +217,7 @@ export async function generateConferenceDocx(params: ConferenceMemoParams): Prom
 
   children.push(new Paragraph({ spacing: { before: 200 }, children: [] }));
 
-  // ────────────────────────── Conference Table ──────────────────────────
-  // Uses the FACILITY booking dates, which may be a narrower window than the retreat
-  // approval dates used in the body sentence above (e.g. 10th–14th vs. 9th–15th).
-  const facilityDateRange = `${formatDateShort(params.facilityStartDate)} to ${formatDateShort(
-    params.facilityEndDate,
-  )}`;
-  const secretariatPax = params.secretariatPax ?? 2;
-  const driversAndGuards = params.driversAndGuardsCount;
-
-  const headerRow = new TableRow({
-    tableHeader: true,
-    children: [
-      headerCell('S/No', 10, AlignmentType.CENTER),
-      headerCell('Particulars', 45),
-      headerCell('Dates', 30),
-      headerCell('Pax', 15, AlignmentType.CENTER),
-    ],
-  });
-
-  const dataRows = [
-    new TableRow({
-      children: [
-        dataCell('1', 10, AlignmentType.CENTER),
-        dataCell('Full day conference facilities', 45),
-        dataCell(facilityDateRange, 30),
-        dataCell(String(params.numberOfPax), 15, AlignmentType.CENTER),
-      ],
-    }),
-    new TableRow({
-      children: [
-        dataCell('2', 10, AlignmentType.CENTER),
-        dataCell('Secretariat room', 45),
-        dataCell(facilityDateRange, 30),
-        dataCell(String(secretariatPax), 15, AlignmentType.CENTER),
-      ],
-    }),
-    new TableRow({
-      children: [
-        dataCell('3', 10, AlignmentType.CENTER),
-        dataCell('Meals only (Drivers & Guards)', 45),
-        dataCell(facilityDateRange, 30),
-        dataCell(String(driversAndGuards), 15, AlignmentType.CENTER),
-      ],
-    }),
-  ];
-
-  const table = new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: [headerRow, ...dataRows],
-  });
-
-  children.push(table);
-
-  // ─── Closing text ──────────────────────────────────────────────────────
-  children.push(new Paragraph({ spacing: { before: 200 }, children: [] }));
-
+  // ─── Closing text (MOVED ABOVE TABLE) ──────────────────────────────────
   if (params.closingText) {
     const closingParagraphs = params.closingText
       .split('\n\n')
@@ -303,14 +232,78 @@ export async function generateConferenceDocx(params: ConferenceMemoParams): Prom
     children.push(...closingParagraphs);
   }
 
+  // ────────────────────────── Conference Table ──────────────────────────
+  // Build rows dynamically from entries.
+  //
+  // ⚠️ ConferenceMemoParams (in generateConferenceMemoPdf.ts) does not currently declare
+  // an `entries` field — it has numberOfPax / facilityStartDate / facilityEndDate /
+  // secretariatPax / driversAndGuardsCount instead. If `entries` isn't added to that
+  // interface, this line will fail to compile with "Property 'entries' does not exist on
+  // type 'ConferenceMemoParams'". Add `entries?: ConferenceEntry[]` to the interface (and
+  // keep generateConferenceMemoPdf.ts's table logic in sync with this per-entry approach)
+  // before shipping — otherwise the PDF and DOCX outputs will diverge.
+  const entries = params.entries || [];
+
+  if (entries.length === 0) {
+    throw new Error('generateConferenceDocx: No entries provided for the table');
+  }
+
+  const headerRow = new TableRow({
+    tableHeader: true,
+    children: [
+      headerCell('S/No', 10, AlignmentType.CENTER),
+      headerCell('Particulars', 45),
+      headerCell('Dates', 30),
+      headerCell('Pax', 15, AlignmentType.CENTER),
+    ],
+  });
+
+  const dataRows = entries.map((entry, index) => {
+    const dateRange = `${formatDateShort(entry.start_date)} to ${formatDateShort(entry.end_date)}`;
+    return new TableRow({
+      children: [
+        dataCell(String(index + 1), 10, AlignmentType.CENTER),
+        dataCell(entry.particulars, 45),
+        dataCell(dateRange, 30),
+        dataCell(String(entry.pax), 15, AlignmentType.CENTER),
+      ],
+    });
+  });
+
+  // Add total row if more than one entry
+  if (entries.length > 1) {
+    const totalPax = entries.reduce((sum, e) => sum + e.pax, 0);
+    dataRows.push(
+      new TableRow({
+        children: [
+          dataCell('', 10, AlignmentType.CENTER),
+          dataCell('', 45),
+          dataCell('TOTAL', 30, AlignmentType.RIGHT, true),
+          dataCell(String(totalPax), 15, AlignmentType.CENTER, true),
+        ],
+      })
+    );
+  }
+
+  const table = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [headerRow, ...dataRows],
+  });
+
+  children.push(table);
+  children.push(new Paragraph({ spacing: { before: 200 }, children: [] }));
+
   // ─── Signature Block ────────────────────────────────────────────────────
+  const signatoryName = params.fromName || 'REGISTRAR HIGH COURT';
+  const signatoryTitle = params.fromTitle || 'OFFICE OF THE REGISTRAR HIGH COURT';
+
   children.push(
     new Paragraph({ spacing: { before: 200 }, children: [] }),
     new Paragraph({
       spacing: { after: 60 },
       children: [
         new TextRun({
-          text: params.fromName || 'JOSLYNE NDUBI',
+          text: signatoryName,
           bold: true,
           size: 22,
           font: 'Times New Roman',
@@ -324,7 +317,7 @@ export async function generateConferenceDocx(params: ConferenceMemoParams): Prom
       },
       children: [
         new TextRun({
-          text: params.fromTitle || 'HIGH COURT SUPPORT OFFICE-ORHC',
+          text: signatoryTitle,
           bold: true,
           size: 20,
           font: 'Times New Roman',
@@ -364,7 +357,7 @@ export async function generateConferenceDocx(params: ConferenceMemoParams): Prom
     });
   }
 
-  // ── Footer ──────────────────────────────────────────────────────────────
+  // ─── Footer ──────────────────────────────────────────────────────────────
   const footerChildren: Paragraph[] = [];
 
   // Footer line
@@ -378,27 +371,11 @@ export async function generateConferenceDocx(params: ConferenceMemoParams): Prom
     }),
   );
 
-  // Left Emblem
-  if (footerEmblem) {
-    footerChildren.push(
-      new Paragraph({
-        alignment: AlignmentType.LEFT,
-        children: [
-          new ImageRun({
-            data: footerEmblem.data,
-            type: footerEmblem.type,
-            transformation: { width: 100, height: 35 },
-          }),
-        ],
-      }),
-    );
-  }
-
-  // Right Text Block
+  // Right Text Block (text-only — no emblem image in this footer)
   footerChildren.push(
     new Paragraph({
       alignment: AlignmentType.RIGHT,
-      spacing: { before: -35 },
+      spacing: { before: 100 },
       children: [
         new TextRun({
           text: 'Social Transformation through Access to Justice',
@@ -464,5 +441,6 @@ export async function generateConferenceDocx(params: ConferenceMemoParams): Prom
     ],
   });
 
+  // Return the blob
   return Packer.toBlob(doc);
 }

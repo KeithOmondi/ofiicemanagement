@@ -55,11 +55,22 @@ export interface ConferenceMemoParams {
   /** Headcount for the "Secretariat room" table row */
   secretariatPax?: number;
 
+  // ─── Entries for table ──────────────────────────────────────────────────
+  entries?: {
+    particulars: string;
+    start_date: string;
+    end_date: string;
+    pax: number;
+  }[];
+
   // Footer
   fromDepartment?: string;
   fromName?: string;
   fromTitle?: string;
   ccList?: string[];
+
+  // ─── Signature ────────────────────────────────────────────────────────────
+  signatureUrl?: string;
 
   // Images
   crestUrl: string;
@@ -100,6 +111,17 @@ export interface ConferenceMemoBuilderParams {
   to?: string;
   ccList?: string[];
   crestUrl?: string;
+
+  // ─── Signature ────────────────────────────────────────────────────────────
+  signatureUrl?: string;
+
+  // ─── Entries for table ──────────────────────────────────────────────────
+  entries?: {
+    particulars: string;
+    start_date: string;
+    end_date: string;
+    pax: number;
+  }[];
 }
 
 // ─── Builder ──────────────────────────────────────────────────────────────────
@@ -130,6 +152,8 @@ export function buildConferenceMemoParams(params: ConferenceMemoBuilderParams): 
     to = 'REGISTRAR, HIGH COURT/ ORHC AIE HOLDER',
     ccList,
     crestUrl = '',
+    signatureUrl,
+    entries,
   } = params;
 
   // Required fields — fail loudly rather than silently generating a bogus ref/date/etc.
@@ -217,6 +241,8 @@ export function buildConferenceMemoParams(params: ConferenceMemoBuilderParams): 
       'Director, Judiciary Training Institute',
     ],
     crestUrl,
+    signatureUrl,
+    entries: entries || [],
   };
 }
 
@@ -309,9 +335,10 @@ export async function generateConferenceMemoPdf(params: ConferenceMemoParams): P
   const FOOTER_EMBLEM_SRC =
     'https://res.cloudinary.com/do0yflasl/image/upload/v1784364354/ORHC_EMBLEM_wzmp94.jpg';
 
-  const [crestDataUrl, footerEmblemDataUrl] = await Promise.all([
+  const [crestDataUrl, footerEmblemDataUrl, signatureDataUrl] = await Promise.all([
     fetchImageDataUrl(params.crestUrl),
     fetchImageDataUrl(params.footerEmblemUrl || FOOTER_EMBLEM_SRC),
+    fetchImageDataUrl(params.signatureUrl || ''),
   ]);
 
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
@@ -416,27 +443,42 @@ export async function generateConferenceMemoPdf(params: ConferenceMemoParams): P
 
   y += 8;
 
-  // ────────────────────────── Conference Table ──────────────────────────
-  // The table uses the FACILITY booking dates, which may differ (a narrower window)
-  // from the overall retreat approval dates used in the body text above.
-  const facilityDateRange = `${formatDateShort(params.facilityStartDate)} to ${formatDateShort(
-    params.facilityEndDate
-  )}`;
-
-  const secretariatPax = params.secretariatPax ?? 2;
-  const driversAndGuards = params.driversAndGuardsCount;
-  if (driversAndGuards === undefined || driversAndGuards === null) {
-    throw new Error(
-      'generateConferenceMemoPdf: driversAndGuardsCount is required for the table — it is ' +
-        'distinct from supportingStaff and must not be defaulted from it.'
-    );
+  // ─── Closing text (MOVED ABOVE TABLE) ──────────────────────────────────
+  if (params.closingText) {
+    const closingParagraphs = params.closingText
+      .split('\n\n')
+      .filter((p: string) => p.trim().length > 0);
+    closingParagraphs.forEach((para: string) => {
+      const lines = doc.splitTextToSize(para, usableWidth);
+      doc.text(lines, marginX, y);
+      y += lines.length * 14.5 + 10;
+    });
+    y += 8;
   }
 
-  const tableRows = [
-    ['1', 'Full day conference facilities', facilityDateRange, String(params.numberOfPax)],
-    ['2', 'Secretariat room', facilityDateRange, String(secretariatPax)],
-    ['3', 'Meals only (Drivers & Guards)', facilityDateRange, String(driversAndGuards)],
-  ];
+  // ────────────────────────── Conference Table ──────────────────────────
+  // Build rows dynamically from entries
+  const entries = params.entries || [];
+
+  if (entries.length === 0) {
+    throw new Error('generateConferenceMemoPdf: No entries provided for the table');
+  }
+
+  const tableRows: (string | number)[][] = entries.map((entry, index) => {
+    const dateRange = `${formatDateShort(entry.start_date)} to ${formatDateShort(entry.end_date)}`;
+    return [
+      String(index + 1),
+      entry.particulars,
+      dateRange,
+      String(entry.pax),
+    ];
+  });
+
+  // Add total row if more than one entry
+  if (entries.length > 1) {
+    const totalPax = entries.reduce((sum, e) => sum + e.pax, 0);
+    tableRows.push(['', '', 'TOTAL', String(totalPax)]);
+  }
 
   const sharedTableStyle = {
     theme: 'grid' as const,
@@ -481,50 +523,71 @@ export async function generateConferenceMemoPdf(params: ConferenceMemoParams): P
   // @ts-expect-error - lastAutoTable is attached by the plugin at runtime
   y = doc.lastAutoTable.finalY + 20;
 
-  // ─── Closing text ──────────────────────────────────────────────────────
-  if (params.closingText) {
-    const closingParagraphs = params.closingText
-      .split('\n\n')
-      .filter((p: string) => p.trim().length > 0);
-    closingParagraphs.forEach((para: string) => {
-      const lines = doc.splitTextToSize(para, usableWidth);
-      doc.text(lines, marginX, y);
-      y += lines.length * 14.5 + 10;
-    });
-    y += 8;
-  }
-
   // ─── Signature Block ────────────────────────────────────────────────────
-  const RESERVED_SIGNATURE_SPACE = 60; // pt — space for backend signature
-  const sigGapAboveContent = 36;
-  let sigY = y + sigGapAboveContent;
+  // Add spacing before signature block
+  y += 20;
 
-  // Only push to a new page if it won't fit above the footer reserve height
-  if (sigY + RESERVED_SIGNATURE_SPACE + 40 > footerY) {
+  // Minimum space needed for name + title + signature image
+  const hasSignature = !!signatureDataUrl;
+  const minSpaceNeeded = hasSignature ? 160 : 90;
+
+  // Check if the signature block will fit on the current page
+  if (y + minSpaceNeeded > footerY - 20) {
     doc.addPage();
-    sigY = 60;
+    y = 60;
   }
-  y = sigY;
 
-  // Signatory name
+  // Signature image (if available)
+  if (signatureDataUrl) {
+    const signatureTargetWidth = 120;
+    let signatureH = 40;
+    const naturalSize = await getImageNaturalSize(signatureDataUrl);
+    if (naturalSize && naturalSize.width > 0) {
+      const aspectRatio = naturalSize.height / naturalSize.width;
+      signatureH = signatureTargetWidth * aspectRatio;
+    }
+    
+    doc.addImage(
+      signatureDataUrl,
+      detectImageFormat(signatureDataUrl),
+      marginX,
+      y,
+      signatureTargetWidth,
+      signatureH
+    );
+    y += signatureH + 15;
+  }
+
+  // Signatory name - add small spacing before name
+  if (!hasSignature) {
+    y += 5;
+  }
+
   doc.setFont('times', 'bold');
   doc.setFontSize(11);
-  doc.text(params.fromName || 'JOSLYNE NDUBI', marginX, y);
-  y += 18;
+  const signatoryName = params.fromName || 'REGISTRAR HIGH COURT';
+  doc.text(signatoryName, marginX, y);
+  y += 22;
 
   // Designation with underline
   doc.setFont('times', 'normal');
   doc.setFontSize(10);
-  const title = params.fromTitle || 'HIGH COURT SUPPORT OFFICE-ORHC';
+  const title = params.fromTitle || 'OFFICE OF THE REGISTRAR HIGH COURT';
   doc.text(title, marginX, y);
 
   const titleWidth = doc.getTextWidth(title);
   doc.setLineWidth(0.5);
   doc.line(marginX, y + 2, marginX + titleWidth, y + 2);
-  y += 30;
+  y += 28;
 
   // ─── Copy to (CC) ──────────────────────────────────────────────────────
   if (params.ccList && params.ccList.length > 0) {
+    const ccSpaceNeeded = 16 + params.ccList.length * 16 + 10;
+    if (y + ccSpaceNeeded > footerY - 20) {
+      doc.addPage();
+      y = 60;
+    }
+    
     doc.setFont('times', 'bold');
     doc.setFontSize(10);
     doc.text('Copy to:', marginX, y);
