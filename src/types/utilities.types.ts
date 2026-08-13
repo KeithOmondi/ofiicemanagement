@@ -1,36 +1,7 @@
 // ============================================================
 // utilities.types.ts - Export all types from the utilities slice
 // ============================================================
-// src/types/generateUtilityMemoTypes.ts
 
-export interface UtilityMemoRow {
-  judge_name: string;
-  pj_number?: string | null;  // ← ADD THIS
-  kplc: number;
-  water: number;
-  wifi: number;
-  total: number;
-}
-
-export interface UtilityMemoData {
-  to: string;
-  from: string;
-  ref: string;
-  date: string;
-  subject: string;
-  bodyText: string;
-  rows: UtilityMemoRow[];
-  grandKplc: number;
-  grandWater: number;
-  grandWifi: number;
-  grandTotal: number;
-  amountInWords: string;
-  crestUrl: string;
-  footerEmblemUrl: string;
-  memoType: 'all' | 'fuel';
-  signatoryName?: string;  // ← ADD THIS (optional)
-  signatureUrl?: string;   // ← ADD THIS (optional)
-}
 
 export type {
   UtilityType,

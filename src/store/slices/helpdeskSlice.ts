@@ -59,75 +59,62 @@ export interface GeneralRequest {
   id: string;
   s_no: number | null;
   ticket_number: string | null;
-  judge_name: string;
-  request: string;
-  request_type: RequestType;
+  judge_name: string;           // Requester name
+  request: string;              // Details of request
+  request_type: RequestType;    // Type of request
   category: GeneralRequestCategory | null;
   date_received: string | null;
   officer_assigned: string | null;
   status: Status;
-  remarks: string | null;
+  remarks: string | null;       // Marks/remarks
   remark_type: RemarkType | null;
-  request_date: string | null;
-  location: string | null;
-  firearm_type: string | null;
-  force_number: string | null;
-  officer_name: string | null;
-  assigned_to: string | null;
-  priority: string | null;
-  notes: string | null;
+  request_date: string | null;  // Request date
   created_by: string | null;
   created_at: string;
   updated_at: string;
-  rank?: string | null;
-  reporting_date?: string | null;
 }
 
 export interface CreateGeneralRequestInput {
-  judge_name: string;
-  request: string;
+  judge_name: string;           // Requester name
+  request: string;              // Details of request
   request_type: RequestType;
   category?: GeneralRequestCategory;
   date_received?: string;
   officer_assigned?: string;
   status?: Status;
-  remarks?: string;
+  remarks?: string;             // Marks/remarks
   remark_type?: RemarkType;
-  request_date?: string;
-  location?: string;
-  firearm_type?: string;
-  force_number?: string;
-  officer_name?: string;
-  assigned_to?: string;
-  priority?: string;
-  notes?: string;
-  email?: string;
-  send_email?: boolean;
-  rank?: string;
-  reporting_date?: string;
-  officer_station?: string;
+  request_date?: string;        // Request date
+  email?: string;               // Email for notification
+  send_email?: boolean;         // Whether to send email
 }
 
 export interface UpdateGeneralRequestInput {
-  request?: string;
+  judge_name?: string;          // Requester name
+  request?: string;             // Details of request
   request_type?: RequestType;
   category?: GeneralRequestCategory;
   date_received?: string;
   officer_assigned?: string;
   status?: Status;
-  remarks?: string;
+  remarks?: string;             // Marks/remarks
   remark_type?: RemarkType;
-  request_date?: string;
-  location?: string;
-  firearm_type?: string;
-  force_number?: string;
-  officer_name?: string;
-  assigned_to?: string;
-  priority?: string;
-  notes?: string;
-  rank?: string;
-  reporting_date?: string;
-  officer_station?: string;
+  request_date?: string;        // Request date
+  email?: string;               // Email for notification
+  send_email?: boolean;         // Whether to send email
+}
+
+// ─── General Request Email Options ────────────────────────────────────────
+
+export interface GeneralRequestEmailOptions {
+  to: string;
+  ticketNumber: string;
+  judgeName: string;
+  request: string;
+  requestType?: string;
+  status: string;
+  remarks?: string;
+  requestDate?: string;
 }
 
 // ─── Security Request (Deprecated) ─────────────────────────────────────────
@@ -432,6 +419,8 @@ export interface CreateCircuitInput {
   start_date: string;
   end_date: string;
   dsa_details?: DSADetailInput[];
+  email?: string;        // ← ADD
+  send_email?: boolean;  // ← ADD
 }
 
 export interface UpdateCircuitInput {
@@ -441,6 +430,8 @@ export interface UpdateCircuitInput {
   end_date?: string;
   status?: Status;
   dsa_details?: DSADetailInput[];
+  email?: string;        // ← ADD
+  send_email?: boolean;  // ← ADD
 }
 
 // ─── Other Payments ──────────────────────────────────────────────────────────
@@ -466,6 +457,8 @@ export interface CreateOtherPaymentInput {
   start_date: string;
   end_date: string;
   dsa_details?: DSADetailInput[];
+  email?: string;        // ← ADD
+  send_email?: boolean;  // ← ADD
 }
 
 export interface UpdateOtherPaymentInput {
@@ -475,6 +468,8 @@ export interface UpdateOtherPaymentInput {
   end_date?: string;
   status?: Status;
   dsa_details?: DSADetailInput[];
+  email?: string;        // ← ADD
+  send_email?: boolean;  // ← ADD
 }
 
 // ─── Special Benches ─────────────────────────────────────────────────────────
@@ -501,6 +496,8 @@ export interface CreateSpecialBenchInput {
   start_date: string;
   end_date: string;
   dsa_details?: DSADetailInput[];
+  email?: string;        // ← ADD
+  send_email?: boolean;  // ← ADD
 }
 
 export interface UpdateBenchInput {
@@ -510,6 +507,8 @@ export interface UpdateBenchInput {
   end_date?: string;
   status?: Status;
   dsa_details?: DSADetailInput[];
+  email?: string;        // ← ADD
+  send_email?: boolean;  // ← ADD
 }
 
 // ─── Part-Heards ─────────────────────────────────────────────────────────────
@@ -536,6 +535,8 @@ export interface CreatePartHeardInput {
   start_date: string;
   end_date: string;
   dsa_details?: DSADetailInput[];
+  email?: string;        // ← ADD
+  send_email?: boolean;  // ← ADD
 }
 
 export interface UpdatePartHeardInput {
@@ -545,7 +546,10 @@ export interface UpdatePartHeardInput {
   end_date?: string;
   status?: Status;
   dsa_details?: DSADetailInput[];
+  email?: string;        // ← ADD
+  send_email?: boolean;  // ← ADD
 }
+
 
 // ─── Service Weeks ───────────────────────────────────────────────────────────
 
@@ -572,6 +576,8 @@ export interface CreateServiceWeekInput {
   start_date: string;
   end_date: string;
   dsa_details?: DSADetailInput[];
+  email?: string;        // ← ADD
+  send_email?: boolean;  // ← ADD
 }
 
 export interface UpdateServiceWeekInput {
@@ -582,6 +588,8 @@ export interface UpdateServiceWeekInput {
   end_date?: string;
   status?: Status;
   dsa_details?: DSADetailInput[];
+  email?: string;        // ← ADD
+  send_email?: boolean;  // ← ADD
 }
 
 // ─── Medical Expense Claims ──────────────────────────────────────────────────
@@ -3434,8 +3442,6 @@ const helpdeskSlice = createSlice({
   .addCase(markDocumentViewed.fulfilled, (state) => {
     state.loading.documentTracking = false;
     state.success = true;
-    // The actual view count update is handled by the backend
-    // We just mark it as successful
   })
   .addCase(markDocumentViewed.rejected, (state, action) => {
     state.loading.documentTracking = false;
@@ -3732,7 +3738,6 @@ const helpdeskSlice = createSlice({
       })
       .addCase(fetchGeneralRequestStats.fulfilled, (state) => {
         state.loading.generalRequests = false;
-        // The stats are not stored in state, but the component uses selectGeneralRequestStats selector
       })
       .addCase(fetchGeneralRequestStats.rejected, (state, action) => {
         state.loading.generalRequests = false;
@@ -3747,7 +3752,6 @@ const helpdeskSlice = createSlice({
       })
       .addCase(fetchSecurityRequestStats.fulfilled, (state) => {
         state.loading.security = false;
-        // The stats are not stored in state, but the component uses selectSecurityRequestStats selector
       })
       .addCase(fetchSecurityRequestStats.rejected, (state, action) => {
         state.loading.security = false;

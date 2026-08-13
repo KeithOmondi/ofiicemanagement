@@ -1487,7 +1487,7 @@ const AdminDocs = () => {
 
   // ─── Force refresh function ────────────────────────────────────────────────
   const forceRefresh = useCallback(() => {
-    console.log('[AdminDocs] Force refresh triggered');
+    console.log('Force refresh triggered');
     if (currentUser?.department_id) {
       const params: DocumentFilters = {
         page: page,
@@ -1503,32 +1503,32 @@ const AdminDocs = () => {
 
   // ─── Fetch current user ──────────────────────────────────────────────────
   useEffect(() => {
-    console.log('[AdminDocs] Checking for current user');
+    console.log('Checking for current user');
     if (!currentUser) {
-      console.log('[AdminDocs] No current user, fetching...');
+      console.log('No current user, fetching...');
       dispatch(fetchCurrentUser());
     }
   }, [dispatch, currentUser]);
 
   // ─── Fetch folders ──────────────────────────────────────────────────────
   useEffect(() => {
-    console.log('[AdminDocs] Fetching folders...');
+    console.log('Fetching folders...');
     dispatch(fetchRHCFolders({ status: 'active', include_sub_folders: true }));
   }, [dispatch]);
 
   // ─── Fetch registry entries ────────────────────────────────────────────
   useEffect(() => {
-    console.log('[AdminDocs] Fetching registry entries...');
+    console.log('Fetching registry entries...');
     dispatch(fetchRegistryEntries({ limit: 200, sort_by: 'routed_at', sort_order: 'DESC' }));
   }, [dispatch]);
 
   // ─── Fetch documents ────────────────────────────────────────────────────
   useEffect(() => {
     if (!currentUser || !currentUser.department_id) {
-      console.log('[AdminDocs] Skipping document fetch - no current user or department');
+      console.log('Skipping document fetch - no current user or department');
       return;
     }
-    console.log(`[AdminDocs] Fetching documents for page: ${page}`);
+    console.log(`Fetching documents for page: ${page}`);
     const params: DocumentFilters = {
       page: page,
       limit: PAGE_SIZE,
@@ -1543,7 +1543,7 @@ const AdminDocs = () => {
   // ─── Error handling ────────────────────────────────────────────────────
   useEffect(() => {
     if (error) { 
-      console.error('[AdminDocs] Document error:', error);
+      console.error('Document error:', error);
       toast.error(error); 
       dispatch(clearError()); 
     }
@@ -1551,7 +1551,7 @@ const AdminDocs = () => {
 
   useEffect(() => {
     if (registryError) { 
-      console.error('[AdminDocs] Registry error:', registryError);
+      console.error('Registry error:', registryError);
       toast.error(registryError); 
       dispatch(clearRegistryError()); 
     }
@@ -1569,7 +1569,7 @@ const AdminDocs = () => {
   // ─── Handlers ──────────────────────────────────────────────────────────
 
   const handleSearchChange = (value: string) => {
-    console.log(`[AdminDocs] Search changed: "${value}"`);
+    console.log(`Search changed: "${value}"`);
     setSearch(value);
     searchRef.current = value;
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -1579,14 +1579,14 @@ const AdminDocs = () => {
   };
 
   const handleTypeFilterChange = (value: DocumentType | '') => {
-    console.log(`[AdminDocs] Type filter changed: "${value}"`);
+    console.log(`Type filter changed: "${value}"`);
     setTypeFilter(value);
     typeFilterRef.current = value;
     setPage(1);
   };
 
   const handleUpload = async (payload: { file: File; metadata: CreateUploadDocumentInput }) => {
-    console.log('[AdminDocs] handleUpload called');
+    console.log('handleUpload called');
     setUploading(true);
     try {
       const created = await dispatch(

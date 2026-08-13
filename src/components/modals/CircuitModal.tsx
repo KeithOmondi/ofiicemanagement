@@ -57,6 +57,7 @@ import {
   Trash2,
   Image,
   CreditCard,
+  Mail,
 } from 'lucide-react';
 import { generateMemoDocx } from '../../utils/generateMemoDocx';
 import toast, { Toaster } from 'react-hot-toast';
@@ -122,7 +123,7 @@ type BasicInfoType = {
   case_reference?: string;
   approved_by?: string;
   week_number?: string;
-  year?: string;  
+  year?: string;
   description?: string;
   start_date: string;
   end_date: string;
@@ -153,6 +154,64 @@ const getDefaultBasicInfo = (mode: CircuitModalMode): BasicInfoType => {
 const getDefaultDsaDetails = (): Omit<DSADetailInput, 'id'>[] => [
   { judge_name: '', pj_number: '', designation: '', dsa_per_day: 0, days: 0, notes: '' },
 ];
+
+// ─── Email Toggle Component ──────────────────────────────────────────────
+
+interface EmailToggleProps {
+  email: string;
+  setEmail: (email: string) => void;
+  sendEmail: boolean;
+  setSendEmail: (send: boolean) => void;
+  label?: string;
+}
+
+const EmailToggle: React.FC<EmailToggleProps> = ({
+  email,
+  setEmail,
+  sendEmail,
+  setSendEmail,
+  label = 'Send email notification',
+}) => {
+  return (
+    <div className="rounded-lg border border-stone-200 bg-stone-50 p-4 space-y-3">
+      <div className="flex items-center gap-3">
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#c9a84c]/10 text-[#c9a84c]">
+          <Mail size={16} />
+        </div>
+        <div className="flex items-center gap-3 flex-1">
+          <input
+            type="checkbox"
+            id="sendEmail"
+            checked={sendEmail}
+            onChange={(e) => setSendEmail(e.target.checked)}
+            className="h-4 w-4 rounded border-stone-300 text-[#c9a84c] focus:ring-[#c9a84c] focus:ring-offset-0"
+          />
+          <label htmlFor="sendEmail" className="text-sm font-medium text-stone-700">
+            {label}
+          </label>
+        </div>
+      </div>
+      {sendEmail && (
+        <div className="ml-11">
+          <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-stone-500">
+            Recipient Email <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="email"
+            placeholder="e.g. judge@court.go.ke"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-800 placeholder:text-stone-400 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+            required={sendEmail}
+          />
+          <p className="mt-1 text-[10px] text-stone-400">
+            An email notification will be sent to this address upon successful {label.toLowerCase()}.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── UI Helpers ──────────────────────────────────────────────────────────────
 
@@ -1239,9 +1298,11 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
 
   const [pendingDocumentId, setPendingDocumentId] = useState<string | undefined>();
 
-  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  // ─── Email State ──────────────────────────────────────────────────────────
+  const [email, setEmail] = useState('');
+  const [sendEmail, setSendEmail] = useState(false);
 
-  // ── Fetch judges when modal opens ──────────────────────────────────────
+  // ── Fetch judges when modal opens (a real external-system sync, stays an effect) ──
   useEffect(() => {
     if (isOpen && !judgesFetchedRef.current && !judgesLoading) {
       judgesFetchedRef.current = true;
@@ -1249,39 +1310,20 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     }
   }, [isOpen, judgesLoading, dispatch]);
 
-  // ── Compute days from date range ───────────────────────────────────────
-  const computeDays = (start: string, end: string): number => {
-    if (!start || !end) return 0;
-    const s = new Date(start);
-    const e = new Date(end);
-    if (isNaN(s.getTime()) || isNaN(e.getTime())) return 0;
-    const diffTime = e.getTime() - s.getTime();
-    if (diffTime < 0) return 0;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // inclusive
-    return diffDays;
-  };
+  // ── Sync form state to the isOpen open/close transition ────────────────
+  // This used to be two separate useEffects that called setState synchronously
+  // on mount/close, which triggers an extra "cascading render" pass (see
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes).
+  // Doing the state adjustment directly in the render body — guarded by a
+  // "did isOpen change since last render" check — lets React fold it into the
+  // same render/commit instead of scheduling a follow-up effect.
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
 
-  const daysFromDates = computeDays(basicInfo.start_date, basicInfo.end_date);
-
-  // ── Update basicInfo and, in the same event, sync DSA row days ─────────
-  const handleBasicInfoChange = (info: BasicInfoType) => {
-    setBasicInfo(info);
-    const newDays = computeDays(info.start_date, info.end_date);
-    if (newDays > 0) {
-      setDsaDetails((prev) =>
-        prev.map((row) => ({
-          ...row,
-          days: newDays,
-        }))
-      );
-    }
-  };
-
-  // ── Reset / load editing item ──────────────────────────────────────────
   if (isOpen !== prevIsOpen) {
     setPrevIsOpen(isOpen);
 
     if (isOpen) {
+      // Modal just opened — load the editing item into the form, or reset to blank
       if (editingItem) {
         if (isCircuit(editingItem)) {
           setBasicInfo({
@@ -1338,19 +1380,54 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
         }
         setCurrentStep(2);
       } else {
+        // New item - reset to step 1
         setBasicInfo(getDefaultBasicInfo(mode));
         setDsaDetails(getDefaultDsaDetails());
         setCurrentStep(1);
       }
       setPendingDocumentId(undefined);
+    } else {
+      // Modal just closed — clear email state for the next open
+      setEmail('');
+      setSendEmail(false);
     }
   }
+
+  // ── Compute days from date range ───────────────────────────────────────
+  const computeDays = (start: string, end: string): number => {
+    if (!start || !end) return 0;
+    const s = new Date(start);
+    const e = new Date(end);
+    if (isNaN(s.getTime()) || isNaN(e.getTime())) return 0;
+    const diffTime = e.getTime() - s.getTime();
+    if (diffTime < 0) return 0;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // inclusive
+    return diffDays;
+  };
+
+  const daysFromDates = computeDays(basicInfo.start_date, basicInfo.end_date);
+
+  // ── Update basicInfo and, in the same event, sync DSA row days ─────────
+  const handleBasicInfoChange = (info: BasicInfoType) => {
+    setBasicInfo(info);
+    const newDays = computeDays(info.start_date, info.end_date);
+    if (newDays > 0) {
+      setDsaDetails((prev) =>
+        prev.map((row) => ({
+          ...row,
+          days: newDays,
+        }))
+      );
+    }
+  };
 
   const resetForm = () => {
     setBasicInfo(getDefaultBasicInfo(mode));
     setDsaDetails(getDefaultDsaDetails());
     setCurrentStep(1);
     setPendingDocumentId(undefined);
+    setEmail('');
+    setSendEmail(false);
   };
 
   const handleAddDsaRow = () => {
@@ -1451,202 +1528,228 @@ export const CircuitModal: React.FC<CircuitModalProps> = ({
     else if (currentStep === 3) setCurrentStep(2);
   };
 
-const handleCreate = async () => {
-  try {
-    const dsaData = dsaDetails
-      .filter(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0)
-      .map(d => ({
-        judge_name: d.judge_name.trim(),
-        pj_number: d.pj_number.trim(),
-        designation: d.designation || undefined,
-        dsa_per_day: d.dsa_per_day,
-        days: d.days,
-        notes: undefined,
-      }));
+  const handleCreate = async () => {
+    try {
+      // ─── Validate email if send_email is true ──────────────────────────────
+      if (sendEmail && !email) {
+        toast.error('Please enter a recipient email address.');
+        return;
+      }
 
-    let createdId: string | undefined;
+      const dsaData = dsaDetails
+        .filter(d => d.judge_name.trim() && d.pj_number.trim() && d.dsa_per_day > 0 && d.days > 0)
+        .map(d => ({
+          judge_name: d.judge_name.trim(),
+          pj_number: d.pj_number.trim(),
+          designation: d.designation || undefined,
+          dsa_per_day: d.dsa_per_day,
+          days: d.days,
+          notes: undefined,
+        }));
 
-    if (editingItem) {
-      // ─── EDITING: direct dispatch with mode‑specific updates ──────────────
+      let createdId: string | undefined;
+
+      if (editingItem) {
+        // ─── EDITING: direct dispatch with mode‑specific updates ──────────────
+        switch (mode) {
+          case 'circuit':
+            await dispatch(updateCircuit({
+              id: editingItem.id,
+              updates: {
+                name: basicInfo.name?.trim(),
+                location: basicInfo.location?.trim(),
+                start_date: basicInfo.start_date,
+                end_date: basicInfo.end_date,
+                dsa_details: dsaData,
+                email: sendEmail ? email : undefined,
+                send_email: sendEmail,
+              }
+            })).unwrap();
+            break;
+          case 'bench':
+            await dispatch(updateBench({
+              id: editingItem.id,
+              updates: {
+                name: basicInfo.name?.trim(),
+                case_reference: basicInfo.case_reference?.trim(),
+                start_date: basicInfo.start_date,
+                end_date: basicInfo.end_date,
+                dsa_details: dsaData,
+                email: sendEmail ? email : undefined,
+                send_email: sendEmail,
+              }
+            })).unwrap();
+            break;
+          case 'partHeard':
+            await dispatch(updatePartHeard({
+              id: editingItem.id,
+              updates: {
+                case_reference: basicInfo.case_reference?.trim(),
+                approved_by: basicInfo.approved_by?.trim(),
+                start_date: basicInfo.start_date,
+                end_date: basicInfo.end_date,
+                dsa_details: dsaData,
+                email: sendEmail ? email : undefined,
+                send_email: sendEmail,
+              }
+            })).unwrap();
+            break;
+          case 'serviceWeek':
+            await dispatch(updateServiceWeek({
+              id: editingItem.id,
+              updates: {
+                name: basicInfo.name?.trim(),
+                week_number: basicInfo.week_number?.trim(),
+                year: basicInfo.year,
+                start_date: basicInfo.start_date,
+                end_date: basicInfo.end_date,
+                dsa_details: dsaData,
+                email: sendEmail ? email : undefined,
+                send_email: sendEmail,
+              }
+            })).unwrap();
+            break;
+          case 'otherPayment':
+            await dispatch(updateOtherPayment({
+              id: editingItem.id,
+              updates: {
+                name: basicInfo.name?.trim(),
+                description: basicInfo.description?.trim(),
+                start_date: basicInfo.start_date,
+                end_date: basicInfo.end_date,
+                dsa_details: dsaData,
+                email: sendEmail ? email : undefined,
+                send_email: sendEmail,
+              }
+            })).unwrap();
+            break;
+          default:
+            throw new Error('Invalid mode');
+        }
+        toast.success(`${getModalTitle()} updated successfully.`);
+        createdId = editingItem.id;
+      } else {
+        // ─── CREATING ──────────────────────────────────────────────────────────
+        let result;
+        switch (mode) {
+          case 'circuit': {
+            const input: CreateCircuitInput = {
+              name: basicInfo.name!.trim(),
+              location: basicInfo.location?.trim() || undefined,
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+              email: sendEmail ? email : undefined,
+              send_email: sendEmail,
+            };
+            result = await dispatch(createCircuit(input)).unwrap();
+            break;
+          }
+          case 'bench': {
+            const input: CreateSpecialBenchInput = {
+              name: basicInfo.name!.trim(),
+              case_reference: basicInfo.case_reference?.trim() || undefined,
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+              email: sendEmail ? email : undefined,
+              send_email: sendEmail,
+            };
+            result = await dispatch(createBench(input)).unwrap();
+            break;
+          }
+          case 'partHeard': {
+            const input: CreatePartHeardInput = {
+              case_reference: basicInfo.case_reference!.trim(),
+              approved_by: basicInfo.approved_by?.trim() || undefined,
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+              email: sendEmail ? email : undefined,
+              send_email: sendEmail,
+            };
+            result = await dispatch(createPartHeard(input)).unwrap();
+            break;
+          }
+          case 'serviceWeek': {
+            const input: CreateServiceWeekInput = {
+              name: basicInfo.name!.trim(),
+              week_number: basicInfo.week_number!.trim(),
+              year: basicInfo.year!,
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+              email: sendEmail ? email : undefined,
+              send_email: sendEmail,
+            };
+            result = await dispatch(createServiceWeek(input)).unwrap();
+            break;
+          }
+          case 'otherPayment': {
+            const input: CreateOtherPaymentInput = {
+              name: basicInfo.name!.trim(),
+              description: basicInfo.description?.trim() || undefined,
+              start_date: basicInfo.start_date,
+              end_date: basicInfo.end_date,
+              dsa_details: dsaData,
+              email: sendEmail ? email : undefined,
+              send_email: sendEmail,
+            };
+            result = await dispatch(createOtherPayment(input)).unwrap();
+            break;
+          }
+          default:
+            throw new Error('Invalid mode');
+        }
+        toast.success(`${getModalTitle()} created successfully.`);
+        createdId = result?.id;
+      }
+
+      // ─── Link the document if one was created ──────────────────────────
+      if (pendingDocumentId && createdId) {
+        try {
+          await dispatch(
+            linkHelpdeskDocument({
+              id: pendingDocumentId,
+              entity_type: DOCUMENT_ENTITY_TYPE_MAP[mode],
+              entity_id: createdId,
+            })
+          ).unwrap();
+          toast.success('Memo linked to the record.');
+        } catch {
+          toast.error('Record created, but failed to link the memo. You can attach it manually later.');
+        }
+      }
+
+      // ─── Refresh data ────────────────────────────────────────────────────
       switch (mode) {
         case 'circuit':
-          await dispatch(updateCircuit({
-            id: editingItem.id,
-            updates: {
-              name: basicInfo.name?.trim(),
-              location: basicInfo.location?.trim(),
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            }
-          })).unwrap();
+          await dispatch(fetchCircuits({}));
           break;
         case 'bench':
-          await dispatch(updateBench({
-            id: editingItem.id,
-            updates: {
-              name: basicInfo.name?.trim(),
-              case_reference: basicInfo.case_reference?.trim(),
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            }
-          })).unwrap();
+          await dispatch(fetchBenches({}));
           break;
         case 'partHeard':
-          await dispatch(updatePartHeard({
-            id: editingItem.id,
-            updates: {
-              case_reference: basicInfo.case_reference?.trim(),
-              approved_by: basicInfo.approved_by?.trim(),
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            }
-          })).unwrap();
+          await dispatch(fetchPartHeards({}));
           break;
         case 'serviceWeek':
-          await dispatch(updateServiceWeek({
-            id: editingItem.id,
-            updates: {
-              name: basicInfo.name?.trim(),
-              week_number: basicInfo.week_number?.trim(),
-              year: basicInfo.year,
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            }
-          })).unwrap();
+          await dispatch(fetchServiceWeeks({}));
           break;
         case 'otherPayment':
-          await dispatch(updateOtherPayment({
-            id: editingItem.id,
-            updates: {
-              name: basicInfo.name?.trim(),
-              description: basicInfo.description?.trim(),
-              start_date: basicInfo.start_date,
-              end_date: basicInfo.end_date,
-              dsa_details: dsaData,
-            }
-          })).unwrap();
+          await dispatch(fetchOtherPayments({}));
           break;
         default:
-          throw new Error('Invalid mode');
+          break;
       }
-      toast.success(`${getModalTitle()} updated successfully.`);
-      createdId = editingItem.id;
-    } else {
-      // ─── CREATING ──────────────────────────────────────────────────────────
-      let result;
-      switch (mode) {
-        case 'circuit': {
-          const input: CreateCircuitInput = {
-            name: basicInfo.name!.trim(),
-            location: basicInfo.location?.trim() || undefined,
-            start_date: basicInfo.start_date,
-            end_date: basicInfo.end_date,
-            dsa_details: dsaData,
-          };
-          result = await dispatch(createCircuit(input)).unwrap();
-          break;
-        }
-        case 'bench': {
-          const input: CreateSpecialBenchInput = {
-            name: basicInfo.name!.trim(),
-            case_reference: basicInfo.case_reference?.trim() || undefined,
-            start_date: basicInfo.start_date,
-            end_date: basicInfo.end_date,
-            dsa_details: dsaData,
-          };
-          result = await dispatch(createBench(input)).unwrap();
-          break;
-        }
-        case 'partHeard': {
-          const input: CreatePartHeardInput = {
-            case_reference: basicInfo.case_reference!.trim(),
-            approved_by: basicInfo.approved_by?.trim() || undefined,
-            start_date: basicInfo.start_date,
-            end_date: basicInfo.end_date,
-            dsa_details: dsaData,
-          };
-          result = await dispatch(createPartHeard(input)).unwrap();
-          break;
-        }
-        case 'serviceWeek': {
-          const input: CreateServiceWeekInput = {
-            name: basicInfo.name!.trim(),
-            week_number: basicInfo.week_number!.trim(),
-            year: basicInfo.year!,
-            start_date: basicInfo.start_date,
-            end_date: basicInfo.end_date,
-            dsa_details: dsaData,
-          };
-          result = await dispatch(createServiceWeek(input)).unwrap();
-          break;
-        }
-        case 'otherPayment': {
-          const input: CreateOtherPaymentInput = {
-            name: basicInfo.name!.trim(),
-            description: basicInfo.description?.trim() || undefined,
-            start_date: basicInfo.start_date,
-            end_date: basicInfo.end_date,
-            dsa_details: dsaData,
-          };
-          result = await dispatch(createOtherPayment(input)).unwrap();
-          break;
-        }
-        default:
-          throw new Error('Invalid mode');
-      }
-      toast.success(`${getModalTitle()} created successfully.`);
-      createdId = result?.id;
-    }
+      await dispatch(fetchHelpDeskStats());
 
-    // ─── Link the document if one was created ──────────────────────────
-    if (pendingDocumentId && createdId) {
-      try {
-        await dispatch(
-          linkHelpdeskDocument({
-            id: pendingDocumentId,
-            entity_type: DOCUMENT_ENTITY_TYPE_MAP[mode],
-            entity_id: createdId,
-          })
-        ).unwrap();
-        toast.success('Memo linked to the record.');
-      } catch {
-        toast.error('Record created, but failed to link the memo. You can attach it manually later.');
-      }
+      onClose();
+      resetForm();
+    } catch (err) {
+      console.error('Failed to save:', err);
+      toast.error('Failed to save. Please try again.');
     }
-
-    // ─── Refresh data ────────────────────────────────────────────────────
-    switch (mode) {
-      case 'circuit':
-        await dispatch(fetchCircuits({}));
-        break;
-      case 'bench':
-        await dispatch(fetchBenches({}));
-        break;
-      case 'partHeard':
-        await dispatch(fetchPartHeards({}));
-        break;
-      case 'serviceWeek':
-        await dispatch(fetchServiceWeeks({}));
-        break;
-      case 'otherPayment':
-        await dispatch(fetchOtherPayments({}));
-        break;
-      default:
-        break;
-    }
-    await dispatch(fetchHelpDeskStats());
-
-    onClose();
-    resetForm();
-  } catch (err) {
-    console.error('Failed to save:', err);
-    toast.error('Failed to save. Please try again.');
-  }
-};
+  };
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
@@ -1732,11 +1835,20 @@ const handleCreate = async () => {
           </div>
 
           {currentStep === 1 && (
-            <BasicInfoForm
-              mode={mode}
-              basicInfo={basicInfo}
-              setBasicInfo={handleBasicInfoChange}
-            />
+            <div className="space-y-4">
+              <BasicInfoForm
+                mode={mode}
+                basicInfo={basicInfo}
+                setBasicInfo={handleBasicInfoChange}
+              />
+              <EmailToggle
+                email={email}
+                setEmail={setEmail}
+                sendEmail={sendEmail}
+                setSendEmail={setSendEmail}
+                label={`Send ${getModalTitle().toLowerCase()} notification`}
+              />
+            </div>
           )}
           {currentStep === 2 && (
             <DSADetailsForm

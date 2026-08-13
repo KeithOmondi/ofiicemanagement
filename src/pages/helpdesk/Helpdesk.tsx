@@ -2692,12 +2692,9 @@ function MedicalClaimsTab() {
   );
 }
 
-// ─── General Requests Tab ─────────────────────────────────────────────────
 
-interface ExtendedGeneralRequest extends GeneralRequest {
-  rank?: string;
-  reporting_date?: string;
-}
+
+// ─── General Requests Tab ─────────────────────────────────────────────────
 
 function GeneralRequestsTab() {
   const dispatch = useAppDispatch();
@@ -2760,18 +2757,13 @@ function GeneralRequestsTab() {
               <tr className="border-b border-stone-200 text-xs uppercase text-stone-400">
                 <th className="px-3 py-2 font-medium">S/No.</th>
                 <th className="px-3 py-2 font-medium">Ticket #</th>
-                <th className="px-3 py-2 font-medium">Judge</th>
-                <th className="px-3 py-2 font-medium">Station</th>
+                <th className="px-3 py-2 font-medium">Requester</th>
                 <th className="px-3 py-2 font-medium">Type</th>
-                <th className="px-3 py-2 font-medium">Firearm Type</th>
-                <th className="px-3 py-2 font-medium">Officer</th>
-                <th className="px-3 py-2 font-medium">Rank</th>
-                <th className="px-3 py-2 font-medium">Force No.</th>
+                <th className="px-3 py-2 font-medium">Category</th>
+                <th className="px-3 py-2 font-medium">Details</th>
                 <th className="px-3 py-2 font-medium">Request Date</th>
-                <th className="px-3 py-2 font-medium">Reporting Date</th>
                 <th className="px-3 py-2 font-medium">Date Recv'd</th>
                 <th className="px-3 py-2 font-medium">Officer Assigned</th>
-                <th className="px-3 py-2 font-medium">Assigned To</th>
                 <th className="px-3 py-2 font-medium">Remark Type</th>
                 <th className="px-3 py-2 font-medium">Remarks</th>
                 <th className="px-3 py-2 font-medium">Status</th>
@@ -2781,97 +2773,99 @@ function GeneralRequestsTab() {
             <tbody className="divide-y divide-stone-100">
               {loading ? (
                 <tr>
-                  <td colSpan={18} className="px-3 py-8 text-center">
+                  <td colSpan={13} className="px-3 py-8 text-center">
                     <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c] mx-auto" />
                   </td>
                 </tr>
               ) : data.length === 0 ? (
                 <tr>
-                  <td colSpan={18} className="px-3 py-8 text-center text-stone-400">
+                  <td colSpan={13} className="px-3 py-8 text-center text-stone-400">
                     No records found. Click 'Add' to create one.
                   </td>
                 </tr>
               ) : (
-                data.map((item) => {
-                  const extended = item as ExtendedGeneralRequest;
-                  return (
-                    <tr key={item.id} className="hover:bg-stone-50 transition-colors">
-                      <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
-                      <td className="px-3 py-2 font-mono text-xs text-stone-500">{item.ticket_number || '—'}</td>
-                      <td className="px-3 py-2">
+                data.map((item) => (
+                  <tr key={item.id} className="hover:bg-stone-50 transition-colors">
+                    <td className="px-3 py-2 text-center text-stone-600">{item.s_no || '—'}</td>
+                    <td className="px-3 py-2 font-mono text-xs text-stone-500">{item.ticket_number || '—'}</td>
+                    <td className="px-3 py-2">
+                      <button
+                        onClick={() => handleView(item)}
+                        className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
+                      >
+                        {item.judge_name}
+                      </button>
+                    </td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                          REQUEST_TYPE_COLORS[item.request_type as RequestType] || 'bg-stone-50 text-stone-600 border-stone-200'
+                        }`}
+                      >
+                        {item.request_type ? REQUEST_TYPE_LABELS[item.request_type as RequestType] : '—'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-stone-600">
+                      {item.category ? (
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                          item.category === 'Security' ? 'bg-red-50 text-red-700' :
+                          item.category === 'Personnel' ? 'bg-blue-50 text-blue-700' :
+                          'bg-stone-50 text-stone-600'
+                        }`}>
+                          {item.category}
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-stone-600 max-w-xs truncate" title={item.request}>
+                      {item.request || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-stone-600">{formatDate(item.request_date)}</td>
+                    <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
+                    <td className="px-3 py-2 text-stone-600">{item.officer_assigned || '—'}</td>
+                    <td className="px-3 py-2 text-stone-600">
+                      {item.remark_type ? REMARK_TYPE_LABELS[item.remark_type as RemarkType] : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-stone-600 max-w-xs truncate" title={item.remarks || ''}>
+                      {item.remarks || '—'}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <StatusDropdown
+                        status={item.status}
+                        onStatusChange={(s) => handleStatusChange(item.id, s)}
+                        disabled={mutating}
+                        options={GENERAL_REQUEST_STATUS_OPTIONS}
+                      />
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <div className="flex items-center justify-center gap-1">
                         <button
                           onClick={() => handleView(item)}
-                          className="font-medium text-stone-800 hover:text-[#c9a84c] hover:underline text-left"
-                        >
-                          {item.judge_name}
-                        </button>
-                      </td>
-                      <td className="px-3 py-2 text-stone-600">{item.location || '—'}</td>
-                      <td className="px-3 py-2">
-                        <span
-                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
-                            REQUEST_TYPE_COLORS[item.request_type as RequestType] || 'bg-stone-50 text-stone-600 border-stone-200'
-                          }`}
-                        >
-                          {item.request_type ? REQUEST_TYPE_LABELS[item.request_type as RequestType] : '—'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-stone-600">{item.firearm_type || '—'}</td>
-                      <td className="px-3 py-2 text-stone-600">{item.officer_name || '—'}</td>
-                      <td className="px-3 py-2 text-stone-600">{extended.rank || '—'}</td>
-                      <td className="px-3 py-2 text-stone-600">{item.force_number || '—'}</td>
-                      <td className="px-3 py-2 text-stone-600">{formatDate(item.request_date)}</td>
-                      <td className="px-3 py-2 text-stone-600">
-                        {extended.reporting_date ? formatDate(extended.reporting_date) : '—'}
-                      </td>
-                      <td className="px-3 py-2 text-stone-600">{formatDate(item.date_received)}</td>
-                      <td className="px-3 py-2 text-stone-600">{item.officer_assigned || '—'}</td>
-                      <td className="px-3 py-2 text-stone-600">{item.assigned_to || '—'}</td>
-                      <td className="px-3 py-2 text-stone-600">
-                        {item.remark_type ? REMARK_TYPE_LABELS[item.remark_type as RemarkType] : '—'}
-                      </td>
-                      <td className="px-3 py-2 text-stone-600 max-w-xs truncate" title={item.remarks || ''}>
-                        {item.remarks || '—'}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <StatusDropdown
-                          status={item.status}
-                          onStatusChange={(s) => handleStatusChange(item.id, s)}
                           disabled={mutating}
-                          options={GENERAL_REQUEST_STATUS_OPTIONS}
-                        />
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            onClick={() => handleView(item)}
-                            disabled={mutating}
-                            className="rounded p-1 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50"
-                            title="View Details"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleEdit(item)}
-                            disabled={mutating}
-                            className="rounded p-1 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50"
-                            title="Edit"
-                          >
-                            <Edit className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setDeleteTarget(item.id)}
-                            disabled={mutating}
-                            className="rounded p-1 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
-                            title="Delete"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                          className="rounded p-1 text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-50"
+                          title="View Details"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleEdit(item)}
+                          disabled={mutating}
+                          className="rounded p-1 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50"
+                          title="Edit"
+                        >
+                          <Edit className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget(item.id)}
+                          disabled={mutating}
+                          className="rounded p-1 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
@@ -2900,79 +2894,50 @@ function GeneralRequestsTab() {
           }}
           onStatusChange={handleStatusChange}
           mutating={mutating}
-          renderContent={(item) => {
-            const extended = item as ExtendedGeneralRequest;
-            return (
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <span className="text-stone-500">Request Type:</span>
-                  <p className="font-medium">{item.request_type ? REQUEST_TYPE_LABELS[item.request_type as RequestType] : '—'}</p>
-                </div>
-                <div>
-                  <span className="text-stone-500">Station:</span>
-                  <p className="font-medium">{item.location || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-stone-500">Ticket Number:</span>
-                  <p className="font-mono text-xs">{item.ticket_number || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-stone-500">Request Date:</span>
-                  <p className="font-medium">{formatDate(item.request_date)}</p>
-                </div>
-                {extended.reporting_date && (
-                  <div>
-                    <span className="text-stone-500">Reporting Date:</span>
-                    <p className="font-medium">{formatDate(extended.reporting_date)}</p>
-                  </div>
-                )}
-                {extended.rank && (
-                  <div>
-                    <span className="text-stone-500">Rank:</span>
-                    <p className="font-medium">{extended.rank}</p>
-                  </div>
-                )}
-                {item.force_number && (
-                  <div>
-                    <span className="text-stone-500">Force Number:</span>
-                    <p className="font-medium">{item.force_number}</p>
-                  </div>
-                )}
-                {item.officer_name && (
-                  <div>
-                    <span className="text-stone-500">Officer Name:</span>
-                    <p className="font-medium">{item.officer_name}</p>
-                  </div>
-                )}
-                {item.firearm_type && (
-                  <div>
-                    <span className="text-stone-500">Firearm Type:</span>
-                    <p className="font-medium">{item.firearm_type}</p>
-                  </div>
-                )}
-                <div>
-                  <span className="text-stone-500">Date Received:</span>
-                  <p className="font-medium">{formatDate(item.date_received)}</p>
-                </div>
-                <div>
-                  <span className="text-stone-500">Officer Assigned:</span>
-                  <p className="font-medium">{item.officer_assigned || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-stone-500">Assigned To:</span>
-                  <p className="font-medium">{item.assigned_to || '—'}</p>
-                </div>
-                <div>
-                  <span className="text-stone-500">Remark Type:</span>
-                  <p className="font-medium">{item.remark_type ? REMARK_TYPE_LABELS[item.remark_type as RemarkType] : '—'}</p>
-                </div>
-                <div className="col-span-2">
-                  <span className="text-stone-500">Remarks:</span>
-                  <p className="font-medium">{item.remarks || '—'}</p>
-                </div>
+          renderContent={(item) => (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <span className="text-stone-500">Requester:</span>
+                <p className="font-medium">{item.judge_name}</p>
               </div>
-            );
-          }}
+              <div>
+                <span className="text-stone-500">Request Type:</span>
+                <p className="font-medium">{item.request_type ? REQUEST_TYPE_LABELS[item.request_type as RequestType] : '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Category:</span>
+                <p className="font-medium">{item.category || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Ticket Number:</span>
+                <p className="font-mono text-xs">{item.ticket_number || '—'}</p>
+              </div>
+              <div className="col-span-2">
+                <span className="text-stone-500">Details of Request:</span>
+                <p className="font-medium bg-stone-50 p-2 rounded border border-stone-200">{item.request || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Request Date:</span>
+                <p className="font-medium">{formatDate(item.request_date)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Date Received:</span>
+                <p className="font-medium">{formatDate(item.date_received)}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Officer Assigned:</span>
+                <p className="font-medium">{item.officer_assigned || '—'}</p>
+              </div>
+              <div>
+                <span className="text-stone-500">Remark Type:</span>
+                <p className="font-medium">{item.remark_type ? REMARK_TYPE_LABELS[item.remark_type as RemarkType] : '—'}</p>
+              </div>
+              <div className="col-span-2">
+                <span className="text-stone-500">Remarks / Marks:</span>
+                <p className="font-medium bg-stone-50 p-2 rounded border border-stone-200">{item.remarks || '—'}</p>
+              </div>
+            </div>
+          )}
         />
       )}
 
