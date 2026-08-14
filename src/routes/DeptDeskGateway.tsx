@@ -1,4 +1,3 @@
-// src/Route/DeptDeskGateway.tsx
 import React, { useEffect } from 'react';
 import { Navigate, Route, Routes, useMatch } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../store/hook';
@@ -69,8 +68,8 @@ import HelpdeskStuffTickets from '../pages/staff/HelpdeskStuffTickets';
 import { getStaffDeptFlags } from '../utils/staffDept';
 import JODashboard from '../pages/JO/JODashboard';
 import JudicialOfficerLayout from '../components/JO/JudicialOfficerLayout';
-import StoreLayout from "../components/store/StoreLayout"
-import StoreDashboard from "../pages/store/StoreDashboard"
+import StoreLayout from '../components/store/StoreLayout';
+import StoreDashboard from '../pages/store/StoreDashboard';
 import StoreDocuments from '../pages/store/StoreDocuments';
 import StoreStock from '../pages/store/StoreStock';
 import HelpdeskAides from '../pages/helpdesk/HelpdeskAides';
@@ -80,20 +79,24 @@ import MemoandLetters from '../pages/admin/MemoandLetters';
 import HelpdeskStaffAides from '../pages/staff/HelpdeskStaffAides';
 import HelpdeskMemoandLetters from '../pages/staff/HelpdeskMemoandLetters';
 import HelpdeskConference from '../pages/helpdesk/HelpdeskConference';
-
+import RegistryReports from '../pages/staff/RegistryReports';
+import RegistryLayout from '../components/principalregistry/RegistryLayout';
+import DHRegistryDashboard from '../pages/principalregistry/DHRegistryDashboard';
+//import DHRegistryReports from '../pages/principalregistry/DHRegistryReports';
+import RegistryNewReport from '../pages/staff/RegistryNewReport';
+import RegistryWeeklyReports from '../pages/staff/RegistryWeeklyReports';
+import RegistrySubmitted from '../pages/staff/RegistrySubmitted';
+import DHRegistryReports from '../pages/principalregistry/DHRegistryReports';
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
 
-type DeskKey = 'finance' | 'procurement' | 'admin' | 'staff' | 'helpdesk' | 'jo' | 'store';
+type DeskKey = 'finance' | 'procurement' | 'admin' | 'staff' | 'helpdesk' | 'jo' | 'store' | 'pr';
 
 const resolveDeskKey = (departmentName: string | null | undefined, userRole: string): DeskKey => {
-  // If user is staff, they get staff view regardless of department
   if (userRole === 'staff' || userRole === 'viewer') {
     return 'staff';
   }
 
-
-  // For department heads, use their department
   if (!departmentName) return 'admin';
 
   const lowerName = departmentName.toLowerCase().trim();
@@ -102,24 +105,29 @@ const resolveDeskKey = (departmentName: string | null | undefined, userRole: str
   if (lowerName.includes('procurement')) return 'procurement';
   if (lowerName.includes('store')) return 'store';
   if (lowerName === 'jo' || lowerName.includes('judicial officer')) return 'jo';
+  if (
+    lowerName === 'pr' ||
+    lowerName.includes('principal registry') ||
+    lowerName.includes('principle registry') // tolerate the "Principle Registry" misspelling seen in prod data
+  ) {
+    return 'pr';
+  }
   if (lowerName.includes('helpdesk') || lowerName.includes('help desk')) return 'helpdesk';
 
-  // Default to admin for any other department
   return 'admin';
 };
 
 // ─── Gateway ─────────────────────────────────────────────────────────────────
 
 const DeptDeskGateway: React.FC = () => {
-  const dispatch      = useAppDispatch();
-  const { user }      = useAppSelector((state) => state.auth);
-  const departments   = useAppSelector(selectAllDepartments);
-  const loadingDepts  = useAppSelector(selectDepartmentsListLoading);
+  const dispatch = useAppDispatch();
+  const { user } = useAppSelector((state) => state.auth);
+  const departments = useAppSelector(selectAllDepartments);
+  const loadingDepts = useAppSelector(selectDepartmentsListLoading);
 
-  const match    = useMatch('/dept/:deptId/*');
+  const match = useMatch('/dept/:deptId/*');
   const basePath = match ? `/dept/${match.params.deptId}` : '/';
 
-  // Fetch departments on mount only if not already loaded
   useEffect(() => {
     if (departments.length === 0) {
       dispatch(fetchDepartments({}));
@@ -130,7 +138,6 @@ const DeptDeskGateway: React.FC = () => {
     return <Navigate to="/unauthorized" replace />;
   }
 
-  // Show spinner while departments are being fetched
   if (loadingDepts && departments.length === 0) {
     return (
       <div className="flex h-screen items-center justify-center bg-stone-50">
@@ -139,33 +146,19 @@ const DeptDeskGateway: React.FC = () => {
     );
   }
 
-  // Look up this user's department from the already-fetched list
   const department = departments.find((d) => d.id === user.department_id);
   const deskKey = resolveDeskKey(department?.name, user.role);
 
-  // Debug logging
-  console.log('User:', {
-    name: user.full_name,
-    role: user.role,
-    department_id: user.department_id
-  });
-  console.log('Department found:', department);
-  console.log('Resolved desk key:', deskKey);
-
   // ── Staff desk ──────────────────────────────────────────────────────────────
-  // Staff and viewers get the staff interface. Some routes are shared across
-  // every staff member regardless of department; others (e.g. the Help Desk
-  // staff routes) are only meaningful for staff who belong to that
-  // department, so they're gated behind the department flags below.
   if (deskKey === 'staff') {
-    const { isHelpdeskStaff } = getStaffDeptFlags(department?.name);
+    const { isHelpdeskStaff, isRegistryStaff } = getStaffDeptFlags(department?.name);
 
     return (
       <Routes>
         <Route element={<StaffLayout />}>
           <Route index element={<Navigate to="dashboard" replace />} />
 
-          {/* Shared across all staff, regardless of department */}
+          {/* Shared routes */}
           <Route path="dashboard" element={<StaffDashboard />} />
           <Route path="inventory" element={<StaffInventory />} />
           <Route path="messages" element={<StaffMeesages />} />
@@ -175,7 +168,7 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="tasks" element={<StaffTasks />} />
           <Route path="settings" element={<StaffSettings />} />
 
-          {/* Department-scoped staff routes */}
+          {/* Helpdesk Staff routes */}
           {isHelpdeskStaff && (
             <>
               <Route path="help-desk" element={<HelpdeskStuff />} />
@@ -185,6 +178,22 @@ const DeptDeskGateway: React.FC = () => {
               <Route path="memos-letters" element={<HelpdeskMemoandLetters />} />
             </>
           )}
+
+          {/* Registry Staff routes */}
+         {isRegistryStaff ? (
+  <>
+    
+    <Route path="reports/new" element={<RegistryNewReport />} />
+    <Route path="reports/week" element={<RegistryWeeklyReports />} />
+    <Route path="submitted" element={<RegistrySubmitted />} />
+  </>
+) : (
+  <Route path="reports" element={<RegistryReports />} />
+)}
+
+          {/* Non-registry staff still see a plain "All Reports" link (Workspace
+              section) — keep this route available regardless of isRegistryStaff. */}
+          <Route path="reports" element={<RegistryReports />} />
         </Route>
         <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
       </Routes>
@@ -210,46 +219,46 @@ const DeptDeskGateway: React.FC = () => {
     );
   }
 
- // ── Helpdesk desk ────────────────────────────────────────────────────────────
-if (deskKey === 'helpdesk') {
-  return (
-    <Routes>
-      <Route element={<HelpDeskLayout />}>
-        <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<HelpDeskDashboard />} />
-        <Route path="manage" element={<Helpdesk />} />
-        <Route path="messages" element={<HelpdeskMessages />} />
-        <Route path="notices" element={<HelpDeskNotices />} />
-        <Route path="calendar" element={<HelpdeskCalendar />} />
-        <Route path="tasks" element={<HelpdeskTasks />} />
-        <Route path="inventory" element={<HelpdeskInventory />} />
-        <Route path="documents" element={<HelpDeskDocuments />} />
-        <Route path="settings" element={<HelpdeskSettings />} />
-        <Route path="uploads" element={<HelpdeskDocs />} />
-        <Route path="reports" element={<HelpdeskReport />} />
-        <Route path="tickets" element={<HelpdeskTickets />} />
-        <Route path="aides" element={<HelpdeskAides />} />
-        <Route path="conference" element={<HelpdeskConference />} />
-        {/* ─── Memos & Letters route ────────────────────────────────────────── */}
-        <Route path="memos" element={<MemoandLetters />} />
-      </Route>
-      <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
-    </Routes>
-  );
-}
+  // ── Helpdesk desk ────────────────────────────────────────────────────────────
+  if (deskKey === 'helpdesk') {
+    return (
+      <Routes>
+        <Route element={<HelpDeskLayout />}>
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<HelpDeskDashboard />} />
+          <Route path="manage" element={<Helpdesk />} />
+          <Route path="messages" element={<HelpdeskMessages />} />
+          <Route path="notices" element={<HelpDeskNotices />} />
+          <Route path="calendar" element={<HelpdeskCalendar />} />
+          <Route path="tasks" element={<HelpdeskTasks />} />
+          <Route path="inventory" element={<HelpdeskInventory />} />
+          <Route path="documents" element={<HelpDeskDocuments />} />
+          <Route path="settings" element={<HelpdeskSettings />} />
+          <Route path="uploads" element={<HelpdeskDocs />} />
+          <Route path="reports" element={<HelpdeskReport />} />
+          <Route path="tickets" element={<HelpdeskTickets />} />
+          <Route path="aides" element={<HelpdeskAides />} />
+          <Route path="conference" element={<HelpdeskConference />} />
+          <Route path="memos" element={<MemoandLetters />} />
+        </Route>
+        <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+      </Routes>
+    );
+  }
 
+  // ── Judicial Officer desk ──────────────────────────────────────────────────
   if (deskKey === 'jo') {
-  return (
-    <Routes>
-      <Route element={<JudicialOfficerLayout />}>
-        <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<JODashboard />} />
-        <Route path="documents" element={<JODocuments />} />
-      </Route>
-      <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
-    </Routes>
-  );
-}
+    return (
+      <Routes>
+        <Route element={<JudicialOfficerLayout />}>
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<JODashboard />} />
+          <Route path="documents" element={<JODocuments />} />
+        </Route>
+        <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+      </Routes>
+    );
+  }
 
   // ── Procurement desk ──────────────────────────────────────────────────────
   if (deskKey === 'procurement') {
@@ -272,22 +281,44 @@ if (deskKey === 'helpdesk') {
     );
   }
 
-  //----------------------STORE MANAGEMENT---------------------
-if (deskKey === 'store') {
+  // ── Store desk ────────────────────────────────────────────────────────────
+  if (deskKey === 'store') {
     return (
       <Routes>
         <Route element={<StoreLayout />}>
           <Route index element={<Navigate to="dashboard" replace />} />
-          <Route path="dashboard" element={<StoreDashboard/>} />
-          <Route path="documents" element={<StoreDocuments/>} />
-          <Route path="inventory" element={<StoreStock/>} />
+          <Route path="dashboard" element={<StoreDashboard />} />
+          <Route path="documents" element={<StoreDocuments />} />
+          <Route path="inventory" element={<StoreStock />} />
         </Route>
         <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
       </Routes>
     );
   }
-  // ── Admin / Registry desk (default) ─────────────────────────────────────────
-  // Department heads of admin, registry, etc.
+
+  // ── Principal Registry desk ────────────────────────────────────────────────
+  // NOTE: deskKey 'pr' was previously unhandled here, so any non-staff user in
+  // a "Principal Registry" department fell through to the Admin desk, which
+  // has no "reports" route — that's why /reports bounced back to /dashboard
+  // via the wildcard route. Every path below must mirror the `to` values in
+  // RegistrySidebar.tsx, or the same bug happens again for that link.
+  // RegistryDashboard / RegistryNewReport / RegistryWeeklyReports /
+  // RegistrySubmitted / RegistryApproved / RegistryRejected / RegistryStats
+  // are placeholder pages — swap in real implementations when ready.
+  if (deskKey === 'pr') {
+    return (
+      <Routes>
+        <Route element={<RegistryLayout />}>
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<DHRegistryDashboard />} />
+          <Route path="reports" element={<DHRegistryReports />} />
+        </Route>
+        <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+      </Routes>
+    );
+  }
+
+  // ── Admin desk ────────────────────────────────────────────────────────────
   return (
     <Routes>
       <Route element={<AdmDeskLayout />}>

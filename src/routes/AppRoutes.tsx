@@ -25,7 +25,6 @@ import SuperAdminSignature from '../pages/admin/SuperAdminSignature';
 import SuperAdminHelpDesk from '../pages/admin/SuperAdminHelpDesk';
 import SuperAdminTeams from '../pages/admin/SuperAdminTeams';
 import SuperAdminSettings from '../pages/admin/SuperAdminSettings';
-import SuperAdminReports from '../pages/admin/SuperAdminReports';
 import SuperAdminLinks from '../pages/admin/SuperAdminLinks';
 import MemoandLetters from '../pages/admin/MemoandLetters';
 import SuperAdminTickets from '../pages/admin/SuperAdminTickets';
@@ -33,6 +32,8 @@ import SuperAdminConference from '../pages/admin/SuperAdminConference';
 import SuperAdminBringUp from '../pages/admin/SuperAdminBringUp';
 import SuperAdminFolders from '../pages/admin/SuperAdminFolders';
 import SuperAdminAides from '../pages/admin/SuperAdminAides';
+import SuperAdminSuccessionCourts from '../pages/admin/SuperAdminSuccessionCourts';
+import SuperAdminRegistryReports from '../pages/admin/SuperAdminRegistryReports';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -99,11 +100,12 @@ const AppRoutes: React.FC = () => {
           <Route path="/super-admin/signature"         element={<SuperAdminSignature />} />
           <Route path="/super-admin/team-members"         element={<SuperAdminTeams />} />
           <Route path="/super-admin/settings"         element={<SuperAdminSettings />} />
-          <Route path="/super-admin/reports"         element={<SuperAdminReports />} />
           <Route path="/super-admin/links"         element={<SuperAdminLinks />} />
           <Route path="/super-admin/memo-letters"         element={<MemoandLetters />} />
           <Route path="/super-admin/orhc-folders"         element={<SuperAdminFolders />} />
           <Route path="/super-admin/bring-up"         element={<SuperAdminBringUp />} />
+          <Route path="/super-admin/courts"         element={<SuperAdminSuccessionCourts />} />
+          <Route path="/super-admin/registry-reports"         element={<SuperAdminRegistryReports />} />
         </Route>
       </Route>
 

@@ -11,6 +11,11 @@ export const getStaffDeptFlags = (departmentName: string | null | undefined) => 
 
   return {
     isHelpdeskStaff: slug.includes('helpdesk') || slug.includes('help desk'),
+    isRegistryStaff:
+      slug.includes('principalregistry') ||
+      slug.includes('principal registry') ||
+      slug.includes('principleregistry') ||
+      slug.includes('principle registry'), // tolerate the "Principle Registry" misspelling seen in prod data
     // Add more department-specific flags here as needed, e.g.:
     // isFinanceStaff: slug.includes('finance'),
     // isProcurementStaff: slug.includes('procurement'),

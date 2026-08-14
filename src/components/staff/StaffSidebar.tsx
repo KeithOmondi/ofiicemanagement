@@ -1,6 +1,5 @@
-// src/components/staff/StaffSidebar.tsx
 import React from 'react';
-import { Link, useMatch, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useMatch, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   Package,
@@ -16,6 +15,10 @@ import {
   HelpCircle,
   Tickets,
   File,
+  FileText,
+  Clock,
+  ShieldAlert,
+  MailCheck,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import { logoutUser } from '../../store/slices/authSlice';
@@ -49,45 +52,57 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
 }) => {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAppSelector((state) => state.auth);
   const departments = useAppSelector(selectAllDepartments);
 
-  // Resolve the real base path from the current URL
   const match = useMatch('/dept/:deptId/*');
   const base = match ? `/dept/${match.params.deptId}` : '';
 
-  // Same department lookup DeptDeskGateway uses, so the routes it registers
-  // and the nav items shown here never drift out of sync.
   const department = departments.find((d) => d.id === user?.department_id);
-  const { isHelpdeskStaff } = getStaffDeptFlags(department?.name);
+  const { isHelpdeskStaff, isRegistryStaff } = getStaffDeptFlags(department?.name);
 
-  // Grouped into sections, mirroring the Help Desk sidebar's
-  // OVERVIEW / WORKSPACE / COMMUNICATION / SYSTEM style breakdown.
   const sections: NavSection[] = [
     {
       title: 'Overview',
       items: [
         { to: `${base}/dashboard`, label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" />, tab: 'dashboard' },
-        // Department-scoped: only shown to staff in the Helpdesk department,
-        // matching the routes gated in DeptDeskGateway.
         ...(isHelpdeskStaff
           ? [
               { to: `${base}/help-desk`, label: 'Help Desk', icon: <HelpCircle className="h-4 w-4" />, tab: 'help' },
               { to: `${base}/helpdesk-docs`, label: 'HelpDesk Docs', icon: <File className="h-4 w-4" />, tab: 'docs' },
               { to: `${base}/helpdesk-tickets`, label: 'Tickets', icon: <Tickets className="h-4 w-4" />, tab: 'tickets' },
-              { to: `${base}/aides`, label: 'Aides & Sentry', icon: <Tickets className="h-4 w-4" />, tab: 'aides' },
-              { to: `${base}/memos-letters`, label: 'Memos & Letters', icon: <Tickets className="h-4 w-4" />, tab: 'memosletters' },
+              { to: `${base}/aides`, label: 'Aides & Sentry', icon: <ShieldAlert className="h-4 w-4" />, tab: 'aides' },
+              { to: `${base}/memos-letters`, label: 'Memos & Letters', icon: <MailCheck className="h-4 w-4" />, tab: 'memosletters' },
             ]
           : []),
         { to: `${base}/documents`, label: 'Documents', icon: <Folder className="h-4 w-4" />, tab: 'documents' },
       ],
     },
-    {
-      title: 'Workspace',
-      items: [
-        { to: `${base}/inventory`, label: 'Staff Inventory', icon: <Package className="h-4 w-4" />, tab: 'inventory' },
-      ],
-    },
+    ...(!isRegistryStaff
+      ? [
+          {
+            title: 'Workspace',
+            items: [
+              { to: `${base}/inventory`, label: 'Inventory', icon: <Package className="h-4 w-4" />, tab: 'inventory' },
+               { to: `${base}/reports`, label: 'All Reports', icon: <FileText className="h-4 w-4" />, tab: 'reports' },
+            ],
+          },
+        ]
+      : []),
+    ...(isRegistryStaff
+      ? [
+          {
+            title: 'Reports',
+            items: [
+             
+              { to: `${base}/reports/new`, label: 'New Report', icon: <Workflow className="h-4 w-4" />, tab: 'reports-new' },
+              { to: `${base}/reports/week`, label: 'Weekly Reports', icon: <Calendar className="h-4 w-4" />, tab: 'reports-week' },
+              { to: `${base}/submitted`, label: 'Submitted', icon: <Clock className="h-4 w-4" />, tab: 'submitted' },
+            ],
+          },
+        ]
+      : []),
     {
       title: 'Communication',
       items: [
@@ -95,15 +110,17 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
         { to: `${base}/notices`, label: 'Notices', icon: <Bell className="h-4 w-4" />, tab: 'notices' },
       ],
     },
-
-    {
-      title: 'Planning',
-      items: [
-        { to: `${base}/calendar`, label: 'Calendar', icon: <Calendar className="h-4 w-4" />, tab: 'calendar' },
-        { to: `${base}/tasks`, label: 'Tasks', icon: <Workflow className="h-4 w-4" />, tab: 'tasks' },
-      ],
-    },
-
+    ...(!isRegistryStaff
+      ? [
+          {
+            title: 'Planning',
+            items: [
+              { to: `${base}/calendar`, label: 'Calendar', icon: <Calendar className="h-4 w-4" />, tab: 'calendar' },
+              { to: `${base}/tasks`, label: 'Tasks', icon: <Workflow className="h-4 w-4" />, tab: 'tasks' },
+            ],
+          },
+        ]
+      : []),
     {
       title: 'System',
       items: [
@@ -137,7 +154,6 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
 
   return (
     <>
-      {/* Mobile overlay */}
       {isOpen && (
         <div
           className="fixed inset-0 z-40 bg-stone-900/40 backdrop-blur-sm lg:hidden"
@@ -145,13 +161,11 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
         />
       )}
 
-      {/* Sidebar */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-stone-200 bg-white shadow-sm transition-transform duration-300 ease-in-out lg:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* Branding */}
         <div className="flex h-16 lg:h-20 items-center justify-between border-b border-stone-100 px-6">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#1E4620] to-[#2d6a2f] text-[#C29B38] shadow-sm">
@@ -173,7 +187,6 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
           </button>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-6">
           {sections.map((section) => (
             <div key={section.title}>
@@ -182,7 +195,7 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
               </p>
               <div className="space-y-1">
                 {section.items.map((item) => {
-                  const isActive = activeTab === item.tab;
+                  const isActive = location.pathname === item.to || activeTab === item.tab;
                   return (
                     <Link
                       key={item.tab}
@@ -206,7 +219,6 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
           ))}
         </nav>
 
-        {/* Footer */}
         <div className="border-t border-stone-100 p-4">
           <div className="flex items-center gap-3 rounded-lg bg-stone-50 px-3 py-2">
             <div className="h-8 w-8 rounded-full bg-[#1E4620] flex items-center justify-center text-white text-xs font-bold shrink-0">

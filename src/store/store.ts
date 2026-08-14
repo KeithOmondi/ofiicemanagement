@@ -33,6 +33,8 @@ import projectsReducer from "./slices/projectsSlice";
 import standaloneReducer from "./slices/standaloneSlice"
 import conferenceReducer from "./slices/conferenceSlice"
 import utilitiesReducer from "./slices/utilitiesSlice"
+import successionCourtsReducer from "./slices/successionCourts.slice"
+import stationEngagementReducer from "./slices/stationEngagement.slice"
 
 export const store = configureStore({
   reducer: {
@@ -67,7 +69,9 @@ export const store = configureStore({
     projects: projectsReducer,
     standalone: standaloneReducer,
     conference: conferenceReducer,
-    utilities: utilitiesReducer
+    utilities: utilitiesReducer,
+    successionCourts: successionCourtsReducer,
+    stationEngagement: stationEngagementReducer
   },
 });
 

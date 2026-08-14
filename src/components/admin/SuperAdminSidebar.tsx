@@ -189,6 +189,13 @@ const navigationConfig: NavSection[] = [
       { to: '/super-admin/team-members',  label: 'Team Members',     icon: Icon.team     },
     ],
   },
+    {
+    title: 'Principal Registry',
+    items: [
+      { to: '/super-admin/registry-reports',       label: 'PR Reports',          icon: Icon.reports   },
+      { to: '/super-admin/courts',      label: 'Succession Courts', icon: Icon.helpdesk },
+    ],
+  },
   {
     title: 'Administration',
     items: [
@@ -224,6 +231,8 @@ const navigationConfig: NavSection[] = [
       },
     ],
   },
+
+
 
   {
     title: 'Others',
