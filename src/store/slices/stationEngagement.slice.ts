@@ -14,7 +14,6 @@ import type {
   ReviewReportPayload,
   ReportSummary,
   EngagementStats,
-  PDFReportData,
   ApiResponse,
   PaginatedResponse,
   Urgency,
@@ -41,6 +40,8 @@ const initialState: StationEngagementState = {
   },
   pdfData: null,
   isGeneratingPDF: false,
+  isGeneratingExcel: false,
+  excelData: null,
 };
 
 const BASE_URL = '/station-engagement';
@@ -213,15 +214,76 @@ export const deleteReport = createAsyncThunk(
   }
 );
 
+// ─── Types for Export Responses ─────────────────────────────────────────────
+
+interface ExportResponse {
+  blob: Blob;
+  id: string;
+}
+
 // ─── Generate PDF ────────────────────────────────────────────────────────────
 
-export const generatePDF = createAsyncThunk(
+export const generatePDF = createAsyncThunk<ExportResponse, string, { rejectValue: string }>(
   'stationEngagement/generatePDF',
-  async (id: string) => {
-    const response = await axiosClient.get<ApiResponse<PDFReportData>>(
-      `${BASE_URL}/reports/${id}/pdf`
-    );
-    return extractData(response.data);
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get(
+        `${BASE_URL}/reports/${id}/pdf`,
+        {
+          responseType: 'blob',
+        }
+      );
+      return { blob: response.data as Blob, id };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Failed to generate PDF';
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
+
+// ─── Generate Excel ──────────────────────────────────────────────────────────
+
+export const generateExcel = createAsyncThunk<ExportResponse, string, { rejectValue: string }>(
+  'stationEngagement/generateExcel',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get(
+        `${BASE_URL}/reports/${id}/excel`,
+        {
+          responseType: 'blob',
+        }
+      );
+      return { blob: response.data as Blob, id };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Failed to generate Excel';
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
+
+// ─── Generate Both PDF and Excel ────────────────────────────────────────────
+
+export const generateBoth = createAsyncThunk<ExportResponse, string, { rejectValue: string }>(
+  'stationEngagement/generateBoth',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get(
+        `${BASE_URL}/reports/${id}/export-all`,
+        {
+          responseType: 'blob',
+        }
+      );
+      return { blob: response.data as Blob, id };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Failed to generate exports';
+      return rejectWithValue(errorMessage);
+    }
   }
 );
 
@@ -246,6 +308,9 @@ const stationEngagementSlice = createSlice({
     },
     clearPDFData: (state) => {
       state.pdfData = null;
+    },
+    clearExcelData: (state) => {
+      state.excelData = null;
     },
     resetState: () => initialState,
   },
@@ -459,18 +524,43 @@ const stationEngagementSlice = createSlice({
       // ── Generate PDF ──────────────────────────────────────────────────────
       .addCase(generatePDF.pending, (state) => {
         state.isGeneratingPDF = true;
-        state.isLoading = true;
         state.error = null;
       })
-      .addCase(generatePDF.fulfilled, (state, action) => {
-        state.isGeneratingPDF = false;
-        state.isLoading = false;
-        state.pdfData = action.payload;
-      })
+      .addCase(generatePDF.fulfilled, () => {
+  // No state change needed here
+})
       .addCase(generatePDF.rejected, (state, action) => {
         state.isGeneratingPDF = false;
-        state.isLoading = false;
-        state.error = action.error.message || 'Failed to generate PDF';
+        state.error = action.payload as string || 'Failed to generate PDF';
+      })
+
+      // ── Generate Excel ────────────────────────────────────────────────────
+      .addCase(generateExcel.pending, (state) => {
+        state.isGeneratingExcel = true;
+        state.error = null;
+      })
+      .addCase(generateExcel.fulfilled, (state) => {
+        state.isGeneratingExcel = false;
+      })
+      .addCase(generateExcel.rejected, (state, action) => {
+        state.isGeneratingExcel = false;
+        state.error = action.payload as string || 'Failed to generate Excel';
+      })
+
+      // ── Generate Both ─────────────────────────────────────────────────────
+      .addCase(generateBoth.pending, (state) => {
+        state.isGeneratingPDF = true;
+        state.isGeneratingExcel = true;
+        state.error = null;
+      })
+      .addCase(generateBoth.fulfilled, (state) => {
+        state.isGeneratingPDF = false;
+        state.isGeneratingExcel = false;
+      })
+      .addCase(generateBoth.rejected, (state, action) => {
+        state.isGeneratingPDF = false;
+        state.isGeneratingExcel = false;
+        state.error = action.payload as string || 'Failed to generate exports';
       });
   },
 });
@@ -483,6 +573,7 @@ export const {
   clearCurrentReport,
   clearError,
   clearPDFData,
+  clearExcelData,
   resetState,
 } = stationEngagementSlice.actions;
 
@@ -495,12 +586,14 @@ export const selectCurrentReport = (state: RootState) => state.stationEngagement
 export const selectReportSummary = (state: RootState) => state.stationEngagement.reportSummary;
 export const selectEngagementStats = (state: RootState) => state.stationEngagement.stats;
 export const selectPDFData = (state: RootState) => state.stationEngagement.pdfData;
+export const selectExcelData = (state: RootState) => state.stationEngagement.excelData;
 
 // ── Status Selectors ────────────────────────────────────────────────────────
 
 export const selectIsLoading = (state: RootState) => state.stationEngagement.isLoading;
 export const selectIsSubmitting = (state: RootState) => state.stationEngagement.isSubmitting;
 export const selectIsGeneratingPDF = (state: RootState) => state.stationEngagement.isGeneratingPDF;
+export const selectIsGeneratingExcel = (state: RootState) => state.stationEngagement.isGeneratingExcel;
 export const selectError = (state: RootState) => state.stationEngagement.error;
 export const selectFilters = (state: RootState) => state.stationEngagement.filters;
 
@@ -648,5 +741,18 @@ export const selectFilteredReports = createSelector(
     return result;
   }
 );
+
+// ── Export Download Helper ──────────────────────────────────────────────────
+
+export const downloadFile = (blob: Blob, filename: string): void => {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+};
 
 export default stationEngagementSlice.reducer;

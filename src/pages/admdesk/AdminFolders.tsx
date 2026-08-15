@@ -11,6 +11,7 @@ import {
     updateRHCFolder,
     deleteRHCFolder,
     searchRHCFolders,
+    moveRHCDocumentToFolder,
     selectAllRHCFolders,
     selectRHCFoldersLoading,
     selectRHCFoldersError,
@@ -122,11 +123,28 @@ const FolderCard: React.FC<{
     );
 };
 
-// ─── Document Card Component (Like Registry station cards) ──────────────
+// ─── Document Card Component with Selection ──────────────────────────────
 
-const DocumentCard: React.FC<{ document: FolderDocument }> = ({ document }) => {
+const DocumentCard: React.FC<{ 
+    document: FolderDocument;
+    isSelected?: boolean;
+    onSelect?: (id: string) => void;
+}> = ({ document, isSelected, onSelect }) => {
     return (
         <div className="relative flex flex-col items-center py-6 px-4 text-center bg-white transition hover:shadow-md border border-slate-200 rounded-xl">
+            {/* Selection checkbox */}
+            {onSelect && (
+                <div className="absolute top-2 left-2">
+                    <input
+                        type="checkbox"
+                        checked={isSelected || false}
+                        onChange={() => onSelect(document.id)}
+                        className="h-4 w-4 rounded border-slate-300 text-[#8B6914] focus:ring-[#8B6914]"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                </div>
+            )}
+            
             {/* Icon */}
             <span className="text-3xl mb-2">📄</span>
             
@@ -134,7 +152,7 @@ const DocumentCard: React.FC<{ document: FolderDocument }> = ({ document }) => {
             <span className="text-xs font-medium text-[#8B6914]">{document.ref || 'No ref'}</span>
             
             {/* Document Title */}
-            <span className="text-sm font-medium text-slate-800 truncate w-full">{document.subject}</span>
+            <span className="text-sm font-medium text-slate-800 truncate w-full max-w-[150px]">{document.subject}</span>
             
             {/* Format */}
             <span className="text-[11px] text-slate-400 mb-3 uppercase">{document.format || 'Document'}</span>
@@ -182,6 +200,11 @@ const FolderDetailView: React.FC<{
     onDelete: (id: string) => void;
     onViewFolder: (id: string) => void;
     onRefresh: () => void;
+    onMoveDocuments: () => void;
+    selectedDocuments: Set<string>;
+    onToggleSelect: (id: string) => void;
+    onSelectAll: () => void;
+    onClearSelection: () => void;
 }> = ({ 
     folder, 
     children, 
@@ -191,7 +214,12 @@ const FolderDetailView: React.FC<{
     onEdit, 
     onDelete, 
     onViewFolder,
-    onRefresh 
+    onRefresh,
+    onMoveDocuments,
+    selectedDocuments,
+    onToggleSelect,
+    onSelectAll,
+    onClearSelection,
 }) => {
     const categoryColor = CATEGORY_COLORS[folder.category] || 'bg-slate-50 text-slate-700';
     const statusColor = STATUS_COLORS[folder.status] || 'bg-slate-50 text-slate-700';
@@ -293,12 +321,46 @@ const FolderDetailView: React.FC<{
                         </div>
                     )}
 
-                    {/* Documents grid - Same layout as Registry stations */}
+                    {/* Documents grid with selection controls */}
                     <div>
-                        <h3 className="text-sm font-medium text-slate-700 mb-3 flex items-center gap-2">
-                            <FileText size={16} />
-                            Documents ({documents.length})
-                        </h3>
+                        <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                                <FileText size={16} />
+                                Documents ({documents.length})
+                            </h3>
+                            <div className="flex items-center gap-2">
+                                {documents.length > 0 && (
+                                    <>
+                                        <button
+                                            onClick={onSelectAll}
+                                            className="text-xs text-slate-500 hover:text-slate-700"
+                                        >
+                                            {selectedDocuments.size === documents.length ? 'Deselect All' : 'Select All'}
+                                        </button>
+                                        {selectedDocuments.size > 0 && (
+                                            <>
+                                                <span className="text-xs text-slate-400">
+                                                    {selectedDocuments.size} selected
+                                                </span>
+                                                <button
+                                                    onClick={onMoveDocuments}
+                                                    className="inline-flex items-center gap-1 rounded-lg bg-[#8B6914] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#7A5E12] transition"
+                                                >
+                                                    <FolderOpen size={14} />
+                                                    Move to Folder
+                                                </button>
+                                                <button
+                                                    onClick={onClearSelection}
+                                                    className="text-xs text-red-500 hover:text-red-700"
+                                                >
+                                                    Clear
+                                                </button>
+                                            </>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        </div>
                         {documents.length === 0 ? (
                             <div className="py-16 text-center text-sm text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
                                 <FileText size={48} className="mx-auto text-slate-300 mb-3" />
@@ -307,13 +369,115 @@ const FolderDetailView: React.FC<{
                         ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
                                 {documents.map(doc => (
-                                    <DocumentCard key={doc.id} document={doc} />
+                                    <DocumentCard 
+                                        key={doc.id} 
+                                        document={doc}
+                                        isSelected={selectedDocuments.has(doc.id)}
+                                        onSelect={onToggleSelect}
+                                    />
                                 ))}
                             </div>
                         )}
                     </div>
                 </>
             )}
+        </div>
+    );
+};
+
+// ─── Move Documents Modal ──────────────────────────────────────────────────
+
+const MoveDocumentsModal: React.FC<{
+    isOpen: boolean;
+    onClose: () => void;
+    onMove: (targetFolderId: string) => Promise<void>;
+    folders: RHCFolder[];
+    currentFolderId: string | null;
+    selectedCount: number;
+    isMoving: boolean;
+}> = ({ isOpen, onClose, onMove, folders, currentFolderId, selectedCount, isMoving }) => {
+    const [targetFolderId, setTargetFolderId] = useState('');
+
+    if (!isOpen) return null;
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!targetFolderId) {
+            toast.error('Please select a target folder');
+            return;
+        }
+        await onMove(targetFolderId);
+        setTargetFolderId('');
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+                <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+                    <h2 className="text-lg font-semibold text-slate-900">
+                        Move Documents
+                        <span className="ml-2 text-sm font-normal text-slate-500">
+                            ({selectedCount} selected)
+                        </span>
+                    </h2>
+                    <button
+                        onClick={onClose}
+                        className="text-slate-400 hover:text-slate-600"
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                    <div>
+                        <label className="mb-1 block text-sm font-medium text-slate-700">
+                            Select Target Folder *
+                        </label>
+                        <select
+                            value={targetFolderId}
+                            onChange={(e) => setTargetFolderId(e.target.value)}
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                            required
+                        >
+                            <option value="">Select a folder...</option>
+                            {folders
+                                .filter(f => f.id !== currentFolderId)
+                                .map(folder => (
+                                    <option key={folder.id} value={folder.id}>
+                                        {folder.ref_no} - {folder.name}
+                                    </option>
+                                ))}
+                        </select>
+                    </div>
+
+                    <div className="rounded-md bg-blue-50 p-3">
+                        <p className="text-sm text-blue-700">
+                            {selectedCount} document(s) will be moved to the selected folder.
+                        </p>
+                    </div>
+
+                    <div className="flex justify-end gap-3 pt-2">
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={!targetFolderId || isMoving}
+                            className="inline-flex items-center gap-2 rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#7A5E12] disabled:opacity-50"
+                        >
+                            {isMoving ? (
+                                <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                                <span>Move Documents</span>
+                            )}
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
     );
 };
@@ -353,6 +517,11 @@ const AdminFolders: React.FC = () => {
         parent_folder_id: '',
     });
 
+    // ── Document selection state ──────────────────────────────────────────
+    const [selectedDocuments, setSelectedDocuments] = useState<Set<string>>(new Set());
+    const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
+    const [isMoving, setIsMoving] = useState(false);
+
     // ── Fetch Data ──────────────────────────────────────────────────────────
 
     useEffect(() => {
@@ -388,6 +557,7 @@ const AdminFolders: React.FC = () => {
     const handleViewFolder = async (id: string) => {
         setCurrentFolderId(id);
         setIsDetailView(true);
+        setSelectedDocuments(new Set());
         await dispatch(fetchRHCFolderById(id));
         await dispatch(fetchRHCFolderChildren({ id }));
         await dispatch(fetchRHCFolderDocuments({ id }));
@@ -396,11 +566,87 @@ const AdminFolders: React.FC = () => {
     const handleBackToList = () => {
         setIsDetailView(false);
         setCurrentFolderId(null);
+        setSelectedDocuments(new Set());
         dispatch(clearSelectedFolder());
         dispatch(clearHierarchy());
         dispatch(clearFolderDocuments());
         dispatch(fetchRHCFolders({ include_sub_folders: true }));
     };
+
+    // ── Document selection handlers ──────────────────────────────────────
+
+    const toggleDocumentSelection = (documentId: string) => {
+        setSelectedDocuments(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(documentId)) {
+                newSet.delete(documentId);
+            } else {
+                newSet.add(documentId);
+            }
+            return newSet;
+        });
+    };
+
+    const selectAllDocuments = () => {
+        if (selectedDocuments.size === folderDocuments.length) {
+            setSelectedDocuments(new Set());
+        } else {
+            setSelectedDocuments(new Set(folderDocuments.map(d => d.id)));
+        }
+    };
+
+    const clearSelection = () => {
+        setSelectedDocuments(new Set());
+    };
+
+    const handleMoveDocuments = async (targetFolderId: string) => {
+        if (selectedDocuments.size === 0) {
+            toast.error('No documents selected');
+            return;
+        }
+
+        setIsMoving(true);
+        let successCount = 0;
+        let errorCount = 0;
+
+        try {
+            for (const documentId of Array.from(selectedDocuments)) {
+                try {
+                    await dispatch(moveRHCDocumentToFolder({
+                        sourceFolderId: currentFolderId!,
+                        documentId,
+                        targetFolderId,
+                    })).unwrap();
+                    successCount++;
+                } catch {
+                    errorCount++;
+                }
+            }
+
+            if (successCount > 0) {
+                toast.success(`${successCount} document(s) moved successfully`);
+            }
+            if (errorCount > 0) {
+                toast.error(`${errorCount} document(s) failed to move`);
+            }
+
+            // Refresh the view
+            if (currentFolderId) {
+                await handleViewFolder(currentFolderId);
+            }
+            dispatch(fetchRHCFolders({ include_sub_folders: true }));
+            
+            setSelectedDocuments(new Set());
+            setIsMoveModalOpen(false);
+        } catch (error) {
+            toast.error('Failed to move documents');
+            console.error('Move error:', error);
+        } finally {
+            setIsMoving(false);
+        }
+    };
+
+    // ── CRUD Handlers ─────────────────────────────────────────────────────
 
     const handleCreateFolder = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -552,6 +798,11 @@ const AdminFolders: React.FC = () => {
                     onDelete={handleDeleteFolder}
                     onViewFolder={handleViewFolder}
                     onRefresh={() => currentFolderId && handleViewFolder(currentFolderId)}
+                    onMoveDocuments={() => setIsMoveModalOpen(true)}
+                    selectedDocuments={selectedDocuments}
+                    onToggleSelect={toggleDocumentSelection}
+                    onSelectAll={selectAllDocuments}
+                    onClearSelection={clearSelection}
                 />
             ) : (
                 // ── List View ────────────────────────────────────────────
@@ -894,6 +1145,20 @@ const AdminFolders: React.FC = () => {
                     </div>
                 </div>
             )}
+
+            {/* ── Move Documents Modal ────────────────────────────────────── */}
+            <MoveDocumentsModal
+                isOpen={isMoveModalOpen}
+                onClose={() => {
+                    setIsMoveModalOpen(false);
+                    setSelectedDocuments(new Set());
+                }}
+                onMove={handleMoveDocuments}
+                folders={folders}
+                currentFolderId={currentFolderId}
+                selectedCount={selectedDocuments.size}
+                isMoving={isMoving}
+            />
         </>
     );
 };

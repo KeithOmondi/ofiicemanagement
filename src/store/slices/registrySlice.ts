@@ -21,6 +21,8 @@ import type {
   //AddDocumentToFolderInput,
   BulkAddDocumentsInput,
   FolderFilters,
+  FolderRegistryEntry,
+  FolderRegistryPaginationResponse,
 } from '../../types/registry.types';
 
 /* ============================================================
@@ -41,6 +43,15 @@ interface RegistryState {
   folderDocuments: FolderDocument[];
   folderCategories: FolderCategoryCount[];
   folderStatistics: FolderStatistics | null;
+  
+  // Folder documents by station
+  stationFolderDocuments: FolderRegistryEntry[];
+  stationFolderPagination: {
+    total:      number;
+    page:       number;
+    limit:      number;
+    totalPages: number;
+  };
   
   pagination: {
     total:      number;
@@ -64,6 +75,7 @@ interface RegistryState {
     folderCategories: boolean;
     folderStatistics: boolean;
     folderMutating: boolean;
+    stationFolderDocuments: boolean;
   };
   error:   string | null;
   success: boolean;
@@ -86,6 +98,14 @@ const initialState: RegistryState = {
   folderDocuments: [],
   folderCategories: [],
   folderStatistics: null,
+  
+  stationFolderDocuments: [],
+  stationFolderPagination: {
+    total: 0,
+    page: 1,
+    limit: 20,
+    totalPages: 0,
+  },
   
   pagination: {
     total:      0,
@@ -116,6 +136,7 @@ const initialState: RegistryState = {
     folderCategories: false,
     folderStatistics: false,
     folderMutating: false,
+    stationFolderDocuments: false,
   },
   error:   null,
   success: false,
@@ -378,6 +399,23 @@ export const fetchFolderDocuments = createAsyncThunk(
   }
 );
 
+// ── NEW: Fetch folder documents by station ───────────────────────────────────
+
+export const fetchStationFolderDocuments = createAsyncThunk(
+  'registry/fetchStationFolderDocuments',
+  async ({ stationId, page = 1, limit = 20 }: { stationId: string; page?: number; limit?: number }, { rejectWithValue }) => {
+    try {
+      const params = new URLSearchParams();
+      if (page) params.append('page', String(page));
+      if (limit) params.append('limit', String(limit));
+      const response = await axiosClient.get(`/registry/folders/station/${stationId}?${params.toString()}`);
+      return response.data.data as FolderRegistryPaginationResponse;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
 // ── Update ────────────────────────────────────────────────────────────────────
 
 export const updateFolder = createAsyncThunk(
@@ -496,6 +534,7 @@ const registrySlice = createSlice({
     clearSelectedFolder(state) { state.selectedFolder = null; state.folderHierarchy = null; },
     clearHistory(state) { state.history = []; state.historyDocId = null; },
     clearFolderDocuments(state) { state.folderDocuments = []; },
+    clearStationFolderDocuments(state) { state.stationFolderDocuments = []; },
     clearError(state) { state.error = null; },
     clearSuccess(state) { state.success = false; },
     resetRegistryState: () => initialState,
@@ -694,6 +733,27 @@ const registrySlice = createSlice({
       })
       .addCase(fetchFolderDocuments.rejected, (state, action) => { state.loading.folderDocuments = false; state.error = action.payload as string; });
 
+    /* ---------- FETCH STATION FOLDER DOCUMENTS ---------- */
+    builder
+      .addCase(fetchStationFolderDocuments.pending, (state) => {
+        state.loading.stationFolderDocuments = true;
+        state.error = null;
+      })
+      .addCase(fetchStationFolderDocuments.fulfilled, (state, action: PayloadAction<FolderRegistryPaginationResponse>) => {
+        state.loading.stationFolderDocuments = false;
+        state.stationFolderDocuments = action.payload.data;
+        state.stationFolderPagination = {
+          total: action.payload.total,
+          page: action.payload.page,
+          limit: action.payload.limit,
+          totalPages: action.payload.totalPages,
+        };
+      })
+      .addCase(fetchStationFolderDocuments.rejected, (state, action) => {
+        state.loading.stationFolderDocuments = false;
+        state.error = action.payload as string;
+      });
+
     /* ---------- UPDATE FOLDER ---------- */
     builder
       .addCase(updateFolder.pending, (state) => { state.loading.folderMutating = true; state.error = null; state.success = false; })
@@ -777,6 +837,7 @@ export const {
   clearSelectedFolder,
   clearHistory,
   clearFolderDocuments,
+  clearStationFolderDocuments,
   clearError,
   clearSuccess,
   resetRegistryState,
@@ -804,6 +865,10 @@ export const selectFolderCategories = (state: { registry: RegistryState }) => st
 export const selectFolderStatistics = (state: { registry: RegistryState }) => state.registry.folderStatistics;
 export const selectFolderFilters = (state: { registry: RegistryState }) => state.registry.folderFilters;
 
+// ── Station Folder Documents Selectors ──────────────────────────────────────
+export const selectStationFolderDocuments = (state: { registry: RegistryState }) => state.registry.stationFolderDocuments;
+export const selectStationFolderPagination = (state: { registry: RegistryState }) => state.registry.stationFolderPagination;
+
 // ── Loading Selectors ────────────────────────────────────────────────────────
 export const selectRegistryListLoading = (state: { registry: RegistryState }) => state.registry.loading.list;
 export const selectRegistryDetailLoading = (state: { registry: RegistryState }) => state.registry.loading.detail;
@@ -816,6 +881,7 @@ export const selectFolderDocumentsLoading = (state: { registry: RegistryState })
 export const selectFolderCategoriesLoading = (state: { registry: RegistryState }) => state.registry.loading.folderCategories;
 export const selectFolderStatisticsLoading = (state: { registry: RegistryState }) => state.registry.loading.folderStatistics;
 export const selectFolderMutating = (state: { registry: RegistryState }) => state.registry.loading.folderMutating;
+export const selectStationFolderDocumentsLoading = (state: { registry: RegistryState }) => state.registry.loading.stationFolderDocuments;
 
 // ── Error/Success Selectors ──────────────────────────────────────────────────
 export const selectRegistryError = (state: { registry: RegistryState }) => state.registry.error;

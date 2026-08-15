@@ -48,6 +48,23 @@ export interface RegistryEntry {
   created_at:       Date;
 }
 
+// ─── Folder Registry Entry (for showing folder documents in Registry) ───────
+
+export interface FolderRegistryEntry {
+  id:                   string;
+  document_id:          string;
+  document_title:       string;
+  document_ref_no:      string | null;
+  station_id:           string;
+  station_name:         string;
+  station_type:         StationType;
+  folder_id:            string;
+  folder_ref_no:        string;
+  folder_name:          string;
+  is_folder_document:   boolean;  // Flag to distinguish from routed documents
+  created_at:           Date;
+}
+
 // ── Station file counts (for the registry dashboard grid) ───────────────────
 
 export interface StationWithFileCount {
@@ -64,6 +81,16 @@ export interface StationWithFileCount {
 
 export interface RegistryPaginationResponse {
   data:       RegistryEntry[];
+  total:      number;
+  page:       number;
+  limit:      number;
+  totalPages: number;
+}
+
+// ── Folder Pagination Response ──────────────────────────────────────────────
+
+export interface FolderRegistryPaginationResponse {
+  data:       FolderRegistryEntry[];
   total:      number;
   page:       number;
   limit:      number;

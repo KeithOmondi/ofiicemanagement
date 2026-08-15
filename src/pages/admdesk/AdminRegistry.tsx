@@ -1,4 +1,4 @@
-// src/pages/admin/SuperAdminRegistry.tsx
+// src/pages/admin/AdminRegistry.tsx
 import React, { useEffect, useState, useCallback } from 'react';
 import { toast, Toaster } from 'react-hot-toast';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
@@ -142,6 +142,9 @@ const AdminRegistry = () => {
     location: '',
   });
   const [submittingStation, setSubmittingStation] = useState(false);
+  // Add state for custom type input
+  const [customType, setCustomType] = useState('');
+  const [isCustomType, setIsCustomType] = useState(false);
 
   // ── Initial data load ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -209,7 +212,26 @@ const AdminRegistry = () => {
       type: 'high_court',
       location: '',
     });
+    setCustomType('');
+    setIsCustomType(false);
     setSelectedStation(null);
+  };
+
+  // ─── Handle type change ─────────────────────────────────────────────────────
+  const handleTypeChange = (value: string) => {
+    // Check if it's a predefined option
+    const predefined = STATION_TYPE_OPTIONS.find(opt => opt.value === value);
+    if (predefined) {
+      setIsCustomType(false);
+      setCustomType('');
+      setStationFormData({ ...stationFormData, type: value as StationType });
+    } else {
+      // It's a custom type
+      setIsCustomType(true);
+      setCustomType(value);
+      // Store the custom value as the type
+      setStationFormData({ ...stationFormData, type: value as StationType });
+    }
   };
 
   const handleCreateStation = async (e: React.FormEvent) => {
@@ -252,6 +274,15 @@ const AdminRegistry = () => {
       type: station.type,
       location: station.location || '',
     });
+    // Check if the type is a predefined one or custom
+    const isPredefined = STATION_TYPE_OPTIONS.some(opt => opt.value === station.type);
+    if (!isPredefined) {
+      setIsCustomType(true);
+      setCustomType(station.type);
+    } else {
+      setIsCustomType(false);
+      setCustomType('');
+    }
     setIsEditStationModalOpen(true);
   };
 
@@ -710,7 +741,7 @@ const AdminRegistry = () => {
                   </span>
                   <span className="text-sm font-medium text-slate-800">{station.name}</span>
                   <span className="text-[11px] text-slate-400 mb-3">
-                    {STATION_TYPE_LABELS[station.type as StationType]}
+                    {STATION_TYPE_LABELS[station.type as StationType] || station.type}
                     {!station.is_active && ' · Inactive'}
                   </span>
                   <span className="text-xl font-medium text-slate-800">{station.file_count}</span>
@@ -786,15 +817,25 @@ const AdminRegistry = () => {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Type *</label>
-                <select
-                  value={stationFormData.type}
-                  onChange={(e) => setStationFormData({ ...stationFormData, type: e.target.value as StationType })}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
-                >
-                  {STATION_TYPE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <input
+                    list="station-types"
+                    type="text"
+                    required
+                    placeholder="Select or type a station type..."
+                    value={isCustomType ? customType : stationFormData.type}
+                    onChange={(e) => handleTypeChange(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                  />
+                  <datalist id="station-types">
+                    {STATION_TYPE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </datalist>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">You can select from the dropdown or type your own</p>
               </div>
 
               <div>
@@ -871,15 +912,25 @@ const AdminRegistry = () => {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Type *</label>
-                <select
-                  value={stationFormData.type}
-                  onChange={(e) => setStationFormData({ ...stationFormData, type: e.target.value as StationType })}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
-                >
-                  {STATION_TYPE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <input
+                    list="station-types-edit"
+                    type="text"
+                    required
+                    placeholder="Select or type a station type..."
+                    value={isCustomType ? customType : stationFormData.type}
+                    onChange={(e) => handleTypeChange(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                  />
+                  <datalist id="station-types-edit">
+                    {STATION_TYPE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </datalist>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">You can select from the dropdown or type your own</p>
               </div>
 
               <div>
@@ -1137,7 +1188,7 @@ const AdminRegistry = () => {
       </div>
 
       {/* ── Tab Content ────────────────────────────────────────────────────── */}
-      {activeTab === 'registry' ? renderRegistryTab() : <AdminFolders />}
+      {activeTab === 'registry' ? renderRegistryTab() : <AdminFolders key={activeTab} />}
     </div>
   );
 };

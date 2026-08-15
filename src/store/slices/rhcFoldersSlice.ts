@@ -87,24 +87,43 @@ export interface FolderHierarchy {
     children: RHCFolder[];
 }
 
+// ─── Folder Document Types (from documents table) ──────────────────────────
+
 export interface FolderDocument {
     id: string;
-    ref: string;
-    subject: string;
-    entity_type: string;
-    entity_id: string;
-    format: string;
-    file_url: string;
-    public_id: string;
-    file_size: number | null;
-    uploaded_by: string | null;
-    uploaded_by_name?: string;
-    status: string;
-    e_stamp_status: string;
-    e_stamp_url?: string | null;
-    e_stamp_public_id?: string | null;
+    subject: string;          // Maps to title from documents table
+    ref: string | null;       // Maps to reference_no
+    format: string;           // Maps to mime_type
+    file_url: string | null;
+    file_public_id: string | null;
     created_at: string;
     updated_at: string;
+    uploaded_by?: string | null;
+    uploaded_by_name?: string;
+    added_at?: string;        // When it was added to the folder
+}
+
+// ─── Move Document Types ──────────────────────────────────────────────────────
+
+export interface MoveDocumentResult {
+    sourceFolder: RHCFolder;
+    targetFolder: RHCFolder;
+    document: {
+        id: string;
+        title: string;
+        ref: string | null;
+        format: string;
+        file_url: string | null;
+        file_public_id: string | null;
+        created_at: string;
+        added_at: string;
+    };
+}
+
+export interface MoveDocumentInput {
+    sourceFolderId: string;
+    documentId: string;
+    targetFolderId: string;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -172,6 +191,7 @@ interface RHCFoldersState {
         fetchCategories: boolean;
         search: boolean;
         fetchDocuments: boolean;
+        moveDocument: boolean;
     };
     error: string | null;
     pagination: {
@@ -199,6 +219,7 @@ const initialState: RHCFoldersState = {
         fetchCategories: false,
         search: false,
         fetchDocuments: false,
+        moveDocument: false,
     },
     error: null,
     pagination: {
@@ -418,6 +439,26 @@ export const fetchRHCFolderDocuments = createAsyncThunk<
     }
 );
 
+// ── Move document to folder ──────────────────────────────────────────────────
+export const moveRHCDocumentToFolder = createAsyncThunk<
+    MoveDocumentResult,
+    MoveDocumentInput,
+    { rejectValue: string }
+>(
+    'rhcFolders/moveDocument',
+    async ({ sourceFolderId, documentId, targetFolderId }, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.post(
+                `/orhc-folders/folders/${sourceFolderId}/documents/${documentId}/move`,
+                { target_folder_id: targetFolderId }
+            );
+            return data.data as MoveDocumentResult;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to move document'));
+        }
+    }
+);
+
 // ─── Slice ────────────────────────────────────────────────────────────────────
 
 const rhcFoldersSlice = createSlice({
@@ -614,6 +655,21 @@ const rhcFoldersSlice = createSlice({
             })
             .addCase(fetchRHCFolderDocuments.rejected, (state, action) => {
                 state.loading.fetchDocuments = false;
+                state.error = action.payload as string;
+            });
+
+        // ── moveRHCDocumentToFolder ──────────────────────────────────────────
+        builder
+            .addCase(moveRHCDocumentToFolder.pending, (state) => {
+                state.loading.moveDocument = true;
+                state.error = null;
+            })
+            .addCase(moveRHCDocumentToFolder.fulfilled, (state) => {
+                state.loading.moveDocument = false;
+                // The folderDocuments will be refreshed by the caller
+            })
+            .addCase(moveRHCDocumentToFolder.rejected, (state, action) => {
+                state.loading.moveDocument = false;
                 state.error = action.payload as string;
             });
     },

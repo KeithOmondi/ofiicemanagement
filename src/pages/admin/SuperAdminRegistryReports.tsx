@@ -9,17 +9,20 @@ import {
   fetchReports,
   fetchEngagementStats,
   deleteReport,
-  submitReport,
   reviewReport,
   generatePDF,
+  generateExcel,
+  generateBoth,
   setFilters,
   selectAllReports,
   selectEngagementStats,
   selectIsLoading,
   selectIsSubmitting,
   selectIsGeneratingPDF,
+  selectIsGeneratingExcel,
   selectError,
   selectPagination,
+  downloadFile,
 } from '../../store/slices/stationEngagement.slice';
 import type { SuccessionCourtCategory } from '../../types/succession-courts';
 import type { AppDispatch } from '../../store/store';
@@ -105,8 +108,6 @@ interface ReportWithDisplay extends StationEngagementReport {
 }
 
 // ─── Read-only field primitives ────────────────────────────────────────────
-// Same visual language as the editable RegistryNewReport form, but static —
-// no inputs, no selects, nothing the admin can change.
 
 const ReadField: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <div>
@@ -140,7 +141,6 @@ const ReportBody: React.FC<{ report: ReportWithDisplay }> = ({ report }) => {
   const escalations: EscalationItem[] = report.escalations ?? [];
   const unengaged = report.unengaged_stations ?? [];
 
-  // Get display name from the report (submitted_by_display is added by the backend)
   const submittedByDisplay = report.submitted_by_display || report.submitted_by || 'Unknown';
 
   return (
@@ -348,6 +348,7 @@ const SuperAdminRegistryReports: React.FC = () => {
   const isLoading = useSelector(selectIsLoading);
   const isSubmitting = useSelector(selectIsSubmitting);
   const isGeneratingPDF = useSelector(selectIsGeneratingPDF);
+  const isGeneratingExcel = useSelector(selectIsGeneratingExcel);
   const error = useSelector(selectError);
   const pagination = useSelector(selectPagination);
 
@@ -371,6 +372,9 @@ const SuperAdminRegistryReports: React.FC = () => {
   const [feedbackData, setFeedbackData] = useState<Record<string, FeedbackData>>({});
   const [editingFeedback, setEditingFeedback] = useState<string | null>(null);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+
+  // ─── Export State ────────────────────────────────────────────────────────
+  const [exportingReportId, setExportingReportId] = useState<string | null>(null);
 
   // ─── Fetch reports when filters change ──────────────────────────────────
   useEffect(() => {
@@ -408,15 +412,6 @@ const SuperAdminRegistryReports: React.FC = () => {
     }
   };
 
-  const handleSubmit = async (id: string) => {
-    if (!confirm('Submit this report for review?')) return;
-    try {
-      await dispatch(submitReport(id)).unwrap();
-    } catch (err) {
-      console.error('Failed to submit report:', err);
-    }
-  };
-
   const handleReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedReportId) return;
@@ -442,11 +437,47 @@ const SuperAdminRegistryReports: React.FC = () => {
     }
   };
 
+  // ─── Export Handlers ──────────────────────────────────────────────────
+
   const handleGeneratePDF = async (id: string) => {
+    setExportingReportId(id);
     try {
-      await dispatch(generatePDF(id)).unwrap();
+      const result = await dispatch(generatePDF(id)).unwrap();
+      if (result?.blob) {
+        downloadFile(result.blob, `engagement-report-${id}.pdf`);
+      }
     } catch (err) {
       console.error('Failed to generate PDF:', err);
+    } finally {
+      setExportingReportId(null);
+    }
+  };
+
+  const handleGenerateExcel = async (id: string) => {
+    setExportingReportId(id);
+    try {
+      const result = await dispatch(generateExcel(id)).unwrap();
+      if (result?.blob) {
+        downloadFile(result.blob, `engagement-report-${id}.xlsx`);
+      }
+    } catch (err) {
+      console.error('Failed to generate Excel:', err);
+    } finally {
+      setExportingReportId(null);
+    }
+  };
+
+  const handleGenerateBoth = async (id: string) => {
+    setExportingReportId(id);
+    try {
+      const result = await dispatch(generateBoth(id)).unwrap();
+      if (result?.blob) {
+        downloadFile(result.blob, `engagement-report-${id}.zip`);
+      }
+    } catch (err) {
+      console.error('Failed to generate exports:', err);
+    } finally {
+      setExportingReportId(null);
     }
   };
 
@@ -504,6 +535,9 @@ const SuperAdminRegistryReports: React.FC = () => {
   };
 
   const renderStars = (rating: number) => '⭐'.repeat(rating) + '☆'.repeat(5 - rating);
+
+  // Check if a report is currently being exported
+  const isExporting = (id: string) => exportingReportId === id || isGeneratingPDF || isGeneratingExcel;
 
   if (isLoading && reports.length === 0) {
     return (
@@ -645,8 +679,8 @@ const SuperAdminRegistryReports: React.FC = () => {
             const highestUrgency = getHighestUrgency(report);
             const feedback = feedbackData[report.id];
             const isExpanded = expandedIds.has(report.id);
+            const isExportingReport = isExporting(report.id);
             
-            // Get display name from the report
             const submittedByDisplay = report.submitted_by_display || report.submitted_by || 'Unknown';
 
             return (
@@ -679,7 +713,6 @@ const SuperAdminRegistryReports: React.FC = () => {
                     <span className="text-xs text-gray-500">
                       {getEngagementCount(report)} engagement(s) · {getEscalationCount(report)} escalation(s)
                     </span>
-                    {/* Submitter name in header - using submitted_by_display */}
                     <span className="text-xs text-gray-500 ml-2">
                       by {submittedByDisplay}
                     </span>
@@ -693,8 +726,9 @@ const SuperAdminRegistryReports: React.FC = () => {
                   <>
                     <ReportBody report={report} />
 
-                    {/* Actions + feedback, kept below the rich body */}
-                    <div className="border-t border-gray-200 px-6 py-4 flex flex-wrap items-center justify-between gap-3 bg-gray-50">
+                    {/* Actions - All buttons at the top for easier access */}
+                    <div className="border-t border-gray-200 px-6 py-3 flex flex-wrap items-center justify-between gap-2 bg-gray-50">
+                      {/* Left side - Feedback */}
                       <div className="flex items-center gap-2">
                         {feedback ? (
                           <div className="flex items-center gap-2">
@@ -721,58 +755,56 @@ const SuperAdminRegistryReports: React.FC = () => {
                         )}
                       </div>
 
-                      <div className="flex flex-wrap gap-2">
-                        {report.status === 'draft' && (
-                          <>
-                            <button
-                              onClick={() => navigate(`/super-admin/reports/${report.id}/edit`)}
-                              className="text-gray-600 hover:text-gray-800 text-xs font-medium px-2 py-1"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleSubmit(report.id)}
-                              disabled={isSubmitting}
-                              className="text-green-600 hover:text-green-800 text-xs font-medium px-2 py-1 disabled:opacity-50"
-                            >
-                              Submit
-                            </button>
-                            <button
-                              onClick={() => handleDelete(report.id)}
-                              className="text-red-600 hover:text-red-800 text-xs font-medium px-2 py-1"
-                            >
-                              Delete
-                            </button>
-                          </>
-                        )}
-
+                      {/* Right side - All action buttons grouped */}
+                      <div className="flex flex-wrap items-center gap-1">
+                        {/* Review button - only for submitted reports */}
                         {report.status === 'submitted' && (
-                          <>
-                            <button
-                              onClick={() => openReviewModal(report.id)}
-                              className="text-purple-600 hover:text-purple-800 text-xs font-medium px-2 py-1"
-                            >
-                              Review
-                            </button>
-                            <button
-                              onClick={() => handleGeneratePDF(report.id)}
-                              disabled={isGeneratingPDF}
-                              className="text-gray-600 hover:text-gray-800 text-xs font-medium px-2 py-1 disabled:opacity-50"
-                            >
-                              PDF
-                            </button>
-                          </>
-                        )}
-
-                        {(report.status === 'approved' || report.status === 'reviewed') && (
                           <button
-                            onClick={() => handleGeneratePDF(report.id)}
-                            disabled={isGeneratingPDF}
-                            className="text-gray-600 hover:text-gray-800 text-xs font-medium px-2 py-1 disabled:opacity-50"
+                            onClick={() => openReviewModal(report.id)}
+                            className="px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded-md hover:bg-purple-700 transition-colors"
                           >
-                            PDF
+                            Review
                           </button>
                         )}
+
+                        {/* Delete button - for draft and rejected */}
+                        {(report.status === 'draft' || report.status === 'rejected') && (
+                          <button
+                            onClick={() => handleDelete(report.id)}
+                            className="px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-md hover:bg-red-700 transition-colors"
+                          >
+                            Delete
+                          </button>
+                        )}
+
+                        {/* Divider */}
+                        <span className="w-px h-6 bg-gray-300 mx-1" />
+
+                        {/* Export buttons */}
+                        <button
+                          onClick={() => handleGeneratePDF(report.id)}
+                          disabled={isExportingReport}
+                          className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Download PDF"
+                        >
+                          {isExportingReport && exportingReportId === report.id && isGeneratingPDF ? '...' : 'PDF'}
+                        </button>
+                        <button
+                          onClick={() => handleGenerateExcel(report.id)}
+                          disabled={isExportingReport}
+                          className="px-3 py-1.5 bg-green-600 text-white text-xs font-medium rounded-md hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Download Excel"
+                        >
+                          {isExportingReport && exportingReportId === report.id && isGeneratingExcel ? '...' : 'Excel'}
+                        </button>
+                        <button
+                          onClick={() => handleGenerateBoth(report.id)}
+                          disabled={isExportingReport}
+                          className="px-3 py-1.5 bg-purple-700 text-white text-xs font-medium rounded-md hover:bg-purple-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Download Both (ZIP)"
+                        >
+                          {isExportingReport && exportingReportId === report.id ? '...' : 'All'}
+                        </button>
                       </div>
                     </div>
                   </>
