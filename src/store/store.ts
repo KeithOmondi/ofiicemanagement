@@ -36,6 +36,7 @@ import utilitiesReducer from "./slices/utilitiesSlice"
 import successionCourtsReducer from "./slices/successionCourts.slice"
 import stationEngagementReducer from "./slices/stationEngagement.slice"
 import principalRegistryReportReducer  from "./slices/principalRegistryReportSlice"
+import activityTrackingReducer from "./slices/activityTrackingSlice"
 
 export const store = configureStore({
   reducer: {
@@ -73,7 +74,8 @@ export const store = configureStore({
     utilities: utilitiesReducer,
     successionCourts: successionCourtsReducer,
     stationEngagement: stationEngagementReducer,
-    principalRegistryReport: principalRegistryReportReducer
+    principalRegistryReport: principalRegistryReportReducer,
+    activityTracking: activityTrackingReducer
   },
 });
 

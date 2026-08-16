@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom';
 import {
   fetchReports,
   submitReport,
-  reviewReport,
+  //reviewReport,
   archiveReport,
   deleteReport,
   clearFilters,
@@ -41,7 +41,6 @@ import type {
 import {
   getStatusLabel,
   canSubmit as canSubmitReport,
-  canReview,
   canArchive,
   canEdit,
   canGeneratePDF as canGeneratePDFReport,
@@ -49,6 +48,12 @@ import {
 } from '../../types/principal-registry-report.types';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import DHReportQuestionsModal from './DHReportQuestionsModal';
+
+// ─── Helper: Validate UUID ─────────────────────────────────────
+const isValidUUID = (id: string): boolean => {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(id);
+};
 
 const DHRegistryReports = () => {
   const dispatch = useAppDispatch();
@@ -80,17 +85,15 @@ const DHRegistryReports = () => {
   const prevFiltersRef = useRef<ReportFilters>({});
 
   // ─── Memoized Filters ────────────────────────────────────────
-// In DHRegistryReports.tsx - Update filtersToApply
-const filtersToApply = useMemo(() => {
-  const result: ReportFilters = {};
-  if (statusFilter) result.status = statusFilter;
-  // ✅ Only add departmentId if it's a valid UUID
-  if (departmentId && departmentId !== 'pr' && departmentId.length === 36) {
-    result.departmentId = departmentId;
-  }
-  return result;
-}, [statusFilter, departmentId]);
-
+  const filtersToApply = useMemo(() => {
+    const result: ReportFilters = {};
+    if (statusFilter) result.status = statusFilter;
+    // ✅ Only add departmentId if it's a valid UUID
+    if (departmentId && isValidUUID(departmentId)) {
+      result.departmentId = departmentId;
+    }
+    return result;
+  }, [statusFilter, departmentId]);
 
   // ─── Effects ─────────────────────────────────────────────────
   useEffect(() => {
@@ -293,37 +296,6 @@ const filtersToApply = useMemo(() => {
     }
   }, [dispatch]);
 
-  const handleReview = useCallback((reportId: string) => {
-    const action = window.confirm(
-      'Review this report?\n\n' +
-      'Click OK to APPROVE\n' +
-      'Click Cancel to REJECT'
-    );
-    
-    if (action) {
-      dispatch(reviewReport(reportId))
-        .unwrap()
-        .then(() => {
-          alert('Report approved successfully!');
-        })
-        .catch((error: string) => {
-          alert(error || 'Failed to approve report.');
-        });
-    } else {
-      const reason = window.prompt('Please provide a reason for rejection:');
-      if (reason !== null) {
-        dispatch(reviewReport(reportId))
-          .unwrap()
-          .then(() => {
-            alert(`Report rejected: ${reason}`);
-          })
-          .catch((error: string) => {
-            alert(error || 'Failed to reject report.');
-          });
-      }
-    }
-  }, [dispatch]);
-
   const handleArchive = useCallback((reportId: string) => {
     if (window.confirm('Are you sure you want to archive this report?')) {
       dispatch(archiveReport(reportId));
@@ -340,7 +312,9 @@ const filtersToApply = useMemo(() => {
     dispatch(clearFilters());
     setStatusFilter('');
     setSearchTerm('');
-    dispatch(fetchReports(departmentId ? { departmentId } : {}));
+    // ✅ Only pass departmentId if it's a valid UUID
+    const filter = departmentId && isValidUUID(departmentId) ? { departmentId } : {};
+    dispatch(fetchReports(filter));
   }, [dispatch, departmentId]);
 
   const formatDate = (dateStr?: string) => {
@@ -459,16 +433,6 @@ const filtersToApply = useMemo(() => {
             className="px-2.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors"
           >
             Submit
-          </button>
-        )}
-
-        {canReview(report) && (
-          <button
-            type="button"
-            onClick={() => handleReview(report.id)}
-            className="px-2.5 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200/60 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-colors"
-          >
-            Review
           </button>
         )}
 
@@ -836,7 +800,7 @@ const filtersToApply = useMemo(() => {
       <DHReportQuestionsModal
         isOpen={isModalOpen}
         onClose={handleModalClose}
-        departmentId={departmentId}
+        departmentId={isValidUUID(departmentId || '') ? departmentId : undefined}
         initialData={initialModalData}
         onSave={handleModalSave}
         readOnly={modalMode === 'view'}

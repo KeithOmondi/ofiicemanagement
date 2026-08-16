@@ -91,6 +91,7 @@ import DHDocuments from "../pages/principalregistry/DHDocuments";
 import DHMemoandLetters from "../pages/principalregistry/DHMemoandLetters";
 import DHMessages from "../pages/principalregistry/DHMessages";
 import DHNotices from "../pages/principalregistry/DHNotices";
+import HelpDeskLogs from "../pages/helpdesk/HelpDeskLogs";
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
 
@@ -269,6 +270,7 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="aides" element={<HelpdeskAides />} />
           <Route path="conference" element={<HelpdeskConference />} />
           <Route path="memos" element={<MemoandLetters />} />
+          <Route path="activity-logs" element={<HelpDeskLogs />} />
         </Route>
         <Route
           path="*"

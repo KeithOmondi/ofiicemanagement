@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 //import { useDispatch, useSelector } from 'react-redux';
 import {
   fetchReports,
-  reviewReport,
+  //reviewReport,
   archiveReport,
   selectAllReportsData,
   selectReportsLoading,
@@ -113,20 +113,6 @@ const SuperAdminReports = () => {
     setIsPdfPreviewOpen(false);
     setPdfPreviewUrl(null);
   }, []);
-
-  const handleApprove = useCallback((reportId: string) => {
-    if (window.confirm('Approve this report? This will mark it as reviewed.')) {
-      dispatch(reviewReport(reportId));
-    }
-  }, [dispatch]);
-
-  const handleReject = useCallback((reportId: string) => {
-    const reason = window.prompt('Please provide a reason for rejection:');
-    if (reason !== null) {
-      dispatch(reviewReport(reportId));
-      alert(`Report rejected: ${reason}`);
-    }
-  }, [dispatch]);
 
   const handleArchive = useCallback((reportId: string) => {
     if (window.confirm('Archive this report?')) {
@@ -361,6 +347,7 @@ const SuperAdminReports = () => {
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap text-right">
                                 <div className="flex items-center justify-end gap-1.5">
+                                  {/* View PDF button */}
                                   <button
                                     type="button"
                                     onClick={() => handleViewPDF(report)}
@@ -370,25 +357,7 @@ const SuperAdminReports = () => {
                                     View PDF
                                   </button>
 
-                                  {report.status === 'submitted' && (
-                                    <>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleApprove(report.id)}
-                                        className="px-2.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors"
-                                      >
-                                        Approve
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleReject(report.id)}
-                                        className="px-2.5 py-1.5 text-xs font-medium text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/60 rounded-lg transition-colors"
-                                      >
-                                        Reject
-                                      </button>
-                                    </>
-                                  )}
-
+                                  {/* Archive button - only for reviewed reports */}
                                   {report.status === 'reviewed' && (
                                     <button
                                       type="button"
@@ -418,7 +387,6 @@ const SuperAdminReports = () => {
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-2 animate-in fade-in duration-200"
           onClick={(e) => {
-            // Close modal when clicking backdrop, but not when clicking content
             if (e.target === e.currentTarget) {
               handleClosePdfPreview();
             }

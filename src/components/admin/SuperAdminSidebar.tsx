@@ -186,6 +186,7 @@ const navigationConfig: NavSection[] = [
           { to: '/super-admin/helpdesk/aides', label: 'Aides & Sentry' },
         ],
       },
+        { to: '/super-admin/activity-tracking',  label: 'HelpDesk Logs',     icon: Icon.team     },
       { to: '/super-admin/team-members',  label: 'Team Members',     icon: Icon.team     },
     ],
   },

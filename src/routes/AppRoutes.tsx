@@ -35,6 +35,7 @@ import SuperAdminAides from '../pages/admin/SuperAdminAides';
 import SuperAdminSuccessionCourts from '../pages/admin/SuperAdminSuccessionCourts';
 import SuperAdminRegistryReports from '../pages/admin/SuperAdminRegistryReports';
 import SuperAdminReports from '../pages/admin/SuperAdminReports';
+import SuperAdminActivityTracking from '../pages/admin/SuperAdminActivityTracking';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -108,6 +109,7 @@ const AppRoutes: React.FC = () => {
           <Route path="/super-admin/courts"         element={<SuperAdminSuccessionCourts />} />
           <Route path="/super-admin/registry-reports"         element={<SuperAdminRegistryReports />} />
           <Route path="/super-admin/reports"         element={<SuperAdminReports />} />
+          <Route path="/super-admin/activity-tracking"         element={<SuperAdminActivityTracking />} />
         </Route>
       </Route>
 
