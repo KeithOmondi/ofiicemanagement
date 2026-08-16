@@ -33,7 +33,14 @@ export interface ActivityLog extends ContactReference {
   updatedAt: string;
 }
 
-export type ReminderStatus = 'pending' | 'completed' | 'snoozed' | 'cancelled';
+// Updated ReminderStatus with more granular statuses
+export type ReminderStatus = 
+  | 'pending'      // Created but not yet actioned
+  | 'in_progress'  // Currently being worked on
+  | 'upcoming'     // Scheduled for future (not yet due)
+  | 'overdue'      // Past due date
+  | 'completed'    // Successfully finished
+  | 'cancelled';   // No longer needed
 
 export interface ActivityReminder extends ContactReference {
   id: string;
@@ -122,31 +129,123 @@ export const CHANNEL_LABELS: Record<ActivityChannel, string> = {
   other: 'Other',
 };
 
+// Updated REMINDER_STATUS_LABELS with new statuses
 export const REMINDER_STATUS_LABELS: Record<ReminderStatus, string> = {
   pending: 'Pending',
+  in_progress: 'In Progress',
+  upcoming: 'Upcoming',
+  overdue: 'Overdue',
   completed: 'Completed',
-  snoozed: 'Snoozed',
   cancelled: 'Cancelled',
 };
 
+// Status color configuration for UI badges
+export const REMINDER_STATUS_COLORS: Record<ReminderStatus, { bg: string; text: string; border: string; icon: string }> = {
+  pending: {
+    bg: 'bg-yellow-100',
+    text: 'text-yellow-800',
+    border: 'border-yellow-200',
+    icon: '🕐'
+  },
+  in_progress: {
+    bg: 'bg-blue-100',
+    text: 'text-blue-800',
+    border: 'border-blue-200',
+    icon: '🔄'
+  },
+  upcoming: {
+    bg: 'bg-indigo-100',
+    text: 'text-indigo-800',
+    border: 'border-indigo-200',
+    icon: '📅'
+  },
+  overdue: {
+    bg: 'bg-red-100',
+    text: 'text-red-800',
+    border: 'border-red-200',
+    icon: '⚠️'
+  },
+  completed: {
+    bg: 'bg-green-100',
+    text: 'text-green-800',
+    border: 'border-green-200',
+    icon: '✅'
+  },
+  cancelled: {
+    bg: 'bg-gray-100',
+    text: 'text-gray-800',
+    border: 'border-gray-200',
+    icon: '🚫'
+  }
+};
+
+// Updated helper functions for the new statuses
 export function isReminderOverdue(reminder: ActivityReminder): boolean {
-  if (reminder.status !== 'pending') return false;
+  // Only check due date for active statuses
+  if (!['pending', 'in_progress', 'upcoming'].includes(reminder.status)) return false;
   const today = new Date().toISOString().split('T')[0];
   return reminder.dueDate < today;
 }
 
 export function isReminderDueToday(reminder: ActivityReminder): boolean {
-  if (reminder.status !== 'pending') return false;
+  if (!['pending', 'in_progress', 'upcoming'].includes(reminder.status)) return false;
   const today = new Date().toISOString().split('T')[0];
   return reminder.dueDate === today;
 }
 
+export function isReminderUpcoming(reminder: ActivityReminder): boolean {
+  if (!['pending', 'in_progress', 'upcoming'].includes(reminder.status)) return false;
+  const today = new Date().toISOString().split('T')[0];
+  return reminder.dueDate > today;
+}
+
+export function isReminderActive(reminder: ActivityReminder): boolean {
+  return ['pending', 'in_progress', 'upcoming', 'overdue'].includes(reminder.status);
+}
+
+export function isReminderCompleted(reminder: ActivityReminder): boolean {
+  return reminder.status === 'completed';
+}
+
+export function isReminderCancelled(reminder: ActivityReminder): boolean {
+  return reminder.status === 'cancelled';
+}
+
 export function canCompleteReminder(reminder: ActivityReminder): boolean {
-  return reminder.status === 'pending' || reminder.status === 'snoozed';
+  // Can complete if status is pending, in_progress, upcoming, or overdue
+  return ['pending', 'in_progress', 'upcoming', 'overdue'].includes(reminder.status);
 }
 
 export function canSnoozeReminder(reminder: ActivityReminder): boolean {
-  return reminder.status === 'pending' || reminder.status === 'snoozed';
+  // Can snooze if status is pending, in_progress, upcoming, or overdue
+  return ['pending', 'in_progress', 'upcoming', 'overdue'].includes(reminder.status);
+}
+
+export function canEditReminder(reminder: ActivityReminder): boolean {
+  // Can edit if not completed or cancelled
+  return !['completed', 'cancelled'].includes(reminder.status);
+}
+
+export function canUpdateStatus(reminder: ActivityReminder, newStatus: ReminderStatus): boolean {
+  // Can't update if already completed or cancelled
+  if (['completed', 'cancelled'].includes(reminder.status)) return false;
+  // Can't go back from completed or cancelled
+  if (['completed', 'cancelled'].includes(newStatus)) return true;
+  // Can update to any other status
+  return true;
+}
+
+// Helper to get the appropriate status based on due date
+export function getAutoStatusFromDueDate(dueDate: string): ReminderStatus {
+  const today = new Date().toISOString().split('T')[0];
+  if (dueDate < today) return 'overdue';
+  if (dueDate === today) return 'pending';
+  return 'upcoming';
+}
+
+// Helper to get status badge info
+export function getStatusBadgeInfo(status: ReminderStatus) {
+  return REMINDER_STATUS_COLORS[status];
 }
 
 // ── Helper to get display name ──────────────────────────────────────────────

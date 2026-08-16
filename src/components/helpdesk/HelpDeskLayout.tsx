@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useParams } from 'react-router-dom';
 import HelpDeskSidebar from './HelpDeskSidebar';
 import HelpDeskHeader from './HelpDeskHeader';
+import ReminderFloatingButton from '../activity/ReminderFloatingButton';
 
 const HelpDeskLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { departmentId } = useParams<{ departmentId: string }>();
 
   return (
     <div className="flex h-screen bg-stone-50 overflow-hidden">
@@ -20,6 +22,8 @@ const HelpDeskLayout: React.FC = () => {
         </main>
       </div>
 
+      {/* Floating Reminder Button */}
+      <ReminderFloatingButton departmentId={departmentId} />
     </div>
   );
 };

@@ -1,19 +1,24 @@
 // src/pages/ActivityTrackingPage.tsx
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { Phone, Mail, MessageSquare, FileText, Bell, Check, Clock, AlertTriangle, Plus } from 'lucide-react';
+import { Phone, Mail, MessageSquare, FileText, Bell, Check, Clock, AlertTriangle, Plus, User } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   fetchActivityLogs,
+  fetchActiveReminders,
   fetchDueReminders,
   completeReminder,
   snoozeReminder,
+  updateReminderStatus,
   selectAllActivityLogs,
   selectActivityLogsLoading,
   selectActivityLogsError,
   selectActivityLogsPagination,
+  selectActiveReminders,
+  selectActiveRemindersLoading,
   selectDueReminders,
   selectDueRemindersLoading,
+  selectStaffNameMap,
 } from '../../store/slices/activityTrackingSlice';
 import {
   fetchJudges,
@@ -23,6 +28,9 @@ import {
   isReminderOverdue,
   isReminderDueToday,
   CHANNEL_LABELS,
+  REMINDER_STATUS_LABELS,
+  REMINDER_STATUS_COLORS,
+  type ReminderStatus,
 } from '../../types/activity-tracking.types';
 import type { ActivityChannel, JudgeOption } from '../../types/activity-tracking.types';
 import LogActivityModal from '../../components/activity/LogActivityModal';
@@ -38,6 +46,43 @@ const CHANNEL_ICON: Record<ActivityChannel, React.ReactNode> = {
   other: <FileText size={14} />,
 };
 
+// Status badge component with new statuses
+const StatusBadge: React.FC<{ status: ReminderStatus }> = ({ status }) => {
+  const colors = REMINDER_STATUS_COLORS[status];
+  const label = REMINDER_STATUS_LABELS[status];
+  
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${colors.bg} ${colors.text}`}>
+      <span>{colors.icon}</span>
+      {label}
+    </span>
+  );
+};
+
+// Status dropdown for quick updates
+const StatusDropdown: React.FC<{
+  reminderId: string;
+  currentStatus: ReminderStatus;
+  onStatusChange: (id: string, status: ReminderStatus) => void;
+}> = ({ reminderId, currentStatus, onStatusChange }) => {
+  const statusOptions: ReminderStatus[] = ['pending', 'in_progress', 'upcoming', 'overdue', 'completed', 'cancelled'];
+  
+  return (
+    <select
+      value={currentStatus}
+      onChange={(e) => onStatusChange(reminderId, e.target.value as ReminderStatus)}
+      className="rounded px-2 py-1 text-xs border border-stone-200 bg-white text-stone-600 hover:bg-stone-50 transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#1E4620]"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {statusOptions.map((status) => (
+        <option key={status} value={status}>
+          {REMINDER_STATUS_LABELS[status]}
+        </option>
+      ))}
+    </select>
+  );
+};
+
 const HelpDeskLogs = () => {
   const dispatch = useAppDispatch();
   const { departmentId } = useParams<{ departmentId: string }>();
@@ -50,8 +95,13 @@ const HelpDeskLogs = () => {
   const logsError = useAppSelector(selectActivityLogsError);
   const pagination = useAppSelector(selectActivityLogsPagination);
 
+  const activeReminders = useAppSelector(selectActiveReminders);
+  const activeRemindersLoading = useAppSelector(selectActiveRemindersLoading);
   const dueReminders = useAppSelector(selectDueReminders);
   const dueRemindersLoading = useAppSelector(selectDueRemindersLoading);
+
+  // Get staff name map
+  const staffNameMap = useAppSelector(selectStaffNameMap);
 
   // Judges from the judges slice
   const judges = useAppSelector(selectAllJudges);
@@ -90,25 +140,41 @@ const HelpDeskLogs = () => {
     dispatch(fetchActivityLogs(logFilters));
   }, [dispatch, logFilters]);
 
+  // Fetch active reminders (including upcoming and in_progress)
+  useEffect(() => {
+    dispatch(fetchActiveReminders({ departmentId }));
+  }, [dispatch, departmentId]);
+
+  // Fetch due reminders for the panel
   useEffect(() => {
     dispatch(fetchDueReminders({ departmentId }));
   }, [dispatch, departmentId]);
 
-  const refreshDueReminders = useCallback(() => {
+  const refreshReminders = useCallback(() => {
+    dispatch(fetchActiveReminders({ departmentId }));
     dispatch(fetchDueReminders({ departmentId }));
   }, [dispatch, departmentId]);
 
   const handleLogged = useCallback(() => {
     dispatch(fetchActivityLogs(logFilters));
-    refreshDueReminders();
+    refreshReminders();
     dispatch(fetchJudges({ page: 1, limit: 100 }));
-  }, [dispatch, logFilters, refreshDueReminders]);
+  }, [dispatch, logFilters, refreshReminders]);
+
+  const handleStatusChange = useCallback(
+    async (id: string, status: ReminderStatus) => {
+      await dispatch(updateReminderStatus({ id, status }));
+      refreshReminders();
+    },
+    [dispatch, refreshReminders]
+  );
 
   const handleComplete = useCallback(
     (id: string) => {
       dispatch(completeReminder(id));
+      refreshReminders();
     },
-    [dispatch]
+    [dispatch, refreshReminders]
   );
 
   const handleSnooze = useCallback(
@@ -116,8 +182,9 @@ const HelpDeskLogs = () => {
       const input = window.prompt('Snooze until (YYYY-MM-DD):');
       if (!input) return;
       dispatch(snoozeReminder({ id, dueDate: input }));
+      refreshReminders();
     },
-    [dispatch]
+    [dispatch, refreshReminders]
   );
 
   const formatDate = (dateStr?: string | null) => {
@@ -141,12 +208,22 @@ const HelpDeskLogs = () => {
         });
   };
 
+  // Helper function to get user name from ID
+  const getUserName = (userId: string) => {
+    return staffNameMap[userId] || `User ${userId.slice(0, 8)}`;
+  };
+
+  // Get reminder for a log
+  const getReminderForLog = (logId: string) => {
+    return activeReminders.find(r => r.relatedActivityId === logId);
+  };
+
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200/80">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+          <h1 className="text-2xl font-serif font-bold text-slate-900 tracking-tight">
             {isAdmin ? 'Team Activity Tracking' : 'My Activity Log'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
@@ -202,9 +279,17 @@ const HelpDeskLogs = () => {
                         {overdue && <span className="text-rose-600 font-medium"> (Overdue)</span>}
                         {dueToday && <span className="text-amber-600 font-medium"> (Today)</span>}
                       </p>
+                      <div className="mt-1">
+                        <StatusBadge status={reminder.status} />
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
+                    <StatusDropdown
+                      reminderId={reminder.id}
+                      currentStatus={reminder.status}
+                      onStatusChange={handleStatusChange}
+                    />
                     <button
                       onClick={() => handleSnooze(reminder.id)}
                       className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
@@ -261,6 +346,10 @@ const HelpDeskLogs = () => {
             <thead className="bg-slate-50/80">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  <User size={12} className="inline mr-1" />
+                  Logged By
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Contact
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
@@ -270,26 +359,29 @@ const HelpDeskLogs = () => {
                   Summary
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   When
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
-              {logsLoading ? (
+              {logsLoading || activeRemindersLoading ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-sm text-slate-500">
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-500">
                     Loading activity...
                   </td>
                 </tr>
               ) : logsError ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-sm text-rose-600">
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-rose-600">
                     {logsError}
                   </td>
                 </tr>
               ) : logs.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center">
+                  <td colSpan={6} className="px-6 py-12 text-center">
                     <p className="text-sm font-semibold text-slate-900">No activity logged yet</p>
                     <p className="text-xs text-slate-500 mt-1">
                       Click "Log Activity" to record your first interaction.
@@ -297,35 +389,50 @@ const HelpDeskLogs = () => {
                   </td>
                 </tr>
               ) : (
-                logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-slate-900">{log.contactName}</div>
-                      {log.contactPhone && (
-                        <div className="text-xs text-slate-500">{log.contactPhone}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
-                        {CHANNEL_ICON[log.channel]}
-                        {CHANNEL_LABELS[log.channel]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 max-w-md">
-                      <p className="text-sm text-slate-700 line-clamp-2">{log.summary}</p>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-500">
-                      {formatDateTime(log.occurredAt)}
-                    </td>
-                  </tr>
-                ))
+                logs.map((log) => {
+                  const reminder = getReminderForLog(log.id);
+                  return (
+                    <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="text-sm font-medium text-slate-900">
+                          {log.staff?.full_name || getUserName(log.staffId)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm font-medium text-slate-900">{log.contactName}</div>
+                        {log.contactPhone && (
+                          <div className="text-xs text-slate-500">{log.contactPhone}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+                          {CHANNEL_ICON[log.channel]}
+                          {CHANNEL_LABELS[log.channel]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 max-w-md">
+                        <p className="text-sm text-slate-700 line-clamp-2">{log.summary}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        {reminder ? (
+                          <StatusBadge status={reminder.status} />
+                        ) : (
+                          <span className="text-xs text-slate-400">No reminder</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-500">
+                        {formatDateTime(log.occurredAt)}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Log Activity Modal - pass loading state if needed */}
+      {/* Log Activity Modal */}
       <LogActivityModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

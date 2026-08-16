@@ -5,6 +5,7 @@ import { Phone, Mail, MessageSquare, FileText, Bell, Check, Clock, AlertTriangle
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
   fetchActivityLogs,
+  fetchActiveReminders,
   fetchDueReminders,
   completeReminder,
   snoozeReminder,
@@ -12,6 +13,8 @@ import {
   selectActivityLogsLoading,
   selectActivityLogsError,
   selectActivityLogsPagination,
+  selectActiveReminders,
+  selectActiveRemindersLoading,
   selectDueReminders,
   selectDueRemindersLoading,
   selectStaffNameMap,
@@ -20,6 +23,9 @@ import {
   isReminderOverdue,
   isReminderDueToday,
   CHANNEL_LABELS,
+  REMINDER_STATUS_LABELS,
+  REMINDER_STATUS_COLORS,
+  type ReminderStatus,
 } from '../../types/activity-tracking.types';
 import type { ActivityChannel, JudgeOption } from '../../types/activity-tracking.types';
 import LogActivityModal from '../../components/activity/LogActivityModal';
@@ -35,6 +41,19 @@ const CHANNEL_ICON: Record<ActivityChannel, React.ReactNode> = {
   other: <FileText size={14} />,
 };
 
+// Status badge component with new statuses
+const StatusBadge: React.FC<{ status: ReminderStatus }> = ({ status }) => {
+  const colors = REMINDER_STATUS_COLORS[status];
+  const label = REMINDER_STATUS_LABELS[status];
+  
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${colors.bg} ${colors.text}`}>
+      <span>{colors.icon}</span>
+      {label}
+    </span>
+  );
+};
+
 const SuperAdminActivityTracking = () => {
   const dispatch = useAppDispatch();
   const { departmentId } = useParams<{ departmentId: string }>();
@@ -47,6 +66,8 @@ const SuperAdminActivityTracking = () => {
   const logsError = useAppSelector(selectActivityLogsError);
   const pagination = useAppSelector(selectActivityLogsPagination);
 
+  const activeReminders = useAppSelector(selectActiveReminders);
+  const activeRemindersLoading = useAppSelector(selectActiveRemindersLoading);
   const dueReminders = useAppSelector(selectDueReminders);
   const dueRemindersLoading = useAppSelector(selectDueRemindersLoading);
 
@@ -73,24 +94,32 @@ const SuperAdminActivityTracking = () => {
     dispatch(fetchActivityLogs(logFilters));
   }, [dispatch, logFilters]);
 
+  // Fetch active reminders (including upcoming and in_progress)
+  useEffect(() => {
+    dispatch(fetchActiveReminders({ departmentId }));
+  }, [dispatch, departmentId]);
+
+  // Fetch due reminders for the panel
   useEffect(() => {
     dispatch(fetchDueReminders({ departmentId }));
   }, [dispatch, departmentId]);
 
-  const refreshDueReminders = useCallback(() => {
+  const refreshReminders = useCallback(() => {
+    dispatch(fetchActiveReminders({ departmentId }));
     dispatch(fetchDueReminders({ departmentId }));
   }, [dispatch, departmentId]);
 
   const handleLogged = useCallback(() => {
     dispatch(fetchActivityLogs(logFilters));
-    refreshDueReminders();
-  }, [dispatch, logFilters, refreshDueReminders]);
+    refreshReminders();
+  }, [dispatch, logFilters, refreshReminders]);
 
   const handleComplete = useCallback(
     (id: string) => {
       dispatch(completeReminder(id));
+      refreshReminders();
     },
-    [dispatch]
+    [dispatch, refreshReminders]
   );
 
   const handleSnooze = useCallback(
@@ -98,8 +127,9 @@ const SuperAdminActivityTracking = () => {
       const input = window.prompt('Snooze until (YYYY-MM-DD):');
       if (!input) return;
       dispatch(snoozeReminder({ id, dueDate: input }));
+      refreshReminders();
     },
-    [dispatch]
+    [dispatch, refreshReminders]
   );
 
   const formatDate = (dateStr?: string | null) => {
@@ -126,6 +156,11 @@ const SuperAdminActivityTracking = () => {
   // Helper function to get user name from ID
   const getUserName = (userId: string) => {
     return staffNameMap[userId] || `User ${userId.slice(0, 8)}`;
+  };
+
+  // Get reminder for a log
+  const getReminderForLog = (logId: string) => {
+    return activeReminders.find(r => r.relatedActivityId === logId);
   };
 
   return (
@@ -261,26 +296,29 @@ const SuperAdminActivityTracking = () => {
                   Summary
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   When
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
-              {logsLoading ? (
+              {logsLoading || activeRemindersLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-500">
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-500">
                     Loading activity...
                   </td>
                 </tr>
               ) : logsError ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-sm text-rose-600">
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-rose-600">
                     {logsError}
                   </td>
                 </tr>
               ) : logs.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center">
+                  <td colSpan={6} className="px-6 py-12 text-center">
                     <p className="text-sm font-semibold text-slate-900">No activity logged yet</p>
                     <p className="text-xs text-slate-500 mt-1">
                       Click "Log Activity" to record your first interaction.
@@ -288,33 +326,43 @@ const SuperAdminActivityTracking = () => {
                   </td>
                 </tr>
               ) : (
-                logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-slate-900">
-                        {log.staff?.full_name || getUserName(log.staffId)}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-slate-900">{log.contactName}</div>
-                      {log.contactPhone && (
-                        <div className="text-xs text-slate-500">{log.contactPhone}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
-                        {CHANNEL_ICON[log.channel]}
-                        {CHANNEL_LABELS[log.channel]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 max-w-md">
-                      <p className="text-sm text-slate-700 line-clamp-2">{log.summary}</p>
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-500">
-                      {formatDateTime(log.occurredAt)}
-                    </td>
-                  </tr>
-                ))
+                logs.map((log) => {
+                  const reminder = getReminderForLog(log.id);
+                  return (
+                    <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="text-sm font-medium text-slate-900">
+                          {log.staff?.full_name || getUserName(log.staffId)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm font-medium text-slate-900">{log.contactName}</div>
+                        {log.contactPhone && (
+                          <div className="text-xs text-slate-500">{log.contactPhone}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+                          {CHANNEL_ICON[log.channel]}
+                          {CHANNEL_LABELS[log.channel]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 max-w-md">
+                        <p className="text-sm text-slate-700 line-clamp-2">{log.summary}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        {reminder ? (
+                          <StatusBadge status={reminder.status} />
+                        ) : (
+                          <span className="text-xs text-slate-400">No reminder</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-xs text-slate-500">
+                        {formatDateTime(log.occurredAt)}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>

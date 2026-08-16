@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import AdminSidebar from './SuperAdminSidebar';
 import AdminHeader from './SuperAdminHeader';
+import ReminderFloatingButton from '../activity/ReminderFloatingButton';
 
 export const SuperAdminLayout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -18,6 +19,8 @@ export const SuperAdminLayout: React.FC = () => {
           </div>
         </main>
       </div>
+      {/* Floating Reminder Button - Super Admin sees all reminders */}
+      <ReminderFloatingButton />
     </div>
   );
 };

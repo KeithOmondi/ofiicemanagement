@@ -6,7 +6,7 @@
 // router was mounted: app.use('/api/v1/activity-log', activityRoutes).
 
 import { createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
-import type { RootState } from '../store'; // TODO: adjust to your actual store types path
+import type { RootState } from '../store';
 import type {
   ActivityLog,
   ActivityReminder,
@@ -15,6 +15,7 @@ import type {
   ActivityLogFormData,
   ReminderFormData,
   Pagination,
+  ReminderStatus,
 } from '../../types/activity-tracking.types';
 import axiosClient from '../../api/api';
 
@@ -39,6 +40,14 @@ interface ActivityTrackingState {
   dueRemindersLoading: boolean;
   dueRemindersError: string | null;
 
+  activeReminders: ActivityReminder[];
+  activeRemindersLoading: boolean;
+  activeRemindersError: string | null;
+
+  overdueReminders: ActivityReminder[];
+  overdueRemindersLoading: boolean;
+  overdueRemindersError: string | null;
+
   currentLog: ActivityLog | null;
   currentReminder: ActivityReminder | null;
 
@@ -60,6 +69,14 @@ const initialState: ActivityTrackingState = {
   dueReminders: [],
   dueRemindersLoading: false,
   dueRemindersError: null,
+
+  activeReminders: [],
+  activeRemindersLoading: false,
+  activeRemindersError: null,
+
+  overdueReminders: [],
+  overdueRemindersLoading: false,
+  overdueRemindersError: null,
 
   currentLog: null,
   currentReminder: null,
@@ -180,6 +197,20 @@ export const fetchReminders = createAsyncThunk(
   }
 );
 
+// Fetch active reminders (pending, in_progress, upcoming, overdue)
+export const fetchActiveReminders = createAsyncThunk(
+  'activityTracking/fetchActiveReminders',
+  async (filters: { staffId?: string; departmentId?: string } | undefined, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`${BASE_URL}/reminders/active`, { params: filters });
+      return data.data as ActivityReminder[];
+    } catch (error) {
+      return rejectWithValue(extractErrorMessage(error, 'Failed to fetch active reminders'));
+    }
+  }
+);
+
+// Fetch due reminders (due today or overdue)
 export const fetchDueReminders = createAsyncThunk(
   'activityTracking/fetchDueReminders',
   async (filters: { staffId?: string; departmentId?: string } | undefined, { rejectWithValue }) => {
@@ -188,6 +219,19 @@ export const fetchDueReminders = createAsyncThunk(
       return data.data as ActivityReminder[];
     } catch (error) {
       return rejectWithValue(extractErrorMessage(error, 'Failed to fetch due reminders'));
+    }
+  }
+);
+
+// Fetch overdue reminders only
+export const fetchOverdueReminders = createAsyncThunk(
+  'activityTracking/fetchOverdueReminders',
+  async (filters: { staffId?: string; departmentId?: string } | undefined, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`${BASE_URL}/reminders/overdue`, { params: filters });
+      return data.data as ActivityReminder[];
+    } catch (error) {
+      return rejectWithValue(extractErrorMessage(error, 'Failed to fetch overdue reminders'));
     }
   }
 );
@@ -212,6 +256,19 @@ export const updateReminder = createAsyncThunk(
       return data.data as ActivityReminder;
     } catch (error) {
       return rejectWithValue(extractErrorMessage(error, 'Failed to update reminder'));
+    }
+  }
+);
+
+// Update reminder status only
+export const updateReminderStatus = createAsyncThunk(
+  'activityTracking/updateReminderStatus',
+  async ({ id, status }: { id: string; status: ReminderStatus }, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.patch(`${BASE_URL}/reminders/${id}/status`, { status });
+      return data.data as ActivityReminder;
+    } catch (error) {
+      return rejectWithValue(extractErrorMessage(error, 'Failed to update reminder status'));
     }
   }
 );
@@ -347,6 +404,20 @@ const activityTrackingSlice = createSlice({
         state.remindersError = action.payload as string;
       })
 
+      // ── Fetch active reminders ──────────────────────────────────────────
+      .addCase(fetchActiveReminders.pending, (state) => {
+        state.activeRemindersLoading = true;
+        state.activeRemindersError = null;
+      })
+      .addCase(fetchActiveReminders.fulfilled, (state, action) => {
+        state.activeRemindersLoading = false;
+        state.activeReminders = action.payload;
+      })
+      .addCase(fetchActiveReminders.rejected, (state, action) => {
+        state.activeRemindersLoading = false;
+        state.activeRemindersError = action.payload as string;
+      })
+
       // ── Fetch due reminders ─────────────────────────────────────────────
       .addCase(fetchDueReminders.pending, (state) => {
         state.dueRemindersLoading = true;
@@ -359,6 +430,20 @@ const activityTrackingSlice = createSlice({
       .addCase(fetchDueReminders.rejected, (state, action) => {
         state.dueRemindersLoading = false;
         state.dueRemindersError = action.payload as string;
+      })
+
+      // ── Fetch overdue reminders ──────────────────────────────────────────
+      .addCase(fetchOverdueReminders.pending, (state) => {
+        state.overdueRemindersLoading = true;
+        state.overdueRemindersError = null;
+      })
+      .addCase(fetchOverdueReminders.fulfilled, (state, action) => {
+        state.overdueRemindersLoading = false;
+        state.overdueReminders = action.payload;
+      })
+      .addCase(fetchOverdueReminders.rejected, (state, action) => {
+        state.overdueRemindersLoading = false;
+        state.overdueRemindersError = action.payload as string;
       })
 
       // ── Create reminder ─────────────────────────────────────────────────
@@ -380,11 +465,23 @@ const activityTrackingSlice = createSlice({
         replaceReminderEverywhere(state, action.payload);
       })
 
+      // ── Update reminder status ──────────────────────────────────────────
+      .addCase(updateReminderStatus.fulfilled, (state, action) => {
+        replaceReminderEverywhere(state, action.payload);
+        // Also update in active and overdue lists
+        const idxActive = state.activeReminders.findIndex((r) => r.id === action.payload.id);
+        if (idxActive !== -1) state.activeReminders[idxActive] = action.payload;
+        const idxOverdue = state.overdueReminders.findIndex((r) => r.id === action.payload.id);
+        if (idxOverdue !== -1) state.overdueReminders[idxOverdue] = action.payload;
+      })
+
       // ── Complete reminder ───────────────────────────────────────────────
       .addCase(completeReminder.fulfilled, (state, action) => {
         replaceReminderEverywhere(state, action.payload);
         // Completed reminders drop off the due list immediately.
         state.dueReminders = state.dueReminders.filter((r) => r.id !== action.payload.id);
+        state.activeReminders = state.activeReminders.filter((r) => r.id !== action.payload.id);
+        state.overdueReminders = state.overdueReminders.filter((r) => r.id !== action.payload.id);
       })
 
       // ── Snooze reminder ─────────────────────────────────────────────────
@@ -394,12 +491,16 @@ const activityTrackingSlice = createSlice({
         // it was snoozed to today/earlier (edge case, but harmless either
         // way since the next fetchDueReminders() call will reconcile it).
         state.dueReminders = state.dueReminders.filter((r) => r.id !== action.payload.id);
+        state.activeReminders = state.activeReminders.filter((r) => r.id !== action.payload.id);
+        state.overdueReminders = state.overdueReminders.filter((r) => r.id !== action.payload.id);
       })
 
       // ── Delete reminder ─────────────────────────────────────────────────
       .addCase(deleteReminder.fulfilled, (state, action) => {
         state.reminders = state.reminders.filter((r) => r.id !== action.payload);
         state.dueReminders = state.dueReminders.filter((r) => r.id !== action.payload);
+        state.activeReminders = state.activeReminders.filter((r) => r.id !== action.payload);
+        state.overdueReminders = state.overdueReminders.filter((r) => r.id !== action.payload);
       });
   },
 });
@@ -410,6 +511,12 @@ function replaceReminderEverywhere(state: ActivityTrackingState, reminder: Activ
 
   const idxDue = state.dueReminders.findIndex((r) => r.id === reminder.id);
   if (idxDue !== -1) state.dueReminders[idxDue] = reminder;
+
+  const idxActive = state.activeReminders.findIndex((r) => r.id === reminder.id);
+  if (idxActive !== -1) state.activeReminders[idxActive] = reminder;
+
+  const idxOverdue = state.overdueReminders.findIndex((r) => r.id === reminder.id);
+  if (idxOverdue !== -1) state.overdueReminders[idxOverdue] = reminder;
 
   if (state.currentReminder?.id === reminder.id) state.currentReminder = reminder;
 }
@@ -442,9 +549,23 @@ export const selectRemindersError = (state: RootState) => selectState(state).rem
 export const selectRemindersPagination = (state: RootState) => selectState(state).remindersPagination;
 export const selectCurrentReminder = (state: RootState) => selectState(state).currentReminder;
 
+// Due reminders selectors
 export const selectDueReminders = (state: RootState) => selectState(state).dueReminders;
 export const selectDueRemindersLoading = (state: RootState) => selectState(state).dueRemindersLoading;
+export const selectDueRemindersError = (state: RootState) => selectState(state).dueRemindersError;
 export const selectDueRemindersCount = (state: RootState) => selectState(state).dueReminders.length;
+
+// Active reminders selectors
+export const selectActiveReminders = (state: RootState) => selectState(state).activeReminders;
+export const selectActiveRemindersLoading = (state: RootState) => selectState(state).activeRemindersLoading;
+export const selectActiveRemindersError = (state: RootState) => selectState(state).activeRemindersError;
+export const selectActiveRemindersCount = (state: RootState) => selectState(state).activeReminders.length;
+
+// Overdue reminders selectors
+export const selectOverdueReminders = (state: RootState) => selectState(state).overdueReminders;
+export const selectOverdueRemindersLoading = (state: RootState) => selectState(state).overdueRemindersLoading;
+export const selectOverdueRemindersError = (state: RootState) => selectState(state).overdueRemindersError;
+export const selectOverdueRemindersCount = (state: RootState) => selectState(state).overdueReminders.length;
 
 export const selectMutating = (state: RootState) => selectState(state).mutating;
 export const selectMutationError = (state: RootState) => selectState(state).mutationError;
