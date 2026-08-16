@@ -5,17 +5,17 @@
 import React from 'react';
 import { NavLink, useMatch, useNavigate } from 'react-router-dom';
 import {
-  FileText,
   BarChart3,
   CheckCircle,
-  AlertCircle,
   Clock,
   FileCheck,
-  PlusCircle,
   TrendingUp,
   Calendar,
   Home,
   LogOut,
+  BoxIcon,
+  Calendar1,
+  Book,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import { logoutUser } from '../../store/slices/authSlice';
@@ -59,24 +59,32 @@ const navigationConfig: NavSection[] = [
     title: 'Main',
     items: [
       { to: 'dashboard', label: 'Dashboard', icon: <BarChart3 className="h-4 w-4" /> },
+      { to: 'documents', label: 'Documents', icon: <BoxIcon className="h-4 w-4" /> },
+      { to: 'memoandletters', label: 'Memo and letters', icon: <BoxIcon className="h-4 w-4" /> },
     ],
   },
   {
     title: 'Reports',
     items: [
-      { to: 'reports', label: 'All Reports', icon: <FileText className="h-4 w-4" /> },
-      { to: 'reports/new', label: 'New Report', icon: <PlusCircle className="h-4 w-4" /> },
-      { to: 'reports/week', label: 'Weekly Reports', icon: <Calendar className="h-4 w-4" /> },
+      { to: 'reports/month', label: 'Monthly Reports', icon: <Calendar className="h-4 w-4" /> },
     ],
   },
   {
-    title: 'Review Queue',
+    title: 'Communication',
     items: [
-      { to: 'submitted', label: 'Submitted', icon: <Clock className="h-4 w-4" />, badge: 3 },
-      { to: 'approved', label: 'Approved', icon: <CheckCircle className="h-4 w-4" />, badge: 7 },
-      { to: 'rejected', label: 'Rejected', icon: <AlertCircle className="h-4 w-4" />, badge: 1 },
+      { to: 'messages', label: 'Messages', icon: <Clock className="h-4 w-4" />, badge: 3 },
+      { to: 'notices', label: 'Notices and Broadcast', icon: <CheckCircle className="h-4 w-4" />, badge: 7 },
     ],
   },
+
+    {
+    title: 'planning',
+    items: [
+      { to: 'calendar', label: 'Calendar', icon: <Calendar1 className="h-4 w-4" />, badge: 3 },
+      { to: 'task-management', label: 'Task Management', icon: <Book className="h-4 w-4" />, badge: 7 },
+    ],
+  },
+
   {
     title: 'Insights',
     items: [

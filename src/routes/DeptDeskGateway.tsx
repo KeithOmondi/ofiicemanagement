@@ -1,120 +1,136 @@
-import React, { useEffect } from 'react';
-import { Navigate, Route, Routes, useMatch } from 'react-router-dom';
-import { useAppDispatch, useAppSelector } from '../store/hook';
+import React, { useEffect } from "react";
+import { Navigate, Route, Routes, useMatch } from "react-router-dom";
+import { useAppDispatch, useAppSelector } from "../store/hook";
 
 import {
   fetchDepartments,
   selectAllDepartments,
   selectDepartmentsListLoading,
-} from '../store/slices/departmentsSlice';
+} from "../store/slices/departmentsSlice";
 
-import AdmDeskLayout from '../components/admdesk/AdmDeskLayout';
-import AdminDashboard from '../pages/admdesk/AdminDashboard';
-import AdminDocs from '../pages/admdesk/AdminDocs';
+import AdmDeskLayout from "../components/admdesk/AdmDeskLayout";
+import AdminDashboard from "../pages/admdesk/AdminDashboard";
+import AdminDocs from "../pages/admdesk/AdminDocs";
 
-import FinanceLayout from '../components/finance/FinanceLayout';
-import FinanceDashboard from '../pages/finance/FinanceDashboard';
-import FinanceInventory from '../pages/finance/FinanceInventory';
-import FinanceMessages from '../pages/finance/FinanceMessages';
+import FinanceLayout from "../components/finance/FinanceLayout";
+import FinanceDashboard from "../pages/finance/FinanceDashboard";
+import FinanceInventory from "../pages/finance/FinanceInventory";
+import FinanceMessages from "../pages/finance/FinanceMessages";
 
-import PDashboard from '../pages/procurement/PDashboard';
-import PLayout from '../components/Procurement/PLayout';
+import PDashboard from "../pages/procurement/PDashboard";
+import PLayout from "../components/Procurement/PLayout";
 
 // ─── Staff views ──────────────────────────────────────────────────────────────
-import StaffLayout from '../components/staff/StaffLayout';
-import StaffDashboard from '../pages/staff/StaffDashboard';
-import StaffInventory from '../pages/staff/StaffInventory';
-import FinanceTransactions from '../pages/finance/FinanceTransactions';
-import FinancePayments from '../pages/finance/FinancePayments';
-import FinanceExpenses from '../pages/finance/FinanceExpenses';
-import StaffMeesages from '../pages/staff/StaffMeesages';
-import HelpDeskLayout from '../components/helpdesk/HelpDeskLayout';
-import HelpDeskDashboard from '../pages/helpdesk/HelpDeskDashboard';
-import Helpdesk from '../pages/helpdesk/Helpdesk';
-import HelpdeskMessages from '../pages/helpdesk/HelpdeskMessages';
-import HelpDeskNotices from '../pages/helpdesk/HelpDeskNotices';
-import HelpdeskCalendar from '../pages/helpdesk/HelpdeskCalendar';
-import HelpdeskTasks from '../pages/helpdesk/HelpdeskTasks';
-import HelpdeskInventory from '../pages/helpdesk/HelpdeskInventory';
-import StaffNotices from '../pages/staff/StaffNotices';
-import StaffDocuments from '../pages/staff/StaffDocuments';
-import StaffClendar from '../pages/staff/StaffClendar';
-import StaffTasks from '../pages/staff/StaffTasks';
-import StaffSettings from '../pages/staff/StaffSettings';
-import FinanceSettings from '../pages/finance/FinanceSettings';
-import ProcurementMessages from '../pages/procurement/ProcurementMessages';
-import ProcurementNotices from '../pages/procurement/ProcurementNotices';
-import PInventory from '../pages/procurement/PInventory';
-import ProcurementSettings from '../pages/procurement/ProcurementSettings';
-import ProcurementReports from '../pages/procurement/ProcurementReports';
-import ProcurementCalendar from '../pages/procurement/ProcurementCalendar';
-import ProcurementTasks from '../pages/procurement/ProcurementTasks';
-import AdminMessages from '../pages/admdesk/AdminMessages';
-import AdminCalendar from '../pages/admdesk/AdminCalendar';
-import AdminTasks from '../pages/admdesk/AdminTasks';
-import AdminSettings from '../pages/admdesk/AdminSettings';
-import HelpDeskDocuments from '../pages/helpdesk/HelpDeskDocuments';
-import ProcurementDocuments from '../pages/procurement/ProcurementDocs';
-import HelpdeskSettings from '../pages/helpdesk/HelpdeskSettings';
-import AdminRegistry from '../pages/admdesk/AdminRegistry';
-import HelpdeskDocs from '../pages/helpdesk/HelpdeskDocs';
-import HelpdeskReport from '../pages/helpdesk/HelpdeskReport';
-import HelpdeskTickets from '../pages/helpdesk/HelpdeskTickets';
-import AdminFolders from '../pages/admdesk/AdminFolders';
-import AdminBringUp from '../pages/admdesk/AdminBringUp';
-import AdminMemoandLetters from '../pages/admdesk/AdminMemoandLetters';
-import HelpdeskStuff from '../pages/staff/HelpdeskStuff';
-import HelpdeskStuffTickets from '../pages/staff/HelpdeskStuffTickets';
-import { getStaffDeptFlags } from '../utils/staffDept';
-import JODashboard from '../pages/JO/JODashboard';
-import JudicialOfficerLayout from '../components/JO/JudicialOfficerLayout';
-import StoreLayout from '../components/store/StoreLayout';
-import StoreDashboard from '../pages/store/StoreDashboard';
-import StoreDocuments from '../pages/store/StoreDocuments';
-import StoreStock from '../pages/store/StoreStock';
-import HelpdeskAides from '../pages/helpdesk/HelpdeskAides';
-import JODocuments from '../pages/JO/JODocuments';
-import StuffHelpdeskDocs from '../pages/staff/StuffHelpDeskDoscs';
-import MemoandLetters from '../pages/admin/MemoandLetters';
-import HelpdeskStaffAides from '../pages/staff/HelpdeskStaffAides';
-import HelpdeskMemoandLetters from '../pages/staff/HelpdeskMemoandLetters';
-import HelpdeskConference from '../pages/helpdesk/HelpdeskConference';
-import RegistryReports from '../pages/staff/RegistryReports';
-import RegistryLayout from '../components/principalregistry/RegistryLayout';
-import DHRegistryDashboard from '../pages/principalregistry/DHRegistryDashboard';
+import StaffLayout from "../components/staff/StaffLayout";
+import StaffDashboard from "../pages/staff/StaffDashboard";
+import StaffInventory from "../pages/staff/StaffInventory";
+import FinanceTransactions from "../pages/finance/FinanceTransactions";
+import FinancePayments from "../pages/finance/FinancePayments";
+import FinanceExpenses from "../pages/finance/FinanceExpenses";
+import StaffMeesages from "../pages/staff/StaffMeesages";
+import HelpDeskLayout from "../components/helpdesk/HelpDeskLayout";
+import HelpDeskDashboard from "../pages/helpdesk/HelpDeskDashboard";
+import Helpdesk from "../pages/helpdesk/Helpdesk";
+import HelpdeskMessages from "../pages/helpdesk/HelpdeskMessages";
+import HelpDeskNotices from "../pages/helpdesk/HelpDeskNotices";
+import HelpdeskCalendar from "../pages/helpdesk/HelpdeskCalendar";
+import HelpdeskTasks from "../pages/helpdesk/HelpdeskTasks";
+import HelpdeskInventory from "../pages/helpdesk/HelpdeskInventory";
+import StaffNotices from "../pages/staff/StaffNotices";
+import StaffDocuments from "../pages/staff/StaffDocuments";
+import StaffClendar from "../pages/staff/StaffClendar";
+import StaffTasks from "../pages/staff/StaffTasks";
+import StaffSettings from "../pages/staff/StaffSettings";
+import FinanceSettings from "../pages/finance/FinanceSettings";
+import ProcurementMessages from "../pages/procurement/ProcurementMessages";
+import ProcurementNotices from "../pages/procurement/ProcurementNotices";
+import PInventory from "../pages/procurement/PInventory";
+import ProcurementSettings from "../pages/procurement/ProcurementSettings";
+import ProcurementReports from "../pages/procurement/ProcurementReports";
+import ProcurementCalendar from "../pages/procurement/ProcurementCalendar";
+import ProcurementTasks from "../pages/procurement/ProcurementTasks";
+import AdminMessages from "../pages/admdesk/AdminMessages";
+import AdminCalendar from "../pages/admdesk/AdminCalendar";
+import AdminTasks from "../pages/admdesk/AdminTasks";
+import AdminSettings from "../pages/admdesk/AdminSettings";
+import HelpDeskDocuments from "../pages/helpdesk/HelpDeskDocuments";
+import ProcurementDocuments from "../pages/procurement/ProcurementDocs";
+import HelpdeskSettings from "../pages/helpdesk/HelpdeskSettings";
+import AdminRegistry from "../pages/admdesk/AdminRegistry";
+import HelpdeskDocs from "../pages/helpdesk/HelpdeskDocs";
+import HelpdeskReport from "../pages/helpdesk/HelpdeskReport";
+import HelpdeskTickets from "../pages/helpdesk/HelpdeskTickets";
+import AdminFolders from "../pages/admdesk/AdminFolders";
+import AdminBringUp from "../pages/admdesk/AdminBringUp";
+import AdminMemoandLetters from "../pages/admdesk/AdminMemoandLetters";
+import HelpdeskStuff from "../pages/staff/HelpdeskStuff";
+import HelpdeskStuffTickets from "../pages/staff/HelpdeskStuffTickets";
+import { getStaffDeptFlags } from "../utils/staffDept";
+import JODashboard from "../pages/JO/JODashboard";
+import JudicialOfficerLayout from "../components/JO/JudicialOfficerLayout";
+import StoreLayout from "../components/store/StoreLayout";
+import StoreDashboard from "../pages/store/StoreDashboard";
+import StoreDocuments from "../pages/store/StoreDocuments";
+import StoreStock from "../pages/store/StoreStock";
+import HelpdeskAides from "../pages/helpdesk/HelpdeskAides";
+import JODocuments from "../pages/JO/JODocuments";
+import StuffHelpdeskDocs from "../pages/staff/StuffHelpDeskDoscs";
+import MemoandLetters from "../pages/admin/MemoandLetters";
+import HelpdeskStaffAides from "../pages/staff/HelpdeskStaffAides";
+import HelpdeskMemoandLetters from "../pages/staff/HelpdeskMemoandLetters";
+import HelpdeskConference from "../pages/helpdesk/HelpdeskConference";
+import RegistryReports from "../pages/staff/RegistryReports";
+import RegistryLayout from "../components/principalregistry/RegistryLayout";
+import DHRegistryDashboard from "../pages/principalregistry/DHRegistryDashboard";
 //import DHRegistryReports from '../pages/principalregistry/DHRegistryReports';
-import RegistryNewReport from '../pages/staff/RegistryNewReport';
-import RegistryWeeklyReports from '../pages/staff/RegistryWeeklyReports';
-import RegistrySubmitted from '../pages/staff/RegistrySubmitted';
-import DHRegistryReports from '../pages/principalregistry/DHRegistryReports';
+import RegistryNewReport from "../pages/staff/RegistryNewReport";
+import RegistryWeeklyReports from "../pages/staff/RegistryWeeklyReports";
+import RegistrySubmitted from "../pages/staff/RegistrySubmitted";
+import DHRegistryReports from "../pages/principalregistry/DHRegistryReports";
+import DHDocuments from "../pages/principalregistry/DHDocuments";
+import DHMemoandLetters from "../pages/principalregistry/DHMemoandLetters";
+import DHMessages from "../pages/principalregistry/DHMessages";
+import DHNotices from "../pages/principalregistry/DHNotices";
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
 
-type DeskKey = 'finance' | 'procurement' | 'admin' | 'staff' | 'helpdesk' | 'jo' | 'store' | 'pr';
+type DeskKey =
+  | "finance"
+  | "procurement"
+  | "admin"
+  | "staff"
+  | "helpdesk"
+  | "jo"
+  | "store"
+  | "pr";
 
-const resolveDeskKey = (departmentName: string | null | undefined, userRole: string): DeskKey => {
-  if (userRole === 'staff' || userRole === 'viewer') {
-    return 'staff';
+const resolveDeskKey = (
+  departmentName: string | null | undefined,
+  userRole: string,
+): DeskKey => {
+  if (userRole === "staff" || userRole === "viewer") {
+    return "staff";
   }
 
-  if (!departmentName) return 'admin';
+  if (!departmentName) return "admin";
 
   const lowerName = departmentName.toLowerCase().trim();
 
-  if (lowerName.includes('finance')) return 'finance';
-  if (lowerName.includes('procurement')) return 'procurement';
-  if (lowerName.includes('store')) return 'store';
-  if (lowerName === 'jo' || lowerName.includes('judicial officer')) return 'jo';
+  if (lowerName.includes("finance")) return "finance";
+  if (lowerName.includes("procurement")) return "procurement";
+  if (lowerName.includes("store")) return "store";
+  if (lowerName === "jo" || lowerName.includes("judicial officer")) return "jo";
   if (
-    lowerName === 'pr' ||
-    lowerName.includes('principal registry') ||
-    lowerName.includes('principle registry') // tolerate the "Principle Registry" misspelling seen in prod data
+    lowerName === "pr" ||
+    lowerName.includes("principal registry") ||
+    lowerName.includes("principle registry") // tolerate the "Principle Registry" misspelling seen in prod data
   ) {
-    return 'pr';
+    return "pr";
   }
-  if (lowerName.includes('helpdesk') || lowerName.includes('help desk')) return 'helpdesk';
+  if (lowerName.includes("helpdesk") || lowerName.includes("help desk"))
+    return "helpdesk";
 
-  return 'admin';
+  return "admin";
 };
 
 // ─── Gateway ─────────────────────────────────────────────────────────────────
@@ -125,8 +141,8 @@ const DeptDeskGateway: React.FC = () => {
   const departments = useAppSelector(selectAllDepartments);
   const loadingDepts = useAppSelector(selectDepartmentsListLoading);
 
-  const match = useMatch('/dept/:deptId/*');
-  const basePath = match ? `/dept/${match.params.deptId}` : '/';
+  const match = useMatch("/dept/:deptId/*");
+  const basePath = match ? `/dept/${match.params.deptId}` : "/";
 
   useEffect(() => {
     if (departments.length === 0) {
@@ -150,8 +166,10 @@ const DeptDeskGateway: React.FC = () => {
   const deskKey = resolveDeskKey(department?.name, user.role);
 
   // ── Staff desk ──────────────────────────────────────────────────────────────
-  if (deskKey === 'staff') {
-    const { isHelpdeskStaff, isRegistryStaff } = getStaffDeptFlags(department?.name);
+  if (deskKey === "staff") {
+    const { isHelpdeskStaff, isRegistryStaff } = getStaffDeptFlags(
+      department?.name,
+    );
 
     return (
       <Routes>
@@ -173,35 +191,43 @@ const DeptDeskGateway: React.FC = () => {
             <>
               <Route path="help-desk" element={<HelpdeskStuff />} />
               <Route path="helpdesk-docs" element={<StuffHelpdeskDocs />} />
-              <Route path="helpdesk-tickets" element={<HelpdeskStuffTickets />} />
+              <Route
+                path="helpdesk-tickets"
+                element={<HelpdeskStuffTickets />}
+              />
               <Route path="aides" element={<HelpdeskStaffAides />} />
-              <Route path="memos-letters" element={<HelpdeskMemoandLetters />} />
+              <Route
+                path="memos-letters"
+                element={<HelpdeskMemoandLetters />}
+              />
             </>
           )}
 
           {/* Registry Staff routes */}
-         {isRegistryStaff ? (
-  <>
-    
-    <Route path="reports/new" element={<RegistryNewReport />} />
-    <Route path="reports/week" element={<RegistryWeeklyReports />} />
-    <Route path="submitted" element={<RegistrySubmitted />} />
-  </>
-) : (
-  <Route path="reports" element={<RegistryReports />} />
-)}
+          {isRegistryStaff ? (
+            <>
+              <Route path="reports/new" element={<RegistryNewReport />} />
+              <Route path="reports/week" element={<RegistryWeeklyReports />} />
+              <Route path="submitted" element={<RegistrySubmitted />} />
+            </>
+          ) : (
+            <Route path="reports" element={<RegistryReports />} />
+          )}
 
           {/* Non-registry staff still see a plain "All Reports" link (Workspace
               section) — keep this route available regardless of isRegistryStaff. */}
           <Route path="reports" element={<RegistryReports />} />
         </Route>
-        <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+        <Route
+          path="*"
+          element={<Navigate to={`${basePath}/dashboard`} replace />}
+        />
       </Routes>
     );
   }
 
   // ── Finance desk ────────────────────────────────────────────────────────────
-  if (deskKey === 'finance') {
+  if (deskKey === "finance") {
     return (
       <Routes>
         <Route element={<FinanceLayout />}>
@@ -214,13 +240,16 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="expenses" element={<FinanceExpenses />} />
           <Route path="settings" element={<FinanceSettings />} />
         </Route>
-        <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+        <Route
+          path="*"
+          element={<Navigate to={`${basePath}/dashboard`} replace />}
+        />
       </Routes>
     );
   }
 
   // ── Helpdesk desk ────────────────────────────────────────────────────────────
-  if (deskKey === 'helpdesk') {
+  if (deskKey === "helpdesk") {
     return (
       <Routes>
         <Route element={<HelpDeskLayout />}>
@@ -241,13 +270,16 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="conference" element={<HelpdeskConference />} />
           <Route path="memos" element={<MemoandLetters />} />
         </Route>
-        <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+        <Route
+          path="*"
+          element={<Navigate to={`${basePath}/dashboard`} replace />}
+        />
       </Routes>
     );
   }
 
   // ── Judicial Officer desk ──────────────────────────────────────────────────
-  if (deskKey === 'jo') {
+  if (deskKey === "jo") {
     return (
       <Routes>
         <Route element={<JudicialOfficerLayout />}>
@@ -255,13 +287,16 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="dashboard" element={<JODashboard />} />
           <Route path="documents" element={<JODocuments />} />
         </Route>
-        <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+        <Route
+          path="*"
+          element={<Navigate to={`${basePath}/dashboard`} replace />}
+        />
       </Routes>
     );
   }
 
   // ── Procurement desk ──────────────────────────────────────────────────────
-  if (deskKey === 'procurement') {
+  if (deskKey === "procurement") {
     return (
       <Routes>
         <Route element={<PLayout />}>
@@ -276,13 +311,16 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="tasks" element={<ProcurementTasks />} />
           <Route path="documents" element={<ProcurementDocuments />} />
         </Route>
-        <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+        <Route
+          path="*"
+          element={<Navigate to={`${basePath}/dashboard`} replace />}
+        />
       </Routes>
     );
   }
 
   // ── Store desk ────────────────────────────────────────────────────────────
-  if (deskKey === 'store') {
+  if (deskKey === "store") {
     return (
       <Routes>
         <Route element={<StoreLayout />}>
@@ -291,7 +329,10 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="documents" element={<StoreDocuments />} />
           <Route path="inventory" element={<StoreStock />} />
         </Route>
-        <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+        <Route
+          path="*"
+          element={<Navigate to={`${basePath}/dashboard`} replace />}
+        />
       </Routes>
     );
   }
@@ -305,15 +346,22 @@ const DeptDeskGateway: React.FC = () => {
   // RegistryDashboard / RegistryNewReport / RegistryWeeklyReports /
   // RegistrySubmitted / RegistryApproved / RegistryRejected / RegistryStats
   // are placeholder pages — swap in real implementations when ready.
-  if (deskKey === 'pr') {
+  if (deskKey === "pr") {
     return (
       <Routes>
         <Route element={<RegistryLayout />}>
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<DHRegistryDashboard />} />
-          <Route path="reports" element={<DHRegistryReports />} />
+          <Route path="documents" element={<DHDocuments />} />
+          <Route path="memoandletters" element={<DHMemoandLetters />} />
+          <Route path="messages" element={<DHMessages />} />
+          <Route path="notices" element={<DHNotices />} />
+          <Route path="reports/month" element={<DHRegistryReports />} />
         </Route>
-        <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+        <Route
+          path="*"
+          element={<Navigate to={`${basePath}/dashboard`} replace />}
+        />
       </Routes>
     );
   }
@@ -334,7 +382,10 @@ const DeptDeskGateway: React.FC = () => {
         <Route path="bring-up" element={<AdminBringUp />} />
         <Route path="memo-letter" element={<AdminMemoandLetters />} />
       </Route>
-      <Route path="*" element={<Navigate to={`${basePath}/dashboard`} replace />} />
+      <Route
+        path="*"
+        element={<Navigate to={`${basePath}/dashboard`} replace />}
+      />
     </Routes>
   );
 };

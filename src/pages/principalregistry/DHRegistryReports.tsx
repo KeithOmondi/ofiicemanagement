@@ -1,573 +1,948 @@
-// ============================================================
-// src/features/station-engagement/components/RegistryReports.tsx
-// ============================================================
-
-import React, { useEffect, useState } from 'react';
-import { useDispatch, useSelector } from 'react-redux';
-import { useParams, useNavigate } from 'react-router-dom';
+// src/pages/DHRegistryReports.tsx
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useParams } from 'react-router-dom';
 import {
-  fetchReportById,
-  fetchReportSummary,
+  fetchReports,
   submitReport,
   reviewReport,
-  generatePDF,
+  archiveReport,
   deleteReport,
-  selectCurrentReport,
-  selectReportSummary,
-  selectIsLoading,
-  selectIsSubmitting,
-  selectIsGeneratingPDF,
-  selectError,
+  clearFilters,
+  setPage,
+  setPageSize,
+  selectAllReportsData,
+  selectReportsLoading,
+  selectReportsError,
+  selectReportsPagination,
+  selectReportCounts,
+  selectHasSelectedReports,
+  selectSelectedCount,
+  selectAreAllReportsSelected,
+  fetchReportById,
+  selectCurrentReportData,
   clearCurrentReport,
-} from '../../store/slices/stationEngagement.slice';
-import type { SuccessionCourtCategory } from '../../types/succession-courts';
-import type { AppDispatch } from '../../store/store';
-import { 
-  REASON_NOT_REACHED_OPTIONS, 
-  //URGENCY_OPTIONS,
-  type ReviewReportPayload,
-  type ReportStatus,
-  type Urgency,
-  type Engagement,
-  type EscalationItem,
-} from '../../types/station-engagement.types';
+  selectSelectedReportIds,
+  toggleSelectReport,
+  selectAllReports,
+  deselectAllReports,
+  createReport,
+  updateReport,
+  generatePDF,
+  selectGeneratingPDF,
+  selectPDFResult,
+  clearPDFResult,
+} from '../../store/slices/principalRegistryReportSlice';
+import type {
+  ReportStatus,
+  ReportFilters,
+  PrincipalRegistryWeeklyReport,
+  ReportFormData,
+} from '../../types/principal-registry-report.types';
+import {
+  getStatusLabel,
+  canSubmit as canSubmitReport,
+  canReview,
+  canArchive,
+  canEdit,
+  canGeneratePDF as canGeneratePDFReport,
+  hasPDFAttached,
+} from '../../types/principal-registry-report.types';
+import { useAppDispatch, useAppSelector } from '../../store/hook';
+import DHReportQuestionsModal from './DHReportQuestionsModal';
 
-const STATUS_COLORS: Record<ReportStatus, string> = {
-  draft: 'bg-gray-100 text-gray-800',
-  submitted: 'bg-yellow-100 text-yellow-800',
-  reviewed: 'bg-blue-100 text-blue-800',
-  approved: 'bg-green-100 text-green-800',
-  rejected: 'bg-red-100 text-red-800',
-};
+const DHRegistryReports = () => {
+  const dispatch = useAppDispatch();
+  const { departmentId } = useParams<{ departmentId: string }>();
 
-const STATUS_LABELS: Record<ReportStatus, string> = {
-  draft: 'Draft',
-  submitted: 'Submitted',
-  reviewed: 'Reviewed',
-  approved: 'Approved',
-  rejected: 'Rejected',
-};
+  // ─── Redux State ─────────────────────────────────────────────
+  const reports = useAppSelector(selectAllReportsData);
+  const loading = useAppSelector(selectReportsLoading);
+  const error = useAppSelector(selectReportsError);
+  const pagination = useAppSelector(selectReportsPagination);
+  const counts = useAppSelector(selectReportCounts);
+  const hasSelected = useAppSelector(selectHasSelectedReports);
+  const selectedCount = useAppSelector(selectSelectedCount);
+  const selectedReportIds = useAppSelector(selectSelectedReportIds);
+  const allSelected = useAppSelector(selectAreAllReportsSelected);
+  const currentReport = useAppSelector(selectCurrentReportData);
+  const generatingPDF = useAppSelector(selectGeneratingPDF);
+  const pdfResult = useAppSelector(selectPDFResult);
 
-const CATEGORY_COLORS: Record<SuccessionCourtCategory, string> = {
-  A: 'bg-purple-100 text-purple-800',
-  B: 'bg-blue-100 text-blue-800',
-  C: 'bg-amber-100 text-amber-800',
-  D: 'bg-rose-100 text-rose-800',
-};
+  // ─── Local State ─────────────────────────────────────────────
+  const [statusFilter, setStatusFilter] = useState<ReportStatus | ''>('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMode, setModalMode] = useState<'view' | 'edit' | 'create'>('view');
+  const [isPdfPreviewOpen, setIsPdfPreviewOpen] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
 
-const URGENCY_COLORS: Record<Urgency, string> = {
-  high: 'bg-red-100 text-red-800',
-  medium: 'bg-yellow-100 text-yellow-800',
-  low: 'bg-green-100 text-green-800',
-};
+  const initialFetchDone = useRef(false);
+  const prevFiltersRef = useRef<ReportFilters>({});
 
-const URGENCY_LABELS: Record<Urgency, string> = {
-  high: 'High',
-  medium: 'Medium',
-  low: 'Low',
-};
+  // ─── Memoized Filters ────────────────────────────────────────
+// In DHRegistryReports.tsx - Update filtersToApply
+const filtersToApply = useMemo(() => {
+  const result: ReportFilters = {};
+  if (statusFilter) result.status = statusFilter;
+  // ✅ Only add departmentId if it's a valid UUID
+  if (departmentId && departmentId !== 'pr' && departmentId.length === 36) {
+    result.departmentId = departmentId;
+  }
+  return result;
+}, [statusFilter, departmentId]);
 
-const MODE_ICONS: Record<string, string> = {
-  phone_call: '📞',
-  whatsapp: '💬',
-  email: '📧',
-  physical_visit: '🏢',
-  webinar_followup: '💻',
-  video_call: '🎥',
-};
 
-const MODE_LABELS: Record<string, string> = {
-  phone_call: 'Phone Call',
-  whatsapp: 'WhatsApp',
-  email: 'Email',
-  physical_visit: 'Physical Visit',
-  webinar_followup: 'Webinar Follow-up',
-  video_call: 'Video Call',
-};
-
-const STATUS_BADGE_CLASSES: Record<string, string> = {
-  resolved: 'bg-green-100 text-green-800',
-  ongoing: 'bg-yellow-100 text-yellow-800',
-  escalated: 'bg-red-100 text-red-800',
-};
-
-const STATUS_BADGE_LABELS: Record<string, string> = {
-  resolved: 'Resolved',
-  ongoing: 'Ongoing',
-  escalated: 'Escalated',
-};
-
-const RegistryReports: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const dispatch = useDispatch<AppDispatch>();
-
-  const report = useSelector(selectCurrentReport);
-  const summary = useSelector(selectReportSummary);
-  const isLoading = useSelector(selectIsLoading);
-  const isSubmitting = useSelector(selectIsSubmitting);
-  const isGeneratingPDF = useSelector(selectIsGeneratingPDF);
-  const error = useSelector(selectError);
-
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [reviewData, setReviewData] = useState<ReviewReportPayload>({
-    status: 'approved',
-    feedback: '',
-  });
+  // ─── Effects ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!initialFetchDone.current) {
+      initialFetchDone.current = true;
+      dispatch(fetchReports(filtersToApply));
+    }
+  }, [dispatch, filtersToApply]);
 
   useEffect(() => {
-    if (id) {
-      dispatch(fetchReportById(id));
-      dispatch(fetchReportSummary(id));
+    if (!initialFetchDone.current) return;
+
+    const currentFiltersStr = JSON.stringify(filtersToApply);
+    const prevFiltersStr = JSON.stringify(prevFiltersRef.current);
+
+    if (currentFiltersStr !== prevFiltersStr) {
+      prevFiltersRef.current = filtersToApply;
+      dispatch(fetchReports(filtersToApply));
+    }
+  }, [dispatch, filtersToApply]);
+
+  // ─── Modal Handlers ──────────────────────────────────────────
+  const handleViewReport = useCallback((id: string) => {
+    setModalMode('view');
+    dispatch(fetchReportById(id));
+    setIsModalOpen(true);
+  }, [dispatch]);
+
+  const handleEditReport = useCallback((id: string) => {
+    setModalMode('edit');
+    dispatch(fetchReportById(id));
+    setIsModalOpen(true);
+  }, [dispatch]);
+
+  const handleCreateReport = useCallback(() => {
+    setModalMode('create');
+    dispatch(clearCurrentReport());
+    setIsModalOpen(true);
+  }, [dispatch]);
+
+  const handleModalClose = useCallback(() => {
+    setIsModalOpen(false);
+    dispatch(clearCurrentReport());
+    dispatch(clearPDFResult());
+  }, [dispatch]);
+
+  const currentReportId = currentReport?.id;
+
+  const handleModalSave = useCallback((data: ReportFormData) => {
+    if (modalMode === 'create') {
+      const payload = { ...data, departmentId: departmentId || data.departmentId };
+      dispatch(createReport(payload));
+    } else if (modalMode === 'edit' && currentReportId) {
+      dispatch(updateReport({ id: currentReportId, data }));
     }
 
-    return () => {
-      dispatch(clearCurrentReport());
+    setIsModalOpen(false);
+    dispatch(clearCurrentReport());
+    dispatch(fetchReports(filtersToApply));
+  }, [dispatch, modalMode, currentReportId, filtersToApply, departmentId]);
+
+  const initialModalData = useMemo((): ReportFormData => {
+    const defaultData = {
+      weekEndingDates: [],
+      reportPeriodStart: new Date().toISOString().split('T')[0],
+      reportPeriodEnd: new Date().toISOString().split('T')[0],
+      departmentId: departmentId || '',
+      administrativeOverview: {
+        keyActivities: [],
+        notableIssues: [],
+        resolutionsStatus: [],
+      },
+      caseManagement: {
+        form30PendingCount: 0,
+        forwardedToGp: false,
+        submissionDates: null,
+        noticesSubmittedCount: null,
+        nonSubmissionReason: null,
+        expectedSubmissionDate: null,
+      },
+      automationStatus: {
+        excelUpdateStatus: '',
+        systemBuildStatus: '',
+      },
+      serviceDeliveryChallenges: {
+        hasChallenges: false,
+        challengeDetails: null,
+        proposedSolutions: [],
+        needsRhcIntervention: false,
+        interventionDetails: null,
+      },
+      highlights: {
+        achievements: [],
+      },
+      otherInformation: {
+        ctsEfilingChanges: [],
+        gpChanges: [],
+        signOff: {
+          preparedDate: new Date().toISOString().split('T')[0],
+          preparedByName: '',
+          preparedByDesignation: '',
+        },
+      },
     };
-  }, [dispatch, id]);
 
-  const handleSubmit = async () => {
-    if (!id) return;
-    if (window.confirm('Submit this report for review?')) {
-      try {
-        await dispatch(submitReport(id)).unwrap();
-      } catch (err) {
-        console.error('Failed to submit report:', err);
-      }
+    if (modalMode === 'create' || !currentReport) {
+      return defaultData;
     }
-  };
 
-  const handleReview = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!id) return;
+    return {
+      weekEndingDates: currentReport.weekEndingDates || [],
+      reportPeriodStart: currentReport.reportPeriodStart || defaultData.reportPeriodStart,
+      reportPeriodEnd: currentReport.reportPeriodEnd || defaultData.reportPeriodEnd,
+      departmentId: currentReport.departmentId || departmentId || '',
+      administrativeOverview: currentReport.administrativeOverview || defaultData.administrativeOverview,
+      caseManagement: currentReport.caseManagement || defaultData.caseManagement,
+      automationStatus: currentReport.automationStatus || defaultData.automationStatus,
+      serviceDeliveryChallenges: currentReport.serviceDeliveryChallenges || defaultData.serviceDeliveryChallenges,
+      highlights: currentReport.highlights || defaultData.highlights,
+      otherInformation: currentReport.otherInformation || defaultData.otherInformation,
+    };
+  }, [modalMode, currentReport, departmentId]);
 
-    try {
-      await dispatch(reviewReport({
-        id,
-        data: reviewData,
-      })).unwrap();
-      setShowReviewModal(false);
-      setReviewData({ status: 'approved', feedback: '' });
-      // Refresh the report
-      dispatch(fetchReportById(id));
-      dispatch(fetchReportSummary(id));
-    } catch (err) {
-      console.error('Failed to review report:', err);
+  // ─── PDF Handlers ────────────────────────────────────────────
+
+  const handleGeneratePDF = useCallback((reportId: string) => {
+    if (window.confirm('Generate PDF for this report? The PDF will be attached to the report and available for preview.')) {
+      dispatch(generatePDF({ reportId }));
     }
-  };
+  }, [dispatch]);
 
-  const handleGeneratePDF = async () => {
-    if (!id) return;
-    try {
-      await dispatch(generatePDF(id)).unwrap();
-    } catch (err) {
-      console.error('Failed to generate PDF:', err);
+  const handlePreviewPDF = useCallback((url: string) => {
+    if (url) {
+      setPdfPreviewUrl(url);
+      setIsPdfPreviewOpen(true);
+    } else {
+      alert('PDF URL not available.');
     }
-  };
+  }, []);
 
-  const handleDelete = async () => {
-    if (!id) return;
-    if (window.confirm('Are you sure you want to delete this report?')) {
-      try {
-        await dispatch(deleteReport(id)).unwrap();
-        navigate('/registry/reports');
-      } catch (err) {
-        console.error('Failed to delete report:', err);
-      }
+  const handleClosePdfPreview = useCallback(() => {
+    setIsPdfPreviewOpen(false);
+    setPdfPreviewUrl(null);
+  }, []);
+
+  const handleOpenInNewTab = useCallback(() => {
+    if (pdfPreviewUrl) {
+      window.open(pdfPreviewUrl, '_blank');
     }
-  };
+  }, [pdfPreviewUrl]);
 
-  if (isLoading && !report) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <div className="text-gray-500">Loading report...</div>
-      </div>
+  // ─── Handlers ─────────────────────────────────────────────────
+  const handlePageChange = useCallback((newPage: number) => {
+    dispatch(setPage(newPage));
+    dispatch(fetchReports({ ...filtersToApply, page: newPage }));
+  }, [dispatch, filtersToApply]);
+
+  const handlePageSizeChange = useCallback((newSize: number) => {
+    dispatch(setPageSize(newSize));
+    dispatch(fetchReports({ ...filtersToApply, page: 1, pageSize: newSize }));
+  }, [dispatch, filtersToApply]);
+
+  const handleStatusFilterChange = useCallback((status: ReportStatus | '') => {
+    setStatusFilter(status);
+  }, []);
+
+  const handleSearch = useCallback((term: string) => {
+    setSearchTerm(term);
+  }, []);
+
+  const handleToggleSelectAll = useCallback(() => {
+    if (allSelected) {
+      dispatch(deselectAllReports());
+    } else {
+      dispatch(selectAllReports());
+    }
+  }, [dispatch, allSelected]);
+
+  const handleToggleSelectReport = useCallback((reportId: string) => {
+    dispatch(toggleSelectReport(reportId));
+  }, [dispatch]);
+
+  const handleSubmit = useCallback((reportId: string) => {
+    if (window.confirm(
+      'Are you sure you want to submit this report for review?\n\n' +
+      'This will:\n' +
+      '• Lock the report from further edits\n' +
+      '• Send it to the admin for review\n' +
+      '• The admin will review the attached PDF\n\n' +
+      'Do you want to proceed?'
+    )) {
+      dispatch(submitReport(reportId))
+        .unwrap()
+        .then(() => {
+          alert('Report submitted successfully! The admin has been notified.');
+        })
+        .catch((error: string) => {
+          alert(error || 'Failed to submit report. Please ensure a PDF is attached.');
+        });
+    }
+  }, [dispatch]);
+
+  const handleReview = useCallback((reportId: string) => {
+    const action = window.confirm(
+      'Review this report?\n\n' +
+      'Click OK to APPROVE\n' +
+      'Click Cancel to REJECT'
     );
-  }
+    
+    if (action) {
+      dispatch(reviewReport(reportId))
+        .unwrap()
+        .then(() => {
+          alert('Report approved successfully!');
+        })
+        .catch((error: string) => {
+          alert(error || 'Failed to approve report.');
+        });
+    } else {
+      const reason = window.prompt('Please provide a reason for rejection:');
+      if (reason !== null) {
+        dispatch(reviewReport(reportId))
+          .unwrap()
+          .then(() => {
+            alert(`Report rejected: ${reason}`);
+          })
+          .catch((error: string) => {
+            alert(error || 'Failed to reject report.');
+          });
+      }
+    }
+  }, [dispatch]);
 
-  if (!report) {
+  const handleArchive = useCallback((reportId: string) => {
+    if (window.confirm('Are you sure you want to archive this report?')) {
+      dispatch(archiveReport(reportId));
+    }
+  }, [dispatch]);
+
+  const handleDelete = useCallback((reportId: string) => {
+    if (window.confirm('Are you sure you want to delete this report? This action cannot be undone.')) {
+      dispatch(deleteReport(reportId));
+    }
+  }, [dispatch]);
+
+  const handleClearFilters = useCallback(() => {
+    dispatch(clearFilters());
+    setStatusFilter('');
+    setSearchTerm('');
+    dispatch(fetchReports(departmentId ? { departmentId } : {}));
+  }, [dispatch, departmentId]);
+
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return '-';
+    const parsed = new Date(dateStr);
+    return isNaN(parsed.getTime()) ? '-' : parsed.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  };
+
+  // ─── Filtered Reports ─────────────────────────────────────────
+  const filteredReports = useMemo(() => {
+    if (!searchTerm) return reports;
+    const term = searchTerm.toLowerCase();
+    return reports.filter((report) =>
+      report.weekEndingDates?.some((date) => formatDate(date).toLowerCase().includes(term)) ||
+      formatDate(report.reportPeriodStart).toLowerCase().includes(term) ||
+      formatDate(report.reportPeriodEnd).toLowerCase().includes(term) ||
+      report.status.toLowerCase().includes(term)
+    );
+  }, [reports, searchTerm]);
+
+  // ─── Render Helpers ──────────────────────────────────────────
+  const renderStatusBadge = (status: ReportStatus) => {
+    const label = getStatusLabel(status);
+    const styles: Record<ReportStatus, string> = {
+      draft: 'bg-slate-100 text-slate-700 ring-slate-600/10',
+      submitted: 'bg-blue-50 text-blue-700 ring-blue-700/10',
+      reviewed: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20',
+      archived: 'bg-purple-50 text-purple-700 ring-purple-700/10',
+    };
+
     return (
-      <div className="text-center py-12">
-        <p className="text-gray-500">Report not found</p>
+      <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium ring-1 ring-inset ${styles[status] || styles.draft}`}>
+        <span className="w-1.5 h-1.5 rounded-full fill-current mr-1.5 opacity-75"></span>
+        {label}
+      </span>
+    );
+  };
+
+  const renderPDFBadge = (report: PrincipalRegistryWeeklyReport) => {
+    if (report.pdfSecureUrl) {
+      return (
+        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-600/20">
+          <svg className="w-3.5 h-3.5 text-emerald-600" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+          </svg>
+          Attached
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-500/10">
+        <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+        </svg>
+        Missing
+      </span>
+    );
+  };
+
+  const renderActionButtons = (report: PrincipalRegistryWeeklyReport) => {
+    return (
+      <div className="flex items-center justify-end gap-1.5">
         <button
-          onClick={() => navigate('/registry/reports')}
-          className="mt-4 px-4 py-2 text-blue-600 hover:text-blue-800"
+          type="button"
+          onClick={() => handleViewReport(report.id)}
+          className="px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-colors shadow-xs"
         >
-          ← Back to Reports
+          View
+        </button>
+
+        {canEdit(report) && (
+          <button
+            type="button"
+            onClick={() => handleEditReport(report.id)}
+            className="px-2.5 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/60 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-colors"
+          >
+            Edit
+          </button>
+        )}
+
+        {canGeneratePDFReport(report) && !hasPDFAttached(report) && (
+          <button
+            type="button"
+            onClick={() => handleGeneratePDF(report.id)}
+            className="px-2.5 py-1.5 text-xs font-medium text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200/60 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-colors"
+          >
+            Generate PDF
+          </button>
+        )}
+
+        {hasPDFAttached(report) && (
+          <button
+            type="button"
+            onClick={() => {
+              const url = report.pdfSecureUrl;
+              if (url) {
+                handlePreviewPDF(url);
+              } else {
+                alert('PDF URL not available.');
+              }
+            }}
+            className="px-2.5 py-1.5 text-xs font-medium text-cyan-700 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200/60 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500/20 transition-colors"
+          >
+            Preview
+          </button>
+        )}
+
+        {canSubmitReport(report) && hasPDFAttached(report) && (
+          <button
+            type="button"
+            onClick={() => handleSubmit(report.id)}
+            className="px-2.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors"
+          >
+            Submit
+          </button>
+        )}
+
+        {canReview(report) && (
+          <button
+            type="button"
+            onClick={() => handleReview(report.id)}
+            className="px-2.5 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200/60 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-colors"
+          >
+            Review
+          </button>
+        )}
+
+        {canArchive(report) && (
+          <button
+            type="button"
+            onClick={() => handleArchive(report.id)}
+            className="px-2.5 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200/60 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500/20 transition-colors"
+          >
+            Archive
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={() => handleDelete(report.id)}
+          className="px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+          title="Delete Report"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
         </button>
       </div>
     );
+  };
+
+  const renderStatusCounts = () => {
+    const statuses: ReportStatus[] = ['draft', 'submitted', 'reviewed', 'archived'];
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        {statuses.map((status) => {
+          const isActive = statusFilter === status;
+          return (
+            <button
+              key={status}
+              type="button"
+              onClick={() => handleStatusFilterChange(isActive ? '' : status)}
+              className={`p-4 rounded-xl border text-left transition-all duration-200 ${
+                isActive
+                  ? 'border-blue-500 bg-blue-50/50 ring-2 ring-blue-500/20 shadow-xs'
+                  : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50 shadow-xs'
+              }`}
+            >
+              <div className="text-xs font-medium text-slate-500 capitalize mb-1">
+                {getStatusLabel(status)}
+              </div>
+              <div className="text-2xl font-bold text-slate-900 tracking-tight">
+                {counts[status] || 0}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // ─── Loading / Error States ─────────────────────────────────
+  if (loading && reports.length === 0) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <div className="relative w-12 h-12 mx-auto">
+            <div className="w-12 h-12 rounded-full border-2 border-blue-200 border-t-blue-600 animate-spin"></div>
+          </div>
+          <p className="mt-4 text-sm font-medium text-slate-600">Loading reports registry...</p>
+        </div>
+      </div>
+    );
   }
 
+  if (error) {
+    return (
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 text-rose-700 flex items-start gap-3">
+          <svg className="w-5 h-5 text-rose-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <p className="font-semibold text-rose-900">Error loading reports</p>
+            <p className="text-sm mt-0.5 text-rose-700">{error}</p>
+            <button
+              type="button"
+              onClick={() => dispatch(fetchReports(filtersToApply))}
+              className="mt-3 px-3 py-1.5 text-xs font-semibold bg-rose-600 text-white rounded-lg hover:bg-rose-700 transition-colors"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Main Render ─────────────────────────────────────────────
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-start">
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* Dynamic Notifications */}
+      {generatingPDF && (
+        <div className="bg-blue-50 border border-blue-200/80 rounded-xl p-4 text-blue-800 shadow-xs flex items-center gap-3 animate-pulse">
+          <div className="w-4 h-4 rounded-full border-2 border-blue-600 border-t-transparent animate-spin"></div>
+          <span className="text-sm font-medium">Generating official PDF report package...</span>
+        </div>
+      )}
+
+      {pdfResult?.success && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-emerald-800 shadow-xs flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <svg className="w-5 h-5 text-emerald-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+            <span className="text-sm font-medium">PDF generated and attached successfully!</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const url = pdfResult?.secureUrl || pdfResult?.pdfUrl;
+                if (url) {
+                  handlePreviewPDF(url);
+                } else {
+                  alert('PDF URL not available.');
+                }
+              }}
+              className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+            >
+              Preview PDF
+            </button>
+            <button
+              type="button"
+              onClick={() => dispatch(clearPDFResult())}
+              className="p-1 text-emerald-600 hover:text-emerald-800 rounded-md hover:bg-emerald-100/50"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200/80">
         <div>
-          <button
-            onClick={() => navigate('/registry/reports')}
-            className="text-sm text-blue-600 hover:text-blue-800 mb-2"
-          >
-            ← Back to Reports
-          </button>
-          <h2 className="text-2xl font-bold text-gray-900">
-            Engagement Report
-          </h2>
-          <div className="flex flex-wrap items-center gap-2 mt-1">
-            <p className="text-gray-500">
-              Week: {new Date(report.week_start).toLocaleDateString()} - {new Date(report.week_end).toLocaleDateString()}
-            </p>
-            <span className="text-gray-300">|</span>
-            <div className="flex flex-wrap gap-1">
-              {report.categories?.map((cat) => (
-                <span 
-                  key={cat} 
-                  className={`px-2 py-1 text-xs font-medium rounded-full ${CATEGORY_COLORS[cat]}`}
-                >
-                  Category {cat}
-                </span>
-              ))}
-            </div>
-          </div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            Principal Registry Reports
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Manage weekly department submissions and document workflows.
+          </p>
         </div>
-        <div className="flex gap-2">
-          {/* Status Badge */}
-          <span className={`px-3 py-1 text-sm font-medium rounded-full ${STATUS_COLORS[report.status]}`}>
-            {STATUS_LABELS[report.status]}
+        <button
+          type="button"
+          onClick={handleCreateReport}
+          className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2.5 rounded-xl font-semibold text-sm hover:bg-blue-700 active:bg-blue-800 transition-all shadow-xs hover:shadow-md focus:ring-2 focus:ring-blue-500/20"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
+          </svg>
+          New Weekly Report
+        </button>
+      </div>
+
+      {renderStatusCounts()}
+
+      {/* Search & Utility Bar */}
+      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+        <div className="relative flex-1">
+          <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search reports..."
+            value={searchTerm}
+            onChange={(e) => handleSearch(e.target.value)}
+            className="w-full pl-9 pr-4 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-all placeholder:text-slate-400"
+          />
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-slate-500">Show</label>
+            <select
+              value={pagination.pageSize}
+              onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+              className="py-2 px-3 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+
+          {(statusFilter || searchTerm) && (
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              className="px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 border border-rose-200/80 rounded-lg transition-colors"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Bulk Action Header */}
+      {hasSelected && (
+        <div className="bg-slate-900 text-white rounded-xl p-3 px-4 flex items-center justify-between shadow-sm animate-in fade-in duration-150">
+          <span className="text-sm font-medium">
+            <span className="font-bold text-blue-400">{selectedCount}</span> {selectedCount === 1 ? 'report' : 'reports'} selected
           </span>
-        </div>
-      </div>
-
-      {/* Summary Cards */}
-      {summary && (
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-            <p className="text-sm text-gray-500">Total Stations</p>
-            <p className="text-2xl font-bold text-gray-900">{summary.total_stations}</p>
-          </div>
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-            <p className="text-sm text-gray-500">Engaged</p>
-            <p className="text-2xl font-bold text-green-600">{summary.engaged_count}</p>
-          </div>
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-            <p className="text-sm text-gray-500">Unengaged</p>
-            <p className="text-2xl font-bold text-yellow-600">{summary.unengaged_count}</p>
-          </div>
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-            <p className="text-sm text-gray-500">Escalated</p>
-            <p className="text-2xl font-bold text-red-600">{summary.escalated_count}</p>
-          </div>
-          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
-            <p className="text-sm text-gray-500">Support Person</p>
-            <p className="text-lg font-semibold text-gray-900">
-              {report.support_person_id?.slice(0, 8) || '-'}
-            </p>
+          <div className="flex gap-2">
+            <button type="button" className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors">
+              Bulk Submit
+            </button>
+            <button type="button" className="px-3 py-1.5 text-xs font-medium bg-rose-600 text-white rounded-lg hover:bg-rose-500 transition-colors">
+              Bulk Delete
+            </button>
           </div>
         </div>
       )}
 
-      {/* Error */}
-      {error && (
-        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
-          {error}
-        </div>
-      )}
-
-      {/* Executive Summary */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">Executive Summary</h3>
-        <p className="text-gray-700 whitespace-pre-wrap">{report.executive_summary || 'No summary provided'}</p>
-      </div>
-
-      {/* Engagements */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Engagements ({report.engagements?.length || 0})</h3>
-        {report.engagements?.length === 0 ? (
-          <p className="text-gray-500 text-sm">No engagements recorded</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
+      {/* Main Table */}
+      <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200">
+            <thead className="bg-slate-50/80">
+              <tr>
+                <th className="px-4 py-3.5 text-left w-10">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={handleToggleSelectAll}
+                    className="rounded border-slate-300 text-blue-600 focus:ring-blue-500/20"
+                  />
+                </th>
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Report Period
+                </th>
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Week Ending
+                </th>
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  PDF
+                </th>
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Created
+                </th>
+                <th className="px-4 py-3.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 bg-white">
+              {filteredReports.length === 0 ? (
                 <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Station</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Category</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Date</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Contact</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Mode</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Status</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Urgency</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Issues</th>
+                  <td colSpan={7} className="px-6 py-12 text-center">
+                    <svg className="w-10 h-10 text-slate-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <p className="text-sm font-semibold text-slate-900">No reports found</p>
+                    <p className="text-xs text-slate-500 mt-1">Try adjusting search query or active filter settings.</p>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {report.engagements.map((engagement: Engagement, index: number) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-900">{engagement.station_name}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${CATEGORY_COLORS[engagement.station_category]}`}>
-                        {engagement.station_category}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{new Date(engagement.date).toLocaleDateString()}</td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {engagement.contact_person}
-                      {engagement.contact_role && <span className="text-gray-400 text-xs"> ({engagement.contact_role})</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-lg">{MODE_ICONS[engagement.mode]}</span>
-                      <span className="ml-1 text-xs text-gray-500">{MODE_LABELS[engagement.mode]}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 text-xs rounded-full ${STATUS_BADGE_CLASSES[engagement.status]}`}>
-                        {STATUS_BADGE_LABELS[engagement.status]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {engagement.urgency ? (
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${URGENCY_COLORS[engagement.urgency]}`}>
-                          {URGENCY_LABELS[engagement.urgency]}
-                        </span>
-                      ) : (
-                        <span className="text-gray-400 text-xs">-</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {engagement.issues_raised?.join(', ') || '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              ) : (
+                filteredReports.map((report) => {
+                  const isSelected = selectedReportIds.includes(report.id);
+                  return (
+                    <tr
+                      key={report.id}
+                      className={`hover:bg-slate-50/80 transition-colors ${
+                        isSelected ? 'bg-blue-50/30' : ''
+                      }`}
+                    >
+                      <td className="px-4 py-4">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => handleToggleSelectReport(report.id)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500/20"
+                        />
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <div className="text-sm font-semibold text-slate-900">
+                          {formatDate(report.reportPeriodStart)} – {formatDate(report.reportPeriodEnd)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="text-xs text-slate-600 max-w-xs truncate">
+                          {report.weekEndingDates?.map((date, i) => (
+                            <span key={i}>
+                              {formatDate(date)}
+                              {i < report.weekEndingDates.length - 1 && ', '}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        {renderStatusBadge(report.status)}
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        {renderPDFBadge(report)}
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-xs text-slate-500">
+                        {formatDate(report.createdAt)}
+                      </td>
+                      <td className="px-4 py-4 whitespace-nowrap text-right">
+                        {renderActionButtons(report)}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* Unengaged Stations */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Unengaged Stations ({report.unengaged_stations?.length || 0})</h3>
-        {report.unengaged_stations?.length === 0 ? (
-          <p className="text-gray-500 text-sm">All stations have been engaged</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Station</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Category</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Reason Not Reached</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Detail</th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">Planned Engagement</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {report.unengaged_stations.map((station, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-900">{station.station_name}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${CATEGORY_COLORS[station.category]}`}>
-                        {station.category}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {station.reason_not_reached ? 
-                        REASON_NOT_REACHED_OPTIONS.find(r => r.value === station.reason_not_reached)?.label || station.reason_not_reached
-                        : '-'
-                      }
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {station.reason_not_reached_detail || '-'}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">
-                      {station.planned_engagement_date ? 
-                        new Date(station.planned_engagement_date).toLocaleDateString() 
-                        : '-'
-                      }
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Escalations */}
-      {report.escalations && report.escalations.length > 0 && (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Escalated Issues ({report.escalations.length})</h3>
-          <div className="space-y-4">
-            {report.escalations.map((escalation: EscalationItem, index: number) => (
-              <div key={index} className="border-l-4 border-red-400 pl-4 py-2 bg-red-50 rounded-r-lg">
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-gray-900">{escalation.station_name}</p>
-                      {escalation.urgency && (
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${URGENCY_COLORS[escalation.urgency]}`}>
-                          {URGENCY_LABELS[escalation.urgency]}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm text-gray-600 mt-1"><span className="font-medium">Issue:</span> {escalation.issue}</p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      <span className="font-medium">Why:</span> {escalation.why_needs_escalation}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      <span className="font-medium">Recommended:</span> {escalation.recommended_action}
-                    </p>
-                    {escalation.source_engagement_id && (
-                      <p className="text-xs text-gray-400 mt-1">
-                        Source Engagement ID: {escalation.source_engagement_id.slice(0, 8)}
-                      </p>
-                    )}
-                  </div>
-                  <span className={`text-xs px-2 py-1 rounded-full ${
-                    escalation.status === 'resolved' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {escalation.status || 'pending'}
-                  </span>
-                </div>
-              </div>
-            ))}
+      {/* Pagination Footer */}
+      {pagination.total > 0 && (
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+          <p className="text-xs text-slate-500">
+            Showing <span className="font-semibold text-slate-700">{((pagination.page - 1) * pagination.pageSize) + 1}</span> to{' '}
+            <span className="font-semibold text-slate-700">{Math.min(pagination.page * pagination.pageSize, pagination.total)}</span> of{' '}
+            <span className="font-semibold text-slate-700">{pagination.total}</span> entries
+          </p>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => handlePageChange(pagination.page - 1)}
+              disabled={pagination.page === 1}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                pagination.page === 1
+                  ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              Previous
+            </button>
+            <span className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 border border-blue-200">
+              {pagination.page}
+            </span>
+            <button
+              type="button"
+              onClick={() => handlePageChange(pagination.page + 1)}
+              disabled={pagination.page * pagination.pageSize >= pagination.total}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                pagination.page * pagination.pageSize >= pagination.total
+                  ? 'bg-slate-50 text-slate-300 border-slate-200 cursor-not-allowed'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              Next
+            </button>
           </div>
         </div>
       )}
 
-      {/* Additional Sections */}
-      {(report.additional_issues || report.recurring_patterns || report.priorities) && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {report.additional_issues && (
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Additional Issues</h3>
-              <p className="text-gray-700 whitespace-pre-wrap">{report.additional_issues}</p>
-            </div>
-          )}
-          {report.recurring_patterns && (
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Recurring Patterns</h3>
-              <p className="text-gray-700 whitespace-pre-wrap">{report.recurring_patterns}</p>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Report Questions Modal */}
+      <DHReportQuestionsModal
+        isOpen={isModalOpen}
+        onClose={handleModalClose}
+        departmentId={departmentId}
+        initialData={initialModalData}
+        onSave={handleModalSave}
+        readOnly={modalMode === 'view'}
+        title={
+          modalMode === 'create'
+            ? 'Create New Weekly Report'
+            : modalMode === 'edit'
+            ? 'Edit Weekly Report'
+            : 'View Weekly Report'
+        }
+      />
 
-      {report.priorities && (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Priorities for Next Week</h3>
-          <p className="text-gray-700 whitespace-pre-wrap">{report.priorities}</p>
-        </div>
-      )}
-
-      {/* Feedback */}
-      {report.feedback && (
-        <div className="bg-yellow-50 p-6 rounded-xl border border-yellow-200">
-          <h3 className="text-sm font-semibold text-yellow-800 mb-2">Review Feedback</h3>
-          <p className="text-yellow-700 whitespace-pre-wrap">{report.feedback}</p>
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-200">
-        {report.status === 'draft' && (
-          <>
-            <button
-              onClick={() => navigate(`/registry/reports/${id}/edit`)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Edit Report
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
-            >
-              {isSubmitting ? 'Submitting...' : 'Submit for Review'}
-            </button>
-            <button
-              onClick={handleDelete}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-            >
-              Delete
-            </button>
-          </>
-        )}
-
-        {report.status === 'submitted' && (
-          <>
-            <button
-              onClick={() => setShowReviewModal(true)}
-              className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-            >
-              Review Report
-            </button>
-            <button
-              onClick={handleGeneratePDF}
-              disabled={isGeneratingPDF}
-              className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
-            >
-              {isGeneratingPDF ? 'Generating...' : 'Generate PDF'}
-            </button>
-          </>
-        )}
-
-        {(report.status === 'approved' || report.status === 'reviewed') && (
-          <button
-            onClick={handleGeneratePDF}
-            disabled={isGeneratingPDF}
-            className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
-          >
-            {isGeneratingPDF ? 'Generating...' : 'Generate PDF'}
-          </button>
-        )}
-      </div>
-
-      {/* Review Modal */}
-      {showReviewModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-bold text-gray-900">Review Report</h3>
-              <p className="text-sm text-gray-500">Approve or reject this engagement report</p>
-            </div>
-            <form onSubmit={handleReview} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Decision</label>
-                <select
-                  value={reviewData.status}
-                  onChange={(e) => setReviewData({ ...reviewData, status: e.target.value as 'approved' | 'rejected' })}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none"
-                >
-                  <option value="approved">✅ Approve</option>
-                  <option value="rejected">❌ Reject</option>
-                </select>
+      {/* ─── PDF Preview Modal - Full Screen ─────────────────── */}
+      {isPdfPreviewOpen && pdfPreviewUrl && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-2 animate-in fade-in duration-200"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              handleClosePdfPreview();
+            }
+          }}
+        >
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-7xl h-[95vh] flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50/80 shrink-0">
+              <div className="flex items-center gap-3">
+                <svg className="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <h3 className="text-sm font-semibold text-slate-800">PDF Preview</h3>
+                <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                  {currentReport?.pdfFileName || pdfPreviewUrl.split('/').pop()?.slice(0, 30) || 'Document'}
+                </span>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Feedback (Optional)</label>
-                <textarea
-                  value={reviewData.feedback}
-                  onChange={(e) => setReviewData({ ...reviewData, feedback: e.target.value })}
-                  rows={4}
-                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:outline-none resize-none"
-                  placeholder="Provide feedback for the report..."
-                />
-              </div>
-              <div className="flex justify-end gap-3 pt-4">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowReviewModal(false)}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                  onClick={handleOpenInNewTab}
+                  className="px-3 py-1.5 text-xs font-medium text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition-colors flex items-center gap-1.5"
                 >
-                  Cancel
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Open in New Tab
                 </button>
                 <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50"
+                  type="button"
+                  onClick={handleClosePdfPreview}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                 >
-                  {isSubmitting ? 'Submitting...' : 'Submit Review'}
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                 </button>
               </div>
-            </form>
+            </div>
+
+            {/* PDF Viewer Body */}
+            <div className="flex-1 overflow-hidden bg-slate-100 p-2">
+              <div className="w-full h-full bg-white rounded-lg shadow-inner overflow-hidden">
+                <object
+                  data={pdfPreviewUrl}
+                  type="application/pdf"
+                  className="w-full h-full"
+                >
+                  <div className="flex items-center justify-center h-full flex-col gap-4 p-8 text-center">
+                    <svg className="w-16 h-16 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <div>
+                      <p className="text-sm font-medium text-slate-700">Unable to preview PDF directly</p>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Click the button below to open in a new tab
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleOpenInNewTab}
+                        className="mt-3 px-4 py-2 text-sm font-medium text-white bg-cyan-600 hover:bg-cyan-700 rounded-lg transition-colors"
+                      >
+                        Open PDF in New Tab
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-400 max-w-md">
+                      Chrome may block PDF previews due to security restrictions. 
+                      Using a new tab provides the best viewing experience.
+                    </p>
+                  </div>
+                </object>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center justify-between px-6 py-3 border-t border-slate-200 bg-slate-50/80 shrink-0">
+              <p className="text-xs text-slate-500">
+                Document generated on {new Date().toLocaleDateString()}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleClosePdfPreview}
+                  className="px-4 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                >
+                  Close Preview
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -575,4 +950,4 @@ const RegistryReports: React.FC = () => {
   );
 };
 
-export default RegistryReports;
+export default DHRegistryReports;

@@ -35,6 +35,7 @@ import conferenceReducer from "./slices/conferenceSlice"
 import utilitiesReducer from "./slices/utilitiesSlice"
 import successionCourtsReducer from "./slices/successionCourts.slice"
 import stationEngagementReducer from "./slices/stationEngagement.slice"
+import principalRegistryReportReducer  from "./slices/principalRegistryReportSlice"
 
 export const store = configureStore({
   reducer: {
@@ -71,7 +72,8 @@ export const store = configureStore({
     conference: conferenceReducer,
     utilities: utilitiesReducer,
     successionCourts: successionCourtsReducer,
-    stationEngagement: stationEngagementReducer
+    stationEngagement: stationEngagementReducer,
+    principalRegistryReport: principalRegistryReportReducer
   },
 });
 
