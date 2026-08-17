@@ -2348,7 +2348,6 @@ const AdminMemoandLetters: React.FC = () => {
   const { documents, loading, error, pagination } =
     useAppSelector((state) => state.documents);
 
-  const [activeTab, setActiveTab] = useState<"all" | "my_action">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [showMarkModal, setShowMarkModal] = useState(false);
@@ -2366,14 +2365,14 @@ const AdminMemoandLetters: React.FC = () => {
     [documents]
   );
 
-  // Fetch documents
+  // Fetch documents - all users see all documents
   useEffect(() => {
     if (!canView) return;
     const params: DocumentFilters = { page: 1, limit: 10 };
-    if (activeTab === "my_action") params.for_my_action = true;
     if (searchQuery) params.search = searchQuery;
+    // No user-based filtering - everyone sees all documents
     dispatch(fetchDocuments(params));
-  }, [dispatch, activeTab, searchQuery, canView]);
+  }, [dispatch, searchQuery, canView]);
 
   // Handlers
   const handleDelete = (id: string) => {
@@ -2408,8 +2407,8 @@ const AdminMemoandLetters: React.FC = () => {
 
   const handlePageChange = (page: number) => {
     const params: DocumentFilters = { page, limit: 10 };
-    if (activeTab === "my_action") params.for_my_action = true;
     if (searchQuery) params.search = searchQuery;
+    // No user-based filtering on page change
     dispatch(fetchDocuments(params));
   };
 
@@ -2468,23 +2467,22 @@ const AdminMemoandLetters: React.FC = () => {
     }
   };
 
-  const handleTemplateCreated = (doc: Document) => {
-    toast.success(`${doc.type} created successfully`);
-    setShowComposer(null);
-    setSelectedDocument(doc);
-    // Refresh list
-    const params: DocumentFilters = { page: 1, limit: 10 };
-    if (activeTab === "my_action") params.for_my_action = true;
-    if (searchQuery) params.search = searchQuery;
-    dispatch(fetchDocuments(params));
-  };
-
   const handleDownload = () => {
     if (!selectedDocument?.file_url) {
       toast.error('No file available to download');
       return;
     }
     window.open(selectedDocument.file_url, '_blank');
+  };
+
+  const handleTemplateCreated = (doc: Document) => {
+    toast.success(`${doc.type} created successfully`);
+    setShowComposer(null);
+    setSelectedDocument(doc);
+    // Refresh list
+    const params: DocumentFilters = { page: 1, limit: 10 };
+    if (searchQuery) params.search = searchQuery;
+    dispatch(fetchDocuments(params));
   };
 
   if (!canView) {
@@ -2583,26 +2581,6 @@ const AdminMemoandLetters: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
-          </div>
-
-          {/* Tabs */}
-          <div className="flex gap-1 px-3 pb-2 overflow-x-auto">
-            <button
-              onClick={() => setActiveTab("all")}
-              className={`flex-1 rounded-md px-1.5 py-1.5 text-[9px] font-semibold transition-colors ${
-                activeTab === "all" ? "bg-[#1E4620] text-white" : "text-stone-500 hover:bg-stone-100"
-              }`}
-            >
-              All
-            </button>
-            <button
-              onClick={() => setActiveTab("my_action")}
-              className={`flex-1 rounded-md px-1.5 py-1.5 text-[9px] font-semibold transition-colors ${
-                activeTab === "my_action" ? "bg-[#1E4620] text-white" : "text-stone-500 hover:bg-stone-100"
-              }`}
-            >
-              For My Action
-            </button>
           </div>
 
           {/* Document List */}
