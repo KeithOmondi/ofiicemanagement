@@ -105,33 +105,14 @@ const ReportDetailView: React.FC<{ report: ServiceWeekReport }> = ({ report }) =
         </div>
       </div>
 
-      {/* Signatures */}
+      {/* Submitted By — only remaining sign-off, matches the PDF's single footer block */}
       <div>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-[#9C7A1E] mb-2">Signatures</h4>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-3 border border-stone-200 rounded-lg bg-gray-50/50">
-            <h5 className="text-sm font-semibold text-stone-700 mb-2">Prepared by (Court Assistant)</h5>
-            <div className="space-y-2 text-sm">
-              <div><span className="text-gray-500">Name:</span> {report.prepared_by || '—'}</div>
-              <div><span className="text-gray-500">Designation:</span> {report.prepared_designation || '—'}</div>
-              <div><span className="text-gray-500">Date:</span> {fmtDate(report.prepared_date) || '—'}</div>
-            </div>
-          </div>
-          <div className="p-3 border border-stone-200 rounded-lg bg-gray-50/50">
-            <h5 className="text-sm font-semibold text-stone-700 mb-2">Confirmed by (Deputy Registrar)</h5>
-            <div className="space-y-2 text-sm">
-              <div><span className="text-gray-500">Name:</span> {report.confirmed_by || '—'}</div>
-              <div><span className="text-gray-500">Designation:</span> {report.confirmed_designation || '—'}</div>
-              <div><span className="text-gray-500">Date:</span> {fmtDate(report.confirmed_date) || '—'}</div>
-            </div>
-          </div>
-          <div className="p-3 border border-stone-200 rounded-lg bg-gray-50/50">
-            <h5 className="text-sm font-semibold text-stone-700 mb-2">Approved by (Judge)</h5>
-            <div className="space-y-2 text-sm">
-              <div><span className="text-gray-500">Name:</span> {report.approved_by || '—'}</div>
-              <div><span className="text-gray-500">Designation:</span> {report.approved_designation || '—'}</div>
-              <div><span className="text-gray-500">Date:</span> {fmtDate(report.approved_date) || '—'}</div>
-            </div>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-[#9C7A1E] mb-2">Submitted By</h4>
+        <div className="p-3 border border-stone-200 rounded-lg bg-gray-50/50 max-w-md">
+          <div className="space-y-2 text-sm">
+            <div><span className="text-gray-500">Name:</span> {report.prepared_by || '—'}</div>
+            <div><span className="text-gray-500">Designation:</span> {report.prepared_designation || '—'}</div>
+            <div><span className="text-gray-500">Date:</span> {fmtDate(report.prepared_date) || '—'}</div>
           </div>
         </div>
       </div>
