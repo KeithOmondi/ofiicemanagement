@@ -10,6 +10,9 @@ import {
   createReport,
   selectIsSubmitting,
   selectError as selectReportError,
+  generatePDFPreview,
+  selectPDFPreview,
+  selectIsGeneratingPDF,
 } from '../../store/slices/stationEngagement.slice';
 import type { SuccessionCourtWithUser, SuccessionCourtCategory } from '../../types/succession-courts';
 import type {
@@ -21,34 +24,38 @@ import type {
   EngagementStatus,
   ReasonNotReached,
 } from '../../types/station-engagement.types';
-import type { SerializedError } from '@reduxjs/toolkit';
-import type { AxiosError } from 'axios';
 
 // ============================================================
 // src/pages/staff/RegistryNewReport.tsx
 //
 // Weekly Station Engagement Report — Sections A through F.
-//
-// This component now connects to the Redux store using the
-// stationEngagement slice. The handleSave function dispatches
-// createReport with the properly formatted payload.
+// Supports: Draft saving, Submit to Admin, PDF Preview
 // ============================================================
 
-const MODES: EngagementMode[] = ['phone_call', 'whatsapp', 'email', 'physical_visit', 'webinar_followup', 'video_call'];
+const MODES: EngagementMode[] = [
+  'phone_call',
+  'whatsapp',
+  'email',
+  'physical_visit',
+  'webinar_followup',
+  'video_call',
+  'walk_in',
+];
+
 const STATUSES: EngagementStatus[] = ['resolved', 'ongoing', 'escalated'];
 const URGENCIES: Urgency[] = ['high', 'medium', 'low'];
 const REASONS: ReasonNotReached[] = ['no_response', 'wrong_contact', 'station_closed', 'staff_unavailable', 'technical_issues', 'other'];
 
 interface Engagement {
   id: string;
-  courtId: string; // FK into successionCourts — '' until a station is picked
-  station: string; // denormalized court.station, filled on select for display
+  courtId: string;
+  station: string;
   category: SuccessionCourtCategory | '';
   date: string;
   contact: string;
-  role: string; // contact role
+  role: string;
   mode: EngagementMode | '';
-  issue: string; // issues_raised as comma-separated or newline-separated
+  issue: string;
   status: EngagementStatus | '';
   action: string;
   followup: string;
@@ -61,13 +68,13 @@ interface NotReached {
   station: string;
   category: SuccessionCourtCategory | '';
   reason: ReasonNotReached | '';
-  reasonDetail: string; // free text for 'other'
+  reasonDetail: string;
   plannedDate: string;
 }
 
 interface EscalationItem {
   id: string;
-  station: string; // free text — not necessarily one of the officer's assigned courts
+  station: string;
   issue: string;
   why: string;
   action: string;
@@ -80,7 +87,7 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 
 const todayMonday = (offsetWeeks = 0): string => {
   const d = new Date();
-  const day = d.getDay(); // 0 Sun .. 6 Sat
+  const day = d.getDay();
   const diffToMon = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diffToMon + offsetWeeks * 7);
   return d.toISOString().slice(0, 10);
@@ -117,12 +124,22 @@ const MODE_LABELS: Record<EngagementMode, string> = {
   physical_visit: 'Physical Visit',
   webinar_followup: 'Webinar Follow-up',
   video_call: 'Video Call',
+  walk_in: 'Walk-in',
 };
 
 const URGENCY_LABELS: Record<Urgency, string> = {
   high: 'High',
   medium: 'Medium',
   low: 'Low',
+};
+
+const REASON_LABELS: Record<ReasonNotReached, string> = {
+  no_response: 'No Response',
+  wrong_contact: 'Wrong Contact',
+  station_closed: 'Station Closed',
+  staff_unavailable: 'Staff Unavailable',
+  technical_issues: 'Technical Issues',
+  other: 'Other',
 };
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -136,6 +153,8 @@ const RegistryNewReport: React.FC = () => {
   const courtError = useAppSelector(selectCourtError);
   const isSubmitting = useAppSelector(selectIsSubmitting);
   const submitError = useAppSelector(selectReportError);
+  const pdfPreview = useAppSelector(selectPDFPreview);
+  const isGeneratingPDF = useAppSelector(selectIsGeneratingPDF);
 
   // ─── Fetch the courts assigned to this officer ───────────────────────────
   useEffect(() => {
@@ -155,6 +174,7 @@ const RegistryNewReport: React.FC = () => {
   const [priorities, setPriorities] = useState<string>('');
   const [saveMsg, setSaveMsg] = useState<string>('');
   const [saveError, setSaveError] = useState<string>('');
+  const [isSavingDraft, setIsSavingDraft] = useState<boolean>(false);
 
   const engagedCourtIds = useMemo(
     () => new Set(engagements.map((e) => e.courtId).filter(Boolean)),
@@ -171,8 +191,20 @@ const RegistryNewReport: React.FC = () => {
     setEngagements((prev) => [
       ...prev,
       {
-        id: uid(), courtId: '', station: '', category: '', date: weekKey, contact: '', role: '',
-        mode: '', issue: '', status: '', action: '', followup: '', why: '', urgency: '',
+        id: uid(),
+        courtId: '',
+        station: '',
+        category: '',
+        date: weekKey,
+        contact: '',
+        role: '',
+        mode: '',
+        issue: '',
+        status: '',
+        action: '',
+        followup: '',
+        why: '',
+        urgency: '',
       },
     ]);
   };
@@ -199,20 +231,20 @@ const RegistryNewReport: React.FC = () => {
   // ─── Not-reached handlers ────────────────────────────────────────────────
 
   const getNotReached = (courtId: string, station: string, category: SuccessionCourtCategory): NotReached =>
-    notReached.find((n) => n.courtId === courtId) ?? { 
-      courtId, 
-      station, 
+    notReached.find((n) => n.courtId === courtId) ?? {
+      courtId,
+      station,
       category,
-      reason: '', 
+      reason: '',
       reasonDetail: '',
-      plannedDate: '' 
+      plannedDate: '',
     };
 
   const updNotReached = (
-    courtId: string, 
-    station: string, 
+    courtId: string,
+    station: string,
     category: SuccessionCourtCategory,
-    field: keyof Omit<NotReached, 'courtId' | 'station' | 'category'>, 
+    field: keyof Omit<NotReached, 'courtId' | 'station' | 'category'>,
     value: string
   ) => {
     setNotReached((prev) => {
@@ -238,44 +270,35 @@ const RegistryNewReport: React.FC = () => {
     setEscalations((prev) => prev.map((e) => (e.id === id ? { ...e, [field]: value } : e)));
   };
 
-  // ─── Build payload and save ──────────────────────────────────────────────
+// ─── Build Payload ──────────────────────────────────────────────────────
 
-// ─── Build payload and save ──────────────────────────────────────────────
+// ─── Build Payload ──────────────────────────────────────────────────────
 
 const buildPayload = (): CreateEngagementReportPayload => {
   console.log('🔍 Building payload...');
-  console.log('📊 Engagements:', engagements);
-  console.log('📊 Not Reached:', notReached);
-  console.log('📊 Escalations:', escalations);
-  console.log('📊 My Courts:', myCourts.length);
 
   // Get unique categories from engagements
   const categories = new Set<SuccessionCourtCategory>();
-  engagements.forEach(e => {
+  engagements.forEach((e) => {
     if (e.category) categories.add(e.category as SuccessionCourtCategory);
   });
-  // Also check not reached stations
-  notReached.forEach(n => {
+  notReached.forEach((n) => {
     if (n.category) categories.add(n.category);
   });
-
-  // If no categories found, default to courts' categories
   if (categories.size === 0 && myCourts.length > 0) {
-    myCourts.forEach(c => {
+    myCourts.forEach((c) => {
       categories.add(c.category);
     });
   }
 
-  console.log('📂 Categories:', Array.from(categories));
-
   // Build engagements array
   const engagementInputs: EngagementInput[] = engagements
-    .filter(e => e.courtId && e.station && e.mode && e.status)
-    .map(e => {
-      const issues = e.issue 
-        ? e.issue.split(/[,\n]/).map(s => s.trim()).filter(Boolean) 
+    .filter((e) => e.courtId && e.station && e.mode && e.status)
+    .map((e) => {
+      const issues = e.issue
+        ? e.issue.split(/[,\n]/).map((s) => s.trim()).filter(Boolean)
         : ['No specific issues raised'];
-      
+
       return {
         station_id: e.courtId,
         station_name: e.station,
@@ -294,44 +317,57 @@ const buildPayload = (): CreateEngagementReportPayload => {
       };
     });
 
-  console.log('📋 Engagement Inputs:', engagementInputs.length);
+  // ✅ Build unengaged stations - only include those with a reason
+  const unengagedInputs: Array<{
+    station_id: string;
+    reason_not_reached?: ReasonNotReached;
+    reason_not_reached_detail?: string;
+    planned_engagement_date?: string;
+  }> = [];
 
-  // Build unengaged stations array - ADD CATEGORY FIELD
-  const unengagedInputs = notReachedAuto.map(c => {
+  notReachedAuto.forEach((c) => {
     const nr = getNotReached(c.id, c.station, c.category);
-    return {
-      station_id: c.id,
-      category: c.category, // ← ADD THIS - required by backend
-      reason_not_reached: nr.reason || undefined,
-      reason_not_reached_detail: nr.reason === 'other' ? nr.reasonDetail || undefined : undefined,
-      planned_engagement_date: nr.plannedDate || undefined,
-    };
+    
+    // Only include if a reason has been explicitly selected
+    if (nr.reason) {
+      unengagedInputs.push({
+        station_id: c.id,
+        reason_not_reached: nr.reason,
+        reason_not_reached_detail: nr.reason === 'other' ? (nr.reasonDetail || undefined) : undefined,
+        planned_engagement_date: nr.plannedDate || undefined,
+      });
+    }
   });
 
-  console.log('📋 Unengaged Inputs:', unengagedInputs.length);
+  // ✅ Build escalations - filter first, then map
+  const escalationInputs: EscalationItemInput[] = [];
 
-  // Build escalations array - FIX station_id
-  const escalationInputs: EscalationItemInput[] = escalations
-    .filter(e => e.station && e.issue && e.why && e.urgency)
-    .map(e => {
-      // Try to find a matching court by station name
-      const matchingCourt = myCourts.find(c => 
-        c.station.toLowerCase().includes(e.station.toLowerCase()) || 
-        e.station.toLowerCase().includes(c.station.toLowerCase())
+  escalations
+    .filter((e) => e.station && e.issue && e.why && e.urgency)
+    .forEach((e) => {
+      const matchingCourt = myCourts.find(
+        (c) =>
+          c.station.toLowerCase().includes(e.station.toLowerCase()) ||
+          e.station.toLowerCase().includes(c.station.toLowerCase())
       );
-      
-      return {
-        station_id: matchingCourt?.id || '00000000-0000-0000-0000-000000000000', // Use placeholder UUID
+
+      const fallbackStationId = myCourts.length > 0 ? myCourts[0].id : undefined;
+
+      if (!matchingCourt && !fallbackStationId) {
+        console.warn('⚠️ Skipping escalation - no station found for:', e.station);
+        return;
+      }
+
+      escalationInputs.push({
+        station_id: matchingCourt?.id || fallbackStationId!,
         station_name: e.station,
         issue: e.issue,
         why_needs_escalation: e.why,
-        recommended_action: e.action || '',
+        recommended_action: e.action || 'No action specified',
         urgency: e.urgency as Urgency,
         source_engagement_id: null,
-      };
+      });
     });
-
-  console.log('📋 Escalation Inputs:', escalationInputs.length);
 
   const payload: CreateEngagementReportPayload = {
     week_start: weekKey,
@@ -352,92 +388,121 @@ const buildPayload = (): CreateEngagementReportPayload => {
   return payload;
 };
 
-  // ─── Error response type ──────────────────────────────────────────────────
+// ─── Save Handler ──────────────────────────────────────────────────────
 
-  interface ErrorResponse {
-    message?: string;
-    errors?: Record<string, string | string[]>;
-    statusCode?: number;
+const handleSave = async (saveAsDraft: boolean = false) => {
+  // Reset states
+  setSaveMsg('');
+  setSaveError('');
+  setIsSavingDraft(saveAsDraft);
+
+  // ─── Validation ──────────────────────────────────────────────────────────
+
+  // 1. Check authentication
+  if (!user?.id) {
+    setSaveError('User not authenticated. Please log in again.');
+    setIsSavingDraft(false);
+    return;
   }
 
-  const handleSave = async () => {
-    setSaveMsg('');
-    setSaveError('');
+  // 2. Check if courts are assigned
+  if (myCourts.length === 0) {
+    setSaveError('No courts assigned to you. Cannot create a report.');
+    setIsSavingDraft(false);
+    return;
+  }
 
-    console.log('🚀 Starting save...');
-    console.log('👤 User:', user?.id);
+  // 3. Check if there are any engagements OR unengaged stations with reasons
+  const hasValidEngagements = engagements.some((e) => e.courtId && e.mode && e.status);
+  const hasUnengagedWithReason = notReachedAuto.some((c) => {
+    const nr = getNotReached(c.id, c.station, c.category);
+    return !!nr.reason;
+  });
+  
+  if (!hasValidEngagements && !hasUnengagedWithReason) {
+    setSaveError('Please add at least one engagement or provide a reason for unengaged stations.');
+    setIsSavingDraft(false);
+    return;
+  }
 
-    // Validation
-    if (!user?.id) {
-      const msg = 'User not authenticated. Please log in again.';
-      console.error('❌', msg);
-      setSaveError(msg);
-      return;
+  // 4. ✅ FIX: Only validate unengaged stations that have a partial entry
+  // If a station has a reason selected, make sure it's complete
+  const incompleteUnengaged = notReachedAuto.filter((c) => {
+    const nr = getNotReached(c.id, c.station, c.category);
+    // If they selected 'other' but didn't provide details
+    if (nr.reason === 'other' && !nr.reasonDetail?.trim()) {
+      return true;
     }
+    return false;
+  });
+  
+  if (incompleteUnengaged.length > 0) {
+    setSaveError(`Please provide details for ${incompleteUnengaged.length} station(s) where "Other" was selected as the reason.`);
+    setIsSavingDraft(false);
+    return;
+  }
 
-    if (myCourts.length === 0) {
-      const msg = 'No courts assigned to you. Cannot create a report.';
-      console.error('❌', msg);
-      setSaveError(msg);
-      return;
-    }
+  // 5. Validate escalated engagements
+  const invalidEscalations = engagements.filter((e) => e.status === 'escalated' && (!e.urgency || !e.why));
+  if (invalidEscalations.length > 0) {
+    setSaveError(`Please provide urgency and reason for ${invalidEscalations.length} escalated engagement(s).`);
+    setIsSavingDraft(false);
+    return;
+  }
 
-    // Check if there are any engagements or unengaged stations
-    const hasValidEngagements = engagements.some(e => e.courtId && e.mode && e.status);
-    if (!hasValidEngagements && notReachedAuto.length === 0) {
-      const msg = 'Please add at least one engagement or acknowledge unengaged stations.';
-      console.error('❌', msg);
-      setSaveError(msg);
-      return;
-    }
+  // 6. Validate escalations section
+  const invalidEscalationItems = escalations.filter((e) => e.station && e.issue && e.why && !e.urgency);
+  if (invalidEscalationItems.length > 0) {
+    setSaveError('Please provide urgency for all escalation items.');
+    setIsSavingDraft(false);
+    return;
+  }
 
-    // Validate escalated engagements
-    const invalidEscalations = engagements.filter(e => 
-      e.status === 'escalated' && (!e.urgency || !e.why)
-    );
-    if (invalidEscalations.length > 0) {
-      const msg = `Please provide urgency and reason for ${invalidEscalations.length} escalated engagement(s).`;
-      console.error('❌', msg);
-      setSaveError(msg);
-      return;
-    }
+  // 7. Validate escalation items have recommended action
+  const escalationWithoutAction = escalations.filter((e) => e.station && e.issue && e.why && e.urgency && !e.action);
+  if (escalationWithoutAction.length > 0) {
+    setSaveError('Please provide a recommended action for all escalation items.');
+    setIsSavingDraft(false);
+    return;
+  }
 
-    try {
-      const payload = buildPayload();
-      console.log('📤 Sending to API...');
-      
-      const result = await dispatch(createReport(payload)).unwrap();
-      console.log('✅ Success! Report created:', result);
-      
-      setSaveMsg(`✓ Report submitted successfully! ID: ${result.id.slice(0, 8)}`);
-      
-      // Optionally reset form or navigate to view
-      // navigate(`/staff/reports/${result.id}`);
-    } catch (err: unknown) {
-      console.error('❌ Save error - Full error:', err);
-      
-      // Type guard for Axios error
-      const isAxiosError = (error: unknown): error is AxiosError<ErrorResponse> => {
-        return typeof error === 'object' && error !== null && 'isAxiosError' in error && (error as AxiosError).isAxiosError === true;
-      };
+  // ─── Build and Send Payload ─────────────────────────────────────────────
 
-      // Type guard for SerializedError
-      const isSerializedError = (error: unknown): error is SerializedError => {
-        return typeof error === 'object' && error !== null && 'message' in error;
-      };
+  try {
+    const payload = buildPayload();
 
-      if (isAxiosError(err) && err.response) {
-        console.error('📄 Response data:', err.response.data);
-        console.error('📊 Response status:', err.response.status);
-        console.error('📋 Response headers:', err.response.headers);
-        
-        const errorData = err.response.data;
-        let errorMessage = 'Failed to save report. ';
-        
-        if (errorData?.message) {
-          errorMessage += errorData.message;
-        } else if (errorData?.errors) {
-          const errorMessages = Object.entries(errorData.errors)
+    console.log('📤 saveAsDraft:', saveAsDraft);
+    console.log('📤 Payload:', JSON.stringify(payload, null, 2));
+
+    const payloadWithDraftFlag = {
+      ...payload,
+      saveAsDraft,
+    };
+
+    const result = await dispatch(createReport(payloadWithDraftFlag)).unwrap();
+
+    const message = saveAsDraft
+      ? `✅ Draft saved successfully! ID: ${result.id.slice(0, 8)}`
+      : `✅ Report submitted successfully! ID: ${result.id.slice(0, 8)}`;
+    setSaveMsg(message);
+
+  } catch (err: unknown) {
+    console.error('❌ Save error:', err);
+
+    let errorMessage = 'Failed to save report. ';
+
+    if (err && typeof err === 'object' && 'response' in err) {
+      const response = (err as { response: { data: unknown; status: number; statusText: string } }).response;
+
+      console.error('📄 Server response:', JSON.stringify(response?.data, null, 2));
+
+      if (response?.data && typeof response.data === 'object') {
+        const data = response.data as { message?: string; errors?: Record<string, string | string[]> };
+
+        if (data.message) {
+          errorMessage += data.message;
+        } else if (data.errors) {
+          const errorMessages = Object.entries(data.errors)
             .map(([field, msgs]) => {
               const messages = Array.isArray(msgs) ? msgs.join(', ') : String(msgs);
               return `${field}: ${messages}`;
@@ -445,24 +510,64 @@ const buildPayload = (): CreateEngagementReportPayload => {
             .join('; ');
           errorMessage += `Validation errors: ${errorMessages}`;
         } else {
-          errorMessage += `Server error: ${err.response.status} - ${err.response.statusText}`;
+          errorMessage += `Server error: ${response.status} - ${response.statusText}`;
         }
-        
-        setSaveError(errorMessage);
-      } else if (isAxiosError(err) && err.request) {
-        console.error('📄 No response received:', err.request);
-        setSaveError('No response from server. Please check your connection.');
-      } else if (isSerializedError(err)) {
-        setSaveError(err.message || 'Failed to save report. Please try again.');
-      } else if (err instanceof Error) {
-        setSaveError(err.message || 'Failed to save report. Please try again.');
       } else {
-        setSaveError('An unknown error occurred. Please try again.');
+        errorMessage += `Server error: ${response?.status} - ${response?.statusText || 'Unknown error'}`;
       }
+    } else if (err instanceof Error) {
+      errorMessage += err.message;
+    } else {
+      errorMessage = 'An unknown error occurred. Please try again.';
+    }
+
+    setSaveError(errorMessage);
+
+  } finally {
+    setIsSavingDraft(false);
+  }
+};
+
+  // ─── Handle PDF Preview ──────────────────────────────────────────────────
+
+  const handlePDFPreview = async () => {
+    setSaveError('');
+    setSaveMsg('');
+
+    // First ensure the report is saved as draft
+    if (engagements.length === 0 && notReachedAuto.length === 0) {
+      setSaveError('Please add at least one engagement before generating a preview.');
+      return;
+    }
+
+    try {
+      // Save as draft first
+      const payload = buildPayload();
+      const result = await dispatch(createReport({ ...payload, saveAsDraft: true })).unwrap();
+
+      // Generate preview
+      const previewResult = await dispatch(generatePDFPreview({
+        id: result.id,
+        options: { page: 1, scale: 1 }
+      })).unwrap();
+
+      if (previewResult.previewData) {
+        // Open preview in new window or modal
+        const blob = new Blob(
+          [Uint8Array.from(atob(previewResult.previewData), c => c.charCodeAt(0))],
+          { type: 'application/pdf' }
+        );
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        setSaveMsg('✓ PDF preview generated successfully!');
+      }
+    } catch (err) {
+      console.error('❌ PDF Preview error:', err);
+      setSaveError('Failed to generate PDF preview. Please try again.');
     }
   };
 
-  // ─── Loading / error states for the courts fetch ─────────────────────────
+  // ─── Loading / error states ──────────────────────────────────────────────
 
   if (isLoadingCourts && courts.length === 0) {
     return (
@@ -481,6 +586,8 @@ const buildPayload = (): CreateEngagementReportPayload => {
       </div>
     );
   }
+
+  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -709,7 +816,7 @@ const buildPayload = (): CreateEngagementReportPayload => {
           C. Stations Not Yet Engaged (auto-detected: {notReachedAuto.length} of {myCourts.length})
         </h3>
         <p className="text-xs text-stone-500 mb-3">
-          Optionally note a reason and planned date for each — otherwise leave blank and update next week.
+          Select a reason for each unengaged station. This is required before submitting.
         </p>
         <div className="space-y-2">
           {notReachedAuto.length === 0 && (
@@ -719,8 +826,9 @@ const buildPayload = (): CreateEngagementReportPayload => {
           )}
           {notReachedAuto.map((court) => {
             const row = getNotReached(court.id, court.station, court.category);
+            const hasReason = !!row.reason;
             return (
-              <div key={court.id} className="border border-stone-200 rounded-lg p-3">
+              <div key={court.id} className={`border rounded-lg p-3 ${hasReason ? 'border-stone-200' : 'border-amber-200 bg-amber-50/30'}`}>
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-stone-700 mb-1">Station</label>
@@ -732,17 +840,23 @@ const buildPayload = (): CreateEngagementReportPayload => {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-stone-700 mb-1">Reason Not Reached</label>
+                    <label className="block text-xs font-semibold text-stone-700 mb-1">
+                      Reason Not Reached
+                      <span className="text-red-500 ml-1">*</span>
+                    </label>
                     <select
                       value={row.reason}
                       onChange={(ev) => updNotReached(court.id, court.station, court.category, 'reason', ev.target.value as ReasonNotReached)}
-                      className="w-full border border-stone-300 rounded-md px-2 py-1.5 text-sm"
+                      className={`w-full border rounded-md px-2 py-1.5 text-sm ${!hasReason ? 'border-amber-400 bg-amber-50' : 'border-stone-300'}`}
                     >
                       <option value="">Select reason...</option>
                       {REASONS.map((r) => (
-                        <option key={r} value={r}>{r.replace('_', ' ').toUpperCase()}</option>
+                        <option key={r} value={r}>{REASON_LABELS[r]}</option>
                       ))}
                     </select>
+                    {!hasReason && (
+                      <p className="text-xs text-amber-600 mt-1">⚠️ Required</p>
+                    )}
                   </div>
                   {row.reason === 'other' && (
                     <div>
@@ -799,7 +913,10 @@ const buildPayload = (): CreateEngagementReportPayload => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-stone-700 mb-1">Urgency</label>
+                  <label className="block text-xs font-semibold text-stone-700 mb-1">
+                    Urgency
+                    <span className="text-red-500 ml-1">*</span>
+                  </label>
                   <select
                     value={e.urgency}
                     onChange={(ev) => updEsc(e.id, 'urgency', ev.target.value as Urgency)}
@@ -813,7 +930,10 @@ const buildPayload = (): CreateEngagementReportPayload => {
                 </div>
               </div>
               <div className="mb-3">
-                <label className="block text-xs font-semibold text-stone-700 mb-1">Issue</label>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">
+                  Issue
+                  <span className="text-red-500 ml-1">*</span>
+                </label>
                 <textarea
                   value={e.issue}
                   onChange={(ev) => updEsc(e.id, 'issue', ev.target.value)}
@@ -823,7 +943,10 @@ const buildPayload = (): CreateEngagementReportPayload => {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-stone-700 mb-1">Why It Needs Escalation</label>
+                  <label className="block text-xs font-semibold text-stone-700 mb-1">
+                    Why It Needs Escalation
+                    <span className="text-red-500 ml-1">*</span>
+                  </label>
                   <textarea
                     value={e.why}
                     onChange={(ev) => updEsc(e.id, 'why', ev.target.value)}
@@ -832,12 +955,16 @@ const buildPayload = (): CreateEngagementReportPayload => {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-stone-700 mb-1">Recommended Action</label>
+                  <label className="block text-xs font-semibold text-stone-700 mb-1">
+                    Recommended Action
+                    <span className="text-red-500 ml-1">*</span>
+                  </label>
                   <textarea
                     value={e.action}
                     onChange={(ev) => updEsc(e.id, 'action', ev.target.value)}
                     rows={2}
                     className="w-full border border-stone-300 rounded-md px-2 py-1.5 text-sm"
+                    placeholder="Required"
                   />
                 </div>
               </div>
@@ -876,19 +1003,55 @@ const buildPayload = (): CreateEngagementReportPayload => {
         />
 
         {/* Save bar */}
-        <div className="flex items-center gap-3 mt-5">
+        <div className="flex flex-wrap items-center gap-3 mt-5">
           <button
             type="button"
-            onClick={handleSave}
-            disabled={isSubmitting}
+            onClick={() => handleSave(false)}
+            disabled={isSubmitting || isGeneratingPDF}
             className="bg-[#1E4620] text-white text-sm font-semibold rounded-md px-4 py-2 hover:bg-[#132A1D] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isSubmitting ? 'Saving...' : 'Save Report'}
+            {isSubmitting && !isSavingDraft ? 'Submitting...' : 'Submit to Admin'}
           </button>
+
+          <button
+            type="button"
+            onClick={() => handleSave(true)}
+            disabled={isSubmitting || isGeneratingPDF}
+            className="bg-stone-600 text-white text-sm font-semibold rounded-md px-4 py-2 hover:bg-stone-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSavingDraft ? 'Saving Draft...' : 'Save as Draft'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handlePDFPreview}
+            disabled={isGeneratingPDF || engagements.length === 0}
+            className="bg-[#9C7A1E] text-white text-sm font-semibold rounded-md px-4 py-2 hover:bg-[#7A5E18] disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isGeneratingPDF ? 'Generating Preview...' : 'Preview PDF'}
+          </button>
+
           {saveMsg && <span className="text-sm font-semibold text-[#3F7A4E]">{saveMsg}</span>}
           {saveError && <span className="text-sm font-semibold text-red-600">{saveError}</span>}
           {submitError && <span className="text-sm font-semibold text-red-600">{submitError}</span>}
         </div>
+
+        {/* Preview status */}
+        {pdfPreview.isGenerating && (
+          <div className="mt-3 text-sm text-stone-600">
+            Generating PDF preview...
+          </div>
+        )}
+        {pdfPreview.url && (
+          <div className="mt-3 text-sm text-[#3F7A4E]">
+            ✅ PDF preview ready. Click "Preview PDF" to view.
+          </div>
+        )}
+        {pdfPreview.error && (
+          <div className="mt-3 text-sm text-red-600">
+            ❌ {pdfPreview.error}
+          </div>
+        )}
       </div>
     </div>
   );

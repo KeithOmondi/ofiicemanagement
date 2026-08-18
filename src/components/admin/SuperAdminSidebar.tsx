@@ -238,6 +238,7 @@ const navigationConfig: NavSection[] = [
   {
     title: 'Others',
     items: [
+      { to: '/super-admin/service-week',      label: 'Service Week', icon: Icon.helpdesk },
       { to: '/super-admin/links',      label: 'Other Links', icon: Icon.helpdesk },
     ],
   },

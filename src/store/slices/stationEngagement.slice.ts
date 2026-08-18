@@ -1,6 +1,4 @@
-// ============================================================
 // src/features/station-engagement/store/stationEngagement.slice.ts
-// ============================================================
 
 import { createSlice, createAsyncThunk, createSelector, type PayloadAction } from '@reduxjs/toolkit';
 import axiosClient from '../../api/api';
@@ -18,6 +16,7 @@ import type {
   PaginatedResponse,
   Urgency,
   ReportStatus,
+  SubmitReportToAdminPayload,
 } from '../../types/station-engagement.types';
 import type { RootState } from '../../store/store';
 
@@ -42,6 +41,16 @@ const initialState: StationEngagementState = {
   isGeneratingPDF: false,
   isGeneratingExcel: false,
   excelData: null,
+  pdfPreview: {
+    url: null,
+    data: null,
+    isGenerating: false,
+    error: null,
+  },
+  downloadHistory: [],
+  draftReports: [],
+  isSavingDraft: false,
+  draftSavedAt: null,
 };
 
 const BASE_URL = '/station-engagement';
@@ -86,7 +95,11 @@ export const fetchReports = createAsyncThunk(
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') {
-        params.append(key, String(value));
+        if (typeof value === 'boolean') {
+          params.append(key, String(value));
+        } else {
+          params.append(key, String(value));
+        }
       }
     });
     const url = params.toString() ? `${BASE_URL}/reports?${params}` : `${BASE_URL}/reports`;
@@ -119,7 +132,6 @@ export const fetchReportSummary = createAsyncThunk(
 export const fetchReportsByWeek = createAsyncThunk(
   'stationEngagement/fetchReportsByWeek',
   async ({ week_start, week_end }: { week_start: string; week_end: string }) => {
-    // Ensure dates are in YYYY-MM-DD format
     const formattedStart = formatDateToYYYYMMDD(week_start);
     const formattedEnd = formatDateToYYYYMMDD(week_end);
     
@@ -144,6 +156,21 @@ export const fetchReportsByUser = createAsyncThunk(
     const url = params.toString() 
       ? `${BASE_URL}/reports/user/${userId}?${params}` 
       : `${BASE_URL}/reports/user/${userId}`;
+    const response = await axiosClient.get<ApiResponse<PaginatedResponse<StationEngagementReport>>>(url);
+    return extractPaginatedData(response.data);
+  }
+);
+
+export const fetchDraftsByUser = createAsyncThunk(
+  'stationEngagement/fetchDraftsByUser',
+  async (filters: EngagementReportFilters = {}) => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        params.append(key, String(value));
+      }
+    });
+    const url = params.toString() ? `${BASE_URL}/reports/drafts?${params}` : `${BASE_URL}/reports/drafts`;
     const response = await axiosClient.get<ApiResponse<PaginatedResponse<StationEngagementReport>>>(url);
     return extractPaginatedData(response.data);
   }
@@ -179,7 +206,32 @@ export const updateReport = createAsyncThunk(
   }
 );
 
-// ─── Submit Report ──────────────────────────────────────────────────────────
+// ─── Save as Draft ──────────────────────────────────────────────────────────
+
+export const saveAsDraft = createAsyncThunk(
+  'stationEngagement/saveAsDraft',
+  async (id: string) => {
+    const response = await axiosClient.post<ApiResponse<StationEngagementReport>>(
+      `${BASE_URL}/reports/${id}/draft`
+    );
+    return extractData(response.data);
+  }
+);
+
+// ─── Send to Admin ──────────────────────────────────────────────────────────
+
+export const sendToAdmin = createAsyncThunk(
+  'stationEngagement/sendToAdmin',
+  async (payload: SubmitReportToAdminPayload) => {
+    const response = await axiosClient.post<ApiResponse<StationEngagementReport>>(
+      `${BASE_URL}/reports/${payload.reportId}/send-to-admin`,
+      payload
+    );
+    return extractData(response.data);
+  }
+);
+
+// ─── Submit Report (Legacy) ────────────────────────────────────────────────
 
 export const submitReport = createAsyncThunk(
   'stationEngagement/submitReport',
@@ -214,6 +266,73 @@ export const deleteReport = createAsyncThunk(
   }
 );
 
+// ─── Generate PDF Preview ──────────────────────────────────────────────────
+
+// src/features/station-engagement/store/stationEngagement.slice.ts
+
+// ─── Generate PDF Preview ──────────────────────────────────────────────────
+
+export const generatePDFPreview = createAsyncThunk<
+  { previewUrl: string; previewData: string },
+  { id: string; options?: { page?: number; scale?: number } },
+  { rejectValue: string }
+>(
+  'stationEngagement/generatePDFPreview',
+  async ({ id, options }, { rejectWithValue }) => {
+    try {
+      // ✅ Always send an object with default values
+      const payload = {
+        page: options?.page ?? 1,
+        scale: options?.scale ?? 1,
+      };
+      
+      console.log('🔍 [SLICE] generatePDFPreview called with:', { id, options, payload });
+      
+      const url = `${BASE_URL}/reports/${id}/pdf/preview`;
+      console.log('🔍 [SLICE] Making POST request to:', url);
+      console.log('🔍 [SLICE] Request body:', JSON.stringify(payload, null, 2));
+      
+      const response = await axiosClient.post<ApiResponse<{ previewUrl: string; previewData: string }>>(
+        url,
+        payload
+      );
+      
+      console.log('✅ [SLICE] PDF preview response:', response.data);
+      return extractData(response.data);
+    } catch (error: unknown) {
+      console.error('❌ [SLICE] PDF Preview error:', error);
+      if (error && typeof error === 'object' && 'response' in error) {
+        const err = error as { response: { status: number; data: unknown } };
+        console.error('❌ [SLICE] Error status:', err.response.status);
+        console.error('❌ [SLICE] Error data:', JSON.stringify(err.response.data, null, 2));
+      }
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Failed to generate PDF preview';
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
+
+// ─── Attach PDF ─────────────────────────────────────────────────────────────
+
+export const attachPDF = createAsyncThunk(
+  'stationEngagement/attachPDF',
+  async ({ id, publicId, secureUrl, fileName, generatedAt }: { 
+    id: string; 
+    publicId: string; 
+    secureUrl: string; 
+    fileName?: string; 
+    generatedAt?: string;
+  }) => {
+    const response = await axiosClient.post<ApiResponse<StationEngagementReport>>(
+      `${BASE_URL}/reports/${id}/pdf/attach`,
+      { publicId, secureUrl, fileName, generatedAt }
+    );
+    return extractData(response.data);
+  }
+);
+
 // ─── Types for Export Responses ─────────────────────────────────────────────
 
 interface ExportResponse {
@@ -223,7 +342,12 @@ interface ExportResponse {
 
 // ─── Generate PDF ────────────────────────────────────────────────────────────
 
-export const generatePDF = createAsyncThunk<ExportResponse, string, { rejectValue: string }>(
+/**
+ * Generate a PDF for a report
+ * ✅ This works regardless of report status
+ * Returns the blob for download
+ */
+export const generatePDF = createAsyncThunk<Blob, string, { rejectValue: string }>(
   'stationEngagement/generatePDF',
   async (id: string, { rejectWithValue }) => {
     try {
@@ -233,11 +357,39 @@ export const generatePDF = createAsyncThunk<ExportResponse, string, { rejectValu
           responseType: 'blob',
         }
       );
-      return { blob: response.data as Blob, id };
+      return response.data as Blob;
     } catch (error: unknown) {
       const errorMessage = error instanceof Error 
         ? error.message 
         : 'Failed to generate PDF';
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
+
+// ─── Generate and Attach PDF ───────────────────────────────────────────────
+
+/**
+ * Generate a PDF, upload to Cloudinary, and attach to report in one step
+ * ✅ This works regardless of report status
+ * Returns the report with PDF attached
+ */
+export const generateAndAttachPDF = createAsyncThunk<
+  StationEngagementReport,
+  string,
+  { rejectValue: string }
+>(
+  'stationEngagement/generateAndAttachPDF',
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.post<ApiResponse<StationEngagementReport>>(
+        `${BASE_URL}/reports/${id}/pdf/generate-and-attach`
+      );
+      return extractData(response.data);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Failed to generate and attach PDF';
       return rejectWithValue(errorMessage);
     }
   }
@@ -287,6 +439,76 @@ export const generateBoth = createAsyncThunk<ExportResponse, string, { rejectVal
   }
 );
 
+// ─── Download Report ─────────────────────────────────────────────────────────
+
+export const downloadReport = createAsyncThunk<
+  { blob: Blob; id: string; format: 'pdf' | 'excel' },
+  { id: string; format: 'pdf' | 'excel' },
+  { rejectValue: string }
+>(
+  'stationEngagement/downloadReport',
+  async ({ id, format }, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get(
+        `${BASE_URL}/reports/${id}/download?format=${format}`,
+        {
+          responseType: 'blob',
+        }
+      );
+      return { blob: response.data as Blob, id, format };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Failed to download report';
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
+
+// ─── Bulk Export ─────────────────────────────────────────────────────────────
+
+export const bulkExport = createAsyncThunk<
+  { blob: Blob; count: number },
+  { reportIds: string[]; format: 'pdf' | 'excel' | 'both'; includeMetadata?: boolean },
+  { rejectValue: string }
+>(
+  'stationEngagement/bulkExport',
+  async ({ reportIds, format, includeMetadata = true }, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.post(
+        `${BASE_URL}/reports/bulk-export`,
+        {
+          report_ids: reportIds,
+          format,
+          include_metadata: includeMetadata,
+        },
+        {
+          responseType: 'blob',
+        }
+      );
+      return { blob: response.data as Blob, count: reportIds.length };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error 
+        ? error.message 
+        : 'Failed to bulk export reports';
+      return rejectWithValue(errorMessage);
+    }
+  }
+);
+
+// ─── Draft Management ──────────────────────────────────────────────────────
+
+export const manageDraft = createAsyncThunk(
+  'stationEngagement/manageDraft',
+  async ({ id, action, reason }: { id: string; action: 'save' | 'continue' | 'discard' | 'submit'; reason?: string }) => {
+    const response = await axiosClient.post<ApiResponse<StationEngagementReport>>(
+      `${BASE_URL}/reports/${id}/draft/manage`,
+      { action, reason }
+    );
+    return extractData(response.data);
+  }
+);
+
 // ─── Slice ────────────────────────────────────────────────────────────────────
 
 const stationEngagementSlice = createSlice({
@@ -311,6 +533,17 @@ const stationEngagementSlice = createSlice({
     },
     clearExcelData: (state) => {
       state.excelData = null;
+    },
+    clearPDFPreview: (state) => {
+      state.pdfPreview = {
+        url: null,
+        data: null,
+        isGenerating: false,
+        error: null,
+      };
+    },
+    clearDrafts: (state) => {
+      state.draftReports = [];
     },
     resetState: () => initialState,
   },
@@ -398,6 +631,20 @@ const stationEngagementSlice = createSlice({
         state.error = action.error.message || 'Failed to fetch user reports';
       })
 
+      // ── Fetch Drafts By User ──────────────────────────────────────────────
+      .addCase(fetchDraftsByUser.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(fetchDraftsByUser.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.draftReports = action.payload.data || [];
+      })
+      .addCase(fetchDraftsByUser.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.error.message || 'Failed to fetch drafts';
+      })
+
       // ── Fetch Stats ────────────────────────────────────────────────────────
       .addCase(fetchEngagementStats.pending, (state) => {
         state.isLoading = true;
@@ -451,6 +698,57 @@ const stationEngagementSlice = createSlice({
         state.isSubmitting = false;
         state.isLoading = false;
         state.error = action.error.message || 'Failed to update report';
+      })
+
+      // ── Save as Draft ─────────────────────────────────────────────────────
+      .addCase(saveAsDraft.pending, (state) => {
+        state.isSavingDraft = true;
+        state.isSubmitting = true;
+        state.error = null;
+      })
+      .addCase(saveAsDraft.fulfilled, (state, action) => {
+        state.isSavingDraft = false;
+        state.isSubmitting = false;
+        state.draftSavedAt = new Date().toISOString();
+        const index = state.reports.findIndex(r => r.id === action.payload.id);
+        if (index !== -1) {
+          state.reports[index] = action.payload;
+        }
+        if (state.currentReport?.id === action.payload.id) {
+          state.currentReport = action.payload;
+        }
+        if (!state.draftReports.find(r => r.id === action.payload.id)) {
+          state.draftReports = [action.payload, ...state.draftReports];
+        }
+      })
+      .addCase(saveAsDraft.rejected, (state, action) => {
+        state.isSavingDraft = false;
+        state.isSubmitting = false;
+        state.error = action.error.message || 'Failed to save draft';
+      })
+
+      // ── Send to Admin ─────────────────────────────────────────────────────
+      .addCase(sendToAdmin.pending, (state) => {
+        state.isSubmitting = true;
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(sendToAdmin.fulfilled, (state, action) => {
+        state.isSubmitting = false;
+        state.isLoading = false;
+        const index = state.reports.findIndex(r => r.id === action.payload.id);
+        if (index !== -1) {
+          state.reports[index] = action.payload;
+        }
+        if (state.currentReport?.id === action.payload.id) {
+          state.currentReport = action.payload;
+        }
+        state.draftReports = state.draftReports.filter(r => r.id !== action.payload.id);
+      })
+      .addCase(sendToAdmin.rejected, (state, action) => {
+        state.isSubmitting = false;
+        state.isLoading = false;
+        state.error = action.error.message || 'Failed to send report to admin';
       })
 
       // ── Submit Report ─────────────────────────────────────────────────────
@@ -509,6 +807,7 @@ const stationEngagementSlice = createSlice({
         state.isSubmitting = false;
         state.isLoading = false;
         state.reports = state.reports.filter(r => r.id !== action.payload);
+        state.draftReports = state.draftReports.filter(r => r.id !== action.payload);
         state.total -= 1;
         if (state.currentReport?.id === action.payload) {
           state.currentReport = null;
@@ -521,17 +820,85 @@ const stationEngagementSlice = createSlice({
         state.error = action.error.message || 'Failed to delete report';
       })
 
+      // ── Generate PDF Preview ─────────────────────────────────────────────
+      .addCase(generatePDFPreview.pending, (state) => {
+        state.pdfPreview.isGenerating = true;
+        state.pdfPreview.error = null;
+      })
+      .addCase(generatePDFPreview.fulfilled, (state, action) => {
+        state.pdfPreview.isGenerating = false;
+        state.pdfPreview.url = action.payload.previewUrl;
+        state.pdfPreview.data = action.payload.previewData;
+      })
+      .addCase(generatePDFPreview.rejected, (state, action) => {
+        state.pdfPreview.isGenerating = false;
+        state.pdfPreview.error = action.payload as string || 'Failed to generate PDF preview';
+      })
+
+      // ── Attach PDF ────────────────────────────────────────────────────────
+      .addCase(attachPDF.pending, (state) => {
+        state.isSubmitting = true;
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(attachPDF.fulfilled, (state, action) => {
+        state.isSubmitting = false;
+        state.isLoading = false;
+        const index = state.reports.findIndex(r => r.id === action.payload.id);
+        if (index !== -1) {
+          state.reports[index] = action.payload;
+        }
+        if (state.currentReport?.id === action.payload.id) {
+          state.currentReport = action.payload;
+        }
+      })
+      .addCase(attachPDF.rejected, (state, action) => {
+        state.isSubmitting = false;
+        state.isLoading = false;
+        state.error = action.error.message || 'Failed to attach PDF';
+      })
+
       // ── Generate PDF ──────────────────────────────────────────────────────
       .addCase(generatePDF.pending, (state) => {
         state.isGeneratingPDF = true;
         state.error = null;
       })
-      .addCase(generatePDF.fulfilled, () => {
-  // No state change needed here
-})
+      .addCase(generatePDF.fulfilled, (state) => {
+        state.isGeneratingPDF = false;
+        // Don't store blob in state - it's handled by the component
+      })
       .addCase(generatePDF.rejected, (state, action) => {
         state.isGeneratingPDF = false;
         state.error = action.payload as string || 'Failed to generate PDF';
+      })
+
+      // ── Generate and Attach PDF ──────────────────────────────────────────
+      .addCase(generateAndAttachPDF.pending, (state) => {
+        state.isGeneratingPDF = true;
+        state.isSubmitting = true;
+        state.error = null;
+      })
+      .addCase(generateAndAttachPDF.fulfilled, (state, action) => {
+        state.isGeneratingPDF = false;
+        state.isSubmitting = false;
+        const index = state.reports.findIndex(r => r.id === action.payload.id);
+        if (index !== -1) {
+          state.reports[index] = action.payload;
+        }
+        if (state.currentReport?.id === action.payload.id) {
+          state.currentReport = action.payload;
+        }
+        // Update drafts if needed
+        if (action.payload.status === 'draft') {
+          if (!state.draftReports.find(r => r.id === action.payload.id)) {
+            state.draftReports = [action.payload, ...state.draftReports];
+          }
+        }
+      })
+      .addCase(generateAndAttachPDF.rejected, (state, action) => {
+        state.isGeneratingPDF = false;
+        state.isSubmitting = false;
+        state.error = action.payload as string || 'Failed to generate and attach PDF';
       })
 
       // ── Generate Excel ────────────────────────────────────────────────────
@@ -561,6 +928,68 @@ const stationEngagementSlice = createSlice({
         state.isGeneratingPDF = false;
         state.isGeneratingExcel = false;
         state.error = action.payload as string || 'Failed to generate exports';
+      })
+
+      // ── Download Report ───────────────────────────────────────────────────
+      .addCase(downloadReport.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(downloadReport.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.downloadHistory.push({
+          reportId: action.payload.id,
+          downloadedAt: new Date().toISOString(),
+          format: action.payload.format,
+          userId: '',
+        });
+      })
+      .addCase(downloadReport.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload as string || 'Failed to download report';
+      })
+
+      // ── Bulk Export ──────────────────────────────────────────────────────
+      .addCase(bulkExport.pending, (state) => {
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(bulkExport.fulfilled, (state) => {
+        state.isLoading = false;
+      })
+      .addCase(bulkExport.rejected, (state, action) => {
+        state.isLoading = false;
+        state.error = action.payload as string || 'Failed to bulk export';
+      })
+
+      // ── Draft Management ──────────────────────────────────────────────────
+      .addCase(manageDraft.pending, (state) => {
+        state.isSubmitting = true;
+        state.isLoading = true;
+        state.error = null;
+      })
+      .addCase(manageDraft.fulfilled, (state, action) => {
+        state.isSubmitting = false;
+        state.isLoading = false;
+        const index = state.reports.findIndex(r => r.id === action.payload.id);
+        if (index !== -1) {
+          state.reports[index] = action.payload;
+        }
+        if (state.currentReport?.id === action.payload.id) {
+          state.currentReport = action.payload;
+        }
+        if (action.payload.status === 'draft') {
+          if (!state.draftReports.find(r => r.id === action.payload.id)) {
+            state.draftReports = [action.payload, ...state.draftReports];
+          }
+        } else {
+          state.draftReports = state.draftReports.filter(r => r.id !== action.payload.id);
+        }
+      })
+      .addCase(manageDraft.rejected, (state, action) => {
+        state.isSubmitting = false;
+        state.isLoading = false;
+        state.error = action.error.message || 'Failed to manage draft';
       });
   },
 });
@@ -574,6 +1003,8 @@ export const {
   clearError,
   clearPDFData,
   clearExcelData,
+  clearPDFPreview,
+  clearDrafts,
   resetState,
 } = stationEngagementSlice.actions;
 
@@ -587,6 +1018,9 @@ export const selectReportSummary = (state: RootState) => state.stationEngagement
 export const selectEngagementStats = (state: RootState) => state.stationEngagement.stats;
 export const selectPDFData = (state: RootState) => state.stationEngagement.pdfData;
 export const selectExcelData = (state: RootState) => state.stationEngagement.excelData;
+export const selectDraftReports = (state: RootState) => state.stationEngagement.draftReports;
+export const selectPDFPreview = (state: RootState) => state.stationEngagement.pdfPreview;
+export const selectDownloadHistory = (state: RootState) => state.stationEngagement.downloadHistory;
 
 // ── Status Selectors ────────────────────────────────────────────────────────
 
@@ -594,12 +1028,13 @@ export const selectIsLoading = (state: RootState) => state.stationEngagement.isL
 export const selectIsSubmitting = (state: RootState) => state.stationEngagement.isSubmitting;
 export const selectIsGeneratingPDF = (state: RootState) => state.stationEngagement.isGeneratingPDF;
 export const selectIsGeneratingExcel = (state: RootState) => state.stationEngagement.isGeneratingExcel;
+export const selectIsSavingDraft = (state: RootState) => state.stationEngagement.isSavingDraft;
 export const selectError = (state: RootState) => state.stationEngagement.error;
 export const selectFilters = (state: RootState) => state.stationEngagement.filters;
+export const selectDraftSavedAt = (state: RootState) => state.stationEngagement.draftSavedAt;
 
 // ── Pagination Selectors ───────────────────────────────────────────────────
 
-// ✅ Memoized selector to prevent unnecessary re-renders
 export const selectPagination = createSelector(
   [
     (state: RootState) => state.stationEngagement.total,
@@ -620,11 +1055,6 @@ export const selectPagination = createSelector(
 export const selectReportsByStatus = createSelector(
   [selectAllReports, (_state: RootState, status: ReportStatus) => status],
   (reports, status) => reports.filter(r => r.status === status)
-);
-
-export const selectDraftReports = createSelector(
-  [selectAllReports],
-  (reports) => reports.filter(r => r.status === 'draft')
 );
 
 export const selectSubmittedReports = createSelector(
@@ -708,6 +1138,21 @@ export const selectEngagementRate = createSelector(
   }
 );
 
+export const selectDraftCount = createSelector(
+  [selectAllReports],
+  (reports) => reports.filter(r => r.status === 'draft').length
+);
+
+export const selectSubmittedCount = createSelector(
+  [selectAllReports],
+  (reports) => reports.filter(r => r.status === 'submitted').length
+);
+
+export const selectVisibleToAdminReports = createSelector(
+  [selectAllReports],
+  (reports) => reports.filter(r => r.status !== 'draft')
+);
+
 export const selectFilteredReports = createSelector(
   [selectAllReports, selectFilters],
   (reports, filters) => {
@@ -737,12 +1182,22 @@ export const selectFilteredReports = createSelector(
     if (filters.support_person_id) {
       result = result.filter(r => r.support_person_id === filters.support_person_id);
     }
+    if (filters.visibleToAdmin !== undefined) {
+      if (filters.visibleToAdmin === true) {
+        result = result.filter(r => r.status !== 'draft');
+      } else {
+        result = result.filter(r => r.status === 'draft');
+      }
+    }
+    if (filters.isDraft !== undefined && filters.isDraft === true) {
+      result = result.filter(r => r.status === 'draft');
+    }
 
     return result;
   }
 );
 
-// ── Export Download Helper ──────────────────────────────────────────────────
+// ─── Export Download Helper ──────────────────────────────────────────────────
 
 export const downloadFile = (blob: Blob, filename: string): void => {
   const url = window.URL.createObjectURL(blob);

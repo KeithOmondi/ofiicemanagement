@@ -1,12 +1,4 @@
-// ============================================================
 // src/types/station-engagement.types.ts
-//
-// NOTE ON THE IMPORT BELOW: this assumes succession-courts types live
-// alongside this file in a flat src/types/ folder — matching how
-// RegistryNewReport.tsx currently imports them
-// (`'../../types/succession-courts'` from src/pages/staff/). Adjust
-// the path if your actual tree differs.
-// ============================================================
 
 import type { SuccessionCourtCategory } from './succession-courts';
 
@@ -18,7 +10,8 @@ export type EngagementMode =
   | 'email'
   | 'physical_visit'
   | 'webinar_followup'
-  | 'video_call';
+  | 'video_call'
+  | 'walk_in';
 
 export type EngagementStatus =
   | 'resolved'
@@ -40,9 +33,6 @@ export type ReportStatus =
   | 'approved'
   | 'rejected';
 
-// NEW (gap #1): shared urgency scale for inline-escalated engagements and
-// standalone escalation items. Previously there was no urgency concept
-// anywhere in this file, so nothing could be triaged or sorted by severity.
 export type Urgency = 'high' | 'medium' | 'low';
 
 // ─── Constants ────────────────────────────────────────────────────────────
@@ -54,6 +44,7 @@ export const ENGAGEMENT_MODE_OPTIONS: { value: EngagementMode; label: string }[]
   { value: 'physical_visit', label: 'Physical Visit' },
   { value: 'webinar_followup', label: 'Webinar Follow-up' },
   { value: 'video_call', label: 'Video Call' },
+  { value: 'walk_in', label: 'Walk-in' },
 ];
 
 export const ENGAGEMENT_STATUS_OPTIONS: { value: EngagementStatus; label: string }[] = [
@@ -92,28 +83,38 @@ export const ISSUES_RAISED_OPTIONS: string[] = [
   'Other',
 ];
 
-// NEW (gap #1)
 export const URGENCY_OPTIONS: { value: Urgency; label: string }[] = [
   { value: 'high', label: 'High' },
   { value: 'medium', label: 'Medium' },
   { value: 'low', label: 'Low' },
 ];
 
-// NEW (gap #8): report statuses that may still be edited by their submitter.
-// The slice's updateReport thunk checks against this before calling the API,
-// instead of silently allowing edits to an already-approved/reviewed report.
+// ✅ Status constants for workflow
 export const EDITABLE_REPORT_STATUSES: ReportStatus[] = ['draft', 'rejected'];
+export const VISIBLE_TO_SUPER_ADMIN_STATUSES: ReportStatus[] = ['submitted', 'reviewed', 'approved', 'rejected'];
+export const SUBMITTABLE_STATUSES: ReportStatus[] = ['draft', 'rejected'];
 
 export const isReportEditable = (status: ReportStatus): boolean =>
   EDITABLE_REPORT_STATUSES.includes(status);
+
+export const isReportVisibleToSuperAdmin = (status: ReportStatus): boolean =>
+  VISIBLE_TO_SUPER_ADMIN_STATUSES.includes(status);
+
+export const isReportSubmittable = (status: ReportStatus): boolean =>
+  SUBMITTABLE_STATUSES.includes(status);
+
+// ✅ Check if report can be sent to admin
+export const canSendToAdmin = (report: StationEngagementReport): boolean => {
+  return (report.status === 'draft' || report.status === 'rejected') && !!report.pdfSecureUrl;
+};
 
 // ─── Core Types ────────────────────────────────────────────────────────────
 
 export interface Engagement {
   id: string;
-  station_id: string; // FK -> SuccessionCourt.id
-  station_name: string; // denormalized SuccessionCourt.station, for display
-  station_category: SuccessionCourtCategory; // NEW (gap #3/#4) — needed once a single report can span multiple categories, see StationEngagementReport.categories
+  station_id: string;
+  station_name: string;
+  station_category: SuccessionCourtCategory;
   date: string;
   contact_person: string;
   contact_role?: string;
@@ -123,8 +124,8 @@ export interface Engagement {
   issues_raised: string[];
   action_taken: string;
   resolution?: string;
-  urgency?: Urgency; // NEW (gap #1) — set only when status === 'escalated'
-  why_needs_escalation?: string; // NEW (gap #2) — previously had nowhere to persist
+  urgency?: Urgency;
+  why_needs_escalation?: string;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -133,7 +134,7 @@ export interface Engagement {
 export interface EngagementInput {
   station_id: string;
   station_name: string;
-  station_category: SuccessionCourtCategory; // NEW
+  station_category: SuccessionCourtCategory;
   date: string;
   contact_person: string;
   contact_role?: string;
@@ -143,16 +144,16 @@ export interface EngagementInput {
   issues_raised: string[];
   action_taken: string;
   resolution?: string;
-  urgency?: Urgency; // NEW
-  why_needs_escalation?: string; // NEW
+  urgency?: Urgency;
+  why_needs_escalation?: string;
 }
 
 export interface UnengagedStation {
   station_id: string;
   station_name: string;
-  category: SuccessionCourtCategory; // CHANGED — was a bare string, now shares the real enum
+  category: SuccessionCourtCategory;
   reason_not_reached?: ReasonNotReached;
-  reason_not_reached_detail?: string; // NEW (gap #6) — free text captured when reason_not_reached === 'other'
+  reason_not_reached_detail?: string;
   planned_engagement_date?: string;
   is_active: boolean;
 }
@@ -164,8 +165,8 @@ export interface EscalationItem {
   issue: string;
   why_needs_escalation: string;
   recommended_action: string;
-  urgency: Urgency; // NEW (gap #1) — required; a standalone escalation always needs a triage level
-  source_engagement_id?: string | null; // NEW (gap #2) — links back to the Engagement row that produced this; absent/null for escalations raised directly in Section D
+  urgency: Urgency;
+  source_engagement_id?: string | null;
   status: 'pending' | 'resolved';
   created_by: string;
   created_at: string;
@@ -178,8 +179,8 @@ export interface EscalationItemInput {
   issue: string;
   why_needs_escalation: string;
   recommended_action: string;
-  urgency: Urgency; // NEW
-  source_engagement_id?: string | null; // NEW
+  urgency: Urgency;
+  source_engagement_id?: string | null;
 }
 
 export interface RecurringPattern {
@@ -210,13 +211,8 @@ export interface StationEngagementReport {
   id: string;
   week_start: string;
   week_end: string;
-  // CHANGED (gap #4): was a single 'A'|'B'|'C'|'D'. successionCourts assigns
-  // support persons per-court, per-category, or per-station (see
-  // assignSupportPersonByCategory / assignSupportPersonByStation), so one
-  // officer's assigned courts can legitimately span more than one category —
-  // a single-category field couldn't represent that.
   categories: SuccessionCourtCategory[];
-  support_person_id: string; // NEW (gap #3) — FK -> User.id, mirrors SuccessionCourt.support_person_id so a report ties directly to the officer's real assignment set
+  support_person_id: string;
   total_stations_assigned: number;
 
   executive_summary: string;
@@ -226,6 +222,20 @@ export interface StationEngagementReport {
   additional_issues: string;
   recurring_patterns: string;
   priorities: string;
+
+  pdfPublicId?: string | null;
+  pdfSecureUrl?: string | null;
+  pdfFileName?: string | null;
+  pdfGeneratedAt?: string | null;
+  
+  pdfPreviewData?: string | null;
+  pdfPreviewUrl?: string | null;
+
+  sent_to_admin_at?: string | null;
+  sent_to_admin_by?: string | null;
+
+  download_count?: number;
+  last_downloaded_at?: string | null;
 
   submitted_by: string;
   submitted_at?: string;
@@ -245,24 +255,23 @@ export interface StationEngagementReport {
 export interface CreateEngagementReportPayload {
   week_start: string;
   week_end: string;
-  categories: SuccessionCourtCategory[]; // CHANGED — see StationEngagementReport.categories
-  support_person_id: string; // NEW
-  // NEW (gap #5): client computes this from the officer's live
-  // successionCourts assignment count (myCourts.length) at submit time and
-  // sends it — previously there was no way to derive it on either side.
+  categories: SuccessionCourtCategory[];
+  support_person_id: string;
   total_stations_assigned: number;
   executive_summary: string;
   engagements: EngagementInput[];
   unengaged_stations: {
     station_id: string;
     reason_not_reached?: ReasonNotReached;
-    reason_not_reached_detail?: string; // NEW
+    reason_not_reached_detail?: string;
     planned_engagement_date?: string;
   }[];
   escalations: EscalationItemInput[];
   additional_issues: string;
   recurring_patterns: string;
   priorities: string;
+  saveAsDraft?: boolean;
+  pdfPreviewData?: string | null;
 }
 
 export interface UpdateEngagementReportPayload {
@@ -271,7 +280,7 @@ export interface UpdateEngagementReportPayload {
   unengaged_stations?: {
     station_id: string;
     reason_not_reached?: ReasonNotReached;
-    reason_not_reached_detail?: string; // NEW
+    reason_not_reached_detail?: string;
     planned_engagement_date?: string;
   }[];
   escalations?: EscalationItemInput[];
@@ -280,6 +289,11 @@ export interface UpdateEngagementReportPayload {
   priorities?: string;
   status?: ReportStatus;
   feedback?: string;
+  pdfPublicId?: string | null;
+  pdfSecureUrl?: string | null;
+  pdfFileName?: string | null;
+  pdfGeneratedAt?: string | null;
+  pdfPreviewData?: string | null;
 }
 
 export interface ReviewReportPayload {
@@ -287,14 +301,28 @@ export interface ReviewReportPayload {
   feedback?: string;
 }
 
+export interface SubmitReportToAdminPayload {
+  reportId: string;
+  sendNotification?: boolean;
+  notes?: string;
+}
+
+export interface DownloadReportPayload {
+  reportId: string;
+  format: 'pdf' | 'excel';
+  includeAttachments?: boolean;
+}
+
 export interface EngagementReportFilters {
-  category?: SuccessionCourtCategory; // CHANGED — now shares the real enum instead of redefining 'A'|'B'|'C'|'D' locally
-  urgency?: Urgency; // NEW (gap #1) — filter escalations/engagements by triage level
+  category?: SuccessionCourtCategory;
+  urgency?: Urgency;
   status?: ReportStatus;
   week_start?: string;
   week_end?: string;
   submitted_by?: string;
-  support_person_id?: string; // NEW (gap #3/#7) — mirrors successionCourts filters, lets queries scope directly to "my reports"
+  support_person_id?: string;
+  visibleToAdmin?: boolean;
+  isDraft?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -321,7 +349,7 @@ export interface ReportSummary {
   id: string;
   week_start: string;
   week_end: string;
-  categories: SuccessionCourtCategory[]; // CHANGED
+  categories: SuccessionCourtCategory[];
   total_stations: number;
   engaged_count: number;
   unengaged_count: number;
@@ -329,21 +357,56 @@ export interface ReportSummary {
   status: ReportStatus;
   submitted_by: string;
   submitted_at?: string;
+  isVisibleToAdmin: boolean;
+  hasPdf: boolean;
 }
 
 // ─── PDF Report Types ─────────────────────────────────────────────────────
+
+export interface PDFGenerationOptions {
+  title?: string;
+  showWatermark?: boolean;
+  watermarkText?: string;
+  includeFooter?: boolean;
+  footerText?: string;
+  pageSize?: 'A4' | 'A3' | 'Legal' | 'Letter';
+  orientation?: 'portrait' | 'landscape';
+  margin?: {
+    top?: number;
+    bottom?: number;
+    left?: number;
+    right?: number;
+  };
+}
+
+export interface PDFGenerationResult {
+  success: boolean;
+  pdfUrl?: string;
+  pdfBlob?: Blob;
+  error?: string;
+  downloadUrl?: string;
+  fileName?: string;
+  fileSize?: number;
+  publicId?: string;
+  secureUrl?: string;
+  base64?: string;
+  previewUrl?: string;
+  previewData?: string;
+  isPreview?: boolean;
+}
 
 export interface PDFReportData {
   report: StationEngagementReport;
   generated_at: string;
   generated_by: string;
+  isPreview?: boolean;
 }
 
 // ─── Stats Types ─────────────────────────────────────────────────────────
 
 export interface EngagementStats {
   total_reports: number;
-  by_category: Record<SuccessionCourtCategory, number>; // CHANGED — was a hand-rolled A/B/C/D shape, now shares the real enum
+  by_category: Record<SuccessionCourtCategory, number>;
   by_status: {
     draft: number;
     submitted: number;
@@ -351,41 +414,56 @@ export interface EngagementStats {
     approved: number;
     rejected: number;
   };
-  by_urgency: Record<Urgency, number>; // NEW (gap #1) — needed for an Action Table sorted/counted by severity
+  by_urgency: Record<Urgency, number>;
   engagement_rate: number;
   escalation_rate: number;
+  draft_count: number;
+  submitted_count: number;
+  avg_time_to_submit_days?: number;
 }
 
 // ─── Slice State ─────────────────────────────────────────────────────────
 
 export interface StationEngagementState {
-  // Data
   reports: StationEngagementReport[];
   currentReport: StationEngagementReport | null;
   reportSummary: ReportSummary | null;
   stats: EngagementStats | null;
 
-  // Status
   isLoading: boolean;
   isSubmitting: boolean;
   error: string | null;
 
-  // Pagination
   total: number;
   page: number;
   limit: number;
   totalPages: number;
 
-  // Filters
   filters: EngagementReportFilters;
 
-  // PDF
   pdfData: PDFReportData | null;
   isGeneratingPDF: boolean;
+  
+  pdfPreview: {
+    url: string | null;
+    data: string | null;
+    isGenerating: boolean;
+    error: string | null;
+  };
 
-  // ─── NEW: Excel Export Properties ──────────────────────────────────────
-  excelData: Blob | null; // Store the Excel blob data
-  isGeneratingExcel: boolean; // Track Excel generation status
+  excelData: Blob | null;
+  isGeneratingExcel: boolean;
+
+  downloadHistory: {
+    reportId: string;
+    downloadedAt: string;
+    format: 'pdf' | 'excel';
+    userId: string;
+  }[];
+
+  draftReports: StationEngagementReport[];
+  isSavingDraft: boolean;
+  draftSavedAt: string | null;
 }
 
 // ─── Form Types ──────────────────────────────────────────────────────────
@@ -393,7 +471,7 @@ export interface StationEngagementState {
 export interface EngagementFormValues {
   station_id: string;
   station_name: string;
-  station_category: SuccessionCourtCategory | ''; // NEW
+  station_category: SuccessionCourtCategory | '';
   date: string;
   contact_person: string;
   contact_role: string;
@@ -403,14 +481,14 @@ export interface EngagementFormValues {
   issues_raised: string[];
   action_taken: string;
   resolution: string;
-  urgency: Urgency | ''; // NEW
-  why_needs_escalation: string; // NEW
+  urgency: Urgency | '';
+  why_needs_escalation: string;
 }
 
 export interface UnengagedStationFormValues {
   station_id: string;
   reason_not_reached: ReasonNotReached | '';
-  reason_not_reached_detail: string; // NEW
+  reason_not_reached_detail: string;
   planned_engagement_date: string;
 }
 
@@ -420,13 +498,13 @@ export interface EscalationFormValues {
   issue: string;
   why_needs_escalation: string;
   recommended_action: string;
-  urgency: Urgency | ''; // NEW
+  urgency: Urgency | '';
 }
 
 export interface ReportFormValues {
   week_start: string;
   week_end: string;
-  categories: SuccessionCourtCategory[]; // CHANGED
+  categories: SuccessionCourtCategory[];
   executive_summary: string;
   engagements: EngagementFormValues[];
   unengaged_stations: UnengagedStationFormValues[];
@@ -434,6 +512,9 @@ export interface ReportFormValues {
   additional_issues: string;
   recurring_patterns: string;
   priorities: string;
+  isDraft: boolean;
+  saveAsDraft: boolean;
+  pdfPreviewUrl?: string;
 }
 
 // ─── Review Form Types ──────────────────────────────────────────────────
@@ -452,10 +533,14 @@ export interface ReportCardProps {
   onDelete: (id: string) => void;
   onSubmit: (id: string) => void;
   onReview: (id: string) => void;
-  onGeneratePDF: (id: string) => void;
-  onGenerateExcel?: (id: string) => void; // NEW
-  onGenerateBoth?: (id: string) => void; // NEW
+  onGeneratePDF: (id: string, previewOnly?: boolean) => void;
+  onGenerateExcel?: (id: string) => void;
+  onGenerateBoth?: (id: string) => void;
+  onDownload: (id: string, format: 'pdf' | 'excel') => void;
+  onSendToAdmin: (id: string) => void;
+  onSaveDraft: (id: string) => void;
   isSubmitting?: boolean;
+  isDraft?: boolean;
 }
 
 export interface EngagementTableProps {
@@ -473,7 +558,7 @@ export interface EngagementFormModalProps {
   onClose: () => void;
   onSubmit: (data: EngagementFormValues) => void;
   initialData?: EngagementFormValues;
-  stations: { id: string; name: string; category: SuccessionCourtCategory }[]; // CHANGED
+  stations: { id: string; name: string; category: SuccessionCourtCategory }[];
   isSubmitting?: boolean;
 }
 
@@ -486,13 +571,33 @@ export interface ReviewModalProps {
   isSubmitting?: boolean;
 }
 
-// ─── NEW: Export Related Types ────────────────────────────────────────────
+export interface PDFPreviewModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  onDownload: () => void;
+  pdfUrl: string;
+  reportName: string;
+  isGenerating?: boolean;
+  isUploading?: boolean;
+}
+
+export interface DraftManagerProps {
+  drafts: StationEngagementReport[];
+  onLoadDraft: (id: string) => void;
+  onDeleteDraft: (id: string) => void;
+  onContinueDraft: (id: string) => void;
+  onSendToAdmin: (id: string) => void;
+}
+
+// ─── Export Related Types ────────────────────────────────────────────────
 
 export interface ExportOptions {
   includeEngagements?: boolean;
   includeUnengagedStations?: boolean;
   includeEscalations?: boolean;
   includePatterns?: boolean;
+  includeDrafts?: boolean;
 }
 
 export interface ExportResult {
@@ -500,8 +605,64 @@ export interface ExportResult {
   message: string;
   data?: Blob;
   filename?: string;
+  downloadId?: string;
+  fileSize?: number;
 }
 
-// ─── NEW: Download Helper Type ─────────────────────────────────────────────
-
 export type FileType = 'pdf' | 'excel' | 'zip';
+
+// ─── Workflow Helpers ─────────────────────────────────────────────────────
+
+export const canEdit = (report: StationEngagementReport): boolean => {
+  return report.status === 'draft' || report.status === 'rejected';
+};
+
+export const canSubmit = (report: StationEngagementReport): boolean => {
+  return (report.status === 'draft' || report.status === 'rejected') && !!report.pdfSecureUrl;
+};
+
+export const canReview = (report: StationEngagementReport): boolean => {
+  return report.status === 'submitted';
+};
+
+export const canApprove = (report: StationEngagementReport): boolean => {
+  return report.status === 'reviewed';
+};
+
+export const canGeneratePDF = (report: StationEngagementReport): boolean => {
+  return report.status === 'draft' || report.status === 'rejected' || report.status === 'submitted';
+};
+
+export const canViewPDF = (report: StationEngagementReport): boolean => {
+  return !!report.pdfSecureUrl || !!report.pdfPreviewUrl;
+};
+
+export const hasPDFAttached = (report: StationEngagementReport): boolean => {
+  return !!report.pdfSecureUrl && !!report.pdfPublicId;
+};
+
+export const hasPDFPreview = (report: StationEngagementReport): boolean => {
+  return !!report.pdfPreviewUrl || !!report.pdfPreviewData;
+};
+
+
+
+// ✅ Alias for the same functionality (for consistency)
+export const canSubmitToAdmin = canSendToAdmin;
+
+export const isDraftReport = (report: StationEngagementReport): boolean => {
+  return report.status === 'draft';
+};
+
+export const isVisibleToAdmin = (report: StationEngagementReport): boolean => {
+  return report.status !== 'draft';
+};
+
+export const getVisibilityLabel = (report: StationEngagementReport): string => {
+  return isDraftReport(report) ? 'Draft (Not Visible)' : 'Published';
+};
+
+export const getDownloadCountLabel = (report: StationEngagementReport): string => {
+  const count = report.download_count || 0;
+  return `${count} download${count !== 1 ? 's' : ''}`;
+};

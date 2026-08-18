@@ -37,6 +37,7 @@ import successionCourtsReducer from "./slices/successionCourts.slice"
 import stationEngagementReducer from "./slices/stationEngagement.slice"
 import principalRegistryReportReducer  from "./slices/principalRegistryReportSlice"
 import activityTrackingReducer from "./slices/activityTrackingSlice"
+import serviceWeekReducer from "./slices/serviceweekSlice"
 
 export const store = configureStore({
   reducer: {
@@ -75,7 +76,8 @@ export const store = configureStore({
     successionCourts: successionCourtsReducer,
     stationEngagement: stationEngagementReducer,
     principalRegistryReport: principalRegistryReportReducer,
-    activityTracking: activityTrackingReducer
+    activityTracking: activityTrackingReducer,
+    serviceWeek: serviceWeekReducer
   },
 });
 
