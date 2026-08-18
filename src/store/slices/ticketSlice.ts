@@ -11,6 +11,7 @@ import type {
   TicketFilters,
   TicketStatus,
   TicketTripType,
+  Passenger, // Import Passenger type
 } from '../../types/tickets.types';
 
 // ── State Interface ──────────────────────────────────────────────────────────
@@ -469,6 +470,65 @@ export const selectTicketPagination = (state: { tickets: TicketState }) => state
 export const selectTicketFilters = (state: { tickets: TicketState }) => state.tickets.filters;
 export const selectTicketActions = (state: { tickets: TicketState }) => state.tickets.actions;
 
+// ── Passenger Selectors ──────────────────────────────────────────────────────
+
+/**
+ * Select all passengers from all tickets
+ * Returns a flat array of all passengers
+ */
+export const selectAllPassengers = createSelector(
+  [selectAllTickets],
+  (tickets): Passenger[] => {
+    return tickets.flatMap(ticket => ticket.passengers || []);
+  }
+);
+
+/**
+ * Select passengers for a specific ticket
+ */
+export const selectPassengersByTicketId = createSelector(
+  [
+    selectAllTickets,
+    (_state: { tickets: TicketState }, ticketId: string) => ticketId
+  ],
+  (tickets, ticketId): Passenger[] => {
+    const ticket = tickets.find(t => t.id === ticketId);
+    return ticket?.passengers || [];
+  }
+);
+
+/**
+ * Select passengers for the currently selected ticket
+ */
+export const selectSelectedTicketPassengers = createSelector(
+  [selectSelectedTicket],
+  (selectedTicket): Passenger[] => {
+    return selectedTicket?.passengers || [];
+  }
+);
+
+/**
+ * Select tickets that have passengers with judge information
+ */
+export const selectTicketsWithJudgePassengers = createSelector(
+  [selectAllTickets],
+  (tickets) => {
+    return tickets.filter(ticket => 
+      ticket.passengers?.some(p => p.judge_name || p.pj_number)
+    );
+  }
+);
+
+/**
+ * Select all passengers with judge information
+ */
+export const selectPassengersWithJudgeInfo = createSelector(
+  [selectAllPassengers],
+  (passengers) => {
+    return passengers.filter(p => p.judge_name || p.pj_number);
+  }
+);
+
 // ── Derived Selectors ──────────────────────────────────────────────────────
 
 // Selector for tickets by status
@@ -530,26 +590,52 @@ export const selectTicketsByPriority = createSelector(
   (tickets, priority) => tickets.filter(t => t.priority === priority)
 );
 
-// Selector for tickets by judge name
+// Selector for tickets by judge name (checks both main judge and passenger judges)
 export const selectTicketsByJudgeName = createSelector(
   [
     selectAllTickets,
     (_state: { tickets: TicketState }, judgeName: string) => judgeName
   ],
-  (tickets, judgeName) => tickets.filter(t => 
-    t.judge_name && t.judge_name.toLowerCase().includes(judgeName.toLowerCase())
-  )
+  (tickets, judgeName) => {
+    const searchTerm = judgeName.toLowerCase();
+    return tickets.filter(t => {
+      // Check main judge
+      if (t.judge_name && t.judge_name.toLowerCase().includes(searchTerm)) {
+        return true;
+      }
+      // Check passenger judges
+      if (t.passengers?.some(p => 
+        p.judge_name && p.judge_name.toLowerCase().includes(searchTerm)
+      )) {
+        return true;
+      }
+      return false;
+    });
+  }
 );
 
-// Selector for tickets by PJ number
+// Selector for tickets by PJ number (checks both main PJ and passenger PJs)
 export const selectTicketsByPJNumber = createSelector(
   [
     selectAllTickets,
     (_state: { tickets: TicketState }, pjNumber: string) => pjNumber
   ],
-  (tickets, pjNumber) => tickets.filter(t => 
-    t.pj_number && t.pj_number.toLowerCase().includes(pjNumber.toLowerCase())
-  )
+  (tickets, pjNumber) => {
+    const searchTerm = pjNumber.toLowerCase();
+    return tickets.filter(t => {
+      // Check main PJ
+      if (t.pj_number && t.pj_number.toLowerCase().includes(searchTerm)) {
+        return true;
+      }
+      // Check passenger PJs
+      if (t.passengers?.some(p => 
+        p.pj_number && p.pj_number.toLowerCase().includes(searchTerm)
+      )) {
+        return true;
+      }
+      return false;
+    });
+  }
 );
 
 // Selector for ticket counts
@@ -566,13 +652,20 @@ export const selectTicketCounts = createSelector(
     draft: tickets.filter(t => t.status === 'draft').length,
     oneWay: tickets.filter(t => t.trip_type === 'one_way').length,
     roundTrip: tickets.filter(t => t.trip_type === 'round_trip').length,
+    // Passenger counts
+    totalPassengers: tickets.reduce((sum, t) => sum + (t.passengers?.length || 0), 0),
+    ticketsWithPassengers: tickets.filter(t => t.passengers && t.passengers.length > 0).length,
   })
 );
 
-// Selector for tickets with judge information
+// Selector for tickets with judge information (includes passenger judges)
 export const selectTicketsWithJudgeInfo = createSelector(
   [selectAllTickets],
-  (tickets) => tickets.filter(t => t.judge_name || t.pj_number)
+  (tickets) => tickets.filter(t => 
+    t.judge_name || 
+    t.pj_number || 
+    (t.passengers?.some(p => p.judge_name || p.pj_number))
+  )
 );
 
 // Selector for tickets with travel dates
@@ -589,7 +682,8 @@ export const selectTicketsByDateRange = createSelector(
   })
 );
 
-// Actions
+// ── Actions ──────────────────────────────────────────────────────────────────
+
 export const {
   setFilters,
   resetFilters,

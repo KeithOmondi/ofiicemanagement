@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import { fetchUsers, selectAllUsers, selectUsersListLoading } from '../../store/slices/userSlice';
 import { fetchDepartments, selectAllDepartments } from '../../store/slices/departmentsSlice';
-import { X, Loader2, Save, Plane } from 'lucide-react';
+import { X, Loader2, Save, Plane, UserPlus, UserMinus, ChevronDown, ChevronUp } from 'lucide-react';
 import type { 
   CreateTicketRequest, 
   FlightTimePreference, 
@@ -10,6 +10,7 @@ import type {
   TicketPriority, 
   TravelClass,
   TicketTripType,
+  Passenger,
 } from '../../types/tickets.types';
 import {
   TRAVEL_CLASS_LABELS,
@@ -33,34 +34,71 @@ const Spinner: React.FC<{ className?: string }> = ({ className = 'h-4 w-4' }) =>
   <Loader2 className={`animate-spin ${className}`} />
 );
 
+// Generate unique ID for passengers
+const generatePassengerId = (): string => `passenger_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+// Extended form data type that includes passengers
+interface ExtendedFormData extends CreateTicketRequest {
+  passengers: Passenger[];
+}
+
 // Build initial form data from an existing ticket (or empty for new)
-const buildInitialFormData = (ticket?: Ticket | null): CreateTicketRequest => {
+const buildInitialFormData = (ticket?: Ticket | null): ExtendedFormData => {
+  const baseForm = {
+    title: '',
+    description: '',
+    department_id: '',
+    trip_type: 'one_way' as TicketTripType,
+    date_of_travel: '',
+    time_of_travel: '',
+    return_date: '',
+    return_time: '',
+    preferred_departure_time: 'any' as FlightTimePreference,
+    preferred_return_time: 'any' as FlightTimePreference,
+    departure_from: '',
+    destination: '',
+    remarks: '',
+    judge_name: '',
+    pj_number: '',
+    travel_class: 'economy' as TravelClass,
+    number_of_passengers: 1,
+    special_requests: '',
+    priority: 'normal' as TicketPriority,
+    assigned_to: '',
+    is_draft: true,
+  };
+
   if (!ticket) {
     return {
-      title: '',
-      description: '',
-      department_id: '',
-      trip_type: 'one_way',
-      date_of_travel: '',
-      time_of_travel: '',
-      return_date: '',
-      return_time: '',
-      preferred_departure_time: 'any',
-      preferred_return_time: 'any',
-      departure_from: '',
-      destination: '',
-      remarks: '',
-      judge_name: '',
-      pj_number: '',
-      travel_class: 'economy',
-      number_of_passengers: 1,
-      special_requests: '',
-      priority: 'normal',
-      assigned_to: '',
-      is_draft: true,
+      ...baseForm,
+      passengers: [{
+        id: generatePassengerId(),
+        name: '',
+        judge_name: '',
+        pj_number: '',
+        time_of_travel: '',
+        return_time: '',
+      }],
     };
   }
+
+  // If editing and has passengers, use them
+  const existingPassengers = ticket.passengers && ticket.passengers.length > 0
+    ? ticket.passengers.map((p: Passenger) => ({
+        ...p,
+        id: p.id || generatePassengerId(),
+      }))
+    : [{
+        id: generatePassengerId(),
+        name: '',
+        judge_name: ticket.judge_name || '',
+        pj_number: ticket.pj_number || '',
+        time_of_travel: ticket.time_of_travel || '',
+        return_time: ticket.return_time || '',
+      }];
+
   return {
+    ...baseForm,
     title: ticket.title,
     description: ticket.description || '',
     department_id: ticket.department_id || '',
@@ -82,6 +120,7 @@ const buildInitialFormData = (ticket?: Ticket | null): CreateTicketRequest => {
     priority: ticket.priority || 'normal',
     assigned_to: ticket.assigned_to || '',
     is_draft: ticket.status === 'draft',
+    passengers: existingPassengers,
   };
 };
 
@@ -111,8 +150,9 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
 
   const isEditing = !!ticket;
   const timeSlots = getTimeSlots();
+  const [expandedPassenger, setExpandedPassenger] = useState<string | null>(null);
 
-  const [formData, setFormData] = useState<CreateTicketRequest>(() =>
+  const [formData, setFormData] = useState<ExtendedFormData>(() =>
     buildInitialFormData(ticket)
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -139,6 +179,52 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
     }
   };
 
+  // ─── Passenger Management ────────────────────────────────────────────────
+
+  const addPassenger = () => {
+    setFormData((prev) => ({
+      ...prev,
+      passengers: [
+        ...prev.passengers,
+        {
+          id: generatePassengerId(),
+          name: '',
+          judge_name: '',
+          pj_number: '',
+          time_of_travel: '',
+          return_time: '',
+        },
+      ],
+      number_of_passengers: prev.passengers.length + 1,
+    }));
+  };
+
+  const removePassenger = (id: string) => {
+    if (formData.passengers.length <= 1) {
+      return;
+    }
+    setFormData((prev) => ({
+      ...prev,
+      passengers: prev.passengers.filter((p) => p.id !== id),
+      number_of_passengers: prev.passengers.length - 1,
+    }));
+  };
+
+  const updatePassenger = (id: string, field: keyof Passenger, value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      passengers: prev.passengers.map((p) =>
+        p.id === id ? { ...p, [field]: value } : p
+      ),
+    }));
+  };
+
+  const togglePassengerExpand = (id: string) => {
+    setExpandedPassenger(expandedPassenger === id ? null : id);
+  };
+
+  // ─── Validation ───────────────────────────────────────────────────────────
+
   const validate = (): boolean => {
     const next: Record<string, string> = {};
     
@@ -146,9 +232,16 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
     if (!formData.date_of_travel) next.date_of_travel = 'Travel date is required';
     if (!formData.departure_from?.trim()) next.departure_from = 'Departure location is required';
     if (!formData.destination?.trim()) next.destination = 'Destination is required';
-    if ((formData.number_of_passengers || 0) < 1) {
-      next.number_of_passengers = 'At least 1 passenger required';
+    if (formData.passengers.length < 1) {
+      next.passengers = 'At least one passenger is required';
     }
+
+    // Validate each passenger
+    formData.passengers.forEach((p, index) => {
+      if (!p.name?.trim()) {
+        next[`passenger_${p.id}_name`] = `Passenger ${index + 1} name is required`;
+      }
+    });
     
     // Round trip validation
     if (formData.trip_type === 'round_trip') {
@@ -170,7 +263,40 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
-    onSave(formData);
+
+    // Prepare the data for submission - include all passengers
+    const submitData: CreateTicketRequest = {
+      title: formData.title,
+      description: formData.description,
+      department_id: formData.department_id,
+      trip_type: formData.trip_type,
+      date_of_travel: formData.date_of_travel,
+      time_of_travel: formData.time_of_travel,
+      return_date: formData.return_date,
+      return_time: formData.return_time,
+      preferred_departure_time: formData.preferred_departure_time,
+      preferred_return_time: formData.preferred_return_time,
+      departure_from: formData.departure_from,
+      destination: formData.destination,
+      remarks: formData.remarks,
+      judge_name: formData.passengers[0]?.judge_name || formData.judge_name,
+      pj_number: formData.passengers[0]?.pj_number || formData.pj_number,
+      travel_class: formData.travel_class,
+      number_of_passengers: formData.passengers.length,
+      special_requests: formData.special_requests,
+      priority: formData.priority,
+      assigned_to: formData.assigned_to,
+      is_draft: formData.is_draft,
+      passengers: formData.passengers.map((p) => ({
+        name: p.name,
+        judge_name: p.judge_name || null,
+        pj_number: p.pj_number || null,
+        time_of_travel: p.time_of_travel || null,
+        return_time: p.return_time || null,
+      })),
+    };
+
+    onSave(submitData);
   };
 
   const isRoundTrip = formData.trip_type === 'round_trip';
@@ -179,7 +305,7 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-xl bg-white shadow-2xl">
+      <div className="w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-xl bg-white shadow-2xl">
         {/* ─── Header ────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between border-b border-stone-100 px-6 py-4">
           <h3 className="text-sm font-semibold text-[#1a3d1c] flex items-center gap-2">
@@ -221,7 +347,7 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             <textarea
               value={formData.description ?? ''}
               onChange={(e) => handleChange('description', e.target.value)}
-              rows={3}
+              rows={2}
               placeholder="Brief description of the travel purpose..."
               className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c] resize-none"
             />
@@ -301,7 +427,7 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             </div>
             <div>
               <label className="block text-xs font-semibold text-stone-600 mb-1">
-                Departure Time
+                Departure Time (Default)
               </label>
               <select
                 value={formData.time_of_travel ?? ''}
@@ -337,7 +463,7 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
               </div>
               <div>
                 <label className="block text-xs font-semibold text-stone-600 mb-1">
-                  Return Time *
+                  Return Time (Default)
                 </label>
                 <select
                   value={formData.return_time ?? ''}
@@ -430,66 +556,182 @@ export const TicketFormModal: React.FC<TicketFormModalProps> = ({
             </div>
           </div>
 
-          {/* ─── Travel Class & Passengers ────────────────────────────────── */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-stone-600 mb-1">
-                Travel Class
-              </label>
-              <select
-                value={formData.travel_class}
-                onChange={(e) => handleChange('travel_class', e.target.value as TravelClass)}
-                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
-              >
-                {Object.entries(TRAVEL_CLASS_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-stone-600 mb-1">
-                Passengers *
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={formData.number_of_passengers}
-                onChange={(e) => handleChange('number_of_passengers', parseInt(e.target.value) || 1)}
-                className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c] ${
-                  errors.number_of_passengers ? 'border-red-300' : 'border-stone-200'
-                }`}
-              />
-              {errors.number_of_passengers && <p className="text-xs text-red-500 mt-1">{errors.number_of_passengers}</p>}
-            </div>
+          {/* ─── Travel Class ──────────────────────────────────────────────── */}
+          <div>
+            <label className="block text-xs font-semibold text-stone-600 mb-1">
+              Travel Class
+            </label>
+            <select
+              value={formData.travel_class}
+              onChange={(e) => handleChange('travel_class', e.target.value as TravelClass)}
+              className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
+            >
+              {Object.entries(TRAVEL_CLASS_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
           </div>
 
-          {/* ─── Judge & Case Details ─────────────────────────────────────── */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-stone-600 mb-1">
-                Judge Name
+          {/* ─── Passengers Section ────────────────────────────────────────── */}
+          <div className="border border-stone-200 rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-stone-600">
+                Passengers ({formData.passengers.length})
               </label>
-              <input
-                type="text"
-                value={formData.judge_name ?? ''}
-                onChange={(e) => handleChange('judge_name', e.target.value)}
-                placeholder="e.g., Hon. Justice Smith"
-                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
-              />
+              <button
+                type="button"
+                onClick={addPassenger}
+                className="flex items-center gap-1 text-xs font-medium text-[#1a3d1c] hover:text-[#2d5c30] transition-colors"
+              >
+                <UserPlus size={14} />
+                Add Passenger
+              </button>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-stone-600 mb-1">
-                PJ Number
-              </label>
-              <input
-                type="text"
-                value={formData.pj_number ?? ''}
-                onChange={(e) => handleChange('pj_number', e.target.value)}
-                placeholder="e.g., PJ-1234"
-                className="w-full rounded-lg border border-stone-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
-              />
-            </div>
+
+            {errors.passengers && (
+              <p className="text-xs text-red-500">{errors.passengers}</p>
+            )}
+
+            {formData.passengers.map((passenger, index) => (
+              <div
+                key={passenger.id}
+                className="border border-stone-100 rounded-lg overflow-hidden"
+              >
+                {/* Passenger Header */}
+                <div
+                  className="flex items-center justify-between p-3 bg-stone-50 cursor-pointer hover:bg-stone-100 transition-colors"
+                  onClick={() => togglePassengerExpand(passenger.id!)}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <span className="text-xs font-medium text-stone-500">
+                      #{index + 1}
+                    </span>
+                    <span className="text-sm font-medium text-stone-700 truncate">
+                      {passenger.name || `Passenger ${index + 1}`}
+                    </span>
+                    {passenger.judge_name && (
+                      <span className="text-xs text-stone-400 truncate">
+                        Judge: {passenger.judge_name}
+                      </span>
+                    )}
+                    {passenger.time_of_travel && (
+                      <span className="text-xs text-stone-400">
+                        {timeSlots.find(t => t.value === passenger.time_of_travel)?.label || passenger.time_of_travel}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removePassenger(passenger.id!);
+                      }}
+                      className={`p-1 rounded hover:bg-red-50 transition-colors ${
+                        formData.passengers.length <= 1 ? 'opacity-40 cursor-not-allowed' : ''
+                      }`}
+                      disabled={formData.passengers.length <= 1}
+                    >
+                      <UserMinus size={14} className="text-red-500" />
+                    </button>
+                    {expandedPassenger === passenger.id ? (
+                      <ChevronUp size={16} className="text-stone-400" />
+                    ) : (
+                      <ChevronDown size={16} className="text-stone-400" />
+                    )}
+                  </div>
+                </div>
+
+                {/* Passenger Details (Expandable) */}
+                {expandedPassenger === passenger.id && (
+                  <div className="p-3 space-y-3 bg-white">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-stone-500 mb-1">
+                          Passenger Name *
+                        </label>
+                        <input
+                          type="text"
+                          value={passenger.name}
+                          onChange={(e) => updatePassenger(passenger.id!, 'name', e.target.value)}
+                          placeholder="Full name"
+                          className={`w-full rounded border px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c] ${
+                            errors[`passenger_${passenger.id}_name`] ? 'border-red-300' : 'border-stone-200'
+                          }`}
+                        />
+                        {errors[`passenger_${passenger.id}_name`] && (
+                          <p className="text-xs text-red-500 mt-0.5">{errors[`passenger_${passenger.id}_name`]}</p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-500 mb-1">
+                          Judge Name
+                        </label>
+                        <input
+                          type="text"
+                          value={passenger.judge_name || ''}
+                          onChange={(e) => updatePassenger(passenger.id!, 'judge_name', e.target.value)}
+                          placeholder="e.g., Hon. Justice Smith"
+                          className="w-full rounded border border-stone-200 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-stone-500 mb-1">
+                          PJ Number
+                        </label>
+                        <input
+                          type="text"
+                          value={passenger.pj_number || ''}
+                          onChange={(e) => updatePassenger(passenger.id!, 'pj_number', e.target.value)}
+                          placeholder="e.g., PJ-1234"
+                          className="w-full rounded border border-stone-200 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-stone-500 mb-1">
+                          Departure Time
+                        </label>
+                        <select
+                          value={passenger.time_of_travel || ''}
+                          onChange={(e) => updatePassenger(passenger.id!, 'time_of_travel', e.target.value)}
+                          className="w-full rounded border border-stone-200 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
+                        >
+                          <option value="">Same as default</option>
+                          {timeSlots.map((slot) => (
+                            <option key={slot.value} value={slot.value}>
+                              {slot.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {isRoundTrip && (
+                      <div>
+                        <label className="block text-xs font-medium text-stone-500 mb-1">
+                          Return Time
+                        </label>
+                        <select
+                          value={passenger.return_time || ''}
+                          onChange={(e) => updatePassenger(passenger.id!, 'return_time', e.target.value)}
+                          className="w-full rounded border border-stone-200 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]"
+                        >
+                          <option value="">Same as default</option>
+                          {timeSlots.map((slot) => (
+                            <option key={slot.value} value={slot.value}>
+                              {slot.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
 
           {/* ─── Special Requests ──────────────────────────────────────────── */}

@@ -61,6 +61,7 @@ import type {
   TravelClass,
   FlightTimePreference,
   TicketTripType,
+  Passenger,
 } from '../../types/tickets.types';
 import {
   TRIP_TYPE_LABELS,
@@ -104,6 +105,9 @@ import {
   ExternalLink,
   Paperclip,
   Plane,
+  UserPlus,
+  UserMinus,
+  ChevronUp,
 } from 'lucide-react';
 import { generateAirTicketMemoDocx } from '../../utils/generateAirTicketMemoDocx';
 import { generateAirTicketMemoPdf } from '../../utils/generateAirTicketMemoPdf';
@@ -113,6 +117,10 @@ import { generateAirTicketMemoExcel } from '../../utils/generateAirTicketMemoExc
 
 const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784363826/ORHC_L_crclut.jpg';
 const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784364354/ORHC_EMBLEM_wzmp94.jpg';
+
+// ── Helper: Generate unique ID for passengers ──────────────────────────────
+
+const generatePassengerId = (): string => `passenger_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
 // ── Helper: status badge style ──────────────────────────────────────────────
 
@@ -300,13 +308,13 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
   );
 }
 
-// ── Route formatting helper ──────────────────────────────────────────────────
-// Replaces Unicode arrow with ASCII dash for clean PDF rendering
+// ─── Route formatting helper ──────────────────────────────────────────────────
+
 const formatRoute = (from: string, to: string): string => {
   return `${from} - ${to}`;
 };
 
-// ── Signature Section ──────────────────────────────────────────────────────
+// ─── Signature Section ──────────────────────────────────────────────────────
 
 interface SignatureSectionProps {
   userSignature: string | null;
@@ -506,7 +514,6 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
   const dispatch = useAppDispatch();
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
   const [downloadingFormat, setDownloadingFormat] = useState<DownloadFormat | null>(null);
- 
 
   const formatDate = (dateStr: string) => {
     if (!dateStr) return '—';
@@ -514,36 +521,75 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
     return d.toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
-  // ── Build schedule rows with proper route formatting ──────────────────────
+  // ── Build schedule rows from passengers ──────────────────────────────────────
   const scheduleRows: ScheduleRow[] = [];
-  const travellerName = ticketData.judge_name || '—';
-  const departureTimeLabel = ticketData.time_of_travel
-    ? formatTime(ticketData.time_of_travel)
-    : getFlightTimeShortLabel(ticketData.preferred_departure_time);
-  const returnTimeLabel = ticketData.return_time
-    ? formatTime(ticketData.return_time)
-    : ticketData.preferred_return_time
-      ? getFlightTimeShortLabel(ticketData.preferred_return_time)
-      : 'Any Time';
+  const passengers = ticketData.passengers || [];
 
-  // Outbound trip
-  if (ticketData.date_of_travel) {
-    scheduleRows.push({
-      name: travellerName,
-      route: formatRoute(ticketData.departure_from, ticketData.destination),
-      date: formatDate(ticketData.date_of_travel),
-      time: departureTimeLabel,
-    });
-  }
+  if (passengers.length > 0) {
+    passengers.forEach((passenger, index) => {
+      // Outbound trip
+      if (ticketData.date_of_travel) {
+        const departureTime = passenger.time_of_travel
+          ? formatTime(passenger.time_of_travel)
+          : (ticketData.time_of_travel
+            ? formatTime(ticketData.time_of_travel)
+            : getFlightTimeShortLabel(ticketData.preferred_departure_time));
 
-  // Return trip (if round trip)
-  if (ticketData.trip_type === 'round_trip' && ticketData.return_date) {
-    scheduleRows.push({
-      name: '',
-      route: formatRoute(ticketData.destination, ticketData.departure_from),
-      date: formatDate(ticketData.return_date),
-      time: returnTimeLabel,
+        scheduleRows.push({
+          name: passenger.name || `Passenger ${index + 1}`,
+          route: formatRoute(ticketData.departure_from, ticketData.destination),
+          date: formatDate(ticketData.date_of_travel),
+          time: departureTime,
+        });
+      }
+
+      // Return trip (if round trip)
+      if (ticketData.trip_type === 'round_trip' && ticketData.return_date) {
+        const returnTime = passenger.return_time
+          ? formatTime(passenger.return_time)
+          : (ticketData.return_time
+            ? formatTime(ticketData.return_time)
+            : (ticketData.preferred_return_time
+              ? getFlightTimeShortLabel(ticketData.preferred_return_time)
+              : 'Any Time'));
+
+        scheduleRows.push({
+          name: '', // Empty name for return leg - shows as "(return)"
+          route: formatRoute(ticketData.destination, ticketData.departure_from),
+          date: formatDate(ticketData.return_date),
+          time: returnTime,
+        });
+      }
     });
+  } else {
+    // Fallback: use single passenger from main fields
+    const travellerName = ticketData.judge_name || '—';
+    const departureTimeLabel = ticketData.time_of_travel
+      ? formatTime(ticketData.time_of_travel)
+      : getFlightTimeShortLabel(ticketData.preferred_departure_time);
+    const returnTimeLabel = ticketData.return_time
+      ? formatTime(ticketData.return_time)
+      : ticketData.preferred_return_time
+        ? getFlightTimeShortLabel(ticketData.preferred_return_time)
+        : 'Any Time';
+
+    if (ticketData.date_of_travel) {
+      scheduleRows.push({
+        name: travellerName,
+        route: formatRoute(ticketData.departure_from, ticketData.destination),
+        date: formatDate(ticketData.date_of_travel),
+        time: departureTimeLabel,
+      });
+    }
+
+    if (ticketData.trip_type === 'round_trip' && ticketData.return_date) {
+      scheduleRows.push({
+        name: '',
+        route: formatRoute(ticketData.destination, ticketData.departure_from),
+        date: formatDate(ticketData.return_date),
+        time: returnTimeLabel,
+      });
+    }
   }
 
   // ─── Editable fields ──────────────────────────────────────────────────────
@@ -556,9 +602,10 @@ const TicketMemoPreview: React.FC<TicketMemoPreviewProps> = ({
   const [subjectField, setSubjectField] = useState('REQUEST AIR TICKET');
 
   const [bodyText, setBodyText] = useState(() => {
-    const who = ticketData.judge_name ? `Hon. Justice ${ticketData.judge_name}` : 'The traveller named below';
+    const passengerNames = passengers.map(p => p.name).filter(Boolean).join(', ');
+    const who = passengerNames || (ticketData.judge_name ? `Hon. Justice ${ticketData.judge_name}` : 'The travellers named below');
     const tripTypeLabel = ticketData.trip_type === 'round_trip' ? 'round trip' : 'one-way travel';
-    return `${who} is scheduled to travel to ${ticketData.destination || '[destination]'} on official duty for ${tripTypeLabel}. In view of the above, kindly approve procurement of an air ticket to facilitate the travel as per the schedule below:`;
+    return `${who} ${passengers.length > 1 ? 'are' : 'is'} scheduled to travel to ${ticketData.destination || '[destination]'} on official duty for ${tripTypeLabel}. In view of the above, kindly approve procurement of air tickets to facilitate the travel as per the schedule below:`;
   });
 
   const [signatoryName, setSignatoryName] = useState(() => currentUser?.full_name || '');
@@ -865,6 +912,7 @@ interface TicketFormData {
   priority: TicketPriority;
   assigned_to: string;
   is_draft: boolean;
+  passengers: Passenger[];
 }
 
 // ─── Ticket Form Modal ──────────────────────────────────────────────────────
@@ -896,27 +944,55 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
 
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
   const [pendingDocumentId, setPendingDocumentId] = useState<string | undefined>();
+  const [expandedPassenger, setExpandedPassenger] = useState<string | null>(null);
+
+  // ─── Build initial form data ──────────────────────────────────────────────
+
+  const buildInitialPassengers = (): Passenger[] => {
+    if (initialData?.passengers && initialData.passengers.length > 0) {
+      return initialData.passengers.map((p) => ({
+        ...p,
+        id: p.id || generatePassengerId(),
+        time_of_travel: p.time_of_travel || '',
+        return_time: p.return_time || '',
+        judge_name: p.judge_name || '',
+        pj_number: p.pj_number || '',
+      }));
+    }
+
+    // Fallback: create one passenger from main ticket data
+    return [{
+      id: generatePassengerId(),
+      name: initialData?.judge_name || '',
+      judge_name: initialData?.judge_name || '',
+      pj_number: initialData?.pj_number || '',
+      time_of_travel: initialData?.time_of_travel || '',
+      return_time: initialData?.return_time || '',
+    }];
+  };
+
   const [formData, setFormData] = useState<TicketFormData>(() => ({
-  department_id: initialData?.department_id ?? (isDeptHead ? currentUser?.department_id ?? '' : ''),
-  trip_type: initialData?.trip_type ?? 'one_way',
-  date_of_travel: initialData?.date_of_travel?.split('T')[0] ?? '',
-  time_of_travel: initialData?.time_of_travel ?? '',
-  return_date: initialData?.return_date?.split('T')[0] ?? '',
-  return_time: initialData?.return_time ?? '',
-  preferred_departure_time: initialData?.preferred_departure_time ?? 'any',
-  preferred_return_time: initialData?.preferred_return_time ?? 'any',
-  departure_from: initialData?.departure_from ?? '',
-  destination: initialData?.destination ?? '',
-  remarks: initialData?.remarks ?? '',
-  judge_name: initialData?.judge_name ?? '',
-  pj_number: initialData?.pj_number ?? '',
-  travel_class: initialData?.travel_class ?? 'economy',
-  number_of_passengers: initialData?.number_of_passengers ?? 1,
-  special_requests: initialData?.special_requests ?? '',
-  priority: initialData?.priority ?? 'normal',
-  assigned_to: initialData?.assigned_to ?? '',
-  is_draft: false,
-}));
+    department_id: initialData?.department_id ?? (isDeptHead ? currentUser?.department_id ?? '' : ''),
+    trip_type: initialData?.trip_type ?? 'one_way',
+    date_of_travel: initialData?.date_of_travel?.split('T')[0] ?? '',
+    time_of_travel: initialData?.time_of_travel ?? '',
+    return_date: initialData?.return_date?.split('T')[0] ?? '',
+    return_time: initialData?.return_time ?? '',
+    preferred_departure_time: initialData?.preferred_departure_time ?? 'any',
+    preferred_return_time: initialData?.preferred_return_time ?? 'any',
+    departure_from: initialData?.departure_from ?? '',
+    destination: initialData?.destination ?? '',
+    remarks: initialData?.remarks ?? '',
+    judge_name: initialData?.judge_name ?? '',
+    pj_number: initialData?.pj_number ?? '',
+    travel_class: initialData?.travel_class ?? 'economy',
+    number_of_passengers: initialData?.number_of_passengers ?? 1,
+    special_requests: initialData?.special_requests ?? '',
+    priority: initialData?.priority ?? 'normal',
+    assigned_to: initialData?.assigned_to ?? '',
+    is_draft: false,
+    passengers: buildInitialPassengers(),
+  }));
 
   useEffect(() => {
     dispatch(fetchJudges({}));
@@ -954,15 +1030,26 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
   };
 
   const handleSelectJudge = (judge: Judge) => {
+    // Update all passengers or just the first one?
+    // For simplicity, update the first passenger
     setFormData((prev) => ({
       ...prev,
       judge_name: judge.name,
       pj_number: judge.pj_number,
+      passengers: prev.passengers.map((p, index) =>
+        index === 0 ? { ...p, judge_name: judge.name, pj_number: judge.pj_number } : p
+      ),
     }));
   };
 
   const handleJudgeNameChange = (name: string) => {
-    setFormData((prev) => ({ ...prev, judge_name: name }));
+    setFormData((prev) => ({
+      ...prev,
+      judge_name: name,
+      passengers: prev.passengers.map((p, index) =>
+        index === 0 ? { ...p, judge_name: name } : p
+      ),
+    }));
   };
 
   const handleSignatureUpload = async (file: File) => {
@@ -984,10 +1071,61 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
     }
   };
 
+  // ─── Passenger Management ────────────────────────────────────────────────
+
+  const addPassenger = () => {
+    setFormData((prev) => ({
+      ...prev,
+      passengers: [
+        ...prev.passengers,
+        {
+          id: generatePassengerId(),
+          name: '',
+          judge_name: '',
+          pj_number: '',
+          time_of_travel: '',
+          return_time: '',
+        },
+      ],
+      number_of_passengers: prev.passengers.length + 1,
+    }));
+    // Auto-expand the new passenger
+    setTimeout(() => {
+      const newId = formData.passengers[formData.passengers.length - 1]?.id;
+      if (newId) setExpandedPassenger(newId);
+    }, 50);
+  };
+
+  const removePassenger = (id: string) => {
+    if (formData.passengers.length <= 1) {
+      toast.error('At least one passenger is required.');
+      return;
+    }
+    setFormData((prev) => ({
+      ...prev,
+      passengers: prev.passengers.filter((p) => p.id !== id),
+      number_of_passengers: prev.passengers.length - 1,
+    }));
+  };
+
+  const updatePassenger = (id: string, field: keyof Passenger, value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      passengers: prev.passengers.map((p) =>
+        p.id === id ? { ...p, [field]: value } : p
+      ),
+    }));
+  };
+
+  const togglePassengerExpand = (id: string) => {
+    setExpandedPassenger(expandedPassenger === id ? null : id);
+  };
+
   const isRoundTrip = formData.trip_type === 'round_trip';
 
   const handleNextStep = () => {
     if (currentStep === 1) {
+      // Validate basic fields
       if (!formData.date_of_travel || !formData.departure_from || !formData.destination) {
         toast.error('Please fill in all required fields (Travel Date, Departure, Destination)');
         return;
@@ -1008,6 +1146,17 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
         toast.error('Your department could not be determined. Please contact an administrator.');
         return;
       }
+
+      // Validate passengers
+      const invalidPassengers = formData.passengers.filter(p => !p.name?.trim());
+      if (invalidPassengers.length > 0) {
+        toast.error(`Please provide names for all passengers. ${invalidPassengers.length} passenger(s) missing names.`);
+        // Expand the first invalid passenger
+        const firstInvalid = invalidPassengers[0];
+        if (firstInvalid.id) setExpandedPassenger(firstInvalid.id);
+        return;
+      }
+
       setCurrentStep(2);
     }
   };
@@ -1016,46 +1165,58 @@ const TicketFormModal: React.FC<TicketFormModalProps> = ({
     if (currentStep === 2) setCurrentStep(1);
   };
 
-const toDateOnly = (d: string | undefined | null): string | undefined => {
-  if (!d) return undefined;
-  return d.split('T')[0]; // strips any time component from ISO strings
-};
-
-const handleSubmit = (e?: FormEvent) => {
-  e?.preventDefault();
-
-  const derivedTitle =
-    initialData?.title ??
-    `${formData.judge_name ? `${formData.judge_name} — ` : ''}${formData.departure_from} to ${formData.destination} (${formData.date_of_travel})`;
-
-  const basePayload = {
-    title: derivedTitle,
-    department_id: effectiveDepartmentId || undefined,
-    trip_type: formData.trip_type,
-    date_of_travel: toDateOnly(formData.date_of_travel)!,
-    time_of_travel: formData.time_of_travel || undefined,
-    return_date: toDateOnly(formData.return_date),
-    return_time: formData.return_time || undefined,
-    preferred_departure_time: formData.preferred_departure_time,
-    preferred_return_time: formData.preferred_return_time,
-    departure_from: formData.departure_from,
-    destination: formData.destination,
-    remarks: formData.remarks || undefined,
-    judge_name: formData.judge_name || undefined,
-    pj_number: formData.pj_number || undefined,
-    travel_class: formData.travel_class,
-    number_of_passengers: formData.number_of_passengers,
-    special_requests: formData.special_requests || undefined,
-    priority: formData.priority,
-    assigned_to: formData.assigned_to || undefined,
+  const toDateOnly = (d: string | undefined | null): string | undefined => {
+    if (!d) return undefined;
+    return d.split('T')[0];
   };
 
-  const payload = initialData
-    ? (basePayload as UpdateTicketRequest) // no is_draft on update
-    : ({ ...basePayload, is_draft: formData.is_draft } as CreateTicketRequest);
+  const handleSubmit = (e?: FormEvent) => {
+    e?.preventDefault();
 
-  onSubmit(payload, pendingDocumentId);
-};
+    const passengerNames = formData.passengers.map(p => p.name).filter(Boolean);
+    const titleSuffix = passengerNames.length > 0 
+      ? `${passengerNames[0]}${passengerNames.length > 1 ? ` +${passengerNames.length - 1} more` : ''}`
+      : formData.judge_name || 'Travel';
+
+    const derivedTitle =
+      initialData?.title ??
+      `${titleSuffix} — ${formData.departure_from} to ${formData.destination} (${formData.date_of_travel})`;
+
+    const basePayload = {
+      title: derivedTitle,
+      department_id: effectiveDepartmentId || undefined,
+      trip_type: formData.trip_type,
+      date_of_travel: toDateOnly(formData.date_of_travel)!,
+      time_of_travel: formData.time_of_travel || undefined,
+      return_date: toDateOnly(formData.return_date),
+      return_time: formData.return_time || undefined,
+      preferred_departure_time: formData.preferred_departure_time,
+      preferred_return_time: formData.preferred_return_time,
+      departure_from: formData.departure_from,
+      destination: formData.destination,
+      remarks: formData.remarks || undefined,
+      judge_name: formData.judge_name || undefined,
+      pj_number: formData.pj_number || undefined,
+      travel_class: formData.travel_class,
+      number_of_passengers: formData.passengers.length,
+      special_requests: formData.special_requests || undefined,
+      priority: formData.priority,
+      assigned_to: formData.assigned_to || undefined,
+      passengers: formData.passengers.map((p) => ({
+        name: p.name,
+        judge_name: p.judge_name || null,
+        pj_number: p.pj_number || null,
+        time_of_travel: p.time_of_travel || null,
+        return_time: p.return_time || null,
+      })),
+    };
+
+    const payload = initialData
+      ? (basePayload as UpdateTicketRequest)
+      : ({ ...basePayload, is_draft: formData.is_draft } as CreateTicketRequest);
+
+    onSubmit(payload, pendingDocumentId);
+  };
 
   const handleClose = () => {
     setCurrentStep(1);
@@ -1187,7 +1348,7 @@ const handleSubmit = (e?: FormEvent) => {
                   />
                 </div>
                 <div>
-                  <label className={labelClasses}>Departure Time</label>
+                  <label className={labelClasses}>Departure Time (Default)</label>
                   <select
                     name="time_of_travel"
                     value={formData.time_of_travel ?? ''}
@@ -1219,7 +1380,7 @@ const handleSubmit = (e?: FormEvent) => {
                     />
                   </div>
                   <div>
-                    <label className={labelClasses}>Return Time *</label>
+                    <label className={labelClasses}>Return Time (Default)</label>
                     <select
                       name="return_time"
                       value={formData.return_time ?? ''}
@@ -1308,18 +1469,163 @@ const handleSubmit = (e?: FormEvent) => {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className={labelClasses}>Passengers *</label>
-                  <input
-                    type="number"
-                    name="number_of_passengers"
-                    min={1}
-                    value={formData.number_of_passengers}
-                    onChange={handleChange}
-                    className={inputClasses}
-                    required
-                  />
+              </div>
+
+              {/* ─── Passengers Section ────────────────────────────────────────── */}
+              <div className="border border-stone-200 rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-stone-600">
+                    Passengers ({formData.passengers.length})
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addPassenger}
+                    className="flex items-center gap-1 text-xs font-medium text-[#1a3d1c] hover:text-[#2d5c30] transition-colors"
+                  >
+                    <UserPlus size={14} />
+                    Add Passenger
+                  </button>
                 </div>
+
+                {formData.passengers.map((passenger, index) => (
+                  <div
+                    key={passenger.id}
+                    className="border border-stone-100 rounded-lg overflow-hidden"
+                  >
+                    {/* Passenger Header */}
+                    <div
+                      className="flex items-center justify-between p-3 bg-stone-50 cursor-pointer hover:bg-stone-100 transition-colors"
+                      onClick={() => togglePassengerExpand(passenger.id!)}
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <span className="text-xs font-medium text-stone-500">
+                          #{index + 1}
+                        </span>
+                        <span className="text-sm font-medium text-stone-700 truncate">
+                          {passenger.name || `Passenger ${index + 1}`}
+                        </span>
+                        {passenger.judge_name && (
+                          <span className="text-xs text-stone-400 truncate">
+                            Judge: {passenger.judge_name}
+                          </span>
+                        )}
+                        {passenger.time_of_travel && (
+                          <span className="text-xs text-stone-400">
+                            {timeSlots.find(t => t.value === passenger.time_of_travel)?.label || passenger.time_of_travel}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removePassenger(passenger.id!);
+                          }}
+                          className={`p-1 rounded hover:bg-red-50 transition-colors ${
+                            formData.passengers.length <= 1 ? 'opacity-40 cursor-not-allowed' : ''
+                          }`}
+                          disabled={formData.passengers.length <= 1}
+                        >
+                          <UserMinus size={14} className="text-red-500" />
+                        </button>
+                        {expandedPassenger === passenger.id ? (
+                          <ChevronUp size={16} className="text-stone-400" />
+                        ) : (
+                          <ChevronDown size={16} className="text-stone-400" />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Passenger Details (Expandable) */}
+                    {expandedPassenger === passenger.id && (
+                      <div className="p-3 space-y-3 bg-white">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-stone-500 mb-1">
+                              Passenger Name *
+                            </label>
+                            <input
+                              type="text"
+                              value={passenger.name}
+                              onChange={(e) => updatePassenger(passenger.id!, 'name', e.target.value)}
+                              placeholder="Full name"
+                              className={`${inputClasses} text-sm`}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-stone-500 mb-1">
+                              Judge Name
+                            </label>
+                            <JudgeSearchField
+                              nameValue={passenger.judge_name || ''}
+                              pjValue={passenger.pj_number || ''}
+                              onNameChange={(name) => updatePassenger(passenger.id!, 'judge_name', name)}
+                              onSelectJudge={(judge) => {
+                                updatePassenger(passenger.id!, 'judge_name', judge.name);
+                                updatePassenger(passenger.id!, 'pj_number', judge.pj_number);
+                              }}
+                              judges={judges}
+                              loading={judgesLoading}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-stone-500 mb-1">
+                              PJ Number
+                            </label>
+                            <input
+                              type="text"
+                              value={passenger.pj_number || ''}
+                              onChange={(e) => updatePassenger(passenger.id!, 'pj_number', e.target.value)}
+                              placeholder="e.g., PJ-1234"
+                              className={`${inputClasses} text-sm`}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-stone-500 mb-1">
+                              Departure Time
+                            </label>
+                            <select
+                              value={passenger.time_of_travel || ''}
+                              onChange={(e) => updatePassenger(passenger.id!, 'time_of_travel', e.target.value)}
+                              className={`${inputClasses} text-sm`}
+                            >
+                              <option value="">Same as default</option>
+                              {timeSlots.map((slot) => (
+                                <option key={slot.value} value={slot.value}>
+                                  {slot.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+
+                        {isRoundTrip && (
+                          <div>
+                            <label className="block text-xs font-medium text-stone-500 mb-1">
+                              Return Time
+                            </label>
+                            <select
+                              value={passenger.return_time || ''}
+                              onChange={(e) => updatePassenger(passenger.id!, 'return_time', e.target.value)}
+                              className={`${inputClasses} text-sm`}
+                            >
+                              <option value="">Same as default</option>
+                              {timeSlots.map((slot) => (
+                                <option key={slot.value} value={slot.value}>
+                                  {slot.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
 
               {/* ─── Judge & Case Details ─────────────────────────────────────── */}
@@ -1608,6 +1914,38 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
             {ticket.rejected_reason && <DetailRow label="Rejection Reason" value={ticket.rejected_reason} />}
           </div>
 
+          {/* ─── Passengers Details ─────────────────────────────────────────── */}
+          {ticket.passengers && ticket.passengers.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-sm font-semibold text-stone-800">Passenger Details</h3>
+              <div className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
+                {ticket.passengers.map((passenger, index) => (
+                  <div key={passenger.id || index} className="px-3 py-2.5">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-stone-800">{passenger.name}</p>
+                        {passenger.judge_name && (
+                          <p className="text-xs text-stone-500">Judge: {passenger.judge_name}</p>
+                        )}
+                        {passenger.pj_number && (
+                          <p className="text-xs text-stone-500">PJ: {passenger.pj_number}</p>
+                        )}
+                      </div>
+                      <div className="text-right text-xs text-stone-500">
+                        {passenger.time_of_travel && (
+                          <p>Depart: {formatTime(passenger.time_of_travel)}</p>
+                        )}
+                        {passenger.return_time && (
+                          <p>Return: {formatTime(passenger.return_time)}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="mt-5 flex flex-wrap gap-2">
             {ticket.status === 'draft' && (
               <ActionPill tone="warning" onClick={onSubmitForApproval}>Submit for Approval</ActionPill>
@@ -1717,8 +2055,7 @@ const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      
-                     <a href={doc.file_url}
+                      <a href={doc.file_url}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
@@ -1887,6 +2224,7 @@ const HelpdeskTickets: React.FC = () => {
             });
         }
         handleCloseCreate();
+        toast.success('Ticket created successfully.');
       })
       .catch((err) => {
         toast.error(typeof err === 'string' ? err : 'Failed to create ticket');
@@ -1899,6 +2237,7 @@ const HelpdeskTickets: React.FC = () => {
       .then(() => {
         handleCloseCreate();
         if (selectedId === id) dispatch(fetchTicketById(id));
+        toast.success('Ticket updated successfully.');
       })
       .catch((err) => {
         toast.error(typeof err === 'string' ? err : 'Failed to update ticket');
@@ -2204,6 +2543,9 @@ const HelpdeskTickets: React.FC = () => {
                     Return
                   </th>
                   <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
+                    Passengers
+                  </th>
+                  <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
                     Status
                   </th>
                   <th className="border border-stone-200 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-stone-700">
@@ -2220,7 +2562,7 @@ const HelpdeskTickets: React.FC = () => {
               <tbody>
                 {tickets.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="border border-stone-200 py-16 text-center text-sm text-stone-400">
+                    <td colSpan={12} className="border border-stone-200 py-16 text-center text-sm text-stone-400">
                       No tickets found
                     </td>
                   </tr>
@@ -2259,6 +2601,16 @@ const HelpdeskTickets: React.FC = () => {
                             {formatTime(ticket.return_time)}
                           </span>
                         )}
+                      </td>
+                      <td className="border border-stone-200 px-4 py-3 text-sm text-stone-600">
+                        <div className="flex flex-col">
+                          <span className="font-medium">{ticket.number_of_passengers}</span>
+                          {ticket.passengers && ticket.passengers.length > 0 && (
+                            <span className="text-[10px] text-stone-400">
+                              {ticket.passengers.map(p => p.name).join(', ')}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="border border-stone-200 px-4 py-3">
                         <span
