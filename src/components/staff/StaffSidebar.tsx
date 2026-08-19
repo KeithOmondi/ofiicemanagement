@@ -63,25 +63,34 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
   const base = match ? `/dept/${match.params.deptId}` : '';
 
   const department = departments.find((d) => d.id === user?.department_id);
-  const { isHelpdeskStaff, isRegistryStaff } = getStaffDeptFlags(department?.name);
+const { isHelpdeskStaff, isRegistryStaff, isJOStaff } = getStaffDeptFlags(department?.name);
 
   const sections: NavSection[] = [
-    {
-      title: 'Overview',
-      items: [
-        { to: `${base}/dashboard`, label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" />, tab: 'dashboard' },
-        ...(isHelpdeskStaff
-          ? [
-              { to: `${base}/help-desk`, label: 'Help Desk', icon: <HelpCircle className="h-4 w-4" />, tab: 'help' },
-              { to: `${base}/helpdesk-docs`, label: 'HelpDesk Docs', icon: <File className="h-4 w-4" />, tab: 'docs' },
-              { to: `${base}/helpdesk-tickets`, label: 'Tickets', icon: <Tickets className="h-4 w-4" />, tab: 'tickets' },
-              { to: `${base}/aides`, label: 'Aides & Sentry', icon: <ShieldAlert className="h-4 w-4" />, tab: 'aides' },
-              { to: `${base}/memos-letters`, label: 'Memos & Letters', icon: <MailCheck className="h-4 w-4" />, tab: 'memosletters' },
-            ]
-          : []),
-        { to: `${base}/documents`, label: 'Documents', icon: <Folder className="h-4 w-4" />, tab: 'documents' },
-      ],
-    },
+{
+  title: 'Overview',
+  items: [
+    { to: `${base}/dashboard`, label: 'Dashboard', icon: <LayoutDashboard className="h-4 w-4" />, tab: 'dashboard' },
+    ...(isJOStaff
+      ? [
+          { to: `${base}/jdocuments`, label: 'Documents', icon: <Calendar className="h-4 w-4" />, tab: 'jdocs' },
+        ]
+      : []),
+    ...(isHelpdeskStaff
+      ? [
+          { to: `${base}/help-desk`, label: 'Help Desk', icon: <HelpCircle className="h-4 w-4" />, tab: 'help' },
+          { to: `${base}/helpdesk-docs`, label: 'HelpDesk Docs', icon: <File className="h-4 w-4" />, tab: 'docs' },
+          { to: `${base}/helpdesk-tickets`, label: 'Tickets', icon: <Tickets className="h-4 w-4" />, tab: 'tickets' },
+          { to: `${base}/aides`, label: 'Aides & Sentry', icon: <ShieldAlert className="h-4 w-4" />, tab: 'aides' },
+          { to: `${base}/memos-letters`, label: 'Memos & Letters', icon: <MailCheck className="h-4 w-4" />, tab: 'memosletters' },
+        ]
+      : []),
+    ...(!isJOStaff
+      ? [
+          { to: `${base}/documents`, label: 'Documents', icon: <Folder className="h-4 w-4" />, tab: 'documents' },
+        ]
+      : []),
+  ],
+},
     ...(!isRegistryStaff
       ? [
           {
@@ -130,6 +139,9 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
           },
         ]
       : []),
+
+
+  
     {
       title: 'System',
       items: [

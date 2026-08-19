@@ -16,6 +16,9 @@ export const getStaffDeptFlags = (departmentName: string | null | undefined) => 
       slug.includes('principal registry') ||
       slug.includes('principleregistry') ||
       slug.includes('principle registry'), // tolerate the "Principle Registry" misspelling seen in prod data
+    isJOStaff:
+      slug === 'jo' ||
+      slug.includes('judicial officer'), // mirror resolveDeskKey's "jo" match in DeptDeskGateway
     // Add more department-specific flags here as needed, e.g.:
     // isFinanceStaff: slug.includes('finance'),
     // isProcurementStaff: slug.includes('procurement'),

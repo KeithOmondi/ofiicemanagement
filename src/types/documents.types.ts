@@ -41,151 +41,24 @@ export type RefType =
 
 // ─── Document Metadata Types ───────────────────────────────────────────────────
 
-/**
- * Document metadata for storing additional document settings
- * This allows for future extensibility without breaking existing types
- */
 export interface DocumentMetadata {
-  fromFirst?: boolean; // Controls whether FROM appears before TO in memos
+  fromFirst?: boolean;
   // Add other metadata fields here as needed
 }
 
 // ─── Document Attachment Types ───────────────────────────────────────────────
 
 export interface DocumentAttachment {
-  id?: string; // Unique identifier for the attachment
+  id?: string;
   name: string;
   url: string;
-  public_id?: string; // Cloudinary public ID for deletion
+  public_id?: string;
   size?: number;
   mimeType?: string;
-  uploaded_by?: string; // User ID who uploaded
-  uploaded_by_name?: string; // Name of user who uploaded
-  uploaded_at?: string; // Timestamp when uploaded
+  uploaded_by?: string;
+  uploaded_by_name?: string;
+  uploaded_at?: string;
 }
-
-// ─── Request Types ─────────────────────────────────────────────────────────────
-
-export type RequestType =
-  | 'driver'
-  | 'bodyguard'
-  | 'firearm'
-  | 'current_station'
-  | 'force_number'
-  | 'residence_security'
-  | 'sentry';
-
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
-
-// ─── Request Details ──────────────────────────────────────────────────────────
-
-export interface DocumentRequestDetails {
-  request_type: RequestType | null;
-  driver_name?: string | null;
-  driver_license?: string | null;
-  driver_vehicle?: string | null;
-  driver_contact?: string | null;
-  bodyguard_name?: string | null;
-  bodyguard_badge?: string | null;
-  bodyguard_unit?: string | null;
-  bodyguard_contact?: string | null;
-  firearm_type?: string | null;
-  firearm_serial?: string | null;
-  firearm_caliber?: string | null;
-  firearm_owner?: string | null;
-  firearm_license?: string | null;
-  current_station_name?: string | null;
-  current_station_location?: string | null;
-  current_station_contact?: string | null;
-  current_station_head?: string | null;
-  force_number_value?: string | null;
-  force_number_rank?: string | null;
-  force_number_unit?: string | null;
-  force_number_issue_date?: string | null;
-  residence_address?: string | null;
-  residence_city?: string | null;
-  residence_state?: string | null;
-  security_personnel_count?: number | null;
-  security_shift_hours?: string | null;
-  security_equipment?: string | null;
-  sentry_post_location?: string | null;
-  sentry_instructions?: string | null;
-  request_date?: string | null;
-  request_reason?: string | null;
-  request_duration?: string | null;
-  request_start_date?: string | null;
-  request_end_date?: string | null;
-  requesting_officer?: string | null;
-  requesting_officer_rank?: string | null;
-  approving_officer?: string | null;
-  approving_officer_rank?: string | null;
-  approval_status?: ApprovalStatus | null;
-  approval_date?: string | null;
-  remarks?: string | null;
-}
-
-// ─── Request-specific interfaces ──────────────────────────────────────────────
-
-export interface DriverRequestDetails extends DocumentRequestDetails {
-  request_type: 'driver';
-  driver_name: string;
-  driver_license: string;
-  driver_vehicle: string;
-  driver_contact: string;
-}
-
-export interface BodyguardRequestDetails extends DocumentRequestDetails {
-  request_type: 'bodyguard';
-  bodyguard_name: string;
-  bodyguard_badge: string;
-  bodyguard_unit: string;
-  bodyguard_contact: string;
-}
-
-export interface FirearmRequestDetails extends DocumentRequestDetails {
-  request_type: 'firearm';
-  firearm_type: string;
-  firearm_serial: string;
-  firearm_caliber: string;
-  firearm_owner: string;
-  firearm_license: string;
-}
-
-export interface CurrentStationRequestDetails extends DocumentRequestDetails {
-  request_type: 'current_station';
-  current_station_name: string;
-  current_station_location: string;
-  current_station_contact: string;
-  current_station_head: string;
-}
-
-export interface ForceNumberRequestDetails extends DocumentRequestDetails {
-  request_type: 'force_number';
-  force_number_value: string;
-  force_number_rank: string;
-  force_number_unit: string;
-  force_number_issue_date: string;
-}
-
-export interface ResidenceSecurityRequestDetails extends DocumentRequestDetails {
-  request_type: 'residence_security' | 'sentry';
-  residence_address: string;
-  residence_city: string;
-  residence_state: string;
-  security_personnel_count: number;
-  security_shift_hours: string;
-  security_equipment: string;
-  sentry_post_location?: string | null;
-  sentry_instructions?: string | null;
-}
-
-export type AnyRequestDetails =
-  | DriverRequestDetails
-  | BodyguardRequestDetails
-  | FirearmRequestDetails
-  | CurrentStationRequestDetails
-  | ForceNumberRequestDetails
-  | ResidenceSecurityRequestDetails;
 
 // ════════════════════════════════════════════════════════════════════════════
 //  BRING UP TYPES (Super Admin only - Date-based reminders)
@@ -226,8 +99,6 @@ export interface BringUpSummary {
   my_overdue: number;
 }
 
-// ── Bring Up Input Types ────────────────────────────────────────────────────
-
 export interface SetBringUpInput {
   bring_up_date: Date | string;
   notes?: string;
@@ -261,7 +132,6 @@ export interface BringUpFilters {
 // ════════════════════════════════════════════════════════════════════════════
 
 export type FollowUpStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled';
-
 export type FollowUpPriority = 'low' | 'normal' | 'urgent';
 
 export interface FollowUp {
@@ -310,8 +180,6 @@ export interface FollowUpPaginationResponse {
   totalPages: number;
 }
 
-// ─── Follow-up Input Types ──────────────────────────────────────────────────
-
 export interface CreateFollowUpInput {
   document_id: string;
   mark_id?: string;
@@ -339,7 +207,7 @@ export interface UpdateFollowUpInput {
 }
 
 export interface CompleteFollowUpInput {
-  completion_notes: string; // Required - admin must give instructions
+  completion_notes: string;
 }
 
 export interface CancelFollowUpInput {
@@ -383,7 +251,6 @@ export interface CreateComposedDocumentInput {
   body: string;
   assigned_to?: string;
   department_id?: string;
-  request_details?: Partial<DocumentRequestDetails>;
 }
 
 export interface ComposeMemoInput {
@@ -399,7 +266,6 @@ export interface ComposeMemoInput {
   cc?: string;
   attachments?: DocumentAttachment[];
   fromFirst?: boolean;
-  request_details?: Partial<DocumentRequestDetails>;
 }
 
 export interface ComposeLetterInput {
@@ -414,7 +280,6 @@ export interface ComposeLetterInput {
   reference_no?: string;
   cc?: string;
   enclosures?: string;
-  request_details?: Partial<DocumentRequestDetails>;
 }
 
 export interface ComposeCertificateInput {
@@ -439,8 +304,6 @@ export interface ComposeCertificateInput {
   reference_no?: string;
 }
 
-// ─── Other input types ──────────────────────────────────────────────────────────
-
 export interface SendToUserInput {
   recipient_id: string;
   note?: string;
@@ -457,7 +320,6 @@ export interface CreateUploadDocumentInput {
   department_id?: string;
   is_draft?: boolean;
   priority?: RoutePriority;
-  request_details?: Partial<DocumentRequestDetails>;
 }
 
 export interface UpdateDocumentInput {
@@ -484,10 +346,7 @@ export interface UpdateDocumentInput {
   from_first?: boolean | null;
   metadata?: DocumentMetadata | null;
   attachments?: DocumentAttachment[] | null;
-  request_details?: Partial<DocumentRequestDetails> | null;
 }
-
-// ─── Mark to Department ──────────────────────────────────────────────────────
 
 export interface MarkDocumentInput {
   department_id: string;
@@ -522,8 +381,7 @@ export interface DocumentFilters {
   limit?: number;
   sort_by?: 'created_at' | 'updated_at' | 'title' | 'status' | 'bring_up_date';
   sort_order?: 'ASC' | 'DESC';
-  request_type?: RequestType;
-  // ─── Bring Up Filters ─────────────────────────────────────────────────────
+  // Bring Up Filters
   has_bring_up_date?: boolean;
   bring_up_status?: BringUpStatus | 'all';
   bring_up_date_from?: string;
@@ -532,8 +390,6 @@ export interface DocumentFilters {
   bring_up_due_this_week?: boolean;
   assigned_for_bring_up?: string;
 }
-
-// ─── Draft / Flow input types ────────────────────────────────────────────────
 
 export interface FinalizeDraftInput {
   assigned_to?: string;
@@ -548,8 +404,6 @@ export interface ReturnDocumentInput {
 export interface RespondToDocumentInput {
   note: string;
 }
-
-// ─── Folder Operation Input types ───────────────────────────────────────────
 
 export interface RedirectToFolderInput {
   folder_id: string;
@@ -567,7 +421,6 @@ export interface FolderDocumentFilters {
   search?: string;
   type?: DocumentType;
   status?: DocumentStatus;
-  request_type?: RequestType;
 }
 
 // ─── Entity types ──────────────────────────────────────────────────────────────
@@ -682,9 +535,8 @@ export interface Document {
   signature_position_height: number | null;
   metadata: DocumentMetadata | null;
   attachments?: DocumentAttachment[];
-  request_details: DocumentRequestDetails | null;
   follow_ups?: FollowUp[];
-  // ─── Bring Up Fields ──────────────────────────────────────────────────────
+  // Bring Up Fields
   bring_up_date: string | null;
   bring_up_set_by: string | null;
   bring_up_set_by_name: string | null;
@@ -711,8 +563,6 @@ export interface DocumentPaginationResponse {
   limit: number;
   totalPages: number;
 }
-
-// ─── View Models ─────────────────────────────────────────────────────────────
 
 export interface DocumentListItem {
   id: string;

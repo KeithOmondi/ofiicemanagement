@@ -9,7 +9,6 @@ import {
   createJoDocument,
   updateJoDocumentDraft,
   replaceJoDocumentFile,
-  sendJoDocumentToSuperAdmin,
   respondToJoDocument,
   approveJoDocument,
   rejectJoDocument,
@@ -37,7 +36,6 @@ import type {
   JoDocumentFilters,
   CreateJoDocumentInput,
   UpdateJoDocumentInput,
-  SendToSuperAdminInput,
   RespondToJoDocumentInput,
   ApproveJoDocumentInput,
   RejectJoDocumentInput,
@@ -278,6 +276,7 @@ const Documents: React.FC = () => {
 
   // ── Form States ────────────────────────────────────────────────────────────
   const [uploadTitle, setUploadTitle] = useState('');
+  const [uploadDepartmentId, setUploadDepartmentId] = useState('');
   const [uploadIsDraft, setUploadIsDraft] = useState(true);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -347,6 +346,7 @@ const Documents: React.FC = () => {
 
     const input: CreateJoDocumentInput = {
       title: uploadTitle,
+      department_id: uploadDepartmentId || undefined,
       is_draft: uploadIsDraft,
     };
 
@@ -358,24 +358,6 @@ const Documents: React.FC = () => {
       dispatch(fetchJoDocuments(filters));
     } catch (err) {
       const errorMessage = typeof err === 'string' ? err : 'Failed to upload document';
-      toast.error(errorMessage);
-    }
-  };
-
-  const handleSendToSuperAdmin = async (id: string) => {
-    const input: SendToSuperAdminInput = {};
-    
-    try {
-      await dispatch(sendJoDocumentToSuperAdmin({ id, input })).unwrap();
-      toast.success('Document sent to Super Admin for review');
-      dispatch(fetchJoDocuments(filters));
-      // Refresh detail view if open
-      if (selectedDocument) {
-        const updated = await dispatch(fetchJoDocumentById(id)).unwrap();
-        setSelectedDocument(updated);
-      }
-    } catch (err) {
-      const errorMessage = typeof err === 'string' ? err : 'Failed to send document';
       toast.error(errorMessage);
     }
   };
@@ -500,6 +482,7 @@ const Documents: React.FC = () => {
 
   const resetUploadForm = () => {
     setUploadTitle('');
+    setUploadDepartmentId('');
     setUploadIsDraft(true);
     setUploadFile(null);
   };
@@ -508,23 +491,25 @@ const Documents: React.FC = () => {
     setFilters((prev) => ({ ...prev, page: newPage }));
   };
 
-  const handleViewFile = (fileUrl: string | null) => {
-    if (!fileUrl) {
-      toast.error('No file available');
-      return;
-    }
+// Replace the handleViewFile function with this version that removes the unused fileName parameter
 
-    const fileExtension = fileUrl.split('.').pop()?.toLowerCase() || '';
-    const isWord = ['doc', 'docx'].includes(fileExtension);
-    const isExcel = ['xls', 'xlsx'].includes(fileExtension);
+const handleViewFile = (fileUrl: string | null) => {
+  if (!fileUrl) {
+    toast.error('No file available');
+    return;
+  }
 
-    if (isWord || isExcel) {
-      const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
-      window.open(viewerUrl, '_blank');
-    } else {
-      window.open(fileUrl, '_blank');
-    }
-  };
+  const fileExtension = fileUrl.split('.').pop()?.toLowerCase() || '';
+  const isWord = ['doc', 'docx'].includes(fileExtension);
+  const isExcel = ['xls', 'xlsx'].includes(fileExtension);
+
+  if (isWord || isExcel) {
+    const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`;
+    window.open(viewerUrl, '_blank');
+  } else {
+    window.open(fileUrl, '_blank');
+  }
+};
 
   // ── Stats ──────────────────────────────────────────────────────────────────
 
@@ -701,14 +686,12 @@ const Documents: React.FC = () => {
               const isOwner = doc.uploaded_by === currentUser?.id;
               const isSuperAdmin = currentUser?.role === 'super_admin';
               const canEdit = isOwner && doc.status === 'draft';
-              const canSend = isOwner && doc.status === 'draft';
               const canReplaceFile = isOwner && (doc.status === 'draft' || doc.status === 'rejected');
               const canApprove = isSuperAdmin && doc.status === 'pending_review';
               const canReject = isSuperAdmin && doc.status === 'pending_review';
               const canDelete = isOwner && doc.status === 'draft';
               const canRespond = isOwner || isSuperAdmin;
               const hasResponses = (doc.response_count || 0) > 0;
-              const isSending = actionInProgress.sending === doc.id;
 
               return (
                 <div key={doc.id} className="bg-white rounded-xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow p-4">
@@ -789,21 +772,6 @@ const Documents: React.FC = () => {
                         </button>
                       )}
 
-                      {canSend && (
-                        <button
-                          onClick={() => handleSendToSuperAdmin(doc.id)}
-                          disabled={isSending}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1d3331] text-white text-[10px] font-bold hover:bg-emerald-800 transition-colors disabled:opacity-50"
-                        >
-                          {isSending ? (
-                            <Loader2 size={14} className="animate-spin" />
-                          ) : (
-                            <Send size={14} />
-                          )}
-                          Submit
-                        </button>
-                      )}
-
                       {canReplaceFile && (
                         <button
                           onClick={() => {
@@ -859,15 +827,15 @@ const Documents: React.FC = () => {
                       )}
 
                       {/* File button - opens in new tab */}
-                      {doc.file_url && (
-                        <button
-                          onClick={() => handleViewFile(doc.file_url)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 text-[10px] font-bold hover:bg-stone-50 transition-colors"
-                        >
-                          <Download size={14} />
-                          File
-                        </button>
-                      )}
+                    {doc.file_url && (
+  <button
+    onClick={() => handleViewFile(doc.file_url)}
+    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 text-[10px] font-bold hover:bg-stone-50 transition-colors"
+  >
+    <Download size={14} />
+    File
+  </button>
+)}
 
                       <button
                         onClick={() => handleViewDocument(doc.id)}
@@ -950,6 +918,22 @@ const Documents: React.FC = () => {
 
               <div>
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">
+                  Department (optional)
+                </label>
+                <select
+                  value={uploadDepartmentId}
+                  onChange={(e) => setUploadDepartmentId(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm outline-none focus:border-[#1d3331] transition-colors"
+                >
+                  <option value="">No department</option>
+                  {allDepartments.map((dept) => (
+                    <option key={dept.id} value={dept.id}>{dept.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">
                   File *
                 </label>
                 <input
@@ -989,7 +973,7 @@ const Documents: React.FC = () => {
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1d3331] text-white text-sm font-bold hover:bg-emerald-800 transition-colors disabled:opacity-50"
                 >
                   {actionInProgress.creating ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                  {uploadIsDraft ? 'Save Draft' : 'Send for Review'}
+                  Upload
                 </button>
               </div>
             </form>
@@ -1278,35 +1262,21 @@ const Documents: React.FC = () => {
               )}
 
               {/* File in detail view */}
-              {selectedDocument.file_url && (
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">File</p>
-                  <button
-                    onClick={() => handleViewFile(selectedDocument.file_url)}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm text-stone-700 hover:bg-stone-100 transition-colors"
-                  >
-                    <Download size={16} />
-                    {selectedDocument.original_name || 'View File'}
-                  </button>
-                </div>
-              )}
+        {selectedDocument.file_url && (
+  <div>
+    <p className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mb-1">File</p>
+    <button
+      onClick={() => handleViewFile(selectedDocument.file_url)}
+      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-stone-50 border border-stone-200 text-sm text-stone-700 hover:bg-stone-100 transition-colors"
+    >
+      <Download size={16} />
+      {selectedDocument.original_name || 'View File'}
+    </button>
+  </div>
+)}
 
               {/* Quick action buttons in detail view */}
               <div className="flex flex-wrap gap-2 pt-2 border-t border-stone-100">
-                {selectedDocument.status === 'draft' && selectedDocument.uploaded_by === currentUser?.id && (
-                  <button
-                    onClick={() => handleSendToSuperAdmin(selectedDocument.id)}
-                    disabled={actionInProgress.sending === selectedDocument.id}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1d3331] text-white text-sm font-bold hover:bg-emerald-800 transition-colors disabled:opacity-50"
-                  >
-                    {actionInProgress.sending === selectedDocument.id ? (
-                      <Loader2 size={16} className="animate-spin" />
-                    ) : (
-                      <Send size={16} />
-                    )}
-                    Submit to Super Admin
-                  </button>
-                )}
                 {isSuperAdmin && selectedDocument.status === 'pending_review' && (
                   <>
                     <button
@@ -1335,14 +1305,14 @@ const Documents: React.FC = () => {
                   </>
                 )}
                 {selectedDocument.file_url && (
-                  <button
-                    onClick={() => handleViewFile(selectedDocument.file_url)}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-stone-200 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
-                  >
-                    <Download size={16} />
-                    Download
-                  </button>
-                )}
+  <button
+    onClick={() => handleViewFile(selectedDocument.file_url)}
+    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-stone-200 text-sm font-medium text-stone-600 hover:bg-stone-50 transition-colors"
+  >
+    <Download size={16} />
+    Download
+  </button>
+)}
                 <button
                   onClick={() => {
                     setIsDetailModalOpen(false);

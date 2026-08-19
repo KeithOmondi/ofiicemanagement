@@ -94,6 +94,7 @@ import DHNotices from "../pages/principalregistry/DHNotices";
 import HelpDeskLogs from "../pages/helpdesk/HelpDeskLogs";
 import JOServiceWeek from "../pages/JO/JOServiceWeek";
 import JOMessages from "../pages/JO/JOMessages";
+import DrDocuments from "../pages/staff/DrDocuments";
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
 
@@ -170,7 +171,7 @@ const DeptDeskGateway: React.FC = () => {
 
   // ── Staff desk ──────────────────────────────────────────────────────────────
   if (deskKey === "staff") {
-    const { isHelpdeskStaff, isRegistryStaff } = getStaffDeptFlags(
+    const { isHelpdeskStaff, isRegistryStaff, isJOStaff } = getStaffDeptFlags(
       department?.name,
     );
 
@@ -203,6 +204,19 @@ const DeptDeskGateway: React.FC = () => {
                 path="memos-letters"
                 element={<HelpdeskMemoandLetters />}
               />
+            </>
+          )}
+
+          {/* Judicial Officer Staff routes
+              These paths must mirror the `to` values used for isJOStaff in
+              StaffSidebar.tsx (jdocuments, jo-messages, jo-serviceweek).
+              Previously missing here, so links fell through to the staff
+              desk's catch-all and bounced back to /dashboard. */}
+          {isJOStaff && (
+            <>
+              <Route path="jdocuments" element={<DrDocuments />} />
+              <Route path="jo-messages" element={<JOMessages />} />
+              <Route path="jo-serviceweek" element={<JOServiceWeek />} />
             </>
           )}
 
@@ -283,6 +297,13 @@ const DeptDeskGateway: React.FC = () => {
   }
 
   // ── Judicial Officer desk ──────────────────────────────────────────────────
+  // NOTE: resolveDeskKey() returns "staff" for any user with role "staff" or
+  // "viewer" *before* it ever checks department name — so this block is only
+  // reached by JO users whose role is something else (e.g. dept_head). If all
+  // real JO users have role "staff", this block is effectively dead code; the
+  // routes actually used by isJOStaff staff members live in the staff desk
+  // block above. Keeping this here in case a non-"staff"-role JO user exists,
+  // but worth confirming and removing if not.
   if (deskKey === "jo") {
     return (
       <Routes>
@@ -292,6 +313,7 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="documents" element={<JODocuments />} />
           <Route path="jo-serviceweek" element={<JOServiceWeek />} />
           <Route path="jo-messages" element={<JOMessages />} />
+          <Route path="jdocuments" element={<DrDocuments />} />
         </Route>
         <Route
           path="*"
