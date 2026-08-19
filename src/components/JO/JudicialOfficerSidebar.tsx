@@ -104,10 +104,9 @@ const navigationConfig: NavSection[] = [
     ],
   },
   {
-    title: 'Chamber Activities',
+    title: 'Service Week',
     items: [
-      { to: (id) => `/dept/${id}/messages`, label: 'Inter-Chamber Mail', icon: Icon.messages },
-      { to: (id) => `/dept/${id}/tasks`, label: 'Chamber Tasks', icon: Icon.tasks },
+      { to: (id) => `/dept/${id}/jo-serviceweek`, label: 'Service Week', icon: Icon.messages },
     ],
   },
 ];

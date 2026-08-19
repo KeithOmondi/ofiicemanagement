@@ -92,6 +92,7 @@ import DHMemoandLetters from "../pages/principalregistry/DHMemoandLetters";
 import DHMessages from "../pages/principalregistry/DHMessages";
 import DHNotices from "../pages/principalregistry/DHNotices";
 import HelpDeskLogs from "../pages/helpdesk/HelpDeskLogs";
+import JOServiceWeek from "../pages/JO/JOServiceWeek";
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
 
@@ -288,6 +289,7 @@ const DeptDeskGateway: React.FC = () => {
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<JODashboard />} />
           <Route path="documents" element={<JODocuments />} />
+          <Route path="jo-serviceweek" element={<JOServiceWeek />} />
         </Route>
         <Route
           path="*"

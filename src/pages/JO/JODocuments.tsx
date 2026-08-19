@@ -45,6 +45,9 @@ import {
 import { format } from 'date-fns';
 import { toast } from 'react-hot-toast';
 
+// ─── Import JO Documents Component ──────────────────────────────────────────
+import JODocumentsPage from './Documents';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type StatusFilter = 'all' | 'marked' | 'in_progress' | 'completed';
@@ -871,6 +874,7 @@ const JODocuments: React.FC = () => {
   const [isModalOpen,        setIsModalOpen]        = useState(false);
   const [fetchError,         setFetchError]         = useState<string | null>(null);
   const [previewTarget,      setPreviewTarget]      = useState<PreviewTarget | null>(null);
+  const [showJODocuments,    setShowJODocuments]    = useState(false);
 
   // Delegate state
   const [delegateModalOpen,  setDelegateModalOpen]  = useState(false);
@@ -1165,222 +1169,256 @@ const JODocuments: React.FC = () => {
 
   return (
     <div className="p-4 md:p-6">
-      {/* Header */}
-      <div className="mb-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-serif font-bold text-[#1d3331]">My Documents</h1>
-            <p className="text-sm text-stone-500 mt-1">Documents marked for your action</p>
-          </div>
-          <div className="flex items-center gap-2 text-sm text-stone-500">
-            <FileText size={16} className="text-stone-400" />
-            <span>{stats.total} documents</span>
-          </div>
+      {/* ─── Tab Navigation ──────────────────────────────────────────────── */}
+      <div className="mb-6 border-b border-stone-200">
+        <div className="flex gap-4">
+          <button
+            onClick={() => setShowJODocuments(false)}
+            className={`px-4 py-2 text-sm font-bold transition-colors ${
+              !showJODocuments
+                ? 'text-[#1d3331] border-b-2 border-[#1d3331]'
+                : 'text-stone-400 hover:text-stone-600'
+            }`}
+          >
+            Marked Documents
+          </button>
+          <button
+            onClick={() => setShowJODocuments(true)}
+            className={`px-4 py-2 text-sm font-bold transition-colors ${
+              showJODocuments
+                ? 'text-[#1d3331] border-b-2 border-[#1d3331]'
+                : 'text-stone-400 hover:text-stone-600'
+            }`}
+          >
+            JO Documents
+          </button>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-3 mb-6">
-        <div className="bg-white rounded-xl border border-stone-200 p-3 text-center">
-          <p className="text-lg font-bold text-stone-900">{stats.total}</p>
-          <p className="text-[10px] text-stone-400 font-medium">Total</p>
-        </div>
-        <div className="bg-white rounded-xl border border-stone-200 p-3 text-center">
-          <p className="text-lg font-bold text-violet-600">{stats.marked}</p>
-          <p className="text-[10px] text-stone-400 font-medium">To Acknowledge</p>
-        </div>
-        <div className="bg-white rounded-xl border border-stone-200 p-3 text-center">
-          <p className="text-lg font-bold text-blue-600">{stats.inProgress}</p>
-          <p className="text-[10px] text-stone-400 font-medium">In Progress</p>
-        </div>
-        <div className="bg-white rounded-xl border border-stone-200 p-3 text-center">
-          <p className="text-lg font-bold text-emerald-600">{stats.completed}</p>
-          <p className="text-[10px] text-stone-400 font-medium">Completed</p>
-        </div>
-      </div>
+      {/* ─── Render JO Documents ──────────────────────────────────────────── */}
+      {showJODocuments && <JODocumentsPage />}
 
-      {/* Search and Filters */}
-      <div className="bg-white rounded-2xl border border-stone-200 p-4 shadow-sm mb-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={16} />
-            <input
-              type="text"
-              placeholder="Search documents..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm outline-none focus:border-[#1d3331] transition-colors"
-            />
-          </div>
-
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mr-1">Status:</span>
-            {(['all', 'marked', 'in_progress', 'completed'] as StatusFilter[]).map((status) => (
-              <button
-                key={status}
-                onClick={() => setStatusFilter(status)}
-                className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase whitespace-nowrap transition-colors ${
-                  statusFilter === status
-                    ? 'bg-[#1d3331] text-white'
-                    : 'bg-stone-50 text-stone-500 hover:bg-stone-100'
-                }`}
-              >
-                {status === 'all' ? 'All' : status.replace('_', ' ')}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Empty State for My Documents */}
-      {!loading && filteredDocuments.length === 0 && (
-        <div className="bg-white rounded-2xl border border-stone-200 p-12 text-center">
-          <FileText size={48} className="mx-auto text-stone-300 mb-4" />
-          <h3 className="text-base font-serif font-bold text-stone-400">No documents found</h3>
-          <p className="text-sm text-stone-400 mt-1">
-            {searchTerm
-              ? 'Try adjusting your search'
-              : 'No documents have been marked for your action'}
-          </p>
-        </div>
-      )}
-
-      {/* My Documents List */}
-      {!loading && filteredDocuments.length > 0 && (
-        <div className="space-y-3">
-          {filteredDocuments.map((document: Document) => {
-            const isAcknowledging = actionInProgress?.acknowledging === document.id;
-            const isCompleting    = actionInProgress?.completing    === document.id;
-            const isDelegatingDoc = isDelegating && delegateDocument?.id === document.id;
-
-            return (
-              <DocumentCard
-                key={document.id}
-                document={document}
-                onView={() => handleViewDocument(document)}
-                onPreviewFile={document.file_url ? () => handlePreviewFile(document) : undefined}
-                onAcknowledge={document.status === 'marked' || document.status === 'user_assigned' ? () => handleAcknowledge(document.id) : undefined}
-                onComplete={document.status === 'in_progress' ? () => handleComplete(document.id) : undefined}
-                onDelegate={isDeptHead ? () => openDelegateModal(document) : undefined}
-                isActionInProgress={isAcknowledging || isCompleting || isDelegatingDoc}
-                isDeptHead={isDeptHead}
-              />
-            );
-          })}
-        </div>
-      )}
-
-      {/* ─── Department Documents Section (for Dept Head) ──────────────── */}
-      {isDeptHead && (
-        <div className="mt-10">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-serif font-bold text-[#1d3331]">Department Documents</h2>
-            <span className="text-sm text-stone-500">
-              {departmentDocs?.length || 0} documents
-            </span>
-          </div>
-
-          {deptDocsLoading && (!departmentDocs || departmentDocs.length === 0) ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="animate-spin text-[#1d3331]" size={24} />
+      {/* ─── Render Helpdesk Documents ───────────────────────────────────── */}
+      {!showJODocuments && (
+        <>
+          {/* Header */}
+          <div className="mb-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-serif font-bold text-[#1d3331]">My Documents</h1>
+                <p className="text-sm text-stone-500 mt-1">Documents marked for your action</p>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-stone-500">
+                <FileText size={16} className="text-stone-400" />
+                <span>{stats.total} documents</span>
+              </div>
             </div>
-          ) : departmentDocs && departmentDocs.length > 0 ? (
+          </div>
+
+          {/* Stats */}
+          <div className="grid grid-cols-4 gap-3 mb-6">
+            <div className="bg-white rounded-xl border border-stone-200 p-3 text-center">
+              <p className="text-lg font-bold text-stone-900">{stats.total}</p>
+              <p className="text-[10px] text-stone-400 font-medium">Total</p>
+            </div>
+            <div className="bg-white rounded-xl border border-stone-200 p-3 text-center">
+              <p className="text-lg font-bold text-violet-600">{stats.marked}</p>
+              <p className="text-[10px] text-stone-400 font-medium">To Acknowledge</p>
+            </div>
+            <div className="bg-white rounded-xl border border-stone-200 p-3 text-center">
+              <p className="text-lg font-bold text-blue-600">{stats.inProgress}</p>
+              <p className="text-[10px] text-stone-400 font-medium">In Progress</p>
+            </div>
+            <div className="bg-white rounded-xl border border-stone-200 p-3 text-center">
+              <p className="text-lg font-bold text-emerald-600">{stats.completed}</p>
+              <p className="text-[10px] text-stone-400 font-medium">Completed</p>
+            </div>
+          </div>
+
+          {/* Search and Filters */}
+          <div className="bg-white rounded-2xl border border-stone-200 p-4 shadow-sm mb-6">
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" size={16} />
+                <input
+                  type="text"
+                  placeholder="Search documents..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 bg-stone-50 border border-stone-200 rounded-xl text-sm outline-none focus:border-[#1d3331] transition-colors"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-stone-400 mr-1">Status:</span>
+                {(['all', 'marked', 'in_progress', 'completed'] as StatusFilter[]).map((status) => (
+                  <button
+                    key={status}
+                    onClick={() => setStatusFilter(status)}
+                    className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase whitespace-nowrap transition-colors ${
+                      statusFilter === status
+                        ? 'bg-[#1d3331] text-white'
+                        : 'bg-stone-50 text-stone-500 hover:bg-stone-100'
+                    }`}
+                  >
+                    {status === 'all' ? 'All' : status.replace('_', ' ')}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Empty State for My Documents */}
+          {!loading && filteredDocuments.length === 0 && (
+            <div className="bg-white rounded-2xl border border-stone-200 p-12 text-center">
+              <FileText size={48} className="mx-auto text-stone-300 mb-4" />
+              <h3 className="text-base font-serif font-bold text-stone-400">No documents found</h3>
+              <p className="text-sm text-stone-400 mt-1">
+                {searchTerm
+                  ? 'Try adjusting your search'
+                  : 'No documents have been marked for your action'}
+              </p>
+            </div>
+          )}
+
+          {/* My Documents List */}
+          {!loading && filteredDocuments.length > 0 && (
             <div className="space-y-3">
-              {departmentDocs.map((doc: Document) => {
-                const isMarkingThis = isMarking && markDocumentTarget?.id === doc.id;
-                // Show Mark button only for statuses that indicate department assignment
-                const showMarkButton = doc.status === 'dept_assigned' || doc.status === 'marked';
+              {filteredDocuments.map((document: Document) => {
+                const isAcknowledging = actionInProgress?.acknowledging === document.id;
+                const isCompleting    = actionInProgress?.completing    === document.id;
+                const isDelegatingDoc = isDelegating && delegateDocument?.id === document.id;
 
                 return (
-                  <div
-                    key={doc.id}
-                    className="bg-white rounded-xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow p-4"
-                  >
-                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start gap-2">
-                          <div className="p-2 rounded-xl bg-[#1d3331]/5 text-[#1d3331] shrink-0 mt-0.5">
-                            <FileText size={16} />
-                          </div>
-                          <div>
-                            <h3 className="text-sm font-bold text-stone-900 truncate">{doc.title}</h3>
-                            <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-stone-500">
-                              <span className="flex items-center gap-1">
-                                <User size={12} />
-                                {doc.created_by_name}
-                              </span>
-                              <span className="text-stone-300">•</span>
-                              <span className="flex items-center gap-1">
-                                <Calendar size={12} />
-                                {format(new Date(doc.created_at), 'dd MMM yyyy')}
-                              </span>
-                              {doc.reference_no && (
-                                <>
-                                  <span className="text-stone-300">•</span>
-                                  <span className="font-mono text-[10px] text-stone-400">{doc.reference_no}</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        {doc.active_mark && (
-                          <div className="mt-2 pl-9 text-xs text-stone-500">
-                            <span className="font-medium">
-                              {doc.status === 'dept_assigned' ? 'Assigned to' : 'Marked to'}:
-                            </span> {doc.active_mark.marked_to_dept_name}
-                            {doc.active_mark.assigned_to_name && ` (Assigned: ${doc.active_mark.assigned_to_name})`}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        <StatusBadge status={doc.status} />
-
-                        {showMarkButton && (
-                          <button
-                            onClick={() => openMarkModal(doc)}
-                            disabled={isMarkingThis}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1d3331] text-white text-[10px] font-bold hover:bg-emerald-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Mark this document to a user"
-                          >
-                            {isMarkingThis ? (
-                              <Loader2 size={14} className="animate-spin" />
-                            ) : (
-                              <UserPlus size={14} />
-                            )}
-                            Mark
-                          </button>
-                        )}
-
-                        {/* Preview and Details */}
-                        {doc.file_url && (
-                          <button
-                            onClick={() => handlePreviewFile(doc)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 text-[10px] font-bold hover:bg-stone-50 transition-colors"
-                          >
-                            <Eye size={14} />
-                            Preview
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleViewDocument(doc)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 text-[10px] font-bold hover:bg-stone-50 transition-colors"
-                        >
-                          <Info size={14} />
-                          Details
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  <DocumentCard
+                    key={document.id}
+                    document={document}
+                    onView={() => handleViewDocument(document)}
+                    onPreviewFile={document.file_url ? () => handlePreviewFile(document) : undefined}
+                    onAcknowledge={document.status === 'marked' || document.status === 'user_assigned' ? () => handleAcknowledge(document.id) : undefined}
+                    onComplete={document.status === 'in_progress' ? () => handleComplete(document.id) : undefined}
+                    onDelegate={isDeptHead ? () => openDelegateModal(document) : undefined}
+                    isActionInProgress={isAcknowledging || isCompleting || isDelegatingDoc}
+                    isDeptHead={isDeptHead}
+                  />
                 );
               })}
             </div>
-          ) : (
-            <div className="bg-white rounded-2xl border border-stone-200 p-8 text-center">
-              <FileText size={32} className="mx-auto text-stone-300 mb-2" />
-              <p className="text-sm text-stone-400">No documents found in your department</p>
+          )}
+
+          {/* ─── Department Documents Section (for Dept Head) ──────────────── */}
+          {isDeptHead && (
+            <div className="mt-10">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-serif font-bold text-[#1d3331]">Department Documents</h2>
+                <span className="text-sm text-stone-500">
+                  {departmentDocs?.length || 0} documents
+                </span>
+              </div>
+
+              {deptDocsLoading && (!departmentDocs || departmentDocs.length === 0) ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="animate-spin text-[#1d3331]" size={24} />
+                </div>
+              ) : departmentDocs && departmentDocs.length > 0 ? (
+                <div className="space-y-3">
+                  {departmentDocs.map((doc: Document) => {
+                    const isMarkingThis = isMarking && markDocumentTarget?.id === doc.id;
+                    // Show Mark button only for statuses that indicate department assignment
+                    const showMarkButton = doc.status === 'dept_assigned' || doc.status === 'marked';
+
+                    return (
+                      <div
+                        key={doc.id}
+                        className="bg-white rounded-xl border border-stone-200 shadow-sm hover:shadow-md transition-shadow p-4"
+                      >
+                        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start gap-2">
+                              <div className="p-2 rounded-xl bg-[#1d3331]/5 text-[#1d3331] shrink-0 mt-0.5">
+                                <FileText size={16} />
+                              </div>
+                              <div>
+                                <h3 className="text-sm font-bold text-stone-900 truncate">{doc.title}</h3>
+                                <div className="flex flex-wrap items-center gap-2 mt-1 text-xs text-stone-500">
+                                  <span className="flex items-center gap-1">
+                                    <User size={12} />
+                                    {doc.created_by_name}
+                                  </span>
+                                  <span className="text-stone-300">•</span>
+                                  <span className="flex items-center gap-1">
+                                    <Calendar size={12} />
+                                    {format(new Date(doc.created_at), 'dd MMM yyyy')}
+                                  </span>
+                                  {doc.reference_no && (
+                                    <>
+                                      <span className="text-stone-300">•</span>
+                                      <span className="font-mono text-[10px] text-stone-400">{doc.reference_no}</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            {doc.active_mark && (
+                              <div className="mt-2 pl-9 text-xs text-stone-500">
+                                <span className="font-medium">
+                                  {doc.status === 'dept_assigned' ? 'Assigned to' : 'Marked to'}:
+                                </span> {doc.active_mark.marked_to_dept_name}
+                                {doc.active_mark.assigned_to_name && ` (Assigned: ${doc.active_mark.assigned_to_name})`}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 shrink-0">
+                            <StatusBadge status={doc.status} />
+
+                            {showMarkButton && (
+                              <button
+                                onClick={() => openMarkModal(doc)}
+                                disabled={isMarkingThis}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1d3331] text-white text-[10px] font-bold hover:bg-emerald-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Mark this document to a user"
+                              >
+                                {isMarkingThis ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <UserPlus size={14} />
+                                )}
+                                Mark
+                              </button>
+                            )}
+
+                            {/* Preview and Details */}
+                            {doc.file_url && (
+                              <button
+                                onClick={() => handlePreviewFile(doc)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 text-[10px] font-bold hover:bg-stone-50 transition-colors"
+                              >
+                                <Eye size={14} />
+                                Preview
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleViewDocument(doc)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-200 text-stone-600 text-[10px] font-bold hover:bg-stone-50 transition-colors"
+                            >
+                              <Info size={14} />
+                              Details
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="bg-white rounded-2xl border border-stone-200 p-8 text-center">
+                  <FileText size={32} className="mx-auto text-stone-300 mb-2" />
+                  <p className="text-sm text-stone-400">No documents found in your department</p>
+                </div>
+              )}
             </div>
           )}
-        </div>
+        </>
       )}
 
       {/* ─── Modals ──────────────────────────────────────────────────────── */}

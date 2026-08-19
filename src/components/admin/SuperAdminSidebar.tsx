@@ -190,6 +190,15 @@ const navigationConfig: NavSection[] = [
       { to: '/super-admin/team-members',  label: 'Team Members',     icon: Icon.team     },
     ],
   },
+
+    {
+    title: 'Judicial Officers',
+    items: [
+      { to: '/super-admin/jodocuments',       label: 'DR Documents',          icon: Icon.reports   },
+      { to: '/super-admin/',      label: '', icon: Icon.helpdesk },
+    ],
+  },
+
     {
     title: 'Principal Registry',
     items: [
