@@ -23,6 +23,7 @@ import {
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import { logoutUser } from '../../store/slices/authSlice';
 import { selectAllDepartments } from '../../store/slices/departmentsSlice';
+import { selectUnreadCount } from '../../store/slices/messagesSlice';
 import { getStaffDeptFlags } from '../../utils/staffDept';
 
 interface StaffSidebarProps {
@@ -37,6 +38,7 @@ interface NavItem {
   label: string;
   icon: React.ReactNode;
   tab: string;
+  badge?: number; // optional unread-style count shown on the right
 }
 
 interface NavSection {
@@ -55,6 +57,7 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
   const location = useLocation();
   const { user } = useAppSelector((state) => state.auth);
   const departments = useAppSelector(selectAllDepartments);
+  const unreadCount = useAppSelector(selectUnreadCount);
 
   const match = useMatch('/dept/:deptId/*');
   const base = match ? `/dept/${match.params.deptId}` : '';
@@ -106,7 +109,13 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
     {
       title: 'Communication',
       items: [
-        { to: `${base}/messages`, label: 'Messages', icon: <MessageSquare className="h-4 w-4" />, tab: 'messages' },
+        {
+          to: `${base}/messages`,
+          label: 'Messages',
+          icon: <MessageSquare className="h-4 w-4" />,
+          tab: 'messages',
+          badge: unreadCount?.total || 0,
+        },
         { to: `${base}/notices`, label: 'Notices', icon: <Bell className="h-4 w-4" />, tab: 'notices' },
       ],
     },
@@ -210,7 +219,18 @@ const StaffSidebar: React.FC<StaffSidebarProps> = ({
                       <span className={isActive ? 'text-white' : 'text-stone-400 group-hover:text-stone-600 transition-colors'}>
                         {item.icon}
                       </span>
-                      {item.label}
+                      <span className="flex-1">{item.label}</span>
+                      {!!item.badge && item.badge > 0 && (
+                        <span
+                          className={`flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-bold ${
+                            isActive
+                              ? 'bg-white/20 text-white'
+                              : 'bg-[#c9a84c] text-[#1E4620]'
+                          }`}
+                        >
+                          {item.badge > 99 ? '99+' : item.badge}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}

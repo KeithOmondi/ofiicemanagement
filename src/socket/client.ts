@@ -10,6 +10,8 @@ import {
   clearTypingUsers,
   setSocketConnected,
   fetchUnreadCount,
+  updateMessageContent,
+  removeMessage,
   type Message,
   type MessageStatus,
 } from '../store/slices/messagesSlice';
@@ -80,8 +82,6 @@ type EventCallback = (data: unknown) => void;
 
 // ─── Toast Helper ────────────────────────────────────────────────────────────
 
-// ─── Toast Helper ────────────────────────────────────────────────────────────
-
 type ToastType = 'success' | 'error' | 'info' | 'warning';
 
 function showToast(message: string, type: ToastType = 'info', options?: { icon?: string; duration?: number }): void {
@@ -110,7 +110,6 @@ function showToast(message: string, type: ToastType = 'info', options?: { icon?:
       break;
     case 'info':
     default:
-      // react-hot-toast doesn't have info(), use custom with icon
       toast(message, {
         ...toastOptions,
         icon: 'ℹ️',
@@ -390,22 +389,80 @@ class SocketService {
       store.dispatch(setSocketConnected(true));
     });
 
-    // ── Message events ──────────────────────────────────────────────────────
+    // ─── Message events ──────────────────────────────────────────────────────
 
     this.socketInstance.on('new_message', (message: Message) => {
       store.dispatch(addMessageOptimistic(message));
       store.dispatch(fetchUnreadCount());
+
+      // Notify with a toast if this message wasn't sent by the current user.
+      // The server echoes new_message back to the sender's own socket too
+      // (see socket.ts: socket.emit('new_message', message) after saving),
+      // so we filter that case out here rather than toasting our own sends.
+      const currentUserId = store.getState().auth.user?.id;
+      if (message.sender_id !== currentUserId) {
+        const preview = message.content.length > 60
+          ? `${message.content.slice(0, 60)}…`
+          : message.content;
+
+        showToast(`${message.sender_name || 'New message'}: ${preview}`, 'info', {
+          icon: '💬',
+          duration: 5000,
+        });
+      }
     });
 
-    this.socketInstance.on('message_read', (data: { message_id: string; user_id: string; user_name?: string; read_at: string }) => {
+    // ─── NEW: Message edited ──────────────────────────────────────────────────
+
+    this.socketInstance.on('message_edited', (data: { 
+      message_id: string; 
+      new_content: string; 
+      edited_at: string; 
+      edited_by: string; 
+      edited_by_name: string;
+    }) => {
+      store.dispatch(updateMessageContent({
+        message_id: data.message_id,
+        content: data.new_content,
+        edited_at: data.edited_at,
+        edited_by: data.edited_by,
+        edited_by_name: data.edited_by_name,
+      }));
+      showToast(`Message edited by ${data.edited_by_name}`, 'info');
+    });
+
+    // ─── NEW: Message deleted ─────────────────────────────────────────────────
+
+    this.socketInstance.on('message_deleted', (data: { 
+      message_id: string; 
+      deleted_by: string; 
+      deleted_by_name: string; 
+      for_everyone: boolean;
+    }) => {
+      store.dispatch(removeMessage(data.message_id));
+      if (data.for_everyone) {
+        showToast(`Message deleted by ${data.deleted_by_name}`, 'warning');
+      }
+    });
+
+    // ─── Read Receipt ──────────────────────────────────────────────────────────
+
+    this.socketInstance.on('message_read', (data: { 
+      message_id: string; 
+      user_id: string; 
+      user_name?: string; 
+      read_at: string;
+    }) => {
       const status: MessageStatus = {
         id: `status-${data.message_id}-${data.user_id}`,
         message_id: data.message_id,
         user_id: data.user_id,
         user_name: data.user_name,
+        status: 'read',
         is_read: true,
         read_at: data.read_at,
         delivered_at: data.read_at,
+        sent_at: data.read_at,
       };
       
       store.dispatch(updateMessageStatuses({ message_id: data.message_id, status }));
@@ -416,7 +473,36 @@ class SocketService {
       }));
     });
 
-    this.socketInstance.on('typing', (data: { user_id: string; user_name: string; is_typing: boolean }) => {
+    // ─── Delivery Receipt ─────────────────────────────────────────────────────
+
+    this.socketInstance.on('delivery_receipt', (data: { 
+      message_id: string; 
+      user_id: string; 
+      delivered_at: string;
+    }) => {
+      const status: MessageStatus = {
+        id: `status-${data.message_id}-${data.user_id}`,
+        message_id: data.message_id,
+        user_id: data.user_id,
+        status: 'delivered',
+        is_read: false,
+        read_at: null,
+        delivered_at: data.delivered_at,
+        sent_at: data.delivered_at,
+      };
+      
+      store.dispatch(updateMessageStatuses({ message_id: data.message_id, status }));
+    });
+
+    // ─── Typing ───────────────────────────────────────────────────────────────
+
+    this.socketInstance.on('typing', (data: { 
+      user_id: string; 
+      user_name: string; 
+      is_typing: boolean;
+      group_id?: string;
+      recipient_id?: string;
+    }) => {
       store.dispatch(addTypingUser({
         user_id: data.user_id,
         user_name: data.user_name,
@@ -432,6 +518,12 @@ class SocketService {
           }));
         }, 3000);
       }
+    });
+
+    // ─── Unread update ────────────────────────────────────────────────────────
+
+    this.socketInstance.on('unread_update', () => {
+      store.dispatch(fetchUnreadCount());
     });
 
     // ─── Document Events ──────────────────────────────────────────────────────
@@ -478,7 +570,7 @@ class SocketService {
       store.dispatch(fetchDocuments({ limit: 100 }));
     });
 
-    // ── Mark Events ──────────────────────────────────────────────────────────
+    // ─── Mark Events ──────────────────────────────────────────────────────────
 
     this.socketInstance.on('mark_updated', (data: { document_title?: string; status: string }) => {
       console.log('📌 Mark updated:', data);
@@ -489,7 +581,7 @@ class SocketService {
       }
     });
 
-    // ── Aide Events ──────────────────────────────────────────────────────────
+    // ─── Aide Events ──────────────────────────────────────────────────────────
 
     this.socketInstance.on('aide_created', (data: { judge_name: string }) => {
       console.log('🛡️ Aide created:', data);

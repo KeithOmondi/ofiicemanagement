@@ -1,4 +1,5 @@
 // src/store/slices/messagesSlice.ts
+
 import {
   createSlice,
   createAsyncThunk,
@@ -15,6 +16,7 @@ export type MessageType = "text" | "broadcast" | "announcement";
 export type MessagePriority = "low" | "normal" | "high" | "urgent";
 export type GroupType = "department" | "project" | "broadcast";
 export type GroupRole = "admin" | "member";
+export type MessageStatusType = "sent" | "delivered" | "read";
 
 export interface User {
   id: string;
@@ -24,6 +26,8 @@ export interface User {
   department_name?: string;
   role?: string;
   is_active?: boolean;
+  online_status?: 'online' | 'offline' | 'away';
+  last_seen?: string;
 }
 
 export interface MessageGroup {
@@ -67,9 +71,21 @@ export interface MessageStatus {
   message_id: string;
   user_id: string;
   user_name?: string;
+  status: MessageStatusType;
   is_read: boolean;
   read_at: string | null;
-  delivered_at: string;
+  delivered_at: string | null;
+  sent_at: string;
+}
+
+export interface MessageEditHistory {
+  id: string;
+  message_id: string;
+  old_content: string;
+  new_content: string;
+  edited_by: string;
+  edited_by_name?: string;
+  edited_at: string;
 }
 
 export interface Message {
@@ -88,8 +104,11 @@ export interface Message {
   read_at: string | null;
   is_archived: boolean;
   parent_message_id: string | null;
+  is_edited: boolean;
+  edited_at: string | null;
+  edit_history: MessageEditHistory[];
   attachments: MessageAttachment[];
-  statuses?: MessageStatus[];
+  statuses: MessageStatus[];
   created_at: string;
   updated_at: string;
 }
@@ -122,6 +141,14 @@ export interface SendMessageInput {
   parent_message_id?: string | null;
 }
 
+export interface EditMessageInput {
+  content: string;
+}
+
+export interface DeleteMessageInput {
+  for_everyone?: boolean;
+}
+
 export interface MessageFilters {
   search?: string;
   group_id?: string;
@@ -140,6 +167,18 @@ export interface MessageFilters {
 export interface UnreadCount {
   total: number;
   by_group: { group_id: string; group_name: string; count: number }[];
+  by_sender: { sender_id: string; sender_name: string; count: number }[];
+}
+
+export interface Conversation {
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  last_message: Message | null;
+  unread_count: number;
+  last_message_at: string | null;
+  online_status?: 'online' | 'offline' | 'away';
+  last_seen?: string;
 }
 
 export interface MessagesResponse {
@@ -158,6 +197,7 @@ interface MessagesState {
   messages: Message[];
   selectedMessage: Message | null;
   currentThread: Message[];
+  conversations: Conversation[];
   unreadCount: UnreadCount | null;
   activeTab: "inbox" | "sent" | "broadcast";
   searchQuery: string;
@@ -175,6 +215,7 @@ interface MessagesState {
     sending: boolean;
     mutating: boolean;
     unread: boolean;
+    conversations: boolean;
   };
   socketConnected: boolean;
   typingUsers: Record<
@@ -196,6 +237,7 @@ const initialState: MessagesState = {
   messages: [],
   selectedMessage: null,
   currentThread: [],
+  conversations: [],
   unreadCount: null,
   activeTab: "inbox",
   searchQuery: "",
@@ -213,6 +255,7 @@ const initialState: MessagesState = {
     sending: false,
     mutating: false,
     unread: false,
+    conversations: false,
   },
   socketConnected: false,
   typingUsers: {},
@@ -394,6 +437,34 @@ export const sendMessage = createAsyncThunk(
   },
 );
 
+// ─── NEW: Edit Message ─────────────────────────────────────────────────────
+
+export const editMessage = createAsyncThunk(
+  "messages/editMessage",
+  async ({ id, input }: { id: string; input: EditMessageInput }, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.put(`/messages/${id}/edit`, input);
+      return data.data as Message;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
+// ─── NEW: Delete Message ───────────────────────────────────────────────────
+
+export const deleteMessage = createAsyncThunk(
+  "messages/deleteMessage",
+  async ({ id, for_everyone }: { id: string; for_everyone?: boolean }, { rejectWithValue }) => {
+    try {
+      await axiosClient.delete(`/messages/${id}`, { data: { for_everyone } });
+      return { id, for_everyone };
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
 export const fetchUnreadCount = createAsyncThunk(
   "messages/fetchUnreadCount",
   async (_, { rejectWithValue }) => {
@@ -418,7 +489,20 @@ export const markMessageAsRead = createAsyncThunk(
   },
 );
 
-// ─── FIX: Required parameter cannot follow optional parameter ──────────────
+// ─── NEW: Mark Multiple Messages as Read ──────────────────────────────────
+
+export const markMultipleMessagesAsRead = createAsyncThunk(
+  "messages/markMultipleMessagesAsRead",
+  async (messageIds: string[], { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.put("/messages/read/multiple", { message_ids: messageIds });
+      return { messageIds, count: data.data.count };
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
+
 export const markAllRead = createAsyncThunk(
   "messages/markAllRead",
   async (groupId: string | undefined = undefined, { rejectWithValue }) => {
@@ -446,6 +530,7 @@ export const archiveMessage = createAsyncThunk(
   },
 );
 
+// ─── NEW: Fetch Conversation ──────────────────────────────────────────────
 
 export const fetchConversation = createAsyncThunk(
   "messages/fetchConversation",
@@ -456,9 +541,22 @@ export const fetchConversation = createAsyncThunk(
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
     }
-  }
+  },
 );
- 
+
+// ─── NEW: Fetch All Conversations ─────────────────────────────────────────
+
+export const fetchConversations = createAsyncThunk(
+  "messages/fetchConversations",
+  async (_, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get("/messages/conversations");
+      return data.data as Conversation[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  },
+);
 
 /* ============================================================
    SLICE
@@ -580,6 +678,42 @@ const messagesSlice = createSlice({
         }
       }
     },
+    // ─── NEW: Update message content after edit ──────────────────────
+    updateMessageContent(
+      state,
+      action: PayloadAction<{
+        message_id: string;
+        content: string;
+        edited_at: string;
+        edited_by: string;
+        edited_by_name: string;
+      }>,
+    ) {
+      const { message_id, content, edited_at, edited_by, edited_by_name } = action.payload;
+      const message = state.messages.find((m) => m.id === message_id);
+      if (message) {
+        message.content = content;
+        message.is_edited = true;
+        message.edited_at = edited_at;
+        if (!message.edit_history) message.edit_history = [];
+        message.edit_history.push({
+          id: `edit-${Date.now()}`,
+          message_id: message_id,
+          old_content: message.content,
+          new_content: content,
+          edited_by,
+          edited_by_name,
+          edited_at,
+        });
+      }
+    },
+    // ─── NEW: Remove message after deletion ──────────────────────────
+    removeMessage(state, action: PayloadAction<string>) {
+      state.messages = state.messages.filter((m) => m.id !== action.payload);
+      state.currentThread = state.currentThread.filter(
+        (m) => m.id !== action.payload,
+      );
+    },
 
     // ─── Status ────────────────────────────────────────────────────────
     clearError(state) {
@@ -677,25 +811,6 @@ const messagesSlice = createSlice({
         state.error = action.payload as string;
         state.success = false;
       });
-
-
-      builder
-  .addCase(fetchConversation.pending, (state) => {
-    state.loading.messages = true;
-    state.error = null;
-  })
-  .addCase(fetchConversation.fulfilled, (state, action: PayloadAction<MessagesResponse>) => {
-    state.loading.messages = false;
-    state.messages = action.payload.messages;
-    state.pagination.total = action.payload.total;
-    state.pagination.totalPages = Math.ceil(
-      action.payload.total / state.pagination.limit
-    );
-  })
-  .addCase(fetchConversation.rejected, (state, action) => {
-    state.loading.messages = false;
-    state.error = action.payload as string;
-  });
 
     /* ──────── DELETE GROUP ────────────────────────────────────────────── */
     builder
@@ -804,6 +919,46 @@ const messagesSlice = createSlice({
         state.error = action.payload as string;
       });
 
+    /* ──────── FETCH CONVERSATION ───────────────────────────────────────── */
+    builder
+      .addCase(fetchConversation.pending, (state) => {
+        state.loading.messages = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchConversation.fulfilled,
+        (state, action: PayloadAction<MessagesResponse>) => {
+          state.loading.messages = false;
+          state.messages = action.payload.messages;
+          state.pagination.total = action.payload.total;
+          state.pagination.totalPages = Math.ceil(
+            action.payload.total / state.pagination.limit,
+          );
+        },
+      )
+      .addCase(fetchConversation.rejected, (state, action) => {
+        state.loading.messages = false;
+        state.error = action.payload as string;
+      });
+
+    /* ──────── FETCH CONVERSATIONS LIST ─────────────────────────────────── */
+    builder
+      .addCase(fetchConversations.pending, (state) => {
+        state.loading.conversations = true;
+        state.error = null;
+      })
+      .addCase(
+        fetchConversations.fulfilled,
+        (state, action: PayloadAction<Conversation[]>) => {
+          state.loading.conversations = false;
+          state.conversations = action.payload;
+        },
+      )
+      .addCase(fetchConversations.rejected, (state, action) => {
+        state.loading.conversations = false;
+        state.error = action.payload as string;
+      });
+
     /* ──────── SEND MESSAGE ────────────────────────────────────────────── */
     builder
       .addCase(sendMessage.pending, (state) => {
@@ -822,6 +977,58 @@ const messagesSlice = createSlice({
       )
       .addCase(sendMessage.rejected, (state, action) => {
         state.loading.sending = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    /* ──────── EDIT MESSAGE ────────────────────────────────────────────── */
+    builder
+      .addCase(editMessage.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+      })
+      .addCase(
+        editMessage.fulfilled,
+        (state, action: PayloadAction<Message>) => {
+          state.loading.mutating = false;
+          const index = state.messages.findIndex((m) => m.id === action.payload.id);
+          if (index !== -1) {
+            state.messages[index] = action.payload;
+          }
+          const threadIndex = state.currentThread.findIndex(
+            (m) => m.id === action.payload.id,
+          );
+          if (threadIndex !== -1) {
+            state.currentThread[threadIndex] = action.payload;
+          }
+          state.success = true;
+        },
+      )
+      .addCase(editMessage.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+        state.success = false;
+      });
+
+    /* ──────── DELETE MESSAGE ───────────────────────────────────────────── */
+    builder
+      .addCase(deleteMessage.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+      })
+      .addCase(
+        deleteMessage.fulfilled,
+        (state, action: PayloadAction<{ id: string; for_everyone?: boolean }>) => {
+          state.loading.mutating = false;
+          state.messages = state.messages.filter((m) => m.id !== action.payload.id);
+          state.currentThread = state.currentThread.filter(
+            (m) => m.id !== action.payload.id,
+          );
+          state.success = true;
+        },
+      )
+      .addCase(deleteMessage.rejected, (state, action) => {
+        state.loading.mutating = false;
         state.error = action.payload as string;
         state.success = false;
       });
@@ -876,6 +1083,37 @@ const messagesSlice = createSlice({
         state.error = action.payload as string;
       });
 
+    /* ──────── MARK MULTIPLE MESSAGES AS READ ──────────────────────────── */
+    builder
+      .addCase(markMultipleMessagesAsRead.pending, (state) => {
+        state.loading.mutating = true;
+        state.error = null;
+      })
+      .addCase(
+        markMultipleMessagesAsRead.fulfilled,
+        (state, action: PayloadAction<{ messageIds: string[]; count: number }>) => {
+          state.loading.mutating = false;
+          const { messageIds } = action.payload;
+          messageIds.forEach((id) => {
+            const message = state.messages.find((m) => m.id === id);
+            if (message) {
+              message.is_read = true;
+              message.read_at = new Date().toISOString();
+            }
+          });
+          if (state.unreadCount) {
+            state.unreadCount.total = Math.max(
+              0,
+              state.unreadCount.total - action.payload.count,
+            );
+          }
+        },
+      )
+      .addCase(markMultipleMessagesAsRead.rejected, (state, action) => {
+        state.loading.mutating = false;
+        state.error = action.payload as string;
+      });
+
     /* ──────── MARK ALL READ ────────────────────────────────────────────── */
     builder
       .addCase(markAllRead.pending, (state) => {
@@ -907,7 +1145,7 @@ const messagesSlice = createSlice({
               return m;
             });
           } else {
-            state.unreadCount = { total: 0, by_group: [] };
+            state.unreadCount = { total: 0, by_group: [], by_sender: [] };
             state.messages = state.messages.map((m) => {
               if (!m.is_read) {
                 return {
@@ -976,6 +1214,8 @@ export const {
   addMessageOptimistic,
   updateMessageStatus,
   updateMessageStatuses,
+  updateMessageContent,
+  removeMessage,
   clearError,
   clearSuccess,
   resetMessagesState,
@@ -1000,12 +1240,16 @@ export const selectSelectedMessage = (state: { messages: MessagesState }) =>
   state.messages.selectedMessage;
 export const selectCurrentThread = (state: { messages: MessagesState }) =>
   state.messages.currentThread;
+export const selectConversations = (state: { messages: MessagesState }) =>
+  state.messages.conversations;
 export const selectUnreadCount = (state: { messages: MessagesState }) =>
   state.messages.unreadCount;
 export const selectMessagesLoading = (state: { messages: MessagesState }) =>
   state.messages.loading.messages;
 export const selectSending = (state: { messages: MessagesState }) =>
   state.messages.loading.sending;
+export const selectConversationsLoading = (state: { messages: MessagesState }) =>
+  state.messages.loading.conversations;
 
 export const selectActiveTab = (state: { messages: MessagesState }) =>
   state.messages.activeTab;
@@ -1045,6 +1289,15 @@ export const selectUnreadCountForGroup =
       (g) => g.group_id === groupId,
     );
     return group?.count || 0;
+  };
+
+export const selectUnreadCountForSender =
+  (senderId: string) => (state: { messages: MessagesState }) => {
+    if (!state.messages.unreadCount) return 0;
+    const sender = state.messages.unreadCount.by_sender.find(
+      (s) => s.sender_id === senderId,
+    );
+    return sender?.count || 0;
   };
 
 export default messagesSlice.reducer;

@@ -667,7 +667,7 @@ const UserList: React.FC<UserListProps> = ({
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 
-const StaffMessages: React.FC = () => {
+const JOMessages: React.FC = () => {
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
   const { isConnected, sendMessage: sendSocketMessage } = useSocket();
@@ -1070,4 +1070,4 @@ const MessageIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-export default StaffMessages;
+export default JOMessages;

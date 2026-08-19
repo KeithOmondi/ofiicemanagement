@@ -109,6 +109,13 @@ const navigationConfig: NavSection[] = [
       { to: (id) => `/dept/${id}/jo-serviceweek`, label: 'Service Week', icon: Icon.messages },
     ],
   },
+
+    {
+    title: 'COMMUNICATION',
+    items: [
+      { to: (id) => `/dept/${id}/jo-messages`, label: 'Messages', icon: Icon.messages },
+    ],
+  },
 ];
 
 // ── Sidebar link ──────────────────────────────────────────────────────────────
