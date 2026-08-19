@@ -95,6 +95,7 @@ import HelpDeskLogs from "../pages/helpdesk/HelpDeskLogs";
 import JOServiceWeek from "../pages/JO/JOServiceWeek";
 import JOMessages from "../pages/JO/JOMessages";
 import DrDocuments from "../pages/staff/DrDocuments";
+import JOMemosandLetters from "../pages/JO/JOMemosandLetters";
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
 
@@ -314,6 +315,7 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="jo-serviceweek" element={<JOServiceWeek />} />
           <Route path="jo-messages" element={<JOMessages />} />
           <Route path="jdocuments" element={<DrDocuments />} />
+          <Route path="memoandletters" element={<JOMemosandLetters />} />
         </Route>
         <Route
           path="*"

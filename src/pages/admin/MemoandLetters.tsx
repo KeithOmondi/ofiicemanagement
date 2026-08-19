@@ -48,6 +48,17 @@ import { format } from "date-fns";
 import toast from "react-hot-toast";
 import TemplateComposerModal from "../../components/templates/TemplateComposerModal";
 
+// ─── TipTap Imports ──────────────────────────────────────────────────────────
+import { useEditor, EditorContent } from '@tiptap/react';
+import { BubbleMenu } from '@tiptap/react/menus';
+import StarterKit from '@tiptap/starter-kit';
+import Placeholder from '@tiptap/extension-placeholder';
+import Underline from '@tiptap/extension-underline';
+import TextAlign from '@tiptap/extension-text-align';
+import Highlight from '@tiptap/extension-highlight';
+import Link from '@tiptap/extension-link';
+import CharacterCount from '@tiptap/extension-character-count';
+
 // ─── Import Helpdesk Approvals Component ──────────────────────────────────────
 import HelpdeskApprovals from "./HelpdeskApprovals";
 
@@ -328,7 +339,7 @@ const StickyNote: React.FC<StickyNoteProps> = ({
                   title="Edit note"
                 >
                   <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536M9 11l6-6 3 3-6 6H9v-3z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                   </svg>
                 </button>
               </>
@@ -998,34 +1009,181 @@ export interface DisplayHandle {
   getSignaturePosition: () => { x: number; y: number; width: number; height: number } | null;
 }
 
+// ─── TipTap Editor Components ────────────────────────────────────────────────
+
+interface TipTapEditorProps {
+  content: string;
+  placeholder: string;
+  editable: boolean;
+  onUpdate: (html: string) => void;
+  className?: string;
+  minHeight?: string;
+}
+
+const TipTapEditor: React.FC<TipTapEditorProps> = ({
+  content,
+  placeholder,
+  editable,
+  onUpdate,
+  className = "",
+  minHeight = "260px",
+}) => {
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        heading: {
+          levels: [1, 2, 3],
+        },
+      }),
+      Underline,
+      TextAlign.configure({
+        types: ['heading', 'paragraph'],
+      }),
+      Highlight,
+      Link,
+      Placeholder.configure({
+        placeholder,
+      }),
+      CharacterCount.configure({
+        limit: 50000,
+      }),
+    ],
+    content,
+    editable,
+    onUpdate: ({ editor }) => {
+      const html = editor.getHTML();
+      onUpdate(html);
+    },
+    editorProps: {
+      attributes: {
+        className: `focus:outline-none prose prose-sm max-w-none ${className}`,
+        style: `min-height: ${minHeight};`,
+      },
+    },
+  });
+
+  // Update content when props change
+  useEffect(() => {
+    if (editor && !editor.isDestroyed && content !== undefined && editor.getHTML() !== content) {
+      editor.commands.setContent(content);
+    }
+  }, [editor, content]);
+
+  // No manual destroy effect — useEditor() in Tiptap v3 owns the editor's
+  // lifecycle internally (EditorInstanceManager schedules its own destroy
+  // on unmount). Calling editor?.destroy() here raced against that internal
+  // cleanup and left dangling references calling getHTML() on a destroyed
+  // editor (null schema).
+
+  if (!editor) return null;
+
+  return (
+    <div className="relative">
+      <EditorContent editor={editor} />
+      <BubbleMenu
+        editor={editor}
+        options={{ placement: 'top', offset: 8 }}
+        updateDelay={100}
+      >
+        <div className="flex items-center gap-1 bg-white shadow-lg rounded-lg border border-stone-200 px-2 py-1">
+          <button
+            onClick={() => editor.chain().focus().toggleBold().run()}
+            className={`px-1.5 py-0.5 rounded text-xs font-bold ${
+              editor.isActive('bold') ? 'bg-stone-200' : ''
+            }`}
+          >
+            B
+          </button>
+          <button
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+            className={`px-1.5 py-0.5 rounded text-xs italic ${
+              editor.isActive('italic') ? 'bg-stone-200' : ''
+            }`}
+          >
+            I
+          </button>
+          <button
+            onClick={() => editor.chain().focus().toggleUnderline().run()}
+            className={`px-1.5 py-0.5 rounded text-xs underline ${
+              editor.isActive('underline') ? 'bg-stone-200' : ''
+            }`}
+          >
+            U
+          </button>
+          <button
+            onClick={() => editor.chain().focus().toggleStrike().run()}
+            className={`px-1.5 py-0.5 rounded text-xs line-through ${
+              editor.isActive('strike') ? 'bg-stone-200' : ''
+            }`}
+          >
+            S
+          </button>
+          <span className="w-px h-4 bg-stone-200" />
+          <button
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+            className={`px-1.5 py-0.5 rounded text-xs ${
+              editor.isActive('bulletList') ? 'bg-stone-200' : ''
+            }`}
+          >
+            • List
+          </button>
+          <button
+            onClick={() => editor.chain().focus().toggleOrderedList().run()}
+            className={`px-1.5 py-0.5 rounded text-xs ${
+              editor.isActive('orderedList') ? 'bg-stone-200' : ''
+            }`}
+          >
+            1. List
+          </button>
+          <span className="w-px h-4 bg-stone-200" />
+          <button
+            onClick={() => {
+              const date = format(new Date(), "dd MMM yyyy");
+              editor.chain().focus().insertContent(date).run();
+            }}
+            className="px-1.5 py-0.5 rounded text-xs text-stone-600 hover:bg-stone-100"
+          >
+            📅
+          </button>
+          <button
+            onClick={() => {
+              const ref = editor.getAttributes('document').reference_no || '________';
+              editor.chain().focus().insertContent(`<strong>Ref: ${ref}</strong>`).run();
+            }}
+            className="px-1.5 py-0.5 rounded text-xs text-stone-600 hover:bg-stone-100"
+          >
+            § Ref
+          </button>
+        </div>
+      </BubbleMenu>
+    </div>
+  );
+};
+
 // ─── MemoDisplay ──────────────────────────────────────────────────────────────
 
 interface MemoDisplayProps {
   document: Document;
   isEditable: boolean;
   isEditMode: boolean;
-  editorRef: React.RefObject<HTMLDivElement | null>;
-  handleInput: () => void;
-  handleManualSave: () => void;
   currentUserName: string;
   isSuperAdmin: boolean;
   fields?: EditableFields;
   onFieldChange?: (field: keyof EditableFields, value: string) => void;
   bodyHtml?: string;
+  onBodyChange?: (html: string) => void;
 }
 
 const MemoDisplay = forwardRef<DisplayHandle, MemoDisplayProps>(({
   document,
   isEditable,
   isEditMode,
-  editorRef,
-  handleInput,
-  handleManualSave,
   currentUserName,
   isSuperAdmin,
   fields,
   onFieldChange,
   bodyHtml,
+  onBodyChange,
 }, ref) => {
   const canEditFields = isSuperAdmin && isEditMode && !!fields && !!onFieldChange;
 
@@ -1052,7 +1210,7 @@ const MemoDisplay = forwardRef<DisplayHandle, MemoDisplayProps>(({
       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
         <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
       </svg>
-      <span>Edit mode enabled — click Save to save changes</span>
+      <span>Edit mode enabled — changes auto-save as you type</span>
     </div>
   );
 
@@ -1203,14 +1361,13 @@ const MemoDisplay = forwardRef<DisplayHandle, MemoDisplayProps>(({
       <div className="border-t-[2.5px] border-black mt-3 mb-10" />
 
       {isEditMode && isEditable ? (
-        <div
-          ref={editorRef}
-          contentEditable
-          suppressContentEditableWarning
-          onInput={handleInput}
-          onBlur={handleManualSave}
-          data-placeholder="Start typing the body of the memo…"
-          className="min-h-[260px] text-[13.5px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none border-2 border-dashed border-[#c9a84c]/50 rounded p-1"
+        <TipTapEditor
+          content={bodyHtml || document.body || ''}
+          placeholder="Start typing the body of the memo…"
+          editable={true}
+          onUpdate={onBodyChange || (() => {})}
+          minHeight="260px"
+          className="text-[13.5px] leading-[1.8] text-justify"
         />
       ) : (
         <div
@@ -1240,28 +1397,24 @@ interface LetterDisplayProps {
   document: Document;
   isEditable: boolean;
   isEditMode: boolean;
-  editorRef: React.RefObject<HTMLDivElement | null>;
-  handleInput: () => void;
-  handleManualSave: () => void;
   currentUserName: string;
   isSuperAdmin: boolean;
   fields?: EditableFields;
   onFieldChange?: (field: keyof EditableFields, value: string) => void;
   bodyHtml?: string;
+  onBodyChange?: (html: string) => void;
 }
 
 const LetterDisplay = forwardRef<DisplayHandle, LetterDisplayProps>(({
   document,
   isEditable,
   isEditMode,
-  editorRef,
-  handleInput,
-  handleManualSave,
   currentUserName,
   isSuperAdmin,
   fields,
   onFieldChange,
   bodyHtml,
+  onBodyChange,
 }, ref) => {
   const canEditFields = isSuperAdmin && isEditMode && !!fields && !!onFieldChange;
 
@@ -1290,7 +1443,7 @@ const LetterDisplay = forwardRef<DisplayHandle, LetterDisplayProps>(({
       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
         <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
       </svg>
-      <span>Edit mode enabled — click Save to save changes</span>
+      <span>Edit mode enabled — changes auto-save as you type</span>
     </div>
   );
 
@@ -1440,14 +1593,13 @@ const LetterDisplay = forwardRef<DisplayHandle, LetterDisplayProps>(({
       </div>
 
       {isEditMode && isEditable ? (
-        <div
-          ref={editorRef}
-          contentEditable
-          suppressContentEditableWarning
-          onInput={handleInput}
-          onBlur={handleManualSave}
-          data-placeholder="Start typing the letter body…"
-          className="min-h-[300px] text-sm leading-relaxed text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none border-2 border-dashed border-[#c9a84c]/50 rounded p-1"
+        <TipTapEditor
+          content={bodyHtml || document.body || ''}
+          placeholder="Start typing the letter body…"
+          editable={true}
+          onUpdate={onBodyChange || (() => {})}
+          minHeight="300px"
+          className="text-sm leading-relaxed text-justify"
         />
       ) : (
         <div
@@ -1731,18 +1883,9 @@ const BringUpModal: React.FC<BringUpModalProps> = ({
 
 // ─── DocumentEditor ────────────────────────────────────────────────────────
 
-// ─── DocumentEditor ────────────────────────────────────────────────────────
-// ─── DocumentEditor ────────────────────────────────────────────────────────
-
 type SaveState = "idle" | "saving" | "saved" | "unsaved" | "error";
 
-const SAVE_LABEL: Record<SaveState, string> = {
-  idle: "",
-  saving: "Saving…",
-  saved: "All changes saved",
-  unsaved: "Unsaved changes",
-  error: "Failed to save · click Save to retry",
-};
+
 
 interface DocumentEditorProps {
   document: Document;
@@ -1824,18 +1967,13 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     ? (document.created_by_name ?? currentUserName)
     : currentUserName;
 
-  const editorRef = useRef<HTMLDivElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saveState, setSaveState] = useState<SaveState>(
     document.body ? "saved" : "idle",
   );
-  const [wordCount, setWordCount] = useState(
-    document.body ? document.body.split(/\s+/).filter(Boolean).length : 0,
-  );
-
   const [bodyHtml, setBodyHtml] = useState(document.body || "");
   const lastSavedHtml = useRef<string>(document.body ?? "");
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const [fieldValues, setFieldValues] = useState<EditableFields>(() => ({
     to_recipient: document.to_recipient || document.assigned_to_name || '',
@@ -1897,40 +2035,31 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     [onSave, document.id],
   );
 
-  const scheduleAutosave = useCallback(
+  const handleBodyChange = useCallback(
     (html: string) => {
+      setBodyHtml(html);
       setSaveState("unsaved");
-      if (debounceTimer.current) clearTimeout(debounceTimer.current);
-      debounceTimer.current = setTimeout(() => persistBody(html), 1500);
+      
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = setTimeout(() => {
+        persistBody(html);
+      }, 1500);
     },
     [persistBody],
   );
 
-  const handleInput = () => {
-    if (!editorRef.current) return;
-    const html = editorRef.current.innerHTML;
-    const text = editorRef.current.innerText ?? "";
-    setWordCount(text.split(/\s+/).filter(Boolean).length);
-    setBodyHtml(html);
-    scheduleAutosave(html);
-  };
-
   const handleSaveAll = useCallback(async () => {
-    const bodySave = editorRef.current
-      ? persistBody(editorRef.current.innerHTML)
-      : Promise.resolve();
-    await Promise.all([bodySave, flushFieldSaves()]);
-  }, [persistBody, flushFieldSaves]);
+    const html = bodyHtml;
+    await persistBody(html);
+    await flushFieldSaves();
+  }, [bodyHtml, persistBody, flushFieldSaves]);
 
   const enterEditMode = () => {
     const newBody = document.body ?? "";
     setBodyHtml(newBody);
     lastSavedHtml.current = newBody;
     setIsEditMode(true);
-    setTimeout(() => {
-      editorRef.current?.focus();
-      toast.success('Edit mode enabled. "Save" keeps you editing — "Done" saves, regenerates the PDF, and exits.');
-    }, 100);
+    toast.success('Edit mode enabled. Changes auto-save as you type.');
   };
 
   const finishEditing = async () => {
@@ -1953,34 +2082,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     }
   };
 
-  const handleManualSave = useCallback(() => {
-    if (!editorRef.current) return;
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    const html = editorRef.current.innerHTML;
-    persistBody(html);
-  }, [persistBody]);
-
-  const bodyHtmlRef = useRef<string>(document.body || "");
-  const documentBodyRef = useRef<string>(document.body ?? "");
-
-  useEffect(() => {
-    documentBodyRef.current = document.body ?? "";
-  }, [document.body]);
-
   useEffect(() => {
     return () => {
-      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
   }, []);
-
-  const lastRenderedBodyRef = useRef<string>('');
-
-  useEffect(() => {
-    if (isEditMode && editorRef.current && bodyHtml !== lastRenderedBodyRef.current) {
-      editorRef.current.innerHTML = bodyHtml;
-      lastRenderedBodyRef.current = bodyHtml;
-    }
-  }, [isEditMode, bodyHtml]);
 
   useEffect(() => {
     if (!isEditable) return;
@@ -1993,34 +2099,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [isEditable, handleSaveAll]);
-
-  const exec = (command: string, value?: string) => {
-    if (!isEditable || !isEditMode) return;
-    editorRef.current?.focus();
-    window.document.execCommand(command, false, value);
-    if (editorRef.current) {
-      const html = editorRef.current.innerHTML;
-      setBodyHtml(html);
-      bodyHtmlRef.current = html;
-      scheduleAutosave(html);
-    }
-  };
-
-  const insertDate = () => exec("insertHTML", format(new Date(), "dd MMM yyyy"));
-  const insertRef = () =>
-    exec(
-      "insertHTML",
-      `<strong>Ref: ${document.reference_no ?? "________"}</strong>`,
-    );
-  const insertSigBlock = () =>
-    exec(
-      "insertHTML",
-      `<div style="margin-top:48px;">
-        <p>_____________________________</p>
-        <p><strong>${currentUserName}</strong></p>
-        <p>REGISTRAR, HIGH COURT</p>
-      </div>`,
-    );
 
   const handleStickyNoteSave = (text: string, _date: string | null) => {
     if (document.active_mark && onUpdateMark) {
@@ -2040,7 +2118,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   };
 
   const showEditControls = isSuperAdmin && isComposed;
-
   const displayRef = useRef<DisplayHandle>(null);
 
   useEffect(() => {
@@ -2063,8 +2140,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const hasBringUp = !!document.bring_up_date;
   const isBringUpCompleted = !!document.bring_up_completed_at;
   const isBringUpOverdue = hasBringUp && !isBringUpCompleted && new Date(document.bring_up_date!) < new Date();
-
-  // ─── Check if document has attachments ──────────────────────────────────
   const hasAttachments = document.attachments && document.attachments.length > 0;
 
   return (
@@ -2106,7 +2181,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5 flex-shrink-0 overflow-x-auto w-full sm:w-auto">
-          {/* ─── Refresh Button (Super Admin) ────────────────────────────── */}
           {isSuperAdmin && onRefreshDocument && (
             <button
               onClick={onRefreshDocument}
@@ -2180,7 +2254,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
               className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap disabled:opacity-50"
             >
               {saveState === "saving" ? <Spinner className="h-3 w-3" /> : null}
-              Save
+              {saveState === "saving" ? "Saving…" : "Save"}
             </button>
           )}
 
@@ -2305,159 +2379,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
         </div>
       </div>
 
-      {/* Edit mode toolbar */}
-      {isEditMode && (
-        <div className="flex items-center gap-1 bg-[#1E4620] px-3 py-1.5 overflow-x-auto flex-shrink-0">
-          <div className="flex items-center gap-1.5 mr-2 flex-shrink-0">
-            <select className="rounded bg-[#2d5c30] border-0 text-white text-xs px-2 py-1 focus:outline-none cursor-pointer capitalize">
-              <option>{document.type}</option>
-            </select>
-            <span className="text-white/40 text-[10px] capitalize hidden sm:inline">
-              {document.status.replace("_", " ")}
-            </span>
-            {saveState !== "idle" && (
-              <>
-                <span className="text-white/30 text-[10px] hidden sm:inline">·</span>
-                <span
-                  className={`text-[10px] hidden sm:inline whitespace-nowrap ${
-                    saveState === "error" ? "text-red-300" : "text-white/40"
-                  }`}
-                >
-                  {SAVE_LABEL[saveState]}
-                </span>
-              </>
-            )}
-          </div>
-
-          <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-          {(
-            [
-              { label: "B", command: "bold" },
-              { label: "I", command: "italic" },
-              { label: "U", command: "underline" },
-              { label: "S", command: "strikeThrough" },
-            ] as const
-          ).map(({ label, command }) => (
-            <button
-              key={label}
-              type="button"
-              disabled={!isEditable || !isEditMode}
-              onClick={() => exec(command)}
-              className={`w-6 h-6 rounded text-xs text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
-                label === "B"
-                  ? "font-extrabold"
-                  : label === "I"
-                    ? "italic"
-                    : label === "U"
-                      ? "underline"
-                      : "line-through"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-
-          <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-          {(["h1", "h2", "h3"] as const).map((tag) => (
-            <button
-              key={tag}
-              type="button"
-              disabled={!isEditable || !isEditMode}
-              onClick={() => exec("formatBlock", `<${tag}>`)}
-              className="px-1.5 h-6 rounded text-[10px] font-semibold text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {tag.toUpperCase()}
-            </button>
-          ))}
-
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={() => exec("formatBlock", "<p>")}
-            className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            ¶
-          </button>
-
-          <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={() => exec("insertUnorderedList")}
-            className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            • List
-          </button>
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={() => exec("insertOrderedList")}
-            className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            1. List
-          </button>
-
-          <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={() => exec("insertHorizontalRule")}
-            className="px-1.5 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            —
-          </button>
-
-          <div className="w-px h-4 bg-white/20 mx-1 flex-shrink-0" />
-
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={insertDate}
-            className="px-2 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex items-center gap-1 flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="4" width="18" height="18" rx="2" />
-              <line x1="16" y1="2" x2="16" y2="6" />
-              <line x1="8" y1="2" x2="8" y2="6" />
-              <line x1="3" y1="10" x2="21" y2="10" />
-            </svg>
-            Date
-          </button>
-
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={insertRef}
-            className="px-2 h-6 rounded text-[10px] text-white/80 hover:bg-white/10 transition-colors flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            § Ref
-          </button>
-
-          <button
-            type="button"
-            disabled={!isEditable || !isEditMode}
-            onClick={insertSigBlock}
-            className="px-2 h-6 rounded text-[10px] font-medium text-white/80 hover:bg-white/10 transition-colors flex items-center gap-1 flex-shrink-0 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
-            Sig Block
-          </button>
-
-          <div className="flex-1 min-w-[8px]" />
-
-          <span className="text-white/40 text-[10px] flex-shrink-0 whitespace-nowrap">
-            {wordCount} words
-          </span>
-        </div>
-      )}
-
-      {/* ─── Attachments Section (Read-only) ───────────────────────────── */}
+      {/* Attachments Section */}
       {hasAttachments && (
         <div className="bg-white border-b border-stone-200 px-4 py-2 flex-shrink-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -2491,6 +2413,7 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       {/* Canvas */}
       <div
         ref={containerRef}
+        
         className={`flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6 relative document-preview-container ${
           isOtpModalOpen ? 'pointer-events-none' : ''
         }`}
@@ -2528,9 +2451,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   document={document}
                   isEditable={false}
                   isEditMode={false}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
                   currentUserName={currentUserName}
                   isSuperAdmin={isSuperAdmin}
                   bodyHtml={bodyHtml}
@@ -2541,9 +2461,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   document={document}
                   isEditable={false}
                   isEditMode={false}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
                   currentUserName={currentUserName}
                   isSuperAdmin={isSuperAdmin}
                   bodyHtml={bodyHtml}
@@ -2564,14 +2481,12 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   document={document}
                   isEditable={isEditable}
                   isEditMode={isEditMode}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
                   currentUserName={currentUserName}
                   isSuperAdmin={isSuperAdmin}
                   fields={fieldValues}
                   onFieldChange={handleFieldChange}
                   bodyHtml={bodyHtml}
+                  onBodyChange={handleBodyChange}
                 />
               ) : document.type === 'letter' ? (
                 <LetterDisplay
@@ -2579,14 +2494,12 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   document={document}
                   isEditable={isEditable}
                   isEditMode={isEditMode}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
                   currentUserName={currentUserName}
                   isSuperAdmin={isSuperAdmin}
                   fields={fieldValues}
                   onFieldChange={handleFieldChange}
                   bodyHtml={bodyHtml}
+                  onBodyChange={handleBodyChange}
                 />
               ) : (
                 // ─── Certificate edit mode ─────────────────────────────────────
@@ -2651,14 +2564,13 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                     />
                   </div>
 
-                  <div
-                    ref={editorRef}
-                    contentEditable
-                    suppressContentEditableWarning
-                    onInput={handleInput}
-                    onBlur={handleManualSave}
-                    data-placeholder="Start typing the certificate body…"
-                    className="min-h-[300px] text-[13px] leading-[1.8] text-justify focus:outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-stone-300 empty:before:italic empty:before:pointer-events-none border-2 border-dashed border-[#c9a84c]/50 rounded p-1"
+                  <TipTapEditor
+                    content={bodyHtml || document.body || ''}
+                    placeholder="Start typing the certificate body…"
+                    editable={true}
+                    onUpdate={handleBodyChange}
+                    minHeight="300px"
+                    className="text-[13px] leading-[1.8] text-justify"
                   />
 
                   <div className="mt-12">
@@ -2709,9 +2621,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   document={document}
                   isEditable={false}
                   isEditMode={false}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
                   currentUserName={currentUserName}
                   isSuperAdmin={isSuperAdmin}
                   bodyHtml={bodyHtml}
@@ -2722,15 +2631,11 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
                   document={document}
                   isEditable={false}
                   isEditMode={false}
-                  editorRef={editorRef}
-                  handleInput={handleInput}
-                  handleManualSave={handleManualSave}
                   currentUserName={currentUserName}
                   isSuperAdmin={isSuperAdmin}
                   bodyHtml={bodyHtml}
                 />
               ) : (
-                // ─── Certificate display ──────────────────────────────────────
                 <div className="px-8 py-10 sm:px-16 sm:py-14 bg-white min-h-[600px] sm:min-h-[900px] flex flex-col">
                   <div className="flex justify-center mb-3">
                     <img
@@ -3678,9 +3583,6 @@ const MemoandLetters: React.FC = () => {
     window.open(selectedDocument.file_url, '_blank');
   };
 
-  // ─── Main Render (single path — helpdesk tab is a branch inside, not an
-  // early return, so there's exactly one header/tab-bar/toast/modals block) ──
-
   if (!canView) {
     return (
       <div className="flex items-center justify-center min-h-[400px] px-4 text-center">
@@ -3763,7 +3665,7 @@ const MemoandLetters: React.FC = () => {
         )}
       </div>
 
-      {/* ─── Tab Navigation (always rendered, so highlighting always works) ──── */}
+      {/* ─── Tab Navigation ────────────────────────────────────────────────── */}
       <div className="flex gap-1 px-3 sm:px-6 py-2 border-b border-stone-200 bg-white">
         <button
           onClick={() => setActiveTab("all")}
@@ -3797,6 +3699,7 @@ const MemoandLetters: React.FC = () => {
         <HelpdeskApprovals />
       ) : (
         <div className="flex flex-1 overflow-hidden relative">
+          {/* Left panel - Document list */}
           <div
             className={`w-full lg:w-[300px] flex-shrink-0 flex-col border-r border-stone-200 bg-white overflow-hidden ${
               selectedDocument ? "hidden lg:flex" : "flex"
@@ -3886,6 +3789,7 @@ const MemoandLetters: React.FC = () => {
             )}
           </div>
 
+          {/* Right panel - Document editor */}
           <div
             className={`w-full flex-1 flex-col overflow-hidden bg-stone-100 ${
               selectedDocument ? "flex" : "hidden lg:flex"
@@ -3972,8 +3876,6 @@ const MemoandLetters: React.FC = () => {
         </div>
       )}
 
-      
-
       {showMarkModal && selectedDocument && (
         <MarkModal
           document={selectedDocument}
@@ -4042,4 +3944,3 @@ const MemoandLetters: React.FC = () => {
 };
 
 export default MemoandLetters;
-
