@@ -38,6 +38,7 @@ import stationEngagementReducer from "./slices/stationEngagement.slice"
 import principalRegistryReportReducer  from "./slices/principalRegistryReportSlice"
 import activityTrackingReducer from "./slices/activityTrackingSlice"
 import serviceWeekReducer from "./slices/serviceweekSlice"
+import surveysReducer from "./slices/surveysSlice"
 import joReducer from './slices/joSlice';
 
 export const store = configureStore({
@@ -80,6 +81,7 @@ export const store = configureStore({
     activityTracking: activityTrackingReducer,
     serviceWeek: serviceWeekReducer,
     jo: joReducer,
+    surveys: surveysReducer
   },
 });
 

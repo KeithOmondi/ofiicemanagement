@@ -134,8 +134,17 @@ export const refreshAccessToken = createAsyncThunk(
   'auth/refreshAccessToken',
   async (_, { rejectWithValue }) => {
     try {
+      // Check if we're on a public route - skip the API call
+      const publicRoutes = ['/login', '/orhc-form', '/unauthorized'];
+      const isPublic = publicRoutes.some(route => window.location.pathname.startsWith(route));
+      
+      if (isPublic) {
+        // Return early without making the API call
+        return { accessToken: null, user: null, isPublic: true };
+      }
+
       const response = await axiosClient.post('/auth/refresh-token');
-      return response.data as { accessToken: string; user: UserMetadata };
+      return { ...response.data, isPublic: false };
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
@@ -195,6 +204,10 @@ const authSlice = createSlice({
     clearCreateUserSuccess: (state) => {
       state.createUserSuccess = false;
     },
+    // NEW: Mark initialization as complete for public routes
+    setInitializationComplete: (state) => {
+      state.isInitializing = false;
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -216,6 +229,11 @@ const authSlice = createSlice({
       // ── Refresh Token ──────────────────────────────────────────────────────
       .addCase(refreshAccessToken.pending,   (state) => { state.isInitializing = true; })
       .addCase(refreshAccessToken.fulfilled, (state, action) => {
+        // If it's a public route, just mark as initialized without setting user
+        if (action.payload?.isPublic) {
+          state.isInitializing = false;
+          return;
+        }
         state.accessToken    = action.payload.accessToken;
         state.user           = action.payload.user;
         state.isInitializing = false;
@@ -248,5 +266,12 @@ const authSlice = createSlice({
   },
 });
 
-export const { setAccessToken, clearAuth, clearError, clearCreateUserSuccess } = authSlice.actions;
+export const { 
+  setAccessToken, 
+  clearAuth, 
+  clearError, 
+  clearCreateUserSuccess,
+  setInitializationComplete, // Export the new action
+} = authSlice.actions;
+
 export default authSlice.reducer;

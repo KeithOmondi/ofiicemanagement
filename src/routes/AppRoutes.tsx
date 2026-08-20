@@ -38,6 +38,8 @@ import SuperAdminReports from '../pages/admin/SuperAdminReports';
 import SuperAdminActivityTracking from '../pages/admin/SuperAdminActivityTracking';
 import SuperAdminServiceWeek from '../pages/admin/SuperAdminServiceWeek';
 import SuperAdminJoDocuments from '../pages/admin/SuperAdminJoDocuments';
+import SuperAdminSurveyPage from '../pages/admin/SuperAdminSurveyPage';
+import PublicSurveyPage from '../pages/survey/PublicSurveyPage';
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -77,6 +79,7 @@ const AppRoutes: React.FC = () => {
     <Routes>
       {/* ── Public ──────────────────────────────────────────────────────── */}
       <Route path="/login"        element={<LoginPage />} />
+      <Route path="/orhc-form" element={<PublicSurveyPage />} />
       <Route path="/unauthorized" element={<UnauthorizedView />} />
 
       {/* ── Root redirect ──────────────────────────────────────────────── */}
@@ -114,6 +117,7 @@ const AppRoutes: React.FC = () => {
           <Route path="/super-admin/jodocuments"         element={<SuperAdminJoDocuments />} />
           <Route path="/super-admin/activity-tracking"         element={<SuperAdminActivityTracking />} />
           <Route path="/super-admin/service-week"         element={<SuperAdminServiceWeek />} />
+          <Route path="/super-admin/surveys"         element={<SuperAdminSurveyPage />} />
         </Route>
       </Route>
 
