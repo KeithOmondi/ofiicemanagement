@@ -96,6 +96,7 @@ import JOServiceWeek from "../pages/JO/JOServiceWeek";
 import JOMessages from "../pages/JO/JOMessages";
 import DrDocuments from "../pages/staff/DrDocuments";
 import JOMemosandLetters from "../pages/JO/JOMemosandLetters";
+import OtherDocuments from "../pages/admdesk/OtherDocuments";
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
 
@@ -411,6 +412,7 @@ const DeptDeskGateway: React.FC = () => {
         <Route path="orhc-folders" element={<AdminFolders />} />
         <Route path="bring-up" element={<AdminBringUp />} />
         <Route path="memo-letter" element={<AdminMemoandLetters />} />
+         <Route path="other-docs" element={<OtherDocuments />} />
       </Route>
       <Route
         path="*"
