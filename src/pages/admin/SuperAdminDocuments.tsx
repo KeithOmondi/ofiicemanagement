@@ -2604,12 +2604,14 @@ const SuperAdminDocuments: React.FC = () => {
   }, [dispatch, fullUser, user]);
 
   // ─── Filter out memos, letters, AND documents with bring_up_date ──────────
-  const visibleDocuments = useMemo(
+// ─── Filter out memos, letters, AND documents with bring_up_date OR active_mark ──────────
+const visibleDocuments = useMemo(
   () => documents.filter((doc) => 
     doc.type !== "memo" && 
     doc.type !== "letter" && 
     doc.type !== "certificate" && 
-    !doc.bring_up_date
+    !doc.bring_up_date &&
+    !doc.active_mark // ← EXCLUDE documents that have been marked/assigned
   ),
   [documents]
 );
