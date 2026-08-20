@@ -1,6 +1,6 @@
 // src/pages/super-admin/SuperAdminServiceWeek.tsx
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   fetchReports,
@@ -17,6 +17,7 @@ import {
 } from '../../types/service-week.types';
 import type { AppDispatch } from '../../store/store';
 import type { ServiceWeekFilters } from '../../types/service-week.types';
+import { Calendar, ChevronDown, ChevronUp, Eye, Search } from 'lucide-react';
 
 const STATUS_OPTIONS: { value: ServiceWeekStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'All Status' },
@@ -24,7 +25,92 @@ const STATUS_OPTIONS: { value: ServiceWeekStatus | 'all'; label: string }[] = [
   { value: 'submitted', label: 'Submitted' },
 ];
 
+// ─── Type for grouped reports ─────────────────────────────────────────────────
+type GroupedReports = Record<string, ServiceWeekReport[]>;
 
+// ─── Group reports by day ──────────────────────────────────────────────────
+const groupReportsByDay = (reports: ServiceWeekReport[]): GroupedReports => {
+  const groups: GroupedReports = {};
+  
+  reports.forEach((report) => {
+    // Use created_at if available, otherwise fallback to week_start
+    const dateStr = report.created_at || report.week_start;
+    const dayKey = dateStr ? new Date(dateStr).toISOString().split('T')[0] : 'unknown';
+    
+    if (!groups[dayKey]) {
+      groups[dayKey] = [];
+    }
+    groups[dayKey].push(report);
+  });
+  
+  // Sort groups by date (newest first)
+  const sortedKeys = Object.keys(groups).sort((a, b) => {
+    if (a === 'unknown') return 1;
+    if (b === 'unknown') return -1;
+    return new Date(b).getTime() - new Date(a).getTime();
+  });
+  
+  const sortedGroups: GroupedReports = {};
+  sortedKeys.forEach((key) => {
+    sortedGroups[key] = groups[key];
+  });
+  
+  return sortedGroups;
+};
+
+// ─── Format date for display ──────────────────────────────────────────────────
+const formatDateDisplay = (dateStr: string): string => {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-GB', { 
+    weekday: 'long', 
+    day: 'numeric', 
+    month: 'long', 
+    year: 'numeric' 
+  });
+};
+
+// ─── Check if date is today ──────────────────────────────────────────────────
+const isToday = (dateStr: string): boolean => {
+  const today = new Date();
+  const date = new Date(dateStr);
+  return date.getFullYear() === today.getFullYear() &&
+         date.getMonth() === today.getMonth() &&
+         date.getDate() === today.getDate();
+};
+
+// ─── Check if date is yesterday ──────────────────────────────────────────────
+const isYesterday = (dateStr: string): boolean => {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const date = new Date(dateStr);
+  return date.getFullYear() === yesterday.getFullYear() &&
+         date.getMonth() === yesterday.getMonth() &&
+         date.getDate() === yesterday.getDate();
+};
+
+// ─── Get friendly date label ─────────────────────────────────────────────────
+const getDateLabel = (dateStr: string): string => {
+  if (dateStr === 'unknown') return 'Unknown Date';
+  if (isToday(dateStr)) return '📌 Today';
+  if (isYesterday(dateStr)) return '📅 Yesterday';
+  return formatDateDisplay(dateStr);
+};
+
+// ─── Get status for a group ──────────────────────────────────────────────────
+interface GroupStatus {
+  label: string;
+  color: string;
+}
+
+const getGroupStatus = (reportsInGroup: ServiceWeekReport[]): GroupStatus => {
+  if (reportsInGroup.every((r) => r.status === 'submitted')) {
+    return { label: 'All Submitted', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' };
+  }
+  if (reportsInGroup.some((r) => r.status === 'submitted')) {
+    return { label: 'Partially Submitted', color: 'bg-amber-100 text-amber-700 border-amber-200' };
+  }
+  return { label: 'All Draft', color: 'bg-gray-100 text-gray-600 border-gray-200' };
+};
 
 // ─── Read-only field display, matching the submitted-form's visual language ──
 const ReadOnlyField: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
@@ -37,7 +123,6 @@ const ReadOnlyField: React.FC<{ label: string; value: React.ReactNode }> = ({ la
 );
 
 // ─── Full read-only report view — mirrors ServiceWeekForm's layout exactly ──
-
 const ReportDetailView: React.FC<{ report: ServiceWeekReport }> = ({ report }) => {
   const cases = report.cases || [];
 
@@ -131,6 +216,7 @@ const JOServiceWeek: React.FC = () => {
   const [limit] = useState(20);
 
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const filterParams: ServiceWeekFilters = {
@@ -145,7 +231,8 @@ const JOServiceWeek: React.FC = () => {
     dispatch(fetchReports(filterParams));
   }, [dispatch, selectedStatus, searchStation, searchJudge, currentPage, limit]);
 
-
+  // ─── Group reports by day ──────────────────────────────────────────────────
+  const groupedReports = useMemo(() => groupReportsByDay(reports), [reports]);
 
   const handlePageChange = (newPage: number) => {
     setCurrentPage(newPage);
@@ -153,6 +240,13 @@ const JOServiceWeek: React.FC = () => {
 
   const toggleExpanded = (id: string) => {
     setExpandedReportId((prev) => (prev === id ? null : id));
+  };
+
+  const toggleGroup = (dayKey: string) => {
+    setExpandedGroups((prev) => ({
+      ...prev,
+      [dayKey]: !prev[dayKey],
+    }));
   };
 
   if (isLoading && reports.length === 0) {
@@ -168,8 +262,8 @@ const JOServiceWeek: React.FC = () => {
       {/* Page Header Banner */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-[#163328] p-6 rounded-2xl shadow-sm text-white gap-4">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight text-[#C48B28]">Service Week Reports</h2>
-          <p className="text-emerald-100/80 text-sm mt-1">Super Admin - View and manage all service week case returns</p>
+          <h2 className="text-2xl font-bold tracking-tight text-[#C48B28]">Daily Service Reports</h2>
+          <p className="text-emerald-100/80 text-sm mt-1">Super Admin - View and manage all daily service week case returns</p>
         </div>
       </div>
 
@@ -192,109 +286,172 @@ const JOServiceWeek: React.FC = () => {
           ))}
         </select>
 
-        <input
-          type="text"
-          placeholder="Search station..."
-          value={searchStation}
-          onChange={(e) => setSearchStation(e.target.value)}
-          className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-[#C48B28] focus:border-transparent outline-none bg-gray-50"
-        />
+        <div className="relative flex-1 min-w-[150px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+          <input
+            type="text"
+            placeholder="Search station..."
+            value={searchStation}
+            onChange={(e) => setSearchStation(e.target.value)}
+            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-[#C48B28] focus:border-transparent outline-none bg-gray-50"
+          />
+        </div>
 
-        <input
-          type="text"
-          placeholder="Search judge..."
-          value={searchJudge}
-          onChange={(e) => setSearchJudge(e.target.value)}
-          className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-[#C48B28] focus:border-transparent outline-none bg-gray-50"
-        />
+        <div className="relative flex-1 min-w-[150px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
+          <input
+            type="text"
+            placeholder="Search judge..."
+            value={searchJudge}
+            onChange={(e) => setSearchJudge(e.target.value)}
+            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-700 focus:ring-2 focus:ring-[#C48B28] focus:border-transparent outline-none bg-gray-50"
+          />
+        </div>
 
         <span className="text-sm text-gray-500 self-center ml-auto font-medium">
           Showing {reports.length} of {pagination.total} report(s)
         </span>
       </div>
 
-      {/* Reports Data Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-[#163328] text-white">
-              <tr>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">Station</th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">Judge</th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">Week</th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">Cases</th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">Prepared By</th>
-                <th className="px-4 py-3.5 text-center text-xs font-semibold uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {reports.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
-                    No reports found
-                  </td>
-                </tr>
-              ) : (
-                reports.map((report) => {
-                  const isExpanded = expandedReportId === report.id;
+      {/* ─── Grouped Reports by Day ──────────────────────────────────────── */}
+      <div className="space-y-4">
+        {Object.keys(groupedReports).length === 0 ? (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
+            <div className="flex flex-col items-center gap-2">
+              <Search className="w-10 h-10 text-gray-300" />
+              <p className="text-gray-500 font-medium">No reports found</p>
+              <p className="text-xs text-gray-400">Try adjusting your filters</p>
+            </div>
+          </div>
+        ) : (
+          Object.entries(groupedReports).map(([dayKey, dayReports]) => {
+            const isGroupExpanded = expandedGroups[dayKey] !== false; // Default to expanded
+            const groupStatus = getGroupStatus(dayReports);
+            const totalCases = dayReports.reduce((sum, r) => sum + (r.cases?.length || 0), 0);
+            const dateLabel = getDateLabel(dayKey);
 
-                  return (
-                    <React.Fragment key={report.id}>
-                      <tr className="hover:bg-amber-50/40 transition-colors">
-                        <td className="px-4 py-3 font-semibold text-gray-900">
-                          {report.station}
-                          {report.division && <span className="text-gray-400 text-xs ml-1 font-normal">({report.division})</span>}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700">{report.judge_name}</td>
-                        <td className="px-4 py-3 text-gray-600">
-                          {new Date(report.week_start).toLocaleDateString()} – {new Date(report.week_end).toLocaleDateString()}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700 font-medium">{report.cases?.length || 0}</td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${SERVICE_WEEK_STATUS_COLORS[report.status]}`}>
-                            {SERVICE_WEEK_STATUS_LABELS[report.status]}
+            return (
+              <div key={dayKey} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                {/* Group Header - Daily */}
+                <div
+                  className="flex flex-wrap items-center gap-3 px-4 sm:px-6 py-3 bg-gradient-to-r from-gray-50 to-white border-b border-gray-100 cursor-pointer hover:bg-gray-100/70 transition-colors"
+                  onClick={() => toggleGroup(dayKey)}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-[200px]">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                      isToday(dayKey) ? 'bg-emerald-100 text-emerald-700' : 'bg-[#163328]/10 text-[#163328]'
+                    }`}>
+                      <Calendar className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="font-semibold text-gray-800">
+                        {dateLabel}
+                        {isToday(dayKey) && (
+                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+                            Active
                           </span>
-                        </td>
-                        <td className="px-4 py-3 text-gray-600">{report.prepared_by}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                            
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {dayReports.length} report{dayReports.length > 1 ? 's' : ''} · {totalCases} case{totalCases !== 1 ? 's' : ''}
+                        {dayKey !== 'unknown' && (
+                          <span className="ml-2 text-gray-300">· {new Date(dayKey).toLocaleDateString('en-GB', { weekday: 'short' })}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
 
-                            <button
-                              onClick={() => toggleExpanded(report.id)}
-                              aria-expanded={isExpanded}
-                              className="flex items-center gap-1 px-2.5 py-1 bg-[#163328] text-white text-xs font-medium rounded-lg hover:bg-[#0f241c] transition-colors"
-                            >
-                              View
-                              <svg
-                                className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2.5}
-                              >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                              </svg>
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
+                  <div className="flex items-center gap-3">
+                    <span className={`inline-flex items-center px-2.5 py-0.5 text-xs font-medium rounded-full border ${groupStatus.color}`}>
+                      {groupStatus.label}
+                    </span>
+                    <button
+                      className="text-gray-400 hover:text-gray-600 transition-colors p-1"
+                      onClick={(e) => { e.stopPropagation(); toggleGroup(dayKey); }}
+                    >
+                      <svg
+                        className={`w-5 h-5 transition-transform duration-200 ${isGroupExpanded ? 'rotate-180' : ''}`}
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
 
-                      {isExpanded && (
+                {/* Group Body */}
+                {isGroupExpanded && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-[#163328] text-white">
                         <tr>
-                          <td colSpan={7} className="px-4 py-4 bg-gray-50 border-t border-b border-gray-200">
-                            <ReportDetailView report={report} />
-                          </td>
+                          <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">Station</th>
+                          <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">Judge</th>
+                          <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">Week</th>
+                          <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">Cases</th>
+                          <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">Status</th>
+                          <th className="px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider">Prepared By</th>
+                          <th className="px-4 py-3.5 text-center text-xs font-semibold uppercase tracking-wider">Actions</th>
                         </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {dayReports.map((report) => {
+                          const isReportExpanded = expandedReportId === report.id;
+
+                          return (
+                            <React.Fragment key={report.id}>
+                              <tr className="hover:bg-amber-50/40 transition-colors">
+                                <td className="px-4 py-3 font-semibold text-gray-900">
+                                  {report.station}
+                                  {report.division && <span className="text-gray-400 text-xs ml-1 font-normal">({report.division})</span>}
+                                </td>
+                                <td className="px-4 py-3 text-gray-700">{report.judge_name}</td>
+                                <td className="px-4 py-3 text-gray-600">
+                                  {new Date(report.week_start).toLocaleDateString()} – {new Date(report.week_end).toLocaleDateString()}
+                                </td>
+                                <td className="px-4 py-3 text-gray-700 font-medium">{report.cases?.length || 0}</td>
+                                <td className="px-4 py-3">
+                                  <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${SERVICE_WEEK_STATUS_COLORS[report.status]}`}>
+                                    {SERVICE_WEEK_STATUS_LABELS[report.status]}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-gray-600">{report.prepared_by}</td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                    <button
+                                      onClick={() => toggleExpanded(report.id)}
+                                      aria-expanded={isReportExpanded}
+                                      className="flex items-center gap-1 px-2.5 py-1 bg-[#163328] text-white text-xs font-medium rounded-lg hover:bg-[#0f241c] transition-colors"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                      {isReportExpanded ? 'Hide' : 'View'}
+                                      {isReportExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+
+                              {isReportExpanded && (
+                                <tr>
+                                  <td colSpan={7} className="px-4 py-4 bg-gray-50 border-t border-b border-gray-200">
+                                    <ReportDetailView report={report} />
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
 
       {/* Pagination Controls */}
