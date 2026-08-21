@@ -294,7 +294,11 @@ useEffect(() => {
     })
   );
 
-  setWeekKey(existingReport.week_start || todayMonday());
+  setWeekKey(
+  existingReport.week_start
+    ? new Date(existingReport.week_start).toISOString().slice(0, 10)
+    : todayMonday()
+);
   setExecSummary(existingReport.executive_summary || '');
   setPatterns(existingReport.recurring_patterns || '');
   setPriorities(existingReport.priorities || '');
