@@ -37,6 +37,7 @@ import type {
 //
 // Weekly Station Engagement Report — Sections A through F.
 // Supports: Draft saving, Submit to Admin, PDF Preview, Edit Mode
+// Auto-saves to localStorage to prevent data loss on refresh
 // ============================================================
 
 const MODES: EngagementMode[] = [
@@ -149,6 +150,40 @@ const REASON_LABELS: Record<ReasonNotReached, string> = {
   other: 'Other',
 };
 
+// ─── Custom Hook for localStorage persistence ─────────────────────────────
+
+function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T | ((val: T) => T)) => void, () => void] {
+  const [storedValue, setStoredValue] = useState<T>(() => {
+    try {
+      const item = window.localStorage.getItem(key);
+      return item ? JSON.parse(item) : initialValue;
+    } catch (error) {
+      console.warn('Error reading localStorage key:', key, error);
+      return initialValue;
+    }
+  });
+
+  const setValue = (value: T | ((val: T) => T)) => {
+    try {
+      const valueToStore = value instanceof Function ? value(storedValue) : value;
+      setStoredValue(valueToStore);
+      window.localStorage.setItem(key, JSON.stringify(valueToStore));
+    } catch (error) {
+      console.warn('Error saving to localStorage:', key, error);
+    }
+  };
+
+  const removeValue = () => {
+    try {
+      window.localStorage.removeItem(key);
+    } catch (error) {
+      console.warn('Error removing localStorage key:', key, error);
+    }
+  };
+
+  return [storedValue, setValue, removeValue];
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 const RegistryNewReport: React.FC = () => {
@@ -166,11 +201,62 @@ const RegistryNewReport: React.FC = () => {
   const submitError = useAppSelector(selectReportError);
   const pdfPreview = useAppSelector(selectPDFPreview);
   const isGeneratingPDF = useAppSelector(selectIsGeneratingPDF);
-  
-  // ✅ Fixed: Use the correct selector name
   const existingReport = useAppSelector(selectCurrentReport) as StationEngagementReport | null;
 
+  // ─── localStorage keys ────────────────────────────────────────────────────
+
+  const storagePrefix = `report_${id || 'new'}`;
+
+  // ─── State with localStorage persistence ─────────────────────────────────
+
+  const [weekKey, setWeekKey, removeWeekKey] = useLocalStorage<string>(
+    `${storagePrefix}_weekKey`,
+    todayMonday()
+  );
+
+  const [execSummary, setExecSummary, removeExecSummary] = useLocalStorage<string>(
+    `${storagePrefix}_execSummary`,
+    ''
+  );
+
+  const [engagements, setEngagements, removeEngagements] = useLocalStorage<Engagement[]>(
+    `${storagePrefix}_engagements`,
+    []
+  );
+
+  const [notReached, setNotReached, removeNotReached] = useLocalStorage<NotReached[]>(
+    `${storagePrefix}_notReached`,
+    []
+  );
+
+  const [escalations, setEscalations, removeEscalations] = useLocalStorage<EscalationItem[]>(
+    `${storagePrefix}_escalations`,
+    []
+  );
+
+  const [patterns, setPatterns, removePatterns] = useLocalStorage<string>(
+    `${storagePrefix}_patterns`,
+    ''
+  );
+
+  const [priorities, setPriorities, removePriorities] = useLocalStorage<string>(
+    `${storagePrefix}_priorities`,
+    ''
+  );
+
+  // ─── UI state (not persisted) ────────────────────────────────────────────
+
+  const [saveMsg, setSaveMsg] = useState<string>('');
+  const [saveError, setSaveError] = useState<string>('');
+  const [isSavingDraft, setIsSavingDraft] = useState<boolean>(false);
+  const [isLoadingReport, setIsLoadingReport] = useState<boolean>(false);
+  const [isDataLoaded, setIsDataLoaded] = useState<boolean>(false);
+
+  // Tracks which report id we've already hydrated the form for
+  const loadedReportIdRef = React.useRef<string | null>(null);
+
   // ─── Fetch the courts assigned to this officer ───────────────────────────
+
   useEffect(() => {
     if (user?.id) {
       dispatch(fetchCourtsWithSupport({ support_person_id: user.id }));
@@ -178,6 +264,7 @@ const RegistryNewReport: React.FC = () => {
   }, [dispatch, user?.id]);
 
   // ─── Fetch existing report if in edit mode ──────────────────────────────
+
   useEffect(() => {
     if (isEditMode && id) {
       dispatch(fetchReportById(id));
@@ -186,128 +273,137 @@ const RegistryNewReport: React.FC = () => {
 
   const myCourts: SuccessionCourtWithUser[] = courts;
 
-  const [weekKey, setWeekKey] = useState<string>(todayMonday());
-  const [execSummary, setExecSummary] = useState<string>('');
-  const [engagements, setEngagements] = useState<Engagement[]>([]);
-  const [notReached, setNotReached] = useState<NotReached[]>([]);
-  const [escalations, setEscalations] = useState<EscalationItem[]>([]);
-  const [patterns, setPatterns] = useState<string>('');
-  const [priorities, setPriorities] = useState<string>('');
-  const [saveMsg, setSaveMsg] = useState<string>('');
-  const [saveError, setSaveError] = useState<string>('');
-  const [isSavingDraft, setIsSavingDraft] = useState<boolean>(false);
-  const [isLoadingReport, setIsLoadingReport] = useState<boolean>(false);
-  const [isDataLoaded, setIsDataLoaded] = useState<boolean>(false);
+  // ─── Hydrate form from existing report ──────────────────────────────────
 
- // Tracks which report id we've already hydrated the form for, so the
-// mapping logic below runs exactly once per report — no separate
-// "reset" effect needed, and no unconditional setState-on-every-render.
-const loadedReportIdRef = React.useRef<string | null>(null);
-
-
-// Shape of the raw data coming back from the API for an existing report.
-// Loosely typed on purpose (fields are optional) since this is what gets mapped into local form state.
-interface EngagementDTO {
-  id?: string;
-  station_id?: string;
-  station_name?: string;
-  station_category?: SuccessionCourtCategory;
-  date?: string;
-  contact_person?: string;
-  contact_role?: string;
-  mode?: EngagementMode;
-  issues_raised?: string[];
-  status?: EngagementStatus;
-  action_taken?: string;
-  follow_up_date?: string;
-  why_needs_escalation?: string;
-  urgency?: Urgency;
-}
-
-interface UnengagedStationDTO {
-  station_id?: string;
-  station_name?: string;
-  station_category?: SuccessionCourtCategory;
-  reason_not_reached?: ReasonNotReached;
-  reason_not_reached_detail?: string;
-  planned_engagement_date?: string;
-}
-
-interface EscalationDTO {
-  id?: string;
-  station_name?: string;
-  issue?: string;
-  why_needs_escalation?: string;
-  recommended_action?: string;
-  urgency?: Urgency;
-}
-
-useEffect(() => {
-  if (!isEditMode) {
-    loadedReportIdRef.current = null;
-    return;
+  interface EngagementDTO {
+    id?: string;
+    station_id?: string;
+    station_name?: string;
+    station_category?: SuccessionCourtCategory;
+    date?: string;
+    contact_person?: string;
+    contact_role?: string;
+    mode?: EngagementMode;
+    issues_raised?: string[];
+    status?: EngagementStatus;
+    action_taken?: string;
+    follow_up_date?: string;
+    why_needs_escalation?: string;
+    urgency?: Urgency;
   }
-  if (!id || !existingReport) return;
-  if (loadedReportIdRef.current === id) return; // already hydrated for this id
 
-  loadedReportIdRef.current = id;
-  setIsLoadingReport(true);
+  interface UnengagedStationDTO {
+    station_id?: string;
+    station_name?: string;
+    station_category?: SuccessionCourtCategory;
+    reason_not_reached?: ReasonNotReached;
+    reason_not_reached_detail?: string;
+    planned_engagement_date?: string;
+  }
 
-  const mappedEngagements: Engagement[] = (existingReport.engagements ?? []).map(
-    (e: EngagementDTO): Engagement => ({
-      id: e.id || uid(),
-      courtId: e.station_id || '',
-      station: e.station_name || '',
-      category: e.station_category || '',
-      date: e.date || todayMonday(),
-      contact: e.contact_person || '',
-      role: e.contact_role || '',
-      mode: e.mode || '',
-      issue: (e.issues_raised || []).join(', '),
-      status: e.status || '',
-      action: e.action_taken || '',
-      followup: e.follow_up_date || '',
-      why: e.why_needs_escalation || '',
-      urgency: e.urgency || '',
-    })
-  );
+  interface EscalationDTO {
+    id?: string;
+    station_name?: string;
+    issue?: string;
+    why_needs_escalation?: string;
+    recommended_action?: string;
+    urgency?: Urgency;
+  }
 
-  const mappedNotReached: NotReached[] = (existingReport.unengaged_stations ?? []).map(
-    (u: UnengagedStationDTO): NotReached => ({
-      courtId: u.station_id || '',
-      station: u.station_name || '',
-      category: u.station_category || '',
-      reason: u.reason_not_reached || '',
-      reasonDetail: u.reason_not_reached_detail || '',
-      plannedDate: u.planned_engagement_date || '',
-    })
-  );
+  // ─── FIX: Include all setter functions in dependency array ──────────────
+  // The setter functions from useLocalStorage are stable (they don't change
+  // between renders), so it's safe to include them.
+  useEffect(() => {
+    if (!isEditMode) {
+      loadedReportIdRef.current = null;
+      return;
+    }
+    if (!id || !existingReport) return;
+    if (loadedReportIdRef.current === id) return;
 
-  const mappedEscalations: EscalationItem[] = (existingReport.escalations ?? []).map(
-    (e: EscalationDTO): EscalationItem => ({
-      id: e.id || uid(),
-      station: e.station_name || '',
-      issue: e.issue || '',
-      why: e.why_needs_escalation || '',
-      action: e.recommended_action || '',
-      urgency: e.urgency || '',
-    })
-  );
+    // Clear localStorage when loading an existing report
+    const keys = [
+      `${storagePrefix}_weekKey`,
+      `${storagePrefix}_execSummary`,
+      `${storagePrefix}_engagements`,
+      `${storagePrefix}_notReached`,
+      `${storagePrefix}_escalations`,
+      `${storagePrefix}_patterns`,
+      `${storagePrefix}_priorities`,
+    ];
+    keys.forEach(key => localStorage.removeItem(key));
 
-  setWeekKey(
-  existingReport.week_start
-    ? new Date(existingReport.week_start).toISOString().slice(0, 10)
-    : todayMonday()
-);
-  setExecSummary(existingReport.executive_summary || '');
-  setPatterns(existingReport.recurring_patterns || '');
-  setPriorities(existingReport.priorities || '');
-  setEngagements(mappedEngagements);
-  setNotReached(mappedNotReached);
-  setEscalations(mappedEscalations);
-  setIsDataLoaded(true);
-  setIsLoadingReport(false);
-}, [existingReport, isEditMode, id]);
+    loadedReportIdRef.current = id;
+    setIsLoadingReport(true);
+
+    const mappedEngagements: Engagement[] = (existingReport.engagements ?? []).map(
+      (e: EngagementDTO): Engagement => ({
+        id: e.id || uid(),
+        courtId: e.station_id || '',
+        station: e.station_name || '',
+        category: e.station_category || '',
+        date: e.date || todayMonday(),
+        contact: e.contact_person || '',
+        role: e.contact_role || '',
+        mode: e.mode || '',
+        issue: (e.issues_raised || []).join(', '),
+        status: e.status || '',
+        action: e.action_taken || '',
+        followup: e.follow_up_date || '',
+        why: e.why_needs_escalation || '',
+        urgency: e.urgency || '',
+      })
+    );
+
+    const mappedNotReached: NotReached[] = (existingReport.unengaged_stations ?? []).map(
+      (u: UnengagedStationDTO): NotReached => ({
+        courtId: u.station_id || '',
+        station: u.station_name || '',
+        category: u.station_category || '',
+        reason: u.reason_not_reached || '',
+        reasonDetail: u.reason_not_reached_detail || '',
+        plannedDate: u.planned_engagement_date || '',
+      })
+    );
+
+    const mappedEscalations: EscalationItem[] = (existingReport.escalations ?? []).map(
+      (e: EscalationDTO): EscalationItem => ({
+        id: e.id || uid(),
+        station: e.station_name || '',
+        issue: e.issue || '',
+        why: e.why_needs_escalation || '',
+        action: e.recommended_action || '',
+        urgency: e.urgency || '',
+      })
+    );
+
+    setWeekKey(
+      existingReport.week_start
+        ? new Date(existingReport.week_start).toISOString().slice(0, 10)
+        : todayMonday()
+    );
+    setExecSummary(existingReport.executive_summary || '');
+    setPatterns(existingReport.recurring_patterns || '');
+    setPriorities(existingReport.priorities || '');
+    setEngagements(mappedEngagements);
+    setNotReached(mappedNotReached);
+    setEscalations(mappedEscalations);
+    setIsDataLoaded(true);
+    setIsLoadingReport(false);
+  }, [
+    isEditMode,
+    id,
+    existingReport,
+    storagePrefix,
+    // Include all setter functions (they are stable)
+    setWeekKey,
+    setExecSummary,
+    setEngagements,
+    setNotReached,
+    setEscalations,
+    setPatterns,
+    setPriorities,
+  ]);
 
   const engagedCourtIds = useMemo(
     () => new Set(engagements.map((e) => e.courtId).filter(Boolean)),
@@ -317,6 +413,23 @@ useEffect(() => {
     () => myCourts.filter((c) => !engagedCourtIds.has(c.id)),
     [myCourts, engagedCourtIds]
   );
+
+  // ─── Check for unsaved data in localStorage ─────────────────────────────
+
+  const hasUnsavedData = useMemo(() => {
+    if (isEditMode && isDataLoaded) return false;
+    return (
+      localStorage.getItem(`${storagePrefix}_engagements`) !== null ||
+      localStorage.getItem(`${storagePrefix}_notReached`) !== null ||
+      localStorage.getItem(`${storagePrefix}_escalations`) !== null ||
+      (localStorage.getItem(`${storagePrefix}_execSummary`) && 
+       localStorage.getItem(`${storagePrefix}_execSummary`) !== '') ||
+      (localStorage.getItem(`${storagePrefix}_patterns`) && 
+       localStorage.getItem(`${storagePrefix}_patterns`) !== '') ||
+      (localStorage.getItem(`${storagePrefix}_priorities`) && 
+       localStorage.getItem(`${storagePrefix}_priorities`) !== '')
+    );
+  }, [storagePrefix, isEditMode, isDataLoaded]);
 
   // ─── Engagement row handlers ─────────────────────────────────────────────
 
@@ -408,7 +521,6 @@ useEffect(() => {
   const buildPayload = (): CreateEngagementReportPayload => {
     console.log('🔍 Building payload...');
 
-    // Get unique categories from engagements
     const categories = new Set<SuccessionCourtCategory>();
     engagements.forEach((e) => {
       if (e.category) categories.add(e.category as SuccessionCourtCategory);
@@ -422,7 +534,6 @@ useEffect(() => {
       });
     }
 
-    // Build engagements array
     const engagementInputs: EngagementInput[] = engagements
       .filter((e) => e.courtId && e.station && e.mode && e.status)
       .map((e) => {
@@ -448,7 +559,6 @@ useEffect(() => {
         };
       });
 
-    // Build unengaged stations - only include those with a reason
     const unengagedInputs: Array<{
       station_id: string;
       reason_not_reached?: ReasonNotReached;
@@ -459,7 +569,6 @@ useEffect(() => {
     notReachedAuto.forEach((c) => {
       const nr = getNotReached(c.id, c.station, c.category);
       
-      // Only include if a reason has been explicitly selected
       if (nr.reason) {
         unengagedInputs.push({
           station_id: c.id,
@@ -470,7 +579,6 @@ useEffect(() => {
       }
     });
 
-    // Build escalations - filter first, then map
     const escalationInputs: EscalationItemInput[] = [];
 
     escalations
@@ -519,14 +627,24 @@ useEffect(() => {
     return payload;
   };
 
+  // ─── Clear localStorage after successful save ────────────────────────────
+
+  const clearLocalStorage = () => {
+    removeWeekKey();
+    removeExecSummary();
+    removeEngagements();
+    removeNotReached();
+    removeEscalations();
+    removePatterns();
+    removePriorities();
+  };
+
   // ─── Save Handler ──────────────────────────────────────────────────────
 
   const handleSave = async (saveAsDraft: boolean = false) => {
     setSaveMsg('');
     setSaveError('');
     setIsSavingDraft(saveAsDraft);
-
-    // ─── Validation ──────────────────────────────────────────────────────────
 
     if (!user?.id) {
       setSaveError('User not authenticated. Please log in again.');
@@ -587,8 +705,6 @@ useEffect(() => {
       return;
     }
 
-    // ─── Build and Send Payload ─────────────────────────────────────────────
-
     try {
       const payload = buildPayload();
       const payloadWithDraftFlag = {
@@ -599,24 +715,32 @@ useEffect(() => {
       let result;
 
       if (isEditMode && id) {
-        // ✅ UPDATE existing report
         result = await dispatch(updateReport({ id, data: payloadWithDraftFlag })).unwrap();
         const message = saveAsDraft
           ? `✅ Draft updated successfully! ID: ${result.id.slice(0, 8)}`
           : `✅ Report submitted successfully! ID: ${result.id.slice(0, 8)}`;
         setSaveMsg(message);
       } else {
-        // ✅ CREATE new report
         result = await dispatch(createReport(payloadWithDraftFlag)).unwrap();
         const message = saveAsDraft
           ? `✅ Draft saved successfully! ID: ${result.id.slice(0, 8)}`
           : `✅ Report submitted successfully! ID: ${result.id.slice(0, 8)}`;
         setSaveMsg(message);
+        
+        // If a new report was created, update the URL
+        if (!isEditMode && result.id) {
+          navigate(`/staff/reports/${result.id}`, { replace: true });
+        }
       }
 
-      // If not a draft, navigate back to list
+      // Clear localStorage on successful submit (not draft)
       if (!saveAsDraft) {
+        clearLocalStorage();
         setTimeout(() => navigate('/staff/reports'), 1500);
+      } else {
+        // For drafts, clear localStorage after successful save
+        clearLocalStorage();
+        setSaveMsg('💾 Draft saved and cleared from local storage');
       }
 
     } catch (err: unknown) {
@@ -675,15 +799,12 @@ useEffect(() => {
     try {
       let reportId = id;
 
-      // If in edit mode with existing report, use that ID
       if (!isEditMode || !reportId) {
-        // Save as draft first
         const payload = buildPayload();
         const result = await dispatch(createReport({ ...payload, saveAsDraft: true })).unwrap();
         reportId = result.id;
       }
 
-      // Generate preview
       const previewResult = await dispatch(generatePDFPreview({
         id: reportId!,
         options: { page: 1, scale: 1 }
@@ -772,6 +893,35 @@ useEffect(() => {
           Monday {fmtDate(weekKey)} to Friday {fmtDate(fridayOf(weekKey))} · {myCourts.length} court(s) assigned to you
           {isEditMode && ` · Editing report ${id?.slice(0, 8)}`}
         </p>
+
+        {/* ─── Unsaved Data Recovery Banner ─────────────────────────────────── */}
+        {hasUnsavedData && !isEditMode && !isDataLoaded && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-sm text-amber-800">
+              💾 You have unsaved work from a previous session.
+              <button
+                onClick={() => {
+                  setSaveMsg('Recovered unsaved data - continue editing');
+                  setTimeout(() => setSaveMsg(''), 3000);
+                }}
+                className="ml-3 text-blue-600 hover:underline font-medium"
+              >
+                Continue editing
+              </button>
+              <button
+                onClick={() => {
+                  if (window.confirm('Are you sure you want to discard all unsaved data?')) {
+                    clearLocalStorage();
+                    window.location.reload();
+                  }
+                }}
+                className="ml-3 text-red-600 hover:underline font-medium"
+              >
+                Discard
+              </button>
+            </p>
+          </div>
+        )}
 
         {myCourts.length === 0 && (
           <div className="mb-5 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg text-sm">
