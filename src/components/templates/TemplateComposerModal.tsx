@@ -317,7 +317,14 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                   {[
                     { label: 'TO', value: toField, set: setToField, upper: true, type: 'text' as const },
                     { label: 'FROM', value: fromField, set: setFromField, upper: true, type: 'text' as const },
-                    { label: 'CC', value: ccField, set: setCcField, upper: false, placeholder: 'Optional CC recipients', type: 'text' as const },
+                    { 
+                      label: 'CC', 
+                      value: ccField, 
+                      set: setCcField, 
+                      upper: false, 
+                      placeholder: 'PRINCIPAL JUDGE, HIGH COURT\nREGISTRAR MAGISTRATES COURT\nDEPUTY REGISTRAR', 
+                      type: 'textarea' as const 
+                    },
                     { label: 'REF', value: refField, set: setRefField, upper: false, placeholder: 'RHC/AIE/___', type: 'text' as const },
                     { label: 'DATE', value: dateField, set: setDateField, upper: false, type: 'date' as const },
                     { label: 'SUBJECT', value: title, set: setTitle, upper: true, placeholder: 'Subject of this memo', type: 'text' as const },
@@ -331,13 +338,30 @@ export const TemplateComposerModal: React.FC<TemplateComposerModalProps> = ({
                       <div key={label} className="flex text-[13.5px] font-bold" style={{ lineHeight: 2 }}>
                         <span className="w-24 shrink-0 uppercase">{label}</span>
                         <span className="w-5 shrink-0">:</span>
-                        <input
-                          type={inputType}
-                          value={value}
-                          onChange={(e) => set(e.target.value)}
-                          placeholder={placeholder}
-                          className={`${editableLineClasses} ${upper ? 'uppercase' : ''}`}
-                        />
+                        {inputType === 'date' ? (
+                          <input
+                            type="date"
+                            value={value}
+                            onChange={(e) => set(e.target.value)}
+                            className={editableLineClasses}
+                          />
+                        ) : inputType === 'textarea' ? (
+                          <textarea
+                            value={value}
+                            onChange={(e) => set(e.target.value)}
+                            placeholder={placeholder}
+                            rows={3}
+                            className={`${editableLineClasses} resize-y min-h-[2.5rem] ${upper ? 'uppercase' : ''}`}
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            value={value}
+                            onChange={(e) => set(e.target.value)}
+                            placeholder={placeholder}
+                            className={`${editableLineClasses} ${upper ? 'uppercase' : ''}`}
+                          />
+                        )}
                       </div>
                     ))}
                 </div>
