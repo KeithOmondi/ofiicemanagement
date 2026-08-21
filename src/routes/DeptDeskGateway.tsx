@@ -226,6 +226,13 @@ const DeptDeskGateway: React.FC = () => {
           {isRegistryStaff ? (
             <>
               <Route path="reports/new" element={<RegistryNewReport />} />
+              {/* Edit uses the same component as "new" — RegistryNewReport
+                  branches on isEditMode via the :id param from useParams.
+                  This route was previously missing, so the "✏️ Edit" button
+                  in StaffRegistryReports.tsx had nothing to match against
+                  and fell through to the staff desk's catch-all, bouncing
+                  back to /dashboard. */}
+              <Route path="reports/:id/edit" element={<RegistryNewReport />} />
               <Route path="reports/week" element={<RegistryWeeklyReports />} />
               <Route path="submitted" element={<RegistrySubmitted />} />
             </>

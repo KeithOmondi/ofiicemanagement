@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useNavigate } from 'react-router-dom';
+import { useMatch, useNavigate } from 'react-router-dom';
 import {
   fetchReports,
   fetchEngagementStats,
@@ -322,6 +322,14 @@ const StaffRegistryReports: React.FC = () => {
   const dispatch = useDispatch<AppDispatch>();
   const navigate = useNavigate();
 
+  // Registry routes are mounted under /dept/:deptId/... in DeptDeskGateway.tsx
+  // (e.g. reports/new, reports/:id/edit), not under a standalone /staff/*
+  // path. Compute the dept-scoped base the same way StaffSidebar.tsx does,
+  // so navigate() calls below actually match a route instead of falling
+  // through to the desk's catch-all and bouncing to the dashboard.
+  const match = useMatch('/dept/:deptId/*');
+  const base = match ? `/dept/${match.params.deptId}` : '';
+
   const reports = useSelector(selectAllReports) as ReportWithDisplay[];
   const stats = useSelector(selectEngagementStats);
   const isLoading = useSelector(selectIsLoading);
@@ -540,7 +548,7 @@ const StaffRegistryReports: React.FC = () => {
           <p className="text-gray-500">View and manage your station engagement reports</p>
         </div>
         <button
-          onClick={() => navigate('/staff/reports/new')}
+          onClick={() => navigate(`${base}/reports/new`)}
           className="px-4 py-2 bg-[#1E4620] text-white rounded-lg hover:bg-[#132A1D] transition-colors"
         >
           + New Report
@@ -775,7 +783,7 @@ const StaffRegistryReports: React.FC = () => {
                         {/* ✅ Edit - for drafts and rejected */}
                         {canEdit && (
                           <button
-                            onClick={() => navigate(`/staff/reports/${report.id}/edit`)}
+                            onClick={() => navigate(`${base}/reports/${report.id}/edit`)}
                             className="px-3 py-1.5 bg-stone-600 text-white text-xs font-medium rounded-md hover:bg-stone-700 transition-colors"
                           >
                             ✏️ Edit
