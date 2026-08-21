@@ -24,7 +24,7 @@ import {
   selectBuilder,
   selectResponsesForSurvey,
 } from '../../store/slices/surveysSlice';
-import type { Survey, SurveyFieldType, DraftSurveyField } from '../../types/surveys.types';
+import type { Survey, SurveyFieldType, DraftSurveyField, SurveyField } from '../../types/surveys.types';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 
 type ViewMode = 'list' | 'builder' | 'responses';
@@ -653,6 +653,8 @@ function FieldEditor({
 
 // ---- responses ----
 
+// ---- responses ----
+
 function SurveyResponsesView({
   surveyId,
   surveys,
@@ -668,6 +670,64 @@ function SurveyResponsesView({
   const survey = surveys.find((s) => s.id === surveyId);
 
   if (!survey) return null;
+
+  // Helper to render cell content based on field type
+  const renderCellContent = (field: SurveyField, value: unknown) => {
+    if (value === undefined || value === null || value === '') {
+      return <span className="text-slate-400">—</span>;
+    }
+
+    // Handle array values (checkbox, numbered_list)
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return <span className="text-slate-400">—</span>;
+      }
+
+      // Check if it's a numbered_list field
+      if (field.type === 'numbered_list') {
+        return (
+          <ol className="list-decimal pl-4 space-y-0.5 text-sm">
+            {value.map((item, idx) => (
+              <li key={idx} className="text-slate-800">
+                {item || <span className="text-slate-400">Empty</span>}
+              </li>
+            ))}
+          </ol>
+        );
+      }
+
+      // For checkbox or other arrays, use bullet points
+      return (
+        <ul className="list-disc pl-4 space-y-0.5 text-sm">
+          {value.map((item, idx) => (
+            <li key={idx} className="text-slate-800">
+              {item || <span className="text-slate-400">Empty</span>}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+
+    // Handle string values
+    if (typeof value === 'string') {
+      // Check if it's a checkbox field with comma-separated values
+      if (field.type === 'checkbox' && value.includes(',')) {
+        const items = value.split(',').map(s => s.trim()).filter(Boolean);
+        if (items.length > 1) {
+          return (
+            <ul className="list-disc pl-4 space-y-0.5 text-sm">
+              {items.map((item, idx) => (
+                <li key={idx} className="text-slate-800">{item}</li>
+              ))}
+            </ul>
+          );
+        }
+      }
+      return <span className="text-slate-800">{value}</span>;
+    }
+
+    return <span className="text-slate-800">{String(value)}</span>;
+  };
 
   return (
     <div className="space-y-4">
@@ -690,9 +750,11 @@ function SurveyResponsesView({
           <table className="w-full text-left text-sm border-collapse">
             <thead className="bg-[#1b4332] text-white font-medium">
               <tr>
-                <th className="py-3 px-4">Submitted</th>
+                <th className="py-3 px-4 whitespace-nowrap">Submitted</th>
                 {survey.fields.map((f) => (
-                  <th key={f.id} className="py-3 px-4">{f.label}</th>
+                  <th key={f.id} className="py-3 px-4 min-w-[150px] max-w-[300px]">
+                    {f.label}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -705,8 +767,8 @@ function SurveyResponsesView({
                   {survey.fields.map((f) => {
                     const val = r.response_data[f.id];
                     return (
-                      <td key={f.id} className="py-3 px-4 text-slate-800">
-                        {Array.isArray(val) ? val.join(', ') : val ?? ''}
+                      <td key={f.id} className="py-3 px-4 align-top">
+                        {renderCellContent(f, val)}
                       </td>
                     );
                   })}
