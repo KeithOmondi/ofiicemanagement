@@ -1974,7 +1974,7 @@ const DrDocuments: React.FC = () => {
                 : 'text-stone-400 hover:text-stone-600'
             }`}
           >
-            Marked Documents
+            Marked Document
           </button>
           <button
             onClick={() => setShowJODocuments(true)}

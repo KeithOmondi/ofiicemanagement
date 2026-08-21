@@ -89,6 +89,14 @@ const navigationConfig: NavSection[] = [
       { to: (id) => `/dept/${id}/memoandletters`, label: 'Memo & Letters', icon: Icon.dashboard },
     ],
   },
+
+    {
+    title: 'Planning',
+    items: [
+      { to: (id) => `/dept/${id}/task-management`, label: 'Task Management', icon: Icon.dashboard },
+    ],
+  },
+
   {
     title: 'Case Management',
     items: [
