@@ -34,7 +34,7 @@ type ViewMode = 'list' | 'builder' | 'responses';
 const FIELD_TYPES: SurveyFieldType[] = ['text', 'textarea', 'dropdown', 'checkbox', 'date', 'numbered_list'];
 const OPTIONS_TYPES: SurveyFieldType[] = ['dropdown', 'checkbox'];
 
-export default function SuperAdminSurveyPage() {
+export default function JOSurveyPage() {
   const dispatch = useAppDispatch();
   const surveys = useAppSelector(selectAllSurveys);
   const listStatus = useAppSelector((s) => s.surveys.listStatus);

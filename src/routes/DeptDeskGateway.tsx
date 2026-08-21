@@ -98,6 +98,7 @@ import DrDocuments from "../pages/staff/DrDocuments";
 import JOMemosandLetters from "../pages/JO/JOMemosandLetters";
 import OtherDocuments from "../pages/admdesk/OtherDocuments";
 import JOTaskM from "../pages/JO/JOTaskM";
+import JOSurveyPage from "../pages/JO/JOSurveyPage";
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
 
@@ -326,6 +327,7 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="jdocuments" element={<DrDocuments />} />
           <Route path="memoandletters" element={<JOMemosandLetters />} />
           <Route path="task-management" element={<JOTaskM />} />
+          <Route path="jo-surveys" element={<JOSurveyPage />} />
         </Route>
         <Route
           path="*"

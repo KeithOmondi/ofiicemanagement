@@ -125,6 +125,13 @@ const navigationConfig: NavSection[] = [
       { to: (id) => `/dept/${id}/jo-messages`, label: 'Messages', icon: Icon.messages },
     ],
   },
+
+    {
+    title: 'Survey',
+    items: [
+      { to: (id) => `/dept/${id}/jo-surveys`, label: 'Survay Page', icon: Icon.messages },
+    ],
+  },
 ];
 
 // ── Sidebar link ──────────────────────────────────────────────────────────────
