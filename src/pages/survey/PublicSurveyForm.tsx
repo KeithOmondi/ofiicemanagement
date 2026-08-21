@@ -15,7 +15,8 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
 const isEmptyValue = (v: FieldValue | undefined): boolean => {
   if (v === undefined || v === null) return true;
   if (typeof v === 'string') return v.trim().length === 0;
-  return v.length === 0;
+  if (Array.isArray(v)) return v.length === 0;
+  return true;
 };
 
 function defaultValueFor(field: SurveyField): FieldValue {
@@ -63,6 +64,8 @@ export default function PublicSurveyForm({ slug }: Props) {
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [otherValues, setOtherValues] = useState<Record<string, string>>({});
+  const [isOtherSelected, setIsOtherSelected] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -109,7 +112,18 @@ export default function PublicSurveyForm({ slug }: Props) {
           if (draft) {
             for (const f of data.fields) {
               if (draft[f.id] !== undefined) {
-                initial[f.id] = draft[f.id];
+                // For numbered_list, ensure we always have an array
+                if (f.type === 'numbered_list') {
+                  const draftValue = draft[f.id];
+                  if (Array.isArray(draftValue)) {
+                    initial[f.id] = draftValue;
+                  } else {
+                    // If it's not an array, reset to empty array
+                    initial[f.id] = [];
+                  }
+                } else {
+                  initial[f.id] = draft[f.id];
+                }
               }
             }
           }
@@ -148,6 +162,21 @@ export default function PublicSurveyForm({ slug }: Props) {
     });
   }
 
+  function handleOtherChange(fieldId: string, value: string) {
+    setOtherValues(prev => ({ ...prev, [fieldId]: value }));
+    setValue(fieldId, value);
+  }
+
+  function handleDropdownChange(fieldId: string, value: string) {
+    if (value === '__other__') {
+      setIsOtherSelected(prev => ({ ...prev, [fieldId]: true }));
+      setValue(fieldId, '');
+    } else {
+      setIsOtherSelected(prev => ({ ...prev, [fieldId]: false }));
+      setValue(fieldId, value);
+    }
+  }
+
   function toggleCheckboxOption(fieldId: string, option: string, checked: boolean) {
     const current = (values[fieldId] as string[]) ?? [];
     const next = checked ? [...current, option] : current.filter((o) => o !== option);
@@ -178,15 +207,16 @@ export default function PublicSurveyForm({ slug }: Props) {
 
     for (const field of survey.fields) {
       const value = values[field.id];
+      const isOther = isOtherSelected[field.id] && otherValues[field.id]?.trim();
 
       // Required validation
-      if (field.required && isEmptyValue(value)) {
+      if (field.required && isEmptyValue(value) && !isOther) {
         nextErrors[field.id] = `${field.label} is required`;
         continue;
       }
 
       // Skip further validation if empty and not required
-      if (isEmptyValue(value)) continue;
+      if (isEmptyValue(value) && !isOther) continue;
 
       // Min length validation for text/textarea
       if ((field.type === 'text' || field.type === 'textarea') && typeof value === 'string') {
@@ -212,6 +242,19 @@ export default function PublicSurveyForm({ slug }: Props) {
           continue;
         }
       }
+
+      // For dropdown with "Other", validate the custom value
+      if (field.type === 'dropdown' && field.allow_other && isOther) {
+        const customValue = otherValues[field.id]?.trim();
+        if (!customValue) {
+          nextErrors[field.id] = `Please specify your custom answer for "${field.label}"`;
+          continue;
+        }
+        if (customValue.length > 255) {
+          nextErrors[field.id] = `Custom answer must be less than 255 characters`;
+          continue;
+        }
+      }
     }
 
     setErrors(nextErrors);
@@ -222,6 +265,16 @@ export default function PublicSurveyForm({ slug }: Props) {
     setSubmitting(true);
     setSubmitError(null);
     try {
+      const cleanedValues = { ...values };
+      for (const field of survey?.fields ?? []) {
+        if (field.type === 'dropdown' && field.allow_other && isOtherSelected[field.id]) {
+          const otherText = otherValues[field.id]?.trim();
+          if (otherText) {
+            cleanedValues[field.id] = otherText;
+          }
+        }
+      }
+
       const url = `${API_BASE}/surveys/public/${slug}/responses`;
       const res = await fetch(url, {
         method: 'POST',
@@ -229,7 +282,7 @@ export default function PublicSurveyForm({ slug }: Props) {
           Accept: 'application/json',
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ response_data: values }),
+        body: JSON.stringify({ response_data: cleanedValues }),
       });
 
       if (!res.ok) {
@@ -286,29 +339,25 @@ export default function PublicSurveyForm({ slug }: Props) {
   if (loadError) {
     const isNotFound = loadError.includes('404') || loadError.includes('not found');
     return (
-      <div className="max-w-2xl mx-auto my-12 p-8 bg-white rounded-2xl shadow-lg border-t-8 border-red-500">
+      <div className="max-w-2xl mx-auto my-12 p-8 bg-white rounded-2xl shadow-lg border-t-8 border-amber-500">
         <div className="flex flex-col items-center text-center space-y-4">
-          {/* Icon */}
-          <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center">
-            <svg className="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          <div className="w-20 h-20 bg-amber-50 rounded-full flex items-center justify-center">
+            <svg className="w-10 h-10 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
 
-          {/* Title */}
           <h2 className="text-2xl font-bold text-slate-800">
-            {isNotFound ? 'Survey Not Available' : 'Error Loading Survey'}
+            {isNotFound ? 'Form Not Available' : 'Something Went Wrong'}
           </h2>
 
-          {/* Message */}
           <p className="text-slate-600 max-w-md">
             {isNotFound 
-              ? 'The survey you are looking for does not exist or is no longer available.'
+              ? 'The form you are looking for is not available. Please check the URL or contact the administrator.'
               : loadError
             }
           </p>
 
-          {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-3 mt-4">
             <button
               type="button"
@@ -317,20 +366,25 @@ export default function PublicSurveyForm({ slug }: Props) {
             >
               Try Again
             </button>
-           
+            <a
+              href="/"
+              className="px-6 py-2.5 border border-slate-300 text-slate-700 hover:bg-slate-50 font-medium rounded-lg transition-colors text-center"
+            >
+              Go Home
+            </a>
           </div>
 
-          {/* Debug Info */}
-          <details className="mt-6 w-full text-left bg-slate-50 rounded-lg p-4 text-xs text-slate-500 cursor-pointer">
-            <summary className="font-medium hover:text-slate-700">Debug Information</summary>
-            <div className="mt-3 space-y-1 font-mono bg-white p-3 rounded border border-slate-200">
-              <p><span className="font-semibold">API URL:</span> {API_BASE}</p>
-              <p><span className="font-semibold">Slug:</span> {slug}</p>
-              <p><span className="font-semibold">Full URL:</span> {`${API_BASE}/surveys/public/${slug}`}</p>
-              <p><span className="font-semibold">Environment:</span> {import.meta.env.MODE}</p>
-              <p><span className="font-semibold">Error:</span> {loadError}</p>
-            </div>
-          </details>
+          {import.meta.env.DEV && (
+            <details className="mt-6 w-full text-left bg-slate-50 rounded-lg p-4 text-xs text-slate-500 cursor-pointer">
+              <summary className="font-medium hover:text-slate-700">Debug Information</summary>
+              <div className="mt-3 space-y-1 font-mono bg-white p-3 rounded border border-slate-200">
+                <p><span className="font-semibold">Slug:</span> {slug}</p>
+                <p><span className="font-semibold">API URL:</span> {API_BASE}</p>
+                <p><span className="font-semibold">Full URL:</span> {`${API_BASE}/surveys/public/${slug}`}</p>
+                <p><span className="font-semibold">Error:</span> {loadError}</p>
+              </div>
+            </details>
+          )}
         </div>
       </div>
     );
@@ -460,27 +514,50 @@ export default function PublicSurveyForm({ slug }: Props) {
               )}
 
               {field.type === 'dropdown' && (
-                <select
-                  id={field.id}
-                  value={(values[field.id] as string) ?? ''}
-                  onChange={(e) => setValue(field.id, e.target.value)}
-                  aria-invalid={isInvalid}
-                  aria-describedby={isInvalid ? `${field.id}-error` : undefined}
-                  className={`w-full px-3.5 py-2 border rounded-lg outline-none transition-all text-sm bg-white ${
-                    isInvalid
-                      ? 'border-red-500 focus:ring-2 focus:ring-red-200 bg-red-50/20'
-                      : 'border-slate-300 focus:ring-2 focus:ring-[#c09d2a] focus:border-[#c09d2a]'
-                  }`}
-                >
-                  <option value="" disabled>
-                    {field.placeholder ?? 'Select an option'}
-                  </option>
-                  {(field.options ?? []).map((opt) => (
-                    <option key={opt} value={opt}>
-                      {opt}
+                <div className="space-y-2">
+                  <select
+                    id={field.id}
+                    value={
+                      isOtherSelected[field.id] 
+                        ? '__other__' 
+                        : ((values[field.id] as string) ?? '')
+                    }
+                    onChange={(e) => handleDropdownChange(field.id, e.target.value)}
+                    aria-invalid={isInvalid}
+                    aria-describedby={isInvalid ? `${field.id}-error` : undefined}
+                    className={`w-full px-3.5 py-2 border rounded-lg outline-none transition-all text-sm bg-white ${
+                      isInvalid
+                        ? 'border-red-500 focus:ring-2 focus:ring-red-200 bg-red-50/20'
+                        : 'border-slate-300 focus:ring-2 focus:ring-[#c09d2a] focus:border-[#c09d2a]'
+                    }`}
+                  >
+                    <option value="" disabled>
+                      {field.placeholder ?? 'Select an option'}
                     </option>
-                  ))}
-                </select>
+                    {(field.options ?? []).map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                    {field.allow_other && (
+                      <option value="__other__">Other...</option>
+                    )}
+                  </select>
+
+                  {field.allow_other && isOtherSelected[field.id] && (
+                    <input
+                      type="text"
+                      placeholder="Please specify..."
+                      value={otherValues[field.id] ?? ''}
+                      onChange={(e) => handleOtherChange(field.id, e.target.value)}
+                      className={`w-full px-3.5 py-2 border rounded-lg outline-none transition-all text-sm ${
+                        isInvalid
+                          ? 'border-red-500 focus:ring-2 focus:ring-red-200 bg-red-50/20'
+                          : 'border-slate-300 focus:ring-2 focus:ring-[#c09d2a] focus:border-[#c09d2a]'
+                      }`}
+                    />
+                  )}
+                </div>
               )}
 
               {field.type === 'checkbox' && (

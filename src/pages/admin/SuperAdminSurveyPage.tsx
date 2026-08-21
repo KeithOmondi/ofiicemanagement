@@ -375,6 +375,7 @@ function FieldEditor({
   const [newOption, setNewOption] = useState('');
   const needsOptions = OPTIONS_TYPES.includes(field.type);
   const isCheckbox = field.type === 'checkbox';
+  const isDropdown = field.type === 'dropdown';
   const isTextType = field.type === 'text' || field.type === 'textarea';
   const isNumberedList = field.type === 'numbered_list';
 
@@ -455,6 +456,27 @@ function FieldEditor({
             />
             <span className="font-medium text-slate-800">Display options as numbered list (1, 2, 3...)</span>
           </label>
+        </div>
+      )}
+
+      {/* Allow Other option - ONLY for dropdown */}
+      {isDropdown && (
+        <div className="flex items-center space-x-4 pt-1 border-t border-slate-200 pt-2">
+          <label className="flex items-center space-x-2 text-sm text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              className="rounded border-slate-300 text-[#1b4332] focus:ring-[#c09d2a]"
+              checked={field.allow_other ?? false}
+              onChange={(e) =>
+                dispatch(builderUpdateField({ 
+                  localKey: field.localKey, 
+                  changes: { allow_other: e.target.checked } 
+                }))
+              }
+            />
+            <span className="font-medium text-slate-800">Allow "Other" option</span>
+          </label>
+          <span className="text-xs text-slate-400">(Users can type a custom answer)</span>
         </div>
       )}
 
@@ -565,6 +587,12 @@ function FieldEditor({
                 </button>
               </li>
             ))}
+            {/* Show "Other" indicator if allow_other is true */}
+            {field.allow_other && (
+              <li className="inline-flex items-center space-x-1.5 bg-amber-50 border border-amber-300 px-2.5 py-1 rounded-full text-xs font-semibold text-amber-700">
+                <span>Other... (custom)</span>
+              </li>
+            )}
           </ul>
           <div className="flex space-x-2">
             <input
@@ -588,7 +616,7 @@ function FieldEditor({
               Add
             </button>
           </div>
-          {(field.options ?? []).length === 0 && (
+          {(field.options ?? []).length === 0 && !field.allow_other && (
             <p className="text-xs text-amber-700">Dropdown and checkbox fields need at least one option.</p>
           )}
         </div>

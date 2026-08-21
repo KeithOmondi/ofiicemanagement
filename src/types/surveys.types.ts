@@ -15,6 +15,7 @@ export interface SurveyField {
   help_text?: string; // Help text displayed below the field
   min?: number; // For text/textarea: min length. For numbered_list: min number of items
   max?: number; // For text/textarea: max length. For numbered_list: max number of items
+  allow_other?: boolean; // ONLY for 'dropdown' - allows users to type a custom answer
 }
 
 /**
@@ -56,6 +57,15 @@ export interface SurveyResponseRecord {
   response_data: Record<string, string | string[]>;
   submitted_at: string;
   submitter_ip: string | null;
+}
+
+export interface SurveyDraftRecord {
+  id: string;
+  survey_id: string;
+  draft_data: Record<string, string | string[]>;
+  submitter_ip: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // ---- request payload shapes (match surveys.validator.ts on the server) ----
@@ -118,6 +128,7 @@ export function emptyDraftField(): DraftSurveyField {
     max: undefined,
     options: undefined,
     placeholder: undefined,
+    allow_other: false,
   };
 }
 
