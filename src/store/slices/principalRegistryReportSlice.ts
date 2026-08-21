@@ -348,7 +348,14 @@ const principalRegistryReportSlice = createSlice({
     clearSelection: (state) => {
       state.selectedReportIds = [];
     },
-    updateReportOptimistically: (state, action: PayloadAction<{ id: string; updates: Partial<PrincipalRegistryWeeklyReport> }>) => {
+    // ─── FIX: Use proper type instead of `any` ──────────────────
+    updateReportOptimistically: (
+      state, 
+      action: PayloadAction<{ 
+        id: string; 
+        updates: Partial<Omit<PrincipalRegistryWeeklyReport, 'id'>> 
+      }>
+    ) => {
       const { id, updates } = action.payload;
       const index = state.reports.findIndex(r => r.id === id);
       if (index !== -1) {

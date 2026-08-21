@@ -87,6 +87,7 @@ interface EscalationItem {
   why: string;
   action: string;
   urgency: Urgency | '';
+  source_engagement_id?: string | null;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -308,9 +309,9 @@ const RegistryNewReport: React.FC = () => {
     why_needs_escalation?: string;
     recommended_action?: string;
     urgency?: Urgency;
+    source_engagement_id?: string | null;
   }
 
-  // ─── FIX: Include all setter functions in dependency array ──────────────
   // The setter functions from useLocalStorage are stable (they don't change
   // between renders), so it's safe to include them.
   useEffect(() => {
@@ -374,6 +375,7 @@ const RegistryNewReport: React.FC = () => {
         why: e.why_needs_escalation || '',
         action: e.recommended_action || '',
         urgency: e.urgency || '',
+        source_engagement_id: e.source_engagement_id || null,
       })
     );
 
@@ -395,7 +397,6 @@ const RegistryNewReport: React.FC = () => {
     id,
     existingReport,
     storagePrefix,
-    // Include all setter functions (they are stable)
     setWeekKey,
     setExecSummary,
     setEngagements,
@@ -505,7 +506,15 @@ const RegistryNewReport: React.FC = () => {
   // ─── Escalation row handlers ─────────────────────────────────────────────
 
   const addEscRow = () => {
-    setEscalations((prev) => [...prev, { id: uid(), station: '', issue: '', why: '', action: '', urgency: '' }]);
+    setEscalations((prev) => [...prev, { 
+      id: uid(), 
+      station: '', 
+      issue: '', 
+      why: '', 
+      action: '', 
+      urgency: '',
+      source_engagement_id: null,
+    }]);
   };
 
   const removeEscRow = (id: string) => {
@@ -584,28 +593,40 @@ const RegistryNewReport: React.FC = () => {
     escalations
       .filter((e) => e.station && e.issue && e.why && e.urgency)
       .forEach((e) => {
+        // Find matching court
         const matchingCourt = myCourts.find(
-          (c) =>
+          (c) => 
+            c.id === e.station ||
+            c.station.toLowerCase() === e.station.toLowerCase() ||
             c.station.toLowerCase().includes(e.station.toLowerCase()) ||
             e.station.toLowerCase().includes(c.station.toLowerCase())
         );
 
-        const fallbackStationId = myCourts.length > 0 ? myCourts[0].id : undefined;
+        // Use the station name from the court if found
+        const stationName = matchingCourt?.station || e.station;
+        const stationId = matchingCourt?.id || e.station;
 
-        if (!matchingCourt && !fallbackStationId) {
-          console.warn('⚠️ Skipping escalation - no station found for:', e.station);
+        // Skip if we can't find a valid station ID
+        if (!stationId || stationId === e.station) {
+          console.warn('⚠️ Skipping escalation - no valid station found for:', e.station);
           return;
         }
 
-        escalationInputs.push({
-          station_id: matchingCourt?.id || fallbackStationId!,
-          station_name: e.station,
+        const escalationInput: EscalationItemInput = {
+          station_id: stationId,
+          station_name: stationName,
           issue: e.issue,
           why_needs_escalation: e.why,
           recommended_action: e.action || 'No action specified',
           urgency: e.urgency as Urgency,
-          source_engagement_id: null,
-        });
+        };
+
+        // Only add source_engagement_id if it has a value
+        if (e.source_engagement_id) {
+          escalationInput.source_engagement_id = e.source_engagement_id;
+        }
+
+        escalationInputs.push(escalationInput);
       });
 
     const payload: CreateEngagementReportPayload = {
@@ -707,38 +728,62 @@ const RegistryNewReport: React.FC = () => {
 
     try {
       const payload = buildPayload();
-      const payloadWithDraftFlag = {
-        ...payload,
-        saveAsDraft,
-      };
 
       let result;
 
       if (isEditMode && id) {
-        result = await dispatch(updateReport({ id, data: payloadWithDraftFlag })).unwrap();
+        // The update endpoint's schema is stricter than create's — it rejects
+        // week_start, week_end, categories, support_person_id,
+        // total_stations_assigned, and saveAsDraft as unrecognized keys
+        // (confirmed via the 400 response: "Unrecognized keys: ..."). Those
+        // are report-identity fields fixed at creation; only the content
+        // fields below are accepted by the update schema.
+        const {
+          executive_summary,
+          engagements: engagementsPayload,
+          unengaged_stations,
+          escalations: escalationsPayload,
+          additional_issues,
+          recurring_patterns,
+          priorities: prioritiesPayload,
+        } = payload;
+
+        const updatePayload = {
+          executive_summary,
+          engagements: engagementsPayload,
+          unengaged_stations,
+          escalations: escalationsPayload,
+          additional_issues,
+          recurring_patterns,
+          priorities: prioritiesPayload,
+        };
+
+        result = await dispatch(updateReport({ id, data: updatePayload })).unwrap();
         const message = saveAsDraft
           ? `✅ Draft updated successfully! ID: ${result.id.slice(0, 8)}`
           : `✅ Report submitted successfully! ID: ${result.id.slice(0, 8)}`;
         setSaveMsg(message);
       } else {
+        const payloadWithDraftFlag = {
+          ...payload,
+          saveAsDraft,
+        };
+
         result = await dispatch(createReport(payloadWithDraftFlag)).unwrap();
         const message = saveAsDraft
           ? `✅ Draft saved successfully! ID: ${result.id.slice(0, 8)}`
           : `✅ Report submitted successfully! ID: ${result.id.slice(0, 8)}`;
         setSaveMsg(message);
         
-        // If a new report was created, update the URL
         if (!isEditMode && result.id) {
           navigate(`/staff/reports/${result.id}`, { replace: true });
         }
       }
 
-      // Clear localStorage on successful submit (not draft)
       if (!saveAsDraft) {
         clearLocalStorage();
         setTimeout(() => navigate('/staff/reports'), 1500);
       } else {
-        // For drafts, clear localStorage after successful save
         clearLocalStorage();
         setSaveMsg('💾 Draft saved and cleared from local storage');
       }
@@ -803,25 +848,53 @@ const RegistryNewReport: React.FC = () => {
         const payload = buildPayload();
         const result = await dispatch(createReport({ ...payload, saveAsDraft: true })).unwrap();
         reportId = result.id;
+        navigate(`/staff/reports/${reportId}`, { replace: true });
+      }
+
+      if (!reportId) {
+        setSaveError('Failed to create or find report for PDF preview.');
+        return;
       }
 
       const previewResult = await dispatch(generatePDFPreview({
-        id: reportId!,
+        id: reportId,
         options: { page: 1, scale: 1 }
       })).unwrap();
 
       if (previewResult.previewData) {
-        const blob = new Blob(
-          [Uint8Array.from(atob(previewResult.previewData), c => c.charCodeAt(0))],
-          { type: 'application/pdf' }
-        );
+        const byteCharacters = atob(previewResult.previewData);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        const blob = new Blob([byteArray], { type: 'application/pdf' });
         const url = URL.createObjectURL(blob);
         window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
         setSaveMsg('✓ PDF preview generated successfully!');
+      } else {
+        setSaveError('No preview data received from server.');
       }
     } catch (err) {
       console.error('❌ PDF Preview error:', err);
-      setSaveError('Failed to generate PDF preview. Please try again.');
+      
+      let errorMessage = 'Failed to generate PDF preview. ';
+      if (err && typeof err === 'object' && 'response' in err) {
+        const response = (err as { response: { data: unknown; status: number } }).response;
+        if (response?.data && typeof response.data === 'object') {
+          const data = response.data as { message?: string };
+          errorMessage += data.message || `Server error: ${response.status}`;
+        } else {
+          errorMessage += 'Please try again.';
+        }
+      } else if (err instanceof Error) {
+        errorMessage += err.message;
+      } else {
+        errorMessage += 'Please try again.';
+      }
+      
+      setSaveError(errorMessage);
     }
   };
 
