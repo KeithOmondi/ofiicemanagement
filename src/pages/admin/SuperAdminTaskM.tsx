@@ -7,8 +7,10 @@ import {
   fetchTaskStats,
   createTask,
   updateTask,
+  deleteTask,
   createProject,
-  // selectors
+  deleteProject,
+  updateProject,
   selectAllProjects,
   selectAllTasks,
   selectProjectStats,
@@ -17,6 +19,7 @@ import {
   selectProjectsError,
   selectIsCreatingProject,
   setTaskFilters,
+  removeTaskLocally,
 } from "../../store/slices/projectsSlice";
 import {
   fetchUsers,
@@ -24,16 +27,20 @@ import {
   selectUsersListLoading,
 } from "../../store/slices/userSlice";
 import SuperAdminToDo from "./SuperAdminToDo";
-import { X } from "lucide-react";
+import { X, Trash2, Edit2, Check, XCircle } from "lucide-react";
 import type {
   CreateProjectInput,
   ProjectPriority,
   CreateProjectTaskInput,
+  UpdateProjectTaskInput,
+  UpdateProjectInput,
   ProjectTaskStatus,
+  ProjectTask,
+  Project,
 } from "../../types/projects.types";
 import StandaloneTasks from "./StandaloneTasks";
 
-// ─── Types (re-export from slice) ────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 type TaskStatus = import("../../types/projects.types").ProjectTaskStatus;
 type Priority = import("../../types/projects.types").ProjectPriority;
 
@@ -67,7 +74,6 @@ const getStatus = (
   task: import("../../types/projects.types").ProjectTask,
 ): TaskStatus => {
   if (task.status === "done") return "done";
-  if (task.status === "pending_approval") return "inprogress";
   const days = daysUntil(task.deadline);
   if (days < 0) return "overdue";
   return task.status;
@@ -178,6 +184,420 @@ const deadlineTag = (dateStr: string, status: TaskStatus) => {
   return <span className="text-slate-500 font-medium">{label}</span>;
 };
 
+// ─── Edit Project Modal Component ─────────────────────────────────────────────
+const EditProjectModal: React.FC<{
+  onClose: () => void;
+  onSave: (input: UpdateProjectInput) => void;
+  project: Project;
+  isSaving: boolean;
+}> = ({ onClose, onSave, project, isSaving }) => {
+  const [formData, setFormData] = useState<UpdateProjectInput>({
+    title: project.title,
+    description: project.description,
+    priority: project.priority,
+    deadline: project.deadline,
+    tags: project.tags || [],
+  });
+
+  const [tagInput, setTagInput] = useState<string>("");
+
+
+
+
+const handleSubmit = (e: React.FormEvent) => {
+  e.preventDefault();
+  
+  // Validate title
+  if (!formData.title || !formData.title.trim()) {
+    alert('Project title is required');
+    return;
+  }
+  
+  // Build the input object
+  const input: UpdateProjectInput = {
+    title: formData.title.trim()
+  };
+  
+  if (formData.description !== undefined) {
+    input.description = formData.description || null;
+  }
+  if (formData.priority) {
+    input.priority = formData.priority;
+  }
+  if (formData.deadline) {
+    input.deadline = formData.deadline.includes("T") 
+      ? formData.deadline 
+      : new Date(`${formData.deadline}T00:00:00.000Z`).toISOString();
+  } else {
+    input.deadline = null;
+  }
+  // Only include tags if they have values
+  if (formData.tags && formData.tags.length > 0) {
+    input.tags = formData.tags;
+  }
+  // Don't send empty tags array - let the backend keep existing tags
+  
+  console.log('📤 EditProjectModal submitting:', input);
+  onSave(input);
+};
+
+  const handleAddTag = () => {
+    if (tagInput.trim() && !formData.tags?.includes(tagInput.trim())) {
+      setFormData({
+        ...formData,
+        tags: [...(formData.tags || []), tagInput.trim()],
+      });
+      setTagInput("");
+    }
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    setFormData({
+      ...formData,
+      tags: formData.tags?.filter((tag) => tag !== tagToRemove) || [],
+    });
+  };
+
+  return (
+    <div className="bg-white rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold text-slate-800">Edit Project</h2>
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Project Title *
+          </label>
+          <input
+            type="text"
+            value={formData.title || ""}
+            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+            placeholder="Enter project title"
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Description
+          </label>
+          <textarea
+            value={formData.description || ""}
+            onChange={(e) =>
+              setFormData({ ...formData, description: e.target.value || null })
+            }
+            placeholder="Enter project description"
+            rows={3}
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 resize-none"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Priority
+          </label>
+          <select
+            value={formData.priority || "normal"}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                priority: e.target.value as ProjectPriority,
+              })
+            }
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+          >
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+            <option value="critical">Critical</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Deadline
+          </label>
+          <input
+            type="date"
+            value={formData.deadline ? formData.deadline.split("T")[0] : ""}
+            onChange={(e) =>
+              setFormData({ ...formData, deadline: e.target.value || null })
+            }
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Tags
+          </label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAddTag();
+                }
+              }}
+              placeholder="Add tag and press Enter"
+              className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+            />
+            <button
+              type="button"
+              onClick={handleAddTag}
+              className="px-3 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-200 transition-colors"
+            >
+              Add
+            </button>
+          </div>
+          {formData.tags && formData.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {formData.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-700 rounded-full text-xs"
+                >
+                  #{tag}
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTag(tag)}
+                    className="text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-2 pt-2 border-t border-slate-100">
+          <button
+            type="submit"
+            disabled={isSaving || !formData.title?.trim()}
+            className="flex-1 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-semibold hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSaving ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Saving...
+              </span>
+            ) : (
+              "Save Changes"
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+// ─── Edit Task Modal Component ──────────────────────────────────────────────
+const EditTaskModal: React.FC<{
+  onClose: () => void;
+  onSave: (input: UpdateProjectTaskInput) => void;
+  task: ProjectTask;
+  isSaving: boolean;
+}> = ({ onClose, onSave, task, isSaving }) => {
+  const dispatch = useAppDispatch();
+  const users = useAppSelector(selectAllUsers);
+  const usersLoading = useAppSelector(selectUsersListLoading);
+
+  const [formData, setFormData] = useState<UpdateProjectTaskInput>({
+    title: task.title,
+    description: task.description,
+    status: task.status,
+    priority: task.priority,
+    assignee: task.assignee,
+    deadline: task.deadline,
+  });
+
+  useEffect(() => {
+    dispatch(fetchUsers({}));
+  }, [dispatch]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.title?.trim()) return;
+    onSave(formData);
+  };
+
+  return (
+    <div className="bg-white rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold text-slate-800">Edit Task</h2>
+        <button
+          onClick={onClose}
+          className="text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Task Title *
+          </label>
+          <input
+            type="text"
+            value={formData.title || ""}
+            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+            placeholder="Enter task title"
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Description
+          </label>
+          <textarea
+            value={formData.description || ""}
+            onChange={(e) =>
+              setFormData({ ...formData, description: e.target.value || null })
+            }
+            placeholder="Enter task description"
+            rows={3}
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400 resize-none"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              Priority
+            </label>
+            <select
+              value={formData.priority || "normal"}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  priority: e.target.value as ProjectPriority,
+                })
+              }
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+            >
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">
+              Status
+            </label>
+            <select
+              value={formData.status || "inprogress"}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  status: e.target.value as ProjectTaskStatus,
+                })
+              }
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+            >
+              <option value="inprogress">In Progress</option>
+              <option value="done">Done</option>
+              <option value="pending_approval">Pending Approval</option>
+              <option value="blocked">Blocked</option>
+              <option value="review">Review</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Assignee
+          </label>
+          <select
+            value={formData.assignee || ""}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                assignee: e.target.value || null,
+              })
+            }
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+            disabled={usersLoading}
+          >
+            <option value="">Unassigned</option>
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.full_name} {user.pj_number ? `(${user.pj_number})` : ""}
+              </option>
+            ))}
+          </select>
+          {usersLoading && (
+            <span className="text-xs text-slate-400">Loading users...</span>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Deadline
+          </label>
+          <input
+            type="date"
+            value={formData.deadline ? formData.deadline.split("T")[0] : ""}
+            onChange={(e) =>
+              setFormData({ ...formData, deadline: e.target.value || null })
+            }
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
+          />
+        </div>
+
+        <div className="flex gap-2 pt-2 border-t border-slate-100">
+          <button
+            type="submit"
+            disabled={isSaving || !formData.title?.trim()}
+            className="flex-1 px-4 py-2 bg-slate-900 text-white rounded-lg text-sm font-semibold hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSaving ? (
+              <span className="flex items-center justify-center gap-2">
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Saving...
+              </span>
+            ) : (
+              "Save Changes"
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
 // ─── Add Task Modal Component ────────────────────────────────────────────────
 const AddTaskModal: React.FC<{
   onClose: () => void;
@@ -190,18 +610,17 @@ const AddTaskModal: React.FC<{
   const dispatch = useAppDispatch();
   const users = useAppSelector(selectAllUsers);
   const usersLoading = useAppSelector(selectUsersListLoading);
-  
+
   const [formData, setFormData] = useState<CreateProjectTaskInput>({
     project_id: projectId,
     title: initialData?.title || "",
     description: initialData?.description || null,
-    status: initialData?.status || "todo",
+    status: initialData?.status || "inprogress",
     priority: initialData?.priority || "normal",
     assignee: initialData?.assignee || null,
     deadline: initialData?.deadline || "",
   });
 
-  // Fetch users when modal opens
   useEffect(() => {
     dispatch(fetchUsers({}));
   }, [dispatch]);
@@ -209,11 +628,13 @@ const AddTaskModal: React.FC<{
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.title.trim()) return;
-    
-    const deadline = formData.deadline 
-      ? (formData.deadline.includes("T") ? formData.deadline : new Date(`${formData.deadline}T00:00:00.000Z`).toISOString())
+
+    const deadline = formData.deadline
+      ? formData.deadline.includes("T")
+        ? formData.deadline
+        : new Date(`${formData.deadline}T00:00:00.000Z`).toISOString()
       : undefined;
-    
+
     onSave({
       ...formData,
       deadline,
@@ -256,7 +677,7 @@ const AddTaskModal: React.FC<{
           <textarea
             value={formData.description || ""}
             onChange={(e) =>
-              setFormData({ ...formData, description: e.target.value })
+              setFormData({ ...formData, description: e.target.value || null })
             }
             placeholder="Enter task description"
             rows={3}
@@ -270,7 +691,7 @@ const AddTaskModal: React.FC<{
               Priority
             </label>
             <select
-              value={formData.priority}
+              value={formData.priority || "normal"}
               onChange={(e) =>
                 setFormData({
                   ...formData,
@@ -292,7 +713,7 @@ const AddTaskModal: React.FC<{
               Status
             </label>
             <select
-              value={formData.status}
+              value={formData.status || "inprogress"}
               onChange={(e) =>
                 setFormData({
                   ...formData,
@@ -301,10 +722,8 @@ const AddTaskModal: React.FC<{
               }
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
             >
-              <option value="todo">To Do</option>
               <option value="inprogress">In Progress</option>
               <option value="done">Done</option>
-              <option value="overdue">Overdue</option>
               <option value="pending_approval">Pending Approval</option>
               <option value="blocked">Blocked</option>
               <option value="review">Review</option>
@@ -579,14 +998,35 @@ const AddProjectModal: React.FC<{
   );
 };
 
-// ─── ToDoModal Component ──────────────────────────────────────────────────────
-const ToDoModal: React.FC<{
+// ─── Task Detail Modal ──────────────────────────────────────────────────────
+const TaskDetailModal: React.FC<{
   onClose: () => void;
-  task: import("../../types/projects.types").ProjectTask;
-}> = ({ onClose, task }) => {
+  task: ProjectTask;
+  onEdit: () => void;
+  onDelete: () => void;
+  onStatusChange: (status: ProjectTaskStatus) => void;
+}> = ({ onClose, task, onEdit, onDelete, onStatusChange }) => {
   const status = getStatus(task);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const availableStatuses: { value: ProjectTaskStatus; label: string }[] = [
+    { value: "inprogress", label: "In Progress" },
+    { value: "done", label: "Done" },
+    { value: "pending_approval", label: "Pending Approval" },
+    { value: "blocked", label: "Blocked" },
+    { value: "review", label: "Review" },
+  ];
+
+  const handleDelete = () => {
+    if (showDeleteConfirm) {
+      onDelete();
+    } else {
+      setShowDeleteConfirm(true);
+    }
+  };
+
   return (
-    <div className="p-6">
+    <div className="bg-white rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
       <div className="flex justify-between items-start mb-4">
         <div className="flex items-center gap-2">
           <div
@@ -601,7 +1041,7 @@ const ToDoModal: React.FC<{
             }`}
           />
           <span className="text-xs font-medium text-slate-500 uppercase">
-            {status}
+            {status === "inprogress" ? "In Progress" : status}
           </span>
         </div>
         <button
@@ -632,15 +1072,60 @@ const ToDoModal: React.FC<{
           <span className="text-slate-500 w-20">Deadline:</span>
           <span className="text-slate-700">{fmtDate(task.deadline)}</span>
         </div>
+
+        <div className="flex items-center gap-2 text-sm pt-2 border-t border-slate-100">
+          <span className="text-slate-500 w-20">Status:</span>
+          <select
+            value={task.status}
+            onChange={(e) => onStatusChange(e.target.value as ProjectTaskStatus)}
+            className="px-2 py-1 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10"
+          >
+            {availableStatuses.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      <div className="mt-6 flex gap-2">
-        <button className="flex-1 px-4 py-2 bg-slate-800 text-white rounded-lg text-sm font-semibold hover:bg-slate-700 transition-colors">
-          Mark as Complete
-        </button>
-        <button className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
+      <div className="mt-6 flex gap-2 flex-wrap">
+        {task.status !== "done" && (
+          <button
+            onClick={() => onStatusChange("done")}
+            className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2"
+          >
+            <Check className="w-4 h-4" />
+            Mark as Complete
+          </button>
+        )}
+        <button
+          onClick={onEdit}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors flex items-center gap-2"
+        >
+          <Edit2 className="w-4 h-4" />
           Edit
         </button>
+        <button
+          onClick={handleDelete}
+          className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 ${
+            showDeleteConfirm
+              ? "bg-red-600 text-white hover:bg-red-700"
+              : "bg-red-100 text-red-600 hover:bg-red-200"
+          }`}
+        >
+          <Trash2 className="w-4 h-4" />
+          {showDeleteConfirm ? "Confirm Delete" : "Delete"}
+        </button>
+        {showDeleteConfirm && (
+          <button
+            onClick={() => setShowDeleteConfirm(false)}
+            className="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-300 transition-colors flex items-center gap-2"
+          >
+            <XCircle className="w-4 h-4" />
+            Cancel
+          </button>
+        )}
       </div>
     </div>
   );
@@ -655,18 +1140,18 @@ const ProjectsView: React.FC = () => {
   const tasks = useAppSelector(selectAllTasks);
   const isCreatingProject = useAppSelector(selectIsCreatingProject);
 
-  const [selectedTask, setSelectedTask] = useState<
-    import("../../types/projects.types").ProjectTask | null
-  >(null);
+  const [selectedTask, setSelectedTask] = useState<ProjectTask | null>(null);
+  const [editingTask, setEditingTask] = useState<ProjectTask | null>(null);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [isSavingProject, setIsSavingProject] = useState(false);
   const [showAddProjectModal, setShowAddProjectModal] = useState(false);
   const [showAddTaskModal, setShowAddTaskModal] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<
-    import("../../types/projects.types").Project | null
-  >(null);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [filterAssignee, setFilterAssignee] = useState<string>("");
   const [filterStatus, setFilterStatus] = useState<TaskStatus | "">("");
   const [filterPriority, setFilterPriority] = useState<Priority | "">("");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [isSavingTask, setIsSavingTask] = useState(false);
 
   useEffect(() => {
     dispatch(fetchTasks({}));
@@ -693,7 +1178,7 @@ const ProjectsView: React.FC = () => {
   const toggleTaskDone = (taskId: string) => {
     const task = tasks.find((t) => t.id === taskId);
     if (task) {
-      const newStatus = task.status === "done" ? "todo" : "done";
+      const newStatus = task.status === "done" ? "inprogress" : "done";
       dispatch(updateTask({ id: taskId, input: { status: newStatus } }));
     }
   };
@@ -709,6 +1194,111 @@ const ProjectsView: React.FC = () => {
     dispatch(createTask(input));
     setShowAddTaskModal(false);
     setSelectedProject(null);
+  };
+
+  const handleEditTask = (task: ProjectTask) => {
+    setEditingTask(task);
+    setSelectedTask(null);
+  };
+
+  const handleSaveEditTask = (input: UpdateProjectTaskInput) => {
+    if (editingTask) {
+      setIsSavingTask(true);
+      dispatch(updateTask({ id: editingTask.id, input }))
+        .unwrap()
+        .then(() => {
+          setEditingTask(null);
+          setIsSavingTask(false);
+        })
+        .catch(() => {
+          setIsSavingTask(false);
+        });
+    }
+  };
+
+  const handleDeleteTask = (taskId: string) => {
+    dispatch(deleteTask(taskId))
+      .unwrap()
+      .then(() => {
+        dispatch(removeTaskLocally(taskId));
+        setSelectedTask(null);
+      });
+  };
+
+  const handleStatusChange = (taskId: string, status: ProjectTaskStatus) => {
+    dispatch(updateTask({ id: taskId, input: { status } }));
+  };
+
+const handleEditProject = (input: UpdateProjectInput) => {
+  if (!editingProject) {
+    console.warn('No project being edited');
+    return;
+  }
+  
+  console.log('📤 EditProject called with input:', input);
+  
+  // Ensure input is an object
+  if (!input || typeof input !== 'object') {
+    console.error('Invalid input: expected object, received', input);
+    alert('Invalid data. Please try again.');
+    setEditingProject(null);
+    setIsSavingProject(false);
+    return;
+  }
+  
+  setIsSavingProject(true);
+  
+  // Build clean input object - ONLY include fields that are defined
+  const cleanInput: UpdateProjectInput = {};
+  
+  if (input.title !== undefined && input.title !== null && input.title.trim() !== '') {
+    cleanInput.title = input.title.trim();
+  }
+  if (input.description !== undefined) {
+    cleanInput.description = input.description || null;
+  }
+  if (input.priority !== undefined && input.priority !== null) {
+    cleanInput.priority = input.priority;
+  }
+  if (input.deadline !== undefined) {
+    cleanInput.deadline = input.deadline || null;
+  }
+  // Only include tags if they have values
+  if (input.tags !== undefined && input.tags !== null && input.tags.length > 0) {
+    cleanInput.tags = input.tags;
+  }
+  // Don't send empty tags - let backend keep existing
+  
+  // If no fields to update, close modal
+  if (Object.keys(cleanInput).length === 0) {
+    console.warn('No fields to update');
+    setEditingProject(null);
+    setIsSavingProject(false);
+    return;
+  }
+  
+  console.log('📤 Sending update with cleanInput:', cleanInput);
+  
+  dispatch(updateProject({ id: editingProject.id, input: cleanInput }))
+    .unwrap()
+    .then((result) => {
+      console.log('✅ Project updated successfully:', result);
+      setEditingProject(null);
+      setIsSavingProject(false);
+    })
+    .catch((error) => {
+      console.error('❌ Failed to update project:', error);
+      // Show the actual error message from the server if available
+      const errorMessage = error?.response?.data?.error || error?.message || 'Failed to update project. Please try again.';
+      alert(errorMessage);
+      setIsSavingProject(false);
+    });
+};
+
+  const handleDeleteProject = (projectId: string, projectTitle: string) => {
+    if (window.confirm(`Delete project "${projectTitle}" and all its tasks?`)) {
+      dispatch(deleteProject(projectId));
+    }
   };
 
   const usersMap = React.useMemo(() => {
@@ -761,6 +1351,9 @@ const ProjectsView: React.FC = () => {
               <th className="px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-14">
                 Done
               </th>
+              <th className="px-3 py-2.5 text-center text-[11px] font-semibold uppercase tracking-wider text-slate-500 w-20">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -770,10 +1363,12 @@ const ProjectsView: React.FC = () => {
               return (
                 <tr
                   key={task.id}
-                  className="border-b border-slate-100 hover:bg-slate-50/50 cursor-pointer transition-colors"
-                  onClick={() => setSelectedTask(task)}
+                  className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
                 >
-                  <td className="px-3 py-2.5">
+                  <td
+                    className="px-3 py-2.5 cursor-pointer"
+                    onClick={() => setSelectedTask(task)}
+                  >
                     <div
                       className={`font-medium ${status === "done" ? "line-through text-slate-400" : "text-slate-700"}`}
                     >
@@ -822,6 +1417,32 @@ const ProjectsView: React.FC = () => {
                       onChange={() => toggleTaskDone(task.id)}
                       className="w-4 h-4 rounded border-slate-300 text-slate-800 focus:ring-slate-900/20 cursor-pointer"
                     />
+                  </td>
+                  <td className="px-3 py-2.5 text-center">
+                    <div className="flex items-center justify-center gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditTask(task);
+                        }}
+                        className="p-1 text-slate-400 hover:text-blue-600 transition-colors"
+                        title="Edit Task"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Delete task "${task.title}"?`)) {
+                            handleDeleteTask(task.id);
+                          }
+                        }}
+                        className="p-1 text-slate-400 hover:text-red-600 transition-colors"
+                        title="Delete Task"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -890,16 +1511,14 @@ const ProjectsView: React.FC = () => {
         >
           <option value="">All Statuses</option>
           {[
-            "todo",
             "inprogress",
             "done",
-            "overdue",
             "pending_approval",
             "blocked",
             "review",
           ].map((s) => (
             <option key={s} value={s}>
-              {s.charAt(0).toUpperCase() + s.slice(1)}
+              {s === "inprogress" ? "In Progress" : s.charAt(0).toUpperCase() + s.slice(1)}
             </option>
           ))}
         </select>
@@ -931,9 +1550,25 @@ const ProjectsView: React.FC = () => {
                     📂
                   </div>
                   <div className="min-w-0">
-                    <h3 className="text-base font-bold text-white tracking-tight">
-                      {proj.title}
-                    </h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-white tracking-tight">
+                        {proj.title}
+                      </h3>
+                      <button
+                        onClick={() => setEditingProject(proj)}
+                        className="p-1 text-slate-400 hover:text-white transition-colors"
+                        title="Edit Project"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteProject(proj.id, proj.title)}
+                        className="p-1 text-slate-400 hover:text-red-400 transition-colors"
+                        title="Delete Project"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                     <p className="text-xs text-slate-300 line-clamp-1 mt-0.5">
                       {proj.description}
                     </p>
@@ -998,7 +1633,7 @@ const ProjectsView: React.FC = () => {
                             createTask({
                               project_id: proj.id,
                               title: input.value.trim(),
-                              status: "todo",
+                              status: "inprogress",
                               priority: "normal",
                               deadline: new Date(
                                 Date.now() + 7 * 86400000,
@@ -1068,9 +1703,49 @@ const ProjectsView: React.FC = () => {
           }}
         >
           <div className="bg-white rounded-2xl w-[92%] max-w-[560px] max-h-[85vh] overflow-hidden shadow-2xl border border-slate-100">
-            <ToDoModal
+            <TaskDetailModal
               task={selectedTask}
               onClose={() => setSelectedTask(null)}
+              onEdit={() => handleEditTask(selectedTask)}
+              onDelete={() => handleDeleteTask(selectedTask.id)}
+              onStatusChange={(status) => {
+                handleStatusChange(selectedTask.id, status);
+                setSelectedTask({ ...selectedTask, status });
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Edit Task Modal */}
+      {editingTask && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[1000] backdrop-blur-sm"
+          onClick={() => setEditingTask(null)}
+        >
+          <div onClick={(e) => e.stopPropagation()}>
+            <EditTaskModal
+              onClose={() => setEditingTask(null)}
+              onSave={handleSaveEditTask}
+              task={editingTask}
+              isSaving={isSavingTask}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Edit Project Modal */}
+      {editingProject && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[1000] backdrop-blur-sm"
+          onClick={() => setEditingProject(null)}
+        >
+          <div onClick={(e) => e.stopPropagation()}>
+            <EditProjectModal
+              onClose={() => setEditingProject(null)}
+              onSave={handleEditProject}
+              project={editingProject}
+              isSaving={isSavingProject}
             />
           </div>
         </div>
@@ -1084,9 +1759,7 @@ const BoardView: React.FC = () => {
   const dispatch = useAppDispatch();
   const tasks = useAppSelector(selectAllTasks);
   const projects = useAppSelector(selectAllProjects);
-  const [selectedTask, setSelectedTask] = useState<
-    import("../../types/projects.types").ProjectTask | null
-  >(null);
+  const [selectedTask, setSelectedTask] = useState<ProjectTask | null>(null);
 
   useEffect(() => {
     dispatch(fetchTasks({}));
@@ -1109,19 +1782,14 @@ const BoardView: React.FC = () => {
     return map;
   }, [projects]);
 
-  const todoTasks = tasks.filter((t) => getStatus(t) === "todo");
   const inProgressTasks = tasks.filter((t) => getStatus(t) === "inprogress");
   const overdueTasks = tasks.filter((t) => getStatus(t) === "overdue");
   const doneTasks = tasks.filter((t) => getStatus(t) === "done");
+  const pendingApprovalTasks = tasks.filter((t) => getStatus(t) === "pending_approval");
+  const blockedTasks = tasks.filter((t) => getStatus(t) === "blocked");
+  const reviewTasks = tasks.filter((t) => getStatus(t) === "review");
 
   const columns = [
-    {
-      key: "todo",
-      label: "Todo",
-      tasks: todoTasks,
-      dotColor: "bg-slate-400",
-      bg: "bg-slate-50/80 ring-slate-100",
-    },
     {
       key: "inprogress",
       label: "In Progress",
@@ -1130,11 +1798,32 @@ const BoardView: React.FC = () => {
       bg: "bg-amber-50/20 ring-amber-100/50",
     },
     {
+      key: "pending_approval",
+      label: "Pending Approval",
+      tasks: pendingApprovalTasks,
+      dotColor: "bg-purple-500",
+      bg: "bg-purple-50/20 ring-purple-100/50",
+    },
+    {
+      key: "review",
+      label: "Review",
+      tasks: reviewTasks,
+      dotColor: "bg-amber-500",
+      bg: "bg-amber-50/20 ring-amber-100/50",
+    },
+    {
+      key: "blocked",
+      label: "Blocked",
+      tasks: blockedTasks,
+      dotColor: "bg-rose-500",
+      bg: "bg-rose-50/20 ring-rose-100/50",
+    },
+    {
       key: "overdue",
       label: "Overdue",
       tasks: overdueTasks,
-      dotColor: "bg-rose-500",
-      bg: "bg-rose-50/20 ring-rose-100/50",
+      dotColor: "bg-red-500",
+      bg: "bg-red-50/20 ring-red-100/50",
     },
     {
       key: "done",
@@ -1147,7 +1836,7 @@ const BoardView: React.FC = () => {
 
   return (
     <div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5 items-start">
         {columns.map((col) => (
           <div
             key={col.key}
@@ -1213,9 +1902,18 @@ const BoardView: React.FC = () => {
           }}
         >
           <div className="bg-white rounded-2xl w-[92%] max-w-[560px] max-h-[85vh] overflow-hidden shadow-2xl border border-slate-100">
-            <ToDoModal
+            <TaskDetailModal
               task={selectedTask}
               onClose={() => setSelectedTask(null)}
+              onEdit={() => {/* Handle edit */}}
+              onDelete={() => {
+                dispatch(deleteTask(selectedTask.id));
+                setSelectedTask(null);
+              }}
+              onStatusChange={(status) => {
+                dispatch(updateTask({ id: selectedTask.id, input: { status } }));
+                setSelectedTask({ ...selectedTask, status });
+              }}
             />
           </div>
         </div>
@@ -1223,10 +1921,6 @@ const BoardView: React.FC = () => {
     </div>
   );
 };
-
-// ─── STANDALONE VIEW ──────────────────────────────────────────────────────────
-// This view is now replaced by the StandaloneTasks component
-// The StandaloneTasks component is imported and rendered in the main component
 
 // ─── TODO VIEW ────────────────────────────────────────────────────────────────
 const TodoView: React.FC = () => {
@@ -1237,7 +1931,7 @@ const TodoView: React.FC = () => {
 const SuperAdminTaskM: React.FC = () => {
   const dispatch = useAppDispatch();
   const [currentView, setCurrentView] = useState<
-    "projects" | "board" | "independent" | "standalone" | "todo"
+    "projects" | "board" | "standalone" | "todo"
   >("projects");
   const stats = useAppSelector(selectProjectStats);
 
@@ -1246,21 +1940,16 @@ const SuperAdminTaskM: React.FC = () => {
     dispatch(fetchTaskStats(undefined));
   }, [dispatch]);
 
-  const todo = stats?.todo || 0;
   const inprogress = stats?.inprogress || 0;
   const overdue = stats?.overdue || 0;
   const done = stats?.done || 0;
+  const pendingApproval = stats?.pending_approval || 0;
+  const blocked = stats?.blocked || 0;
+  const review = stats?.review || 0;
 
   const renderStats = () => (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-5 mb-8">
       {[
-        {
-          val: todo,
-          label: "Todo",
-          icon: "📋",
-          border: "border-slate-200",
-          bg: "bg-slate-50",
-        },
         {
           val: inprogress,
           label: "In Progress",
@@ -1269,11 +1958,32 @@ const SuperAdminTaskM: React.FC = () => {
           bg: "bg-amber-50/40",
         },
         {
+          val: pendingApproval,
+          label: "Pending Approval",
+          icon: "📋",
+          border: "border-purple-500",
+          bg: "bg-purple-50/30",
+        },
+        {
+          val: review,
+          label: "Review",
+          icon: "🔍",
+          border: "border-amber-500",
+          bg: "bg-amber-50/30",
+        },
+        {
+          val: blocked,
+          label: "Blocked",
+          icon: "🚫",
+          border: "border-rose-500",
+          bg: "bg-rose-50/30",
+        },
+        {
           val: overdue,
           label: "Overdue",
           icon: "🚨",
-          border: "border-rose-500",
-          bg: "bg-rose-50/30",
+          border: "border-red-500",
+          bg: "bg-red-50/30",
         },
         {
           val: done,
@@ -1285,19 +1995,19 @@ const SuperAdminTaskM: React.FC = () => {
       ].map((card, i) => (
         <div
           key={i}
-          className={`bg-white p-5 rounded-2xl border-l-4 ${card.border} shadow-sm ring-1 ring-slate-100 transition-transform hover:-translate-y-0.5`}
+          className={`bg-white p-4 rounded-2xl border-l-4 ${card.border} shadow-sm ring-1 ring-slate-100 transition-transform hover:-translate-y-0.5`}
         >
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <div
-              className={`w-12 h-12 rounded-xl ${card.bg} flex items-center justify-center text-xl`}
+              className={`w-10 h-10 rounded-xl ${card.bg} flex items-center justify-center text-lg`}
             >
               {card.icon}
             </div>
             <div>
-              <h4 className="text-2xl font-bold tracking-tight text-slate-800">
+              <h4 className="text-xl font-bold tracking-tight text-slate-800">
                 {card.val}
               </h4>
-              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mt-0.5">
+              <p className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mt-0.5">
                 {card.label}
               </p>
             </div>
