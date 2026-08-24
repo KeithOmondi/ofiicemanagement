@@ -19,6 +19,7 @@ import type {
   SubmitReportToAdminPayload,
 } from '../../types/station-engagement.types';
 import type { RootState } from '../../store/store';
+import axios from 'axios';
 
 // ── Initial State ────────────────────────────────────────────────────────────
 
@@ -220,17 +221,40 @@ export const saveAsDraft = createAsyncThunk(
 
 // ─── Send to Admin ──────────────────────────────────────────────────────────
 
+// src/features/station-engagement/store/stationEngagement.slice.ts
+
 export const sendToAdmin = createAsyncThunk(
   'stationEngagement/sendToAdmin',
   async (payload: SubmitReportToAdminPayload) => {
-    const response = await axiosClient.post<ApiResponse<StationEngagementReport>>(
-      `${BASE_URL}/reports/${payload.reportId}/send-to-admin`,
-      payload
-    );
-    return extractData(response.data);
+    console.log('[sendToAdmin] payload:', payload);
+    try {
+      // ✅ Extract reportId from payload, don't send it in the body
+      const { reportId, notes } = payload;
+      
+      const response = await axiosClient.post<ApiResponse<StationEngagementReport>>(
+        `${BASE_URL}/reports/${reportId}/send-to-admin`,
+        {
+          // ✅ Only send what the backend expects in the body
+          notes: notes || 'Report ready for review',
+          // If your backend expects sendNotification, add it; otherwise remove it
+          // sendNotification: sendNotification, // Uncomment if backend expects this
+        }
+      );
+      console.log('[sendToAdmin] response:', response.data);
+      return extractData(response.data);
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error)) {
+        console.error('[sendToAdmin] status:', error.response?.status);
+        console.error('[sendToAdmin] response body:', error.response?.data);
+      } else if (error instanceof Error) {
+        console.error('[sendToAdmin] error:', error.message);
+      } else {
+        console.error('[sendToAdmin] unknown error:', error);
+      }
+      throw error;
+    }
   }
 );
-
 // ─── Submit Report (Legacy) ────────────────────────────────────────────────
 
 export const submitReport = createAsyncThunk(
