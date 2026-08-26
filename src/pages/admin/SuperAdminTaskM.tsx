@@ -206,39 +206,8 @@ const EditProjectModal: React.FC<{
 
 const handleSubmit = (e: React.FormEvent) => {
   e.preventDefault();
-  
-  // Validate title
-  if (!formData.title || !formData.title.trim()) {
-    alert('Project title is required');
-    return;
-  }
-  
-  // Build the input object
-  const input: UpdateProjectInput = {
-    title: formData.title.trim()
-  };
-  
-  if (formData.description !== undefined) {
-    input.description = formData.description || null;
-  }
-  if (formData.priority) {
-    input.priority = formData.priority;
-  }
-  if (formData.deadline) {
-    input.deadline = formData.deadline.includes("T") 
-      ? formData.deadline 
-      : new Date(`${formData.deadline}T00:00:00.000Z`).toISOString();
-  } else {
-    input.deadline = null;
-  }
-  // Only include tags if they have values
-  if (formData.tags && formData.tags.length > 0) {
-    input.tags = formData.tags;
-  }
-  // Don't send empty tags array - let the backend keep existing tags
-  
-  console.log('📤 EditProjectModal submitting:', input);
-  onSave(input);
+  if (!formData.title || !formData.title.trim()) return;
+  onSave(formData);
 };
 
   const handleAddTag = () => {
@@ -1185,10 +1154,20 @@ const ProjectsView: React.FC = () => {
 
   const filteredTasks = useAppSelector(selectFilteredTasks);
 
-  const handleCreateProject = (input: CreateProjectInput) => {
-    dispatch(createProject(input));
-    setShowAddProjectModal(false);
-  };
+const handleCreateProject = (input: CreateProjectInput) => {
+  console.log('📤 Creating project with payload:', JSON.stringify(input, null, 2));
+  dispatch(createProject(input))
+    .unwrap()
+    .then((result) => {
+      console.log('✅ Project created:', result);
+      setShowAddProjectModal(false);
+    })
+    .catch((error) => {
+      console.error('❌ Failed to create project:', error);
+      console.error('❌ Server response:', error?.response?.data);
+      alert(error?.response?.data?.error || error?.message || 'Failed to create project');
+    });
+};
 
   const handleCreateTask = (input: CreateProjectTaskInput) => {
     dispatch(createTask(input));

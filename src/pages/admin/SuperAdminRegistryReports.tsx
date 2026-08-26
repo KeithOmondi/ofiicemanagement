@@ -7,13 +7,13 @@ import {
   fetchReports,
   fetchEngagementStats,
   reviewReport,
-  generatePDFPreview,
+  //generatePDFPreview,
   setFilters,
   selectAllReports,
   selectEngagementStats,
   selectIsLoading,
   selectIsSubmitting,
-  selectIsGeneratingPDF,
+  //selectIsGeneratingPDF,
   selectError,
   selectPagination,
 } from '../../store/slices/stationEngagement.slice';
@@ -79,7 +79,7 @@ const SuperAdminRegistryReports: React.FC = () => {
   const stats = useSelector(selectEngagementStats);
   const isLoading = useSelector(selectIsLoading);
   const isSubmitting = useSelector(selectIsSubmitting);
-  const isGeneratingPDF = useSelector(selectIsGeneratingPDF);
+  //const isGeneratingPDF = useSelector(selectIsGeneratingPDF);
   const error = useSelector(selectError);
   const pagination = useSelector(selectPagination);
 
@@ -95,7 +95,7 @@ const SuperAdminRegistryReports: React.FC = () => {
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [limit] = useState(20);
-  const [viewingPDF, setViewingPDF] = useState<string | null>(null);
+  //const [viewingPDF, setViewingPDF] = useState<string | null>(null);
 
   // ─── Fetch reports when filters change ──────────────────────────────────
   useEffect(() => {
@@ -143,52 +143,7 @@ const SuperAdminRegistryReports: React.FC = () => {
     }
   };
 
-  // ─── PDF Preview Handler ──────────────────────────────────────────────
-// src/features/station-engagement/components/SuperAdminRegistryReports.tsx
 
-const handleViewPDFPreview = async (id: string) => {
-  console.log('🔍 [COMPONENT] handleViewPDFPreview called with id:', id);
-  setViewingPDF(id);
-  try {
-    console.log('🔍 [COMPONENT] Dispatching generatePDFPreview with options:', { page: 1, scale: 1 });
-    
-    const result = await dispatch(generatePDFPreview({ 
-      id,
-      options: { page: 1, scale: 1 }
-    })).unwrap();
-    
-    console.log('✅ [COMPONENT] PDF preview result:', result);
-    
-    if (result.previewData) {
-      console.log('🔍 [COMPONENT] Converting base64 to blob...');
-      const blob = new Blob(
-        [Uint8Array.from(atob(result.previewData), c => c.charCodeAt(0))],
-        { type: 'application/pdf' }
-      );
-      console.log('✅ [COMPONENT] Blob created, size:', blob.size);
-      const url = URL.createObjectURL(blob);
-      console.log('✅ [COMPONENT] Opening PDF in new tab:', url);
-      window.open(url, '_blank');
-    } else {
-      console.warn('⚠️ [COMPONENT] No previewData in result');
-    }
-  } catch (err: unknown) {
-    console.error('❌ [COMPONENT] Failed to view PDF preview:', err);
-    let errorMsg = 'Failed to load PDF preview. Please try again.';
-    if (err && typeof err === 'object' && 'response' in err) {
-      const response = (err as { response: { data?: { error?: string } } }).response;
-      if (response?.data?.error) {
-        errorMsg = response.data.error;
-      }
-    } else if (err instanceof Error) {
-      errorMsg = err.message;
-    }
-    console.error('❌ [COMPONENT] Error message:', errorMsg);
-    alert(`❌ ${errorMsg}`);
-  } finally {
-    setViewingPDF(null);
-  }
-};
 
   const openReviewModal = (id: string) => {
     setSelectedReportId(id);
@@ -403,16 +358,17 @@ const handleViewPDFPreview = async (id: string) => {
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-center gap-1 flex-wrap">
                           {/* ✅ View PDF - for reports with PDF attached */}
-                          {hasPdf && (
-                            <button
-                              onClick={() => handleViewPDFPreview(report.id)}
-                              disabled={viewingPDF === report.id || isGeneratingPDF}
-                              className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50"
-                              title="View PDF document"
-                            >
-                              {viewingPDF === report.id || isGeneratingPDF ? 'Loading...' : '📄 View PDF'}
-                            </button>
-                          )}
+                     {hasPdf && (
+  
+    <a href={report.pdfSecureUrl!}
+    target="_blank"
+    rel="noopener noreferrer"
+    className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-md hover:bg-indigo-700 transition-colors inline-block"
+    title="View PDF document"
+  >
+    📄 View PDF
+  </a>
+)}
 
                           {/* ✅ Review - only for submitted */}
                           {isSubmitted && (

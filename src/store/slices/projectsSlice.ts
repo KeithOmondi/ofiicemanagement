@@ -122,11 +122,30 @@ const initialState: ProjectsState = {
    HELPERS
 ============================================================ */
 
-const extractErrorMessage = (error: unknown): string => {
-    const axiosError = error as AxiosError<{ message?: string }>;
-    return axiosError.response?.data?.message ?? axiosError.message ?? 'An unexpected error occurred';
-};
+interface ApiErrorShape {
+    message?: string;
+    error?: string | Record<string, unknown>;
+    errors?: Array<string | { message?: string; field?: string }>;
+    detail?: string;
+}
 
+const extractErrorMessage = (error: unknown): string => {
+    const axiosError = error as AxiosError<ApiErrorShape | string>;
+    const data = axiosError.response?.data;
+
+    if (!data) return axiosError.message ?? 'An unexpected error occurred';
+
+    if (typeof data === 'string') return data;
+    if (data.message) return data.message;
+    if (data.error) return typeof data.error === 'string' ? data.error : JSON.stringify(data.error);
+    if (Array.isArray(data.errors) && data.errors.length > 0) {
+        const first = data.errors[0];
+        return typeof first === 'string' ? first : first.message ?? JSON.stringify(first);
+    }
+    if (data.detail) return data.detail;
+
+    return axiosError.message ?? 'An unexpected error occurred';
+};
 /* ============================================================
    ASYNC THUNKS - PROJECTS
 ============================================================ */
