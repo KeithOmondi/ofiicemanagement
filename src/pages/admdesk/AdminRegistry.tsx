@@ -1,4 +1,4 @@
-// src/pages/admin/AdminRegistry.tsx
+// src/pages/admin/SuperAdminRegistry.tsx
 import React, { useEffect, useState, useCallback } from 'react';
 import { toast, Toaster } from 'react-hot-toast';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
@@ -13,10 +13,10 @@ import {
   clearError as clearRegistryError,
 } from '../../store/slices/registrySlice';
 import { fetchDocuments, clearError as clearDocumentError } from '../../store/slices/documentSlice';
-import {
-  createStation,
-  updateStation,
+import { 
   deleteStation,
+  updateStation,
+  createStation,
 } from '../../store/slices/stationsSlice';
 import type { RootState } from '../../store/store';
 import type { RegistryPriority, RegistryEntry, RegistryStatus } from '../../types/registry.types';
@@ -61,23 +61,7 @@ import {
 } from '../../store/slices/rhcFoldersSlice';
 
 // ─── Icons ──────────────────────────────────────────────────────────────────
-import { 
-  Plus, 
-  X, 
-  Loader2, 
-  Edit, 
-  Trash2, 
-  ArrowRightLeft,
-  FolderOpen,
-  Folder,
-  Search,
-  ArrowLeft,
-  Home,
-  FileText,
-  RefreshCw,
-  Download,
-  ExternalLink,
-} from 'lucide-react';
+import { Download, FileText, X, Loader2, Edit, Plus, Folder, FolderOpen, Search, ArrowLeft, Home, RefreshCw, ExternalLink, Trash2 } from 'lucide-react';
 
 // ─── Selectors ────────────────────────────────────────────────────────────────
 const selectAllDocuments = (state: RootState): DocType[] => state.documents.documents;
@@ -130,6 +114,34 @@ const PRIORITY_OPTIONS: { value: RegistryPriority; label: string }[] = [
 // ─── Registry View Types ──────────────────────────────────────────────────
 type RegistryView = 'stations' | 'folder_detail';
 
+// ─── Document Card Component ──────────────────────────────────────────────
+
+const DocumentCard: React.FC<{ 
+  entry: RegistryEntry; 
+  onView: (entry: RegistryEntry) => void;
+}> = ({ entry, onView }) => {
+  return (
+    <div 
+      onClick={() => onView(entry)}
+      className="relative flex flex-col items-center py-6 px-4 text-center bg-white transition cursor-pointer hover:shadow-md border border-slate-200 rounded-xl"
+    >
+      <span className="text-3xl mb-2">📄</span>
+      <span className="text-xs font-mono font-medium text-[#8B6914]">{entry.document_ref_no || 'No ref'}</span>
+      <span className="text-sm font-medium text-slate-800 truncate w-full">{entry.document_title}</span>
+      <span className={`text-[11px] text-slate-400 mb-3 inline-flex items-center rounded-full px-2 py-0.5 ${REGISTRY_STATUS_BADGE[entry.status]}`}>
+        {REGISTRY_STATUS_LABEL[entry.status]}
+      </span>
+      <span className="text-xs text-slate-400">{new Date(entry.routed_at).toLocaleDateString()}</span>
+      {entry.priority === 'urgent' && (
+        <span className="absolute top-2 left-2 text-xs text-red-500 font-medium">🔴</span>
+      )}
+      {entry.priority === 'confidential' && (
+        <span className="absolute top-2 left-2 text-xs text-amber-500 font-medium">🔒</span>
+      )}
+    </div>
+  );
+};
+
 // ─── Folder Card Component ──────────────────────────────────────────────────
 
 const FolderCard: React.FC<{
@@ -177,9 +189,9 @@ const FolderCard: React.FC<{
   );
 };
 
-// ─── Document Card Component ──────────────────────────────────────────────
+// ─── Folder Document Card Component ──────────────────────────────────────
 
-const DocumentCard: React.FC<{ 
+const FolderDocumentCard: React.FC<{ 
   document: FolderDocument;
   isSelected?: boolean;
   onSelect?: (id: string) => void;
@@ -198,7 +210,7 @@ const DocumentCard: React.FC<{
         </div>
       )}
       <span className="text-3xl mb-2">📄</span>
-      <span className="text-xs font-medium text-[#8B6914]">{document.ref || 'No ref'}</span>
+      <span className="text-xs font-mono font-medium text-[#8B6914]">{document.ref || 'No ref'}</span>
       <span className="text-sm font-medium text-slate-800 truncate w-full max-w-[150px]">{document.subject}</span>
       <span className="text-[11px] text-slate-400 mb-3 uppercase">{document.format || 'Document'}</span>
       <span className="text-xs text-slate-400">{new Date(document.created_at).toLocaleDateString()}</span>
@@ -406,7 +418,7 @@ const FolderDetailView: React.FC<{
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
                 {documents.map(doc => (
-                  <DocumentCard 
+                  <FolderDocumentCard 
                     key={doc.id} 
                     document={doc}
                     isSelected={selectedDocuments.has(doc.id)}
@@ -519,9 +531,7 @@ const MoveDocumentsModal: React.FC<{
   );
 };
 
-// ─── Main Component ──────────────────────────────────────────────────────────
-
-const AdminRegistry = () => {
+const SuperAdminRegistry = () => {
   const dispatch = useAppDispatch();
 
   // ── Registry State ─────────────────────────────────────────────────────────
@@ -546,7 +556,7 @@ const AdminRegistry = () => {
   const foldersLoading = useAppSelector(selectRHCFoldersLoading);
   const foldersError = useAppSelector(selectRHCFoldersError);
 
-  // ── Registry Form state ─────────────────────────────────────────────────────
+  // ── Form state ───────────────────────────────────────────────────────────────
   const [selectedDoc, setSelectedDoc] = useState('');
   const [routeTo, setRouteTo] = useState('');
   const [priority, setPriority] = useState<RegistryPriority>('normal');
@@ -554,7 +564,7 @@ const AdminRegistry = () => {
   const [activeStation, setActiveStation] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
-  // ── Registry Modal state ───────────────────────────────────────────────────
+  // ── Modal state ─────────────────────────────────────────────────────────────
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedStationForModal, setSelectedStationForModal] = useState<string | null>(null);
   const [stationEntries, setStationEntries] = useState<RegistryEntry[]>([]);
@@ -564,26 +574,10 @@ const AdminRegistry = () => {
   const [stationToDelete, setStationToDelete] = useState<string | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
-  // ── Document view state ────────────────────────────────────────────────────
-  const [selectedDocument, setSelectedDocument] = useState<RegistryEntry | null>(null);
-  const [isDocViewModalOpen, setIsDocViewModalOpen] = useState(false);
-  const [documentUrl, setDocumentUrl] = useState<string | null>(null);
-  const [documentLoading, setDocumentLoading] = useState(false);
-  const [documentError, setDocumentError] = useState<string | null>(null);
-
-  // ── Station Modal State ────────────────────────────────────────────────────
-  const [isCreateStationModalOpen, setIsCreateStationModalOpen] = useState(false);
-  const [isEditStationModalOpen, setIsEditStationModalOpen] = useState(false);
-  const [selectedStation, setSelectedStation] = useState<{
-    id: string;
-    ref_no: string | null;
-    name: string;
-    type: StationType;
-    location: string | null;
-    is_active: boolean;
-    created_at: string;
-    updated_at: string;
-  } | null>(null);
+  // ── Station Edit/Create State ─────────────────────────────────────────────
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingStation, setEditingStation] = useState<typeof stations[0] | null>(null);
   const [stationFormData, setStationFormData] = useState<CreateStationInput & { ref_no?: string }>({
     ref_no: '',
     name: '',
@@ -591,15 +585,13 @@ const AdminRegistry = () => {
     location: '',
   });
   const [submittingStation, setSubmittingStation] = useState(false);
-  const [customType, setCustomType] = useState('');
-  const [isCustomType, setIsCustomType] = useState(false);
 
-  // ── Re-route Modal State ───────────────────────────────────────────────────
-  const [isRerouteModalOpen, setIsRerouteModalOpen] = useState(false);
-  const [documentToReroute, setDocumentToReroute] = useState<RegistryEntry | null>(null);
-  const [targetStationId, setTargetStationId] = useState<string>('');
-  const [rerouteNote, setRerouteNote] = useState('');
-  const [rerouting, setRerouting] = useState(false);
+  // ── Document view state ────────────────────────────────────────────────────
+  const [selectedDocument, setSelectedDocument] = useState<RegistryEntry | null>(null);
+  const [isDocViewModalOpen, setIsDocViewModalOpen] = useState(false);
+  const [documentUrl, setDocumentUrl] = useState<string | null>(null);
+  const [documentLoading, setDocumentLoading] = useState(false);
+  const [documentError, setDocumentError] = useState<string | null>(null);
 
   // ── Folder View State ──────────────────────────────────────────────────────
   const [viewMode, setViewMode] = useState<RegistryView>('stations');
@@ -629,14 +621,12 @@ const AdminRegistry = () => {
   useEffect(() => {
     dispatch(fetchStationCounts());
     dispatch(fetchDocuments({ page: 1, limit: 100, sort_by: 'created_at', sort_order: 'DESC' }));
-    dispatch(fetchRegistryEntries({ page: 1, limit: 100, sort_by: 'routed_at', sort_order: 'DESC' }));
     dispatch(fetchRHCFolders({ include_sub_folders: true }));
     dispatch(fetchRHCFolderCategories());
   }, [dispatch]);
 
   const refreshCounts = useCallback(() => {
     dispatch(fetchStationCounts());
-    dispatch(fetchRegistryEntries({ page: 1, limit: 100, sort_by: 'routed_at', sort_order: 'DESC' }));
   }, [dispatch]);
 
   // ── Error toasts ──────────────────────────────────────────────────────────
@@ -661,12 +651,11 @@ const AdminRegistry = () => {
     }
   }, [foldersError, dispatch]);
 
-  // ── Registry Handlers ──────────────────────────────────────────────────────
-
+  // ── Submit: route the document to the chosen station/folder ────────────────
   const handleRoute = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedDoc || !routeTo) {
-      toast.error('Choose both a document and a station before routing.');
+      toast.error('Choose both a document and a destination before routing.');
       return;
     }
 
@@ -674,7 +663,7 @@ const AdminRegistry = () => {
       await dispatch(
         routeFile({
           document_id: selectedDoc,
-          station_id: routeTo,
+          station_id: routeTo, // This can be a station OR a folder ID
           priority,
           note: note.trim() || undefined,
         })
@@ -691,114 +680,7 @@ const AdminRegistry = () => {
     }
   };
 
-  // ── Station Handlers ──────────────────────────────────────────────────────
-
-  const resetStationForm = () => {
-    setStationFormData({
-      ref_no: '',
-      name: '',
-      type: 'high_court',
-      location: '',
-    });
-    setCustomType('');
-    setIsCustomType(false);
-    setSelectedStation(null);
-  };
-
-  const handleTypeChange = (value: string) => {
-    const predefined = STATION_TYPE_OPTIONS.find(opt => opt.value === value);
-    if (predefined) {
-      setIsCustomType(false);
-      setCustomType('');
-      setStationFormData({ ...stationFormData, type: value as StationType });
-    } else {
-      setIsCustomType(true);
-      setCustomType(value);
-      setStationFormData({ ...stationFormData, type: value as StationType });
-    }
-  };
-
-  const handleCreateStation = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!stationFormData.name) {
-      toast.error('Station name is required');
-      return;
-    }
-
-    setSubmittingStation(true);
-    try {
-      await dispatch(createStation(stationFormData)).unwrap();
-      toast.success('Station created successfully');
-      setIsCreateStationModalOpen(false);
-      resetStationForm();
-      refreshCounts();
-    } catch {
-      // Error handled by the effect above
-    } finally {
-      setSubmittingStation(false);
-    }
-  };
-
-  const handleEditStation = (station: typeof stations[0]) => {
-    const stationForEdit = {
-      id: station.id,
-      ref_no: station.ref_no || null,
-      name: station.name,
-      type: station.type,
-      location: station.location || null,
-      is_active: station.is_active,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-    setSelectedStation(stationForEdit);
-    setStationFormData({
-      ref_no: station.ref_no || '',
-      name: station.name,
-      type: station.type,
-      location: station.location || '',
-    });
-    const isPredefined = STATION_TYPE_OPTIONS.some(opt => opt.value === station.type);
-    if (!isPredefined) {
-      setIsCustomType(true);
-      setCustomType(station.type);
-    } else {
-      setIsCustomType(false);
-      setCustomType('');
-    }
-    setIsEditStationModalOpen(true);
-  };
-
-  const handleUpdateStation = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedStation || !stationFormData.name) {
-      toast.error('Station name is required');
-      return;
-    }
-
-    setSubmittingStation(true);
-    try {
-      const updateData: UpdateStationInput = {
-        name: stationFormData.name,
-        type: stationFormData.type,
-        location: stationFormData.location || undefined,
-      };
-      if (stationFormData.ref_no && stationFormData.ref_no !== selectedStation.ref_no) {
-        updateData.ref_no = stationFormData.ref_no;
-      }
-      await dispatch(updateStation({ id: selectedStation.id, data: updateData })).unwrap();
-      toast.success('Station updated successfully');
-      setIsEditStationModalOpen(false);
-      resetStationForm();
-      refreshCounts();
-    } catch {
-      // Error handled by the effect above
-    } finally {
-      setSubmittingStation(false);
-    }
-  };
-
-  // ── Station click: open modal with entries ──────────────────────────────
-
+  // ── Station click: open modal with entries ──────────────────────────────────
   const handleStationClick = async (stationId: string) => {
     setActiveStation(stationId);
     setRouteTo(stationId);
@@ -827,6 +709,7 @@ const AdminRegistry = () => {
     }
   };
 
+  // ── Close modal ──────────────────────────────────────────────────────────────
   const closeModal = () => {
     setIsModalOpen(false);
     setSelectedStationForModal(null);
@@ -834,8 +717,80 @@ const AdminRegistry = () => {
     setModalLoading(false);
   };
 
-  // ── Delete station handlers ──────────────────────────────────────────────
+  // ── Station Edit/Create Handlers ────────────────────────────────────────────
 
+  const resetStationForm = () => {
+    setStationFormData({
+      ref_no: '',
+      name: '',
+      type: 'high_court',
+      location: '',
+    });
+    setEditingStation(null);
+  };
+
+  const handleEditStation = (station: typeof stations[0]) => {
+    setEditingStation(station);
+    setStationFormData({
+      ref_no: station.ref_no || '',
+      name: station.name,
+      type: station.type,
+      location: station.location || '',
+    });
+    setIsEditModalOpen(true);
+  };
+
+  const handleCreateStation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stationFormData.name) {
+      toast.error('Station name is required');
+      return;
+    }
+
+    setSubmittingStation(true);
+    try {
+      await dispatch(createStation(stationFormData)).unwrap();
+      toast.success('Station created successfully');
+      setIsCreateModalOpen(false);
+      resetStationForm();
+      refreshCounts();
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to create station');
+    } finally {
+      setSubmittingStation(false);
+    }
+  };
+
+  const handleUpdateStation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStation || !stationFormData.name) {
+      toast.error('Station name is required');
+      return;
+    }
+
+    setSubmittingStation(true);
+    try {
+      const updateData: UpdateStationInput = {
+        name: stationFormData.name,
+        type: stationFormData.type,
+        location: stationFormData.location || undefined,
+      };
+      if (stationFormData.ref_no && stationFormData.ref_no !== editingStation.ref_no) {
+        updateData.ref_no = stationFormData.ref_no;
+      }
+      await dispatch(updateStation({ id: editingStation.id, data: updateData })).unwrap();
+      toast.success('Station updated successfully');
+      setIsEditModalOpen(false);
+      resetStationForm();
+      refreshCounts();
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to update station');
+    } finally {
+      setSubmittingStation(false);
+    }
+  };
+
+  // ── Delete station handlers ──────────────────────────────────────────────────
   const handleDeleteClick = (e: React.MouseEvent, stationId: string) => {
     e.stopPropagation();
     const station = stations.find(s => s.id === stationId);
@@ -867,8 +822,7 @@ const AdminRegistry = () => {
     setStationToDelete(null);
   };
 
-  // ── Document view handlers ──────────────────────────────────────────────
-
+  // ── Document view handlers ─────────────────────────────────────────────────
   const handleViewDocument = async (entry: RegistryEntry) => {
     setSelectedDocument(entry);
     setIsDocViewModalOpen(true);
@@ -930,6 +884,7 @@ const AdminRegistry = () => {
     setDocumentError(null);
   };
 
+  // ── Document Download Handler ──────────────────────────────────────────────
   const handleDownloadDocument = async () => {
     if (!selectedDocument) return;
     
@@ -982,67 +937,6 @@ const AdminRegistry = () => {
         toast.error('Failed to download document');
         console.error('Download error:', error);
       }
-    }
-  };
-
-  // ── Re-route Handlers ────────────────────────────────────────────────────
-
-  const handleOpenRerouteModal = (entry: RegistryEntry) => {
-    setDocumentToReroute(entry);
-    setTargetStationId('');
-    setRerouteNote('');
-    setIsRerouteModalOpen(true);
-  };
-
-  const handleRerouteToStation = async () => {
-    if (!documentToReroute || !targetStationId) {
-      toast.error('Please select a target station');
-      return;
-    }
-
-    if (targetStationId === selectedStationForModal) {
-      toast.error('Document is already at this station');
-      return;
-    }
-
-    setRerouting(true);
-    try {
-      await dispatch(
-        routeFile({
-          document_id: documentToReroute.document_id,
-          station_id: targetStationId,
-          priority: documentToReroute.priority || 'normal',
-          note: rerouteNote || `Re-routed from ${getStationName(selectedStationForModal)}`,
-        })
-      ).unwrap();
-
-      toast.success(`Document re-routed to ${getStationName(targetStationId)} successfully`);
-      
-      setIsRerouteModalOpen(false);
-      setDocumentToReroute(null);
-      setTargetStationId('');
-      setRerouteNote('');
-      
-      if (selectedStationForModal) {
-        const result = await dispatch(fetchRegistryEntries({
-          station_id: selectedStationForModal,
-          limit: 100,
-          sort_by: 'routed_at',
-          sort_order: 'DESC'
-        })).unwrap();
-
-        const uniqueEntries = Array.from(
-          new Map(result.data.map(entry => [entry.document_id, entry])).values()
-        );
-        setStationEntries(uniqueEntries);
-      }
-      
-      refreshCounts();
-    } catch (error) {
-      toast.error('Failed to re-route document');
-      console.error('Re-route error:', error);
-    } finally {
-      setRerouting(false);
     }
   };
 
@@ -1256,8 +1150,6 @@ const AdminRegistry = () => {
     setFolderFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // ── Helper functions ──────────────────────────────────────────────────────
-
   const routableDocuments = documents.filter((d) => d.status !== 'filed');
 
   const getStationName = (stationId: string | null) => {
@@ -1339,19 +1231,303 @@ const AdminRegistry = () => {
     );
   };
 
+  // ── Get combined destinations (stations + folders) for dropdown ──────────
+  const getRouteDestinations = useCallback(() => {
+    const destinations = [];
+    
+    // Add stations
+    for (const station of stations) {
+      if (station.is_active) {
+        destinations.push({
+          id: station.id,
+          name: station.name,
+          ref_no: station.ref_no,
+          type: 'station' as const,
+          display: `${station.ref_no ? `${station.ref_no} — ` : ''}${station.name}`,
+        });
+      }
+    }
+    
+    // Add folders
+    for (const folder of folders) {
+      if (folder.status === 'active') {
+        destinations.push({
+          id: folder.id,
+          name: folder.name,
+          ref_no: folder.ref_no,
+          type: 'folder' as const,
+          display: `📁 ${folder.ref_no ? `${folder.ref_no} — ` : ''}${folder.name}`,
+        });
+      }
+    }
+    
+    // Sort by name
+    destinations.sort((a, b) => a.name.localeCompare(b.name));
+    
+    return destinations;
+  }, [stations, folders]);
+
   // ── Render Stations View ──────────────────────────────────────────────────
 
-  const renderStationsView = () => (
-    <>
-      {/* Route Document form */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm">
+  const renderStationsView = () => {
+    const destinations = getRouteDestinations();
+
+    return (
+      <>
+        {/* Route Document form */}
+        <div className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-medium text-slate-900">Route Document</h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  resetStationForm();
+                  setIsCreateModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-[#8B6914] hover:bg-[#7A5E12] transition"
+              >
+                <Plus size={14} />
+                New Station
+              </button>
+              <button
+                onClick={() => setShowFolderCreateModal(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-emerald-600 hover:bg-emerald-700 transition"
+              >
+                <Folder size={14} />
+                New Folder
+              </button>
+            </div>
+          </div>
+          <form onSubmit={handleRoute}>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Select Document</label>
+                <select
+                  value={selectedDoc}
+                  onChange={(e) => setSelectedDoc(e.target.value)}
+                  disabled={docsLoading}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-50 disabled:text-slate-400"
+                >
+                  <option value="">
+                    {docsLoading
+                      ? 'Loading documents…'
+                      : routableDocuments.length === 0
+                        ? 'No documents available'
+                        : 'Choose Document'}
+                  </option>
+                  {routableDocuments.map((doc) => (
+                    <option key={doc.id} value={doc.id}>
+                      {doc.reference_no ? `${doc.reference_no} — ` : ''}{doc.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Route To</label>
+                <select
+                  value={routeTo}
+                  onChange={(e) => setRouteTo(e.target.value)}
+                  disabled={countsLoading || destinations.length === 0}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-50 disabled:text-slate-400"
+                >
+                  <option value="">
+                    {countsLoading
+                      ? 'Loading destinations…'
+                      : destinations.length === 0
+                        ? 'No stations or folders available'
+                        : 'Select Destination'}
+                  </option>
+                  
+                  {/* Group: Stations */}
+                  {destinations.filter(d => d.type === 'station').length > 0 && (
+                    <optgroup label="🏛 Stations">
+                      {destinations
+                        .filter(d => d.type === 'station')
+                        .map((dest) => (
+                          <option key={`station-${dest.id}`} value={dest.id}>
+                            {dest.display}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
+                  
+                  {/* Group: Folders */}
+                  {destinations.filter(d => d.type === 'folder').length > 0 && (
+                    <optgroup label="📁 Folders">
+                      {destinations
+                        .filter(d => d.type === 'folder')
+                        .map((dest) => (
+                          <option key={`folder-${dest.id}`} value={dest.id}>
+                            {dest.display}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Priority</label>
+                <select
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value as RegistryPriority)}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                >
+                  {PRIORITY_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1 mb-4">
+              <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Routing Note</label>
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={3}
+                placeholder="Add any instructions or notes for the receiving office…"
+                className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={mutating || !selectedDoc || !routeTo}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ background: '#8B6914' }}
+            >
+              {mutating && (
+                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+              )}
+              Route File
+            </button>
+          </form>
+        </div>
+
+        {/* ── Folders Section ────────────────────────────────────────────────── */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <FolderOpen size={20} className="text-[#8B6914]" />
+              <h3 className="text-sm font-medium text-slate-800">RHC Folders</h3>
+              <span className="text-xs text-slate-400">({folders.length} folders)</span>
+            </div>
+            <button
+              onClick={() => {
+                dispatch(fetchRHCFolders({ include_sub_folders: true }));
+                toast.success('Folders refreshed');
+              }}
+              className="text-xs text-slate-400 hover:text-slate-600 transition"
+            >
+              <RefreshCw size={14} className="inline mr-1" />
+              Refresh
+            </button>
+          </div>
+
+          {/* Category Filters */}
+          {categories.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              {categories.map(({ category, count }) => (
+                <button
+                  key={category}
+                  onClick={() => handleFolderFilter(category)}
+                  className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition ${
+                    selectedFolderCategory === category
+                      ? `${CATEGORY_COLORS[category]} ring-2 ring-[#8B6914]`
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {CATEGORY_LABELS[category]}
+                  <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px]">
+                    {count}
+                  </span>
+                </button>
+              ))}
+              {selectedFolderCategory !== 'all' && (
+                <button
+                  onClick={() => handleFolderFilter('all')}
+                  className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200"
+                >
+                  <X size={12} />
+                  Clear Filter
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Folder Search */}
+          <div className="relative mb-3">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search folders by reference or name..."
+              value={folderSearchQuery}
+              onChange={handleFolderSearch}
+              className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 py-1.5 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+            />
+            {folderSearchQuery && (
+              <button
+                onClick={() => {
+                  setFolderSearchQuery('');
+                  dispatch(clearSearchResults());
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Folder Grid */}
+          {foldersLoading.fetch ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 size={24} className="animate-spin text-[#8B6914]" />
+              <span className="ml-2 text-sm text-slate-600">Loading folders...</span>
+            </div>
+          ) : foldersError ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {foldersError}
+            </div>
+          ) : (folderSearchQuery.length >= 2 ? searchResults : rootFolders).length === 0 ? (
+            <div className="py-8 text-center text-sm text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+              <Folder size={32} className="mx-auto text-slate-300 mb-2" />
+              <p>No folders found</p>
+              <p className="text-xs mt-1">Create a folder using the "New Folder" button above</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+              {(folderSearchQuery.length >= 2 ? searchResults : rootFolders).map(folder => (
+                <FolderCard
+                  key={folder.id}
+                  folder={folder}
+                  onEdit={handleEditFolderClick}
+                  onDelete={handleDeleteFolder}
+                  onView={handleViewFolder}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Stations Section ────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-medium text-slate-900">Route Document</h2>
+          <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
+            <span>🏛</span>
+            Court Stations
+            <span className="text-slate-400 font-normal">
+              ({countsLoading ? '…' : stations.length} stations)
+            </span>
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => {
                 resetStationForm();
-                setIsCreateStationModalOpen(true);
+                setIsCreateModalOpen(true);
               }}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-[#8B6914] hover:bg-[#7A5E12] transition"
             >
@@ -1359,295 +1535,89 @@ const AdminRegistry = () => {
               New Station
             </button>
             <button
-              onClick={() => setShowFolderCreateModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-emerald-600 hover:bg-emerald-700 transition"
+              onClick={() => setCollapsed((c) => !c)}
+              className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded hover:bg-slate-100"
             >
-              <Folder size={14} />
-              New Folder
+              {collapsed ? '+ Expand' : '− Collapse'}
             </button>
           </div>
         </div>
-        <form onSubmit={handleRoute}>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Select Document</label>
-              <select
-                value={selectedDoc}
-                onChange={(e) => setSelectedDoc(e.target.value)}
-                disabled={docsLoading}
-                className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-50 disabled:text-slate-400"
-              >
-                <option value="">
-                  {docsLoading
-                    ? 'Loading documents…'
-                    : routableDocuments.length === 0
-                      ? 'No documents available'
-                      : 'Choose Document'}
-                </option>
-                {routableDocuments.map((doc) => (
-                  <option key={doc.id} value={doc.id}>
-                    {doc.reference_no ? `${doc.reference_no} — ` : ''}{doc.title}
-                  </option>
-                ))}
-              </select>
-            </div>
 
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Route To</label>
-              <select
-                value={routeTo}
-                onChange={(e) => setRouteTo(e.target.value)}
-                disabled={countsLoading}
-                className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:bg-slate-50 disabled:text-slate-400"
-              >
-                <option value="">
-                  {countsLoading ? 'Loading stations…' : 'Select Station'}
-                </option>
-                {stations.filter((s) => s.is_active).map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.ref_no ? `${s.ref_no} — ` : ''}{s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex flex-col gap-1">
-              <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Priority</label>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as RegistryPriority)}
-                className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-              >
-                {PRIORITY_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1 mb-4">
-            <label className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">Routing Note</label>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={3}
-              placeholder="Add any instructions or notes for the receiving office…"
-              className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-500"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={mutating || !selectedDoc || !routeTo}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: '#8B6914' }}
-          >
-            {mutating && (
-              <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+        {!collapsed && (
+          countsLoading ? (
+            <div className="flex justify-center py-16">
+              <svg className="animate-spin h-6 w-6 text-slate-400" fill="none" viewBox="0 0 24 24">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
               </svg>
-            )}
-            Route File
-          </button>
-        </form>
-      </div>
-
-      {/* ── Folders Section ────────────────────────────────────────────────── */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <FolderOpen size={20} className="text-[#8B6914]" />
-            <h3 className="text-sm font-medium text-slate-800">RHC Folders</h3>
-            <span className="text-xs text-slate-400">({folders.length} folders)</span>
-          </div>
-          <button
-            onClick={() => {
-              dispatch(fetchRHCFolders({ include_sub_folders: true }));
-              toast.success('Folders refreshed');
-            }}
-            className="text-xs text-slate-400 hover:text-slate-600 transition"
-          >
-            <RefreshCw size={14} className="inline mr-1" />
-            Refresh
-          </button>
-        </div>
-
-        {/* Category Filters */}
-        {categories.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-3">
-            {categories.map(({ category, count }) => (
-              <button
-                key={category}
-                onClick={() => handleFolderFilter(category)}
-                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition ${
-                  selectedFolderCategory === category
-                    ? `${CATEGORY_COLORS[category]} ring-2 ring-[#8B6914]`
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {CATEGORY_LABELS[category]}
-                <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px]">
-                  {count}
-                </span>
-              </button>
-            ))}
-            {selectedFolderCategory !== 'all' && (
-              <button
-                onClick={() => handleFolderFilter('all')}
-                className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200"
-              >
-                <X size={12} />
-                Clear Filter
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Folder Search */}
-        <div className="relative mb-3">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search folders by reference or name..."
-            value={folderSearchQuery}
-            onChange={handleFolderSearch}
-            className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 py-1.5 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
-          />
-          {folderSearchQuery && (
-            <button
-              onClick={() => {
-                setFolderSearchQuery('');
-                dispatch(clearSearchResults());
-              }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-
-        {/* Folder Grid */}
-        {foldersLoading.fetch ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 size={24} className="animate-spin text-[#8B6914]" />
-            <span className="ml-2 text-sm text-slate-600">Loading folders...</span>
-          </div>
-        ) : foldersError ? (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {foldersError}
-          </div>
-        ) : (folderSearchQuery.length >= 2 ? searchResults : rootFolders).length === 0 ? (
-          <div className="py-8 text-center text-sm text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
-            <Folder size={32} className="mx-auto text-slate-300 mb-2" />
-            <p>No folders found</p>
-            <p className="text-xs mt-1">Create a folder using the "New Folder" button above</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
-            {(folderSearchQuery.length >= 2 ? searchResults : rootFolders).map(folder => (
-              <FolderCard
-                key={folder.id}
-                folder={folder}
-                onEdit={handleEditFolderClick}
-                onDelete={handleDeleteFolder}
-                onView={handleViewFolder}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── Stations Section ────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
-          <span>🏛</span>
-          Court Stations
-          <span className="text-slate-400 font-normal">
-            ({countsLoading ? '…' : stations.length} stations)
-          </span>
-        </div>
-        <button
-          onClick={() => setCollapsed((c) => !c)}
-          className="text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded hover:bg-slate-100"
-        >
-          {collapsed ? '+ Expand' : '− Collapse'}
-        </button>
-      </div>
-
-      {!collapsed && (
-        countsLoading ? (
-          <div className="flex justify-center py-16">
-            <svg className="animate-spin h-6 w-6 text-slate-400" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-            </svg>
-          </div>
-        ) : stations.length === 0 ? (
-          <div className="py-16 text-center text-sm text-slate-400">
-            No stations found. Click "New Station" above to add one.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
-            {stations.map((station) => (
-              <div
-                key={station.id}
-                className={`relative flex flex-col items-center py-6 px-4 text-center bg-white transition ${activeStation === station.id ? 'ring-2 ring-inset ring-amber-400 bg-amber-50/30' : ''
-                  }`}
-              >
-                <button
-                  onClick={() => handleStationClick(station.id)}
-                  disabled={!station.is_active}
-                  className="flex flex-col items-center w-full disabled:opacity-50 disabled:cursor-not-allowed"
+            </div>
+          ) : stations.length === 0 ? (
+            <div className="py-16 text-center text-sm text-slate-400">
+              No stations found. Click "New Station" above to add one.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+              {stations.map((station) => (
+                <div
+                  key={station.id}
+                  className={`relative flex flex-col items-center py-6 px-4 text-center bg-white transition ${activeStation === station.id ? 'ring-2 ring-inset ring-amber-400 bg-amber-50/30' : ''
+                    }`}
                 >
-                  <span
-                    className="text-3xl mb-2"
-                    style={{ color: station.type === 'sub_registry' ? '#c9a84c' : '#94a3b8' }}
+                  <button
+                    onClick={() => handleStationClick(station.id)}
+                    disabled={!station.is_active}
+                    className="flex flex-col items-center w-full disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {STATION_TYPE_ICONS[station.type as StationType]}
-                  </span>
-                  <span className="text-xs font-medium" style={{ color: '#8B6914' }}>
-                    {station.ref_no ? `${station.ref_no}` : ''}
-                  </span>
-                  <span className="text-sm font-medium text-slate-800">{station.name}</span>
-                  <span className="text-[11px] text-slate-400 mb-3">
-                    {STATION_TYPE_LABELS[station.type as StationType] || station.type}
-                    {!station.is_active && ' · Inactive'}
-                  </span>
-                  <span className="text-xl font-medium text-slate-800">{station.file_count}</span>
-                  <span className="text-[11px] text-slate-400">files on record</span>
-                  <span className="text-[10px] text-amber-600 mt-2">Click to view files</span>
-                </button>
+                    <span
+                      className="text-3xl mb-1"
+                      style={{ color: station.type === 'sub_registry' ? '#c9a84c' : '#94a3b8' }}
+                    >
+                      {STATION_TYPE_ICONS[station.type as StationType]}
+                    </span>
+                    
+                    <span className="text-xs font-mono font-medium text-[#8B6914] mb-0.5 min-h-[16px]">
+                      {station.ref_no || '—'}
+                    </span>
+                    
+                    <span className="text-sm font-medium text-slate-800">{station.name}</span>
+                    <span className="text-[11px] text-slate-400 mb-3">
+                      {STATION_TYPE_LABELS[station.type as StationType]}
+                      {!station.is_active && ' · Inactive'}
+                    </span>
+                    <span className="text-xl font-medium text-slate-800">{station.file_count}</span>
+                    <span className="text-[11px] text-slate-400">files on record</span>
+                    <span className="text-[10px] text-amber-600 mt-2">Click to view files</span>
+                  </button>
 
-                <div className="absolute top-2 right-2 flex gap-1">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleEditStation(station);
-                    }}
-                    className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
-                    title="Edit station"
-                  >
-                    <Edit size={14} />
-                  </button>
-                  <button
-                    onClick={(e) => handleDeleteClick(e, station.id)}
-                    className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
-                    title="Delete station"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <div className="absolute top-2 right-2 flex gap-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditStation(station);
+                      }}
+                      className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
+                      title="Edit station"
+                    >
+                      <Edit size={14} />
+                    </button>
+                    <button
+                      onClick={(e) => handleDeleteClick(e, station.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
+                      title="Delete station"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )
-      )}
-    </>
-  );
+              ))}
+            </div>
+          )
+        )}
+      </>
+    );
+  };
 
-  // ─── Render ──────────────────────────────────────────────────────────────
-
+  // ─── Main Render ──────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-slate-50 p-6">
       <Toaster position="top-right" />
@@ -1691,16 +1661,14 @@ const AdminRegistry = () => {
         renderStationsView()
       )}
 
-      {/* ── Station Modals ────────────────────────────────────────────────── */}
-
-      {/* Create Station Modal */}
-      {isCreateStationModalOpen && (
+      {/* ── Create Station Modal ───────────────────────────────────────────── */}
+      {isCreateModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h3 className="text-lg font-semibold text-slate-900">Create New Station</h3>
               <button
-                onClick={() => { setIsCreateStationModalOpen(false); resetStationForm(); }}
+                onClick={() => { setIsCreateModalOpen(false); resetStationForm(); }}
                 className="text-slate-400 hover:text-slate-600"
               >
                 <X size={20} />
@@ -1735,25 +1703,15 @@ const AdminRegistry = () => {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Type *</label>
-                <div className="relative">
-                  <input
-                    list="station-types"
-                    type="text"
-                    required
-                    placeholder="Select or type a station type..."
-                    value={isCustomType ? customType : stationFormData.type}
-                    onChange={(e) => handleTypeChange(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
-                  />
-                  <datalist id="station-types">
-                    {STATION_TYPE_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </datalist>
-                </div>
-                <p className="text-xs text-slate-400 mt-1">You can select from the dropdown or type your own</p>
+                <select
+                  value={stationFormData.type}
+                  onChange={(e) => setStationFormData({ ...stationFormData, type: e.target.value as StationType })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                >
+                  {STATION_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -1770,7 +1728,7 @@ const AdminRegistry = () => {
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={() => { setIsCreateStationModalOpen(false); resetStationForm(); }}
+                  onClick={() => { setIsCreateModalOpen(false); resetStationForm(); }}
                   className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
                 >
                   Cancel
@@ -1788,14 +1746,14 @@ const AdminRegistry = () => {
         </div>
       )}
 
-      {/* Edit Station Modal */}
-      {isEditStationModalOpen && selectedStation && (
+      {/* ── Edit Station Modal ─────────────────────────────────────────────── */}
+      {isEditModalOpen && editingStation && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <h3 className="text-lg font-semibold text-slate-900">Edit Station</h3>
               <button
-                onClick={() => { setIsEditStationModalOpen(false); resetStationForm(); }}
+                onClick={() => { setIsEditModalOpen(false); resetStationForm(); }}
                 className="text-slate-400 hover:text-slate-600"
               >
                 <X size={20} />
@@ -1830,25 +1788,15 @@ const AdminRegistry = () => {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Type *</label>
-                <div className="relative">
-                  <input
-                    list="station-types-edit"
-                    type="text"
-                    required
-                    placeholder="Select or type a station type..."
-                    value={isCustomType ? customType : stationFormData.type}
-                    onChange={(e) => handleTypeChange(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
-                  />
-                  <datalist id="station-types-edit">
-                    {STATION_TYPE_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </datalist>
-                </div>
-                <p className="text-xs text-slate-400 mt-1">You can select from the dropdown or type your own</p>
+                <select
+                  value={stationFormData.type}
+                  onChange={(e) => setStationFormData({ ...stationFormData, type: e.target.value as StationType })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                >
+                  {STATION_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -1865,7 +1813,7 @@ const AdminRegistry = () => {
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
                 <button
                   type="button"
-                  onClick={() => { setIsEditStationModalOpen(false); resetStationForm(); }}
+                  onClick={() => { setIsEditModalOpen(false); resetStationForm(); }}
                   className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
                 >
                   Cancel
@@ -1883,82 +1831,41 @@ const AdminRegistry = () => {
         </div>
       )}
 
-      {/* ── Station Files Modal ────────────────────────────────────────────── */}
+      {/* ── Modal: View Station Files ─────────────────────────────────────────── */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <div>
                 <h3 className="text-lg font-medium text-slate-900">
                   {getStationName(selectedStationForModal)}
                 </h3>
                 {getStationRef(selectedStationForModal) && (
-                  <p className="text-sm text-slate-500 font-mono">
+                  <p className="text-sm font-mono font-medium text-[#8B6914] mt-0.5">
                     {getStationRef(selectedStationForModal)}
                   </p>
                 )}
-                <p className="text-sm text-slate-500">Routed Documents</p>
+                <p className="text-sm text-slate-500 mt-1">Routed Documents</p>
               </div>
               <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 transition">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X size={24} />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {modalLoading ? (
                 <div className="flex justify-center py-16">
-                  <svg className="animate-spin h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
+                  <Loader2 size={32} className="animate-spin text-[#8B6914]" />
+                  <span className="ml-3 text-sm text-slate-600">Loading documents...</span>
                 </div>
               ) : stationEntries.length === 0 ? (
-                <div className="py-16 text-center text-sm text-slate-400">
-                  No documents have been routed to this station yet.
+                <div className="py-16 text-center text-sm text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                  <FileText size={48} className="mx-auto text-slate-300 mb-3" />
+                  <p>No documents have been routed to this station yet.</p>
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
                   {stationEntries.map((entry) => (
-                    <div key={entry.id} className="p-4 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition flex items-center justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-3 mb-1">
-                          <span className="text-sm font-medium text-slate-900 truncate">{entry.document_title}</span>
-                          {entry.document_ref_no && (
-                            <span className="text-xs text-slate-500 font-mono bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
-                              #{entry.document_ref_no}
-                            </span>
-                          )}
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${REGISTRY_STATUS_BADGE[entry.status]}`}>
-                            {REGISTRY_STATUS_LABEL[entry.status]}
-                          </span>
-                          {entry.priority === 'urgent' && <span className="text-xs text-red-500 font-medium">🔴 Urgent</span>}
-                          {entry.priority === 'confidential' && <span className="text-xs text-amber-500 font-medium">🔒 Confidential</span>}
-                        </div>
-                        <div className="flex items-center gap-4 text-xs text-slate-500">
-                          <span>Routed: {formatDate(entry.routed_at)}</span>
-                          {entry.routed_by_name && <span>By: {entry.routed_by_name}</span>}
-                          {entry.received_at && <span>Received: {formatDate(entry.received_at)}</span>}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 ml-4 flex-shrink-0">
-                        <button
-                          onClick={() => handleViewDocument(entry)}
-                          className="px-3 py-1.5 text-xs font-medium text-white rounded-md transition hover:opacity-80"
-                          style={{ background: '#8B6914' }}
-                        >
-                          View
-                        </button>
-                        <button
-                          onClick={() => handleOpenRerouteModal(entry)}
-                          className="px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-200 rounded-md hover:bg-blue-50 transition flex items-center gap-1"
-                          title="Move to another station"
-                        >
-                          <ArrowRightLeft size={14} />
-                          Re-route
-                        </button>
-                      </div>
-                    </div>
+                    <DocumentCard key={entry.id} entry={entry} onView={handleViewDocument} />
                   ))}
                 </div>
               )}
@@ -1968,7 +1875,10 @@ const AdminRegistry = () => {
                 <span className="text-xs text-slate-500">
                   {stationEntries.length} document{stationEntries.length !== 1 ? 's' : ''} routed
                 </span>
-                <button onClick={closeModal} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition">
+                <button
+                  onClick={closeModal}
+                  className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition"
+                >
                   Close
                 </button>
               </div>
@@ -1977,7 +1887,7 @@ const AdminRegistry = () => {
         </div>
       )}
 
-      {/* ── Document View Modal ────────────────────────────────────────────── */}
+      {/* ── Document View Modal ──────────────────────────────────────────────── */}
       {isDocViewModalOpen && selectedDocument && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
@@ -1996,19 +1906,14 @@ const AdminRegistry = () => {
                 </div>
               </div>
               <button onClick={closeDocViewModal} className="text-slate-400 hover:text-slate-600 transition">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X size={24} />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4 bg-slate-50">
               {documentLoading ? (
                 <div className="flex justify-center items-center h-[500px]">
                   <div className="text-center">
-                    <svg className="animate-spin h-12 w-12 text-amber-600 mx-auto mb-4" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                    </svg>
+                    <Loader2 size={32} className="animate-spin text-[#8B6914] mx-auto mb-4" />
                     <p className="text-slate-500">Loading document...</p>
                   </div>
                 </div>
@@ -2044,7 +1949,8 @@ const AdminRegistry = () => {
                   className="px-4 py-2 text-sm font-medium text-white rounded-md transition hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ background: '#8B6914' }}
                 >
-                  Download Document
+                  <Download size={16} className="inline mr-1" />
+                  Download
                 </button>
               </div>
             </div>
@@ -2052,7 +1958,7 @@ const AdminRegistry = () => {
         </div>
       )}
 
-      {/* ── Delete Confirmation Modal ──────────────────────────────────────── */}
+      {/* ── Delete Confirmation Modal ────────────────────────────────────────── */}
       {isDeleteModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
@@ -2075,111 +1981,6 @@ const AdminRegistry = () => {
                 </button>
                 <button onClick={handleConfirmDelete} className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition">
                   Delete Station
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Re-route Modal ───────────────────────────────────────────────────── */}
-      {isRerouteModalOpen && documentToReroute && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-              <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
-                <ArrowRightLeft size={20} className="text-blue-500" />
-                Re-route Document
-              </h3>
-              <button
-                onClick={() => {
-                  setIsRerouteModalOpen(false);
-                  setDocumentToReroute(null);
-                  setTargetStationId('');
-                  setRerouteNote('');
-                }}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="p-6 space-y-4">
-              <div>
-                <p className="text-sm text-slate-600 mb-2">
-                  <span className="font-medium">Document:</span> {documentToReroute.document_title}
-                  {documentToReroute.document_ref_no && (
-                    <span className="text-xs text-slate-400 block">Ref: #{documentToReroute.document_ref_no}</span>
-                  )}
-                </p>
-                <p className="text-xs text-slate-500">
-                  <span className="font-medium">Current Station:</span> {getStationName(selectedStationForModal)}
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Target Station *
-                </label>
-                <select
-                  value={targetStationId}
-                  onChange={(e) => setTargetStationId(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
-                >
-                  <option value="">Select a station...</option>
-                  {stations
-                    .filter((s) => s.is_active && s.id !== selectedStationForModal)
-                    .map((station) => (
-                      <option key={station.id} value={station.id}>
-                        {station.ref_no ? `${station.ref_no} — ` : ''}{station.name}
-                        {' '}({station.file_count} files)
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Note (optional)
-                </label>
-                <textarea
-                  value={rerouteNote}
-                  onChange={(e) => setRerouteNote(e.target.value)}
-                  rows={3}
-                  placeholder={`Re-routing from ${getStationName(selectedStationForModal)}...`}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm resize-none focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
-                />
-              </div>
-
-              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsRerouteModalOpen(false);
-                    setDocumentToReroute(null);
-                    setTargetStationId('');
-                    setRerouteNote('');
-                  }}
-                  className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleRerouteToStation}
-                  disabled={rerouting || !targetStationId}
-                  className="px-4 py-2 text-sm font-medium text-white rounded-lg bg-blue-600 hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {rerouting ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" />
-                      Re-routing...
-                    </>
-                  ) : (
-                    <>
-                      <ArrowRightLeft size={16} />
-                      Re-route Document
-                    </>
-                  )}
                 </button>
               </div>
             </div>
@@ -2452,4 +2253,4 @@ const AdminRegistry = () => {
   );
 };
 
-export default AdminRegistry;
+export default SuperAdminRegistry;
