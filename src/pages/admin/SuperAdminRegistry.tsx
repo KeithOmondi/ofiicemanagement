@@ -23,9 +23,45 @@ import type { RegistryPriority, RegistryEntry, RegistryStatus } from '../../type
 import type { StationType, CreateStationInput, UpdateStationInput } from '../../store/slices/stationsSlice';
 import type { Document as DocType } from '../../types/documents.types';
 
+// ─── Folder Slice Imports ──────────────────────────────────────────────────
+import {
+  fetchRHCFolders,
+  fetchRHCFolderById,
+  fetchRHCFolderChildren,
+  fetchRHCFolderDocuments,
+  createRHCFolder,
+  updateRHCFolder,
+  deleteRHCFolder,
+  searchRHCFolders,
+  moveRHCDocumentToFolder,
+  selectAllRHCFolders,
+  selectRHCFoldersLoading,
+  selectRHCFoldersError,
+  selectRHCFolderCategories,
+  selectRHCFolderSearchResults,
+  selectSelectedRHCFolder,
+  selectRHCFolderHierarchy,
+  selectRHCFolderDocuments,
+  clearFolderError,
+  clearSearchResults,
+  clearSelectedFolder,
+  clearHierarchy,
+  clearFolderDocuments,
+  selectRootFolders,
+  //selectActiveFolders,
+  type RHCFolder,
+  type FolderCategory,
+  type FolderStatus,
+  type FolderDocument,
+  CATEGORY_LABELS,
+  CATEGORY_COLORS,
+  STATUS_LABELS,
+  STATUS_COLORS,
+  fetchRHCFolderCategories,
+} from '../../store/slices/rhcFoldersSlice';
+
 // ─── Icons ──────────────────────────────────────────────────────────────────
-import { Download, FileText, X, Loader2, Edit, Plus } from 'lucide-react';
-import SuperAdminFolders from './SuperAdminFolders';
+import { Download, FileText, X, Loader2, Edit, Plus, Folder, FolderOpen, Search, ArrowLeft, Home, RefreshCw, ExternalLink, Trash2 } from 'lucide-react';
 
 // ─── Selectors ────────────────────────────────────────────────────────────────
 const selectAllDocuments = (state: RootState): DocType[] => state.documents.documents;
@@ -75,8 +111,8 @@ const PRIORITY_OPTIONS: { value: RegistryPriority; label: string }[] = [
   { value: 'for_information_only', label: 'For Information Only' },
 ];
 
-// ─── Tab Configuration ──────────────────────────────────────────────────────
-type TabType = 'registry' | 'folders';
+// ─── Registry View Types ──────────────────────────────────────────────────
+type RegistryView = 'stations' | 'folder_detail';
 
 // ─── Document Card Component ──────────────────────────────────────────────
 
@@ -106,13 +142,399 @@ const DocumentCard: React.FC<{
   );
 };
 
+// ─── Folder Card Component ──────────────────────────────────────────────────
+
+const FolderCard: React.FC<{
+  folder: RHCFolder;
+  onEdit: (folder: RHCFolder) => void;
+  onDelete: (id: string) => void;
+  onView: (id: string) => void;
+}> = ({ folder, onEdit, onDelete, onView }) => {
+  const categoryColor = CATEGORY_COLORS[folder.category] || 'bg-slate-50 text-slate-700';
+
+  return (
+    <div
+      onClick={() => onView(folder.id)}
+      className="relative flex flex-col items-center py-6 px-4 text-center bg-white transition cursor-pointer hover:shadow-md hover:border-slate-300 border border-slate-200 rounded-xl"
+    >
+      <span className="text-3xl mb-2">
+        {folder.status === 'active' ? '📁' : '📂'}
+      </span>
+      <span className="text-xs font-medium text-[#8B6914]">{folder.ref_no}</span>
+      <span className="text-sm font-medium text-slate-800">{folder.name}</span>
+      <span className={`text-[11px] text-slate-400 mb-3 inline-flex items-center rounded-full px-2 py-0.5 ${categoryColor}`}>
+        {CATEGORY_LABELS[folder.category]}
+      </span>
+      <span className="text-xl font-medium text-slate-800">{folder.document_count || 0}</span>
+      <span className="text-[11px] text-slate-400">documents on record</span>
+      <span className="text-[10px] text-amber-600 mt-2">Click to view files</span>
+
+      <div className="absolute top-2 right-2 flex gap-1">
+        <button
+          onClick={(e) => { e.stopPropagation(); onEdit(folder); }}
+          className="p-1.5 text-blue-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
+          title="Edit"
+        >
+          <Edit size={14} />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(folder.id); }}
+          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
+          title="Delete"
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── Folder Document Card Component ──────────────────────────────────────
+
+const FolderDocumentCard: React.FC<{ 
+  document: FolderDocument;
+  isSelected?: boolean;
+  onSelect?: (id: string) => void;
+}> = ({ document, isSelected, onSelect }) => {
+  return (
+    <div className="relative flex flex-col items-center py-6 px-4 text-center bg-white transition hover:shadow-md border border-slate-200 rounded-xl">
+      {onSelect && (
+        <div className="absolute top-2 left-2">
+          <input
+            type="checkbox"
+            checked={isSelected || false}
+            onChange={() => onSelect(document.id)}
+            className="h-4 w-4 rounded border-slate-300 text-[#8B6914] focus:ring-[#8B6914]"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+      <span className="text-3xl mb-2">📄</span>
+      <span className="text-xs font-mono font-medium text-[#8B6914]">{document.ref || 'No ref'}</span>
+      <span className="text-sm font-medium text-slate-800 truncate w-full max-w-[150px]">{document.subject}</span>
+      <span className="text-[11px] text-slate-400 mb-3 uppercase">{document.format || 'Document'}</span>
+      <span className="text-xs text-slate-400">{new Date(document.created_at).toLocaleDateString()}</span>
+
+      <div className="absolute top-2 right-2 flex gap-1">
+        {document.file_url && (
+          <>
+            <a
+              href={document.file_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition"
+              title="View"
+            >
+              <ExternalLink size={14} />
+            </a>
+            <a
+              href={document.file_url}
+              download
+              className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-md transition"
+              title="Download"
+            >
+              <Download size={14} />
+            </a>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Folder Detail View ──────────────────────────────────────────────────
+
+const FolderDetailView: React.FC<{
+  folder: RHCFolder;
+  children: RHCFolder[];
+  documents: FolderDocument[];
+  loading: boolean;
+  onBack: () => void;
+  onEdit: (folder: RHCFolder) => void;
+  onDelete: (id: string) => void;
+  onViewFolder: (id: string) => void;
+  onRefresh: () => void;
+  onMoveDocuments: () => void;
+  selectedDocuments: Set<string>;
+  onToggleSelect: (id: string) => void;
+  onSelectAll: () => void;
+  onClearSelection: () => void;
+}> = ({ 
+  folder, 
+  children, 
+  documents, 
+  loading, 
+  onBack, 
+  onEdit, 
+  onDelete, 
+  onViewFolder,
+  onRefresh,
+  onMoveDocuments,
+  selectedDocuments,
+  onToggleSelect,
+  onSelectAll,
+  onClearSelection,
+}) => {
+  const categoryColor = CATEGORY_COLORS[folder.category] || 'bg-slate-50 text-slate-700';
+  const statusColor = STATUS_COLORS[folder.status] || 'bg-slate-50 text-slate-700';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+        >
+          <ArrowLeft size={16} />
+          Back
+        </button>
+        <span className="text-slate-300">/</span>
+        <Home size={16} className="text-slate-400" />
+        <span className="text-slate-300">/</span>
+        <span className="text-sm font-medium text-slate-800">{folder.name}</span>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <FolderOpen size={24} className="text-[#8B6914]" />
+              <h2 className="text-xl font-bold text-slate-800">{folder.name}</h2>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <span className="font-mono text-sm text-slate-400">{folder.ref_no}</span>
+              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${categoryColor}`}>
+                {CATEGORY_LABELS[folder.category]}
+              </span>
+              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColor}`}>
+                {STATUS_LABELS[folder.status]}
+              </span>
+              <span className="inline-flex items-center gap-1 text-xs text-slate-400">
+                <FileText size={14} />
+                {folder.document_count || 0} documents
+              </span>
+            </div>
+            {folder.description && (
+              <p className="mt-2 text-sm text-slate-600">{folder.description}</p>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => onEdit(folder)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+            >
+              <Edit size={16} className="inline mr-1" />
+              Edit
+            </button>
+            <button
+              onClick={() => onDelete(folder.id)}
+              className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 transition"
+            >
+              <Trash2 size={16} className="inline mr-1" />
+              Delete
+            </button>
+            <button
+              onClick={onRefresh}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+            >
+              <RefreshCw size={16} className="inline mr-1" />
+              Refresh
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 size={32} className="animate-spin text-[#8B6914]" />
+          <span className="ml-3 text-sm text-slate-600">Loading contents...</span>
+        </div>
+      ) : (
+        <>
+          {children.length > 0 && (
+            <div>
+              <h3 className="text-sm font-medium text-slate-700 mb-3">Sub-folders</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+                {children.map(child => (
+                  <div
+                    key={child.id}
+                    onClick={() => onViewFolder(child.id)}
+                    className="relative flex flex-col items-center py-6 px-4 text-center bg-white transition cursor-pointer hover:shadow-md"
+                  >
+                    <span className="text-3xl mb-2">📁</span>
+                    <span className="text-xs font-medium text-[#8B6914]">{child.ref_no}</span>
+                    <span className="text-sm font-medium text-slate-800">{child.name}</span>
+                    <span className="text-[11px] text-slate-400">{child.document_count || 0} documents</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-slate-700 flex items-center gap-2">
+                <FileText size={16} />
+                Documents ({documents.length})
+              </h3>
+              <div className="flex items-center gap-2">
+                {documents.length > 0 && (
+                  <>
+                    <button
+                      onClick={onSelectAll}
+                      className="text-xs text-slate-500 hover:text-slate-700"
+                    >
+                      {selectedDocuments.size === documents.length ? 'Deselect All' : 'Select All'}
+                    </button>
+                    {selectedDocuments.size > 0 && (
+                      <>
+                        <span className="text-xs text-slate-400">
+                          {selectedDocuments.size} selected
+                        </span>
+                        <button
+                          onClick={onMoveDocuments}
+                          className="inline-flex items-center gap-1 rounded-lg bg-[#8B6914] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#7A5E12] transition"
+                        >
+                          <FolderOpen size={14} />
+                          Move to Folder
+                        </button>
+                        <button
+                          onClick={onClearSelection}
+                          className="text-xs text-red-500 hover:text-red-700"
+                        >
+                          Clear
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+            {documents.length === 0 ? (
+              <div className="py-16 text-center text-sm text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+                <FileText size={48} className="mx-auto text-slate-300 mb-3" />
+                <p>No documents in this folder</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+                {documents.map(doc => (
+                  <FolderDocumentCard 
+                    key={doc.id} 
+                    document={doc}
+                    isSelected={selectedDocuments.has(doc.id)}
+                    onSelect={onToggleSelect}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+// ─── Move Documents Modal ──────────────────────────────────────────────────
+
+const MoveDocumentsModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onMove: (targetFolderId: string) => Promise<void>;
+  folders: RHCFolder[];
+  currentFolderId: string | null;
+  selectedCount: number;
+  isMoving: boolean;
+}> = ({ isOpen, onClose, onMove, folders, currentFolderId, selectedCount, isMoving }) => {
+  const [targetFolderId, setTargetFolderId] = useState('');
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetFolderId) {
+      toast.error('Please select a target folder');
+      return;
+    }
+    await onMove(targetFolderId);
+    setTargetFolderId('');
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <h2 className="text-lg font-semibold text-slate-900">
+            Move Documents
+            <span className="ml-2 text-sm font-normal text-slate-500">
+              ({selectedCount} selected)
+            </span>
+          </h2>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Select Target Folder *
+            </label>
+            <select
+              value={targetFolderId}
+              onChange={(e) => setTargetFolderId(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+              required
+            >
+              <option value="">Select a folder...</option>
+              {folders
+                .filter(f => f.id !== currentFolderId)
+                .map(folder => (
+                  <option key={folder.id} value={folder.id}>
+                    {folder.ref_no} - {folder.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div className="rounded-md bg-blue-50 p-3">
+            <p className="text-sm text-blue-700">
+              {selectedCount} document(s) will be moved to the selected folder.
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!targetFolderId || isMoving}
+              className="inline-flex items-center gap-2 rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#7A5E12] disabled:opacity-50"
+            >
+              {isMoving ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <span>Move Documents</span>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 const SuperAdminRegistry = () => {
   const dispatch = useAppDispatch();
 
-  // ── Tab State ──────────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<TabType>('registry');
-
-  // ── Registry ─────────────────────────────────────────────────────────────────
+  // ── Registry State ─────────────────────────────────────────────────────────
   const stations = useAppSelector(selectStationCounts);
   const countsLoading = useAppSelector(selectStationCountsLoading);
   const mutating = useAppSelector(selectRegistryMutating);
@@ -122,6 +544,17 @@ const SuperAdminRegistry = () => {
   const documents = useAppSelector(selectAllDocuments);
   const docsLoading = useAppSelector(selectDocLoading);
   const docError = useAppSelector(selectDocumentError);
+
+  // ── Folder State ────────────────────────────────────────────────────────────
+  const folders = useAppSelector(selectAllRHCFolders);
+  const rootFolders = useAppSelector(selectRootFolders);
+  const categories = useAppSelector(selectRHCFolderCategories);
+  const searchResults = useAppSelector(selectRHCFolderSearchResults);
+  const selectedFolder = useAppSelector(selectSelectedRHCFolder);
+  const hierarchy = useAppSelector(selectRHCFolderHierarchy);
+  const folderDocuments = useAppSelector(selectRHCFolderDocuments);
+  const foldersLoading = useAppSelector(selectRHCFoldersLoading);
+  const foldersError = useAppSelector(selectRHCFoldersError);
 
   // ── Form state ───────────────────────────────────────────────────────────────
   const [selectedDoc, setSelectedDoc] = useState('');
@@ -160,17 +593,43 @@ const SuperAdminRegistry = () => {
   const [documentLoading, setDocumentLoading] = useState(false);
   const [documentError, setDocumentError] = useState<string | null>(null);
 
-  // ── Initial data load ────────────────────────────────────────────────────────
+  // ── Folder View State ──────────────────────────────────────────────────────
+  const [viewMode, setViewMode] = useState<RegistryView>('stations');
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [folderSearchQuery, setFolderSearchQuery] = useState('');
+  const [selectedFolderCategory, setSelectedFolderCategory] = useState<FolderCategory | 'all'>('all');
+  
+  // ── Folder Document Selection ──────────────────────────────────────────────
+  const [selectedFolderDocs, setSelectedFolderDocs] = useState<Set<string>>(new Set());
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
+  const [isMoving, setIsMoving] = useState(false);
+
+  // ── Folder CRUD State ──────────────────────────────────────────────────────
+  const [showFolderCreateModal, setShowFolderCreateModal] = useState(false);
+  const [showFolderEditModal, setShowFolderEditModal] = useState(false);
+  const [selectedFolderForEdit, setSelectedFolderForEdit] = useState<RHCFolder | null>(null);
+  const [folderFormData, setFolderFormData] = useState({
+    ref_no: '',
+    name: '',
+    category: 'court' as FolderCategory,
+    description: '',
+    status: 'active' as FolderStatus,
+    parent_folder_id: '',
+  });
+
+  // ── Initial data load ──────────────────────────────────────────────────────
   useEffect(() => {
     dispatch(fetchStationCounts());
     dispatch(fetchDocuments({ page: 1, limit: 100, sort_by: 'created_at', sort_order: 'DESC' }));
+    dispatch(fetchRHCFolders({ include_sub_folders: true }));
+    dispatch(fetchRHCFolderCategories());
   }, [dispatch]);
 
   const refreshCounts = useCallback(() => {
     dispatch(fetchStationCounts());
   }, [dispatch]);
 
-  // ── Error toasts ──────────────────────────────────────────────────────────────
+  // ── Error toasts ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (registryError) {
       toast.error(registryError);
@@ -184,6 +643,13 @@ const SuperAdminRegistry = () => {
       dispatch(clearDocumentError());
     }
   }, [docError, dispatch]);
+
+  useEffect(() => {
+    if (foldersError) {
+      toast.error(foldersError);
+      dispatch(clearFolderError());
+    }
+  }, [foldersError, dispatch]);
 
   // ── Submit: route the document to the chosen station ─────────────────────────
   const handleRoute = async (e: React.FormEvent) => {
@@ -474,6 +940,216 @@ const SuperAdminRegistry = () => {
     }
   };
 
+  // ── Folder Handlers ──────────────────────────────────────────────────────
+
+  const handleViewFolder = async (id: string) => {
+    setCurrentFolderId(id);
+    setViewMode('folder_detail');
+    setSelectedFolderDocs(new Set());
+    await dispatch(fetchRHCFolderById(id));
+    await dispatch(fetchRHCFolderChildren({ id }));
+    await dispatch(fetchRHCFolderDocuments({ id }));
+  };
+
+  const handleBackFromFolder = () => {
+    setViewMode('stations');
+    setCurrentFolderId(null);
+    setSelectedFolderDocs(new Set());
+    dispatch(clearSelectedFolder());
+    dispatch(clearHierarchy());
+    dispatch(clearFolderDocuments());
+    dispatch(fetchRHCFolders({ include_sub_folders: true }));
+  };
+
+  const handleFolderSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const query = e.target.value;
+    setFolderSearchQuery(query);
+    if (query.length >= 2) {
+      dispatch(searchRHCFolders(query));
+    } else {
+      dispatch(clearSearchResults());
+    }
+  };
+
+  const handleFolderFilter = (category: FolderCategory | 'all') => {
+    setSelectedFolderCategory(category);
+    dispatch(fetchRHCFolders({
+      category: category === 'all' ? undefined : category,
+      include_sub_folders: true,
+    }));
+  };
+
+  // ── Folder Document Selection ──────────────────────────────────────────
+
+  const toggleFolderDocumentSelection = (documentId: string) => {
+    setSelectedFolderDocs(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(documentId)) {
+        newSet.delete(documentId);
+      } else {
+        newSet.add(documentId);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllFolderDocuments = () => {
+    if (selectedFolderDocs.size === folderDocuments.length) {
+      setSelectedFolderDocs(new Set());
+    } else {
+      setSelectedFolderDocs(new Set(folderDocuments.map(d => d.id)));
+    }
+  };
+
+  const clearFolderSelection = () => {
+    setSelectedFolderDocs(new Set());
+  };
+
+  const handleMoveDocuments = async (targetFolderId: string) => {
+    if (selectedFolderDocs.size === 0) {
+      toast.error('No documents selected');
+      return;
+    }
+
+    setIsMoving(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      for (const documentId of Array.from(selectedFolderDocs)) {
+        try {
+          await dispatch(moveRHCDocumentToFolder({
+            sourceFolderId: currentFolderId!,
+            documentId,
+            targetFolderId,
+          })).unwrap();
+          successCount++;
+        } catch {
+          errorCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`${successCount} document(s) moved successfully`);
+      }
+      if (errorCount > 0) {
+        toast.error(`${errorCount} document(s) failed to move`);
+      }
+
+      if (currentFolderId) {
+        await handleViewFolder(currentFolderId);
+      }
+      dispatch(fetchRHCFolders({ include_sub_folders: true }));
+      
+      setSelectedFolderDocs(new Set());
+      setIsMoveModalOpen(false);
+    } catch (error) {
+      toast.error('Failed to move documents');
+      console.error('Move error:', error);
+    } finally {
+      setIsMoving(false);
+    }
+  };
+
+  // ── Folder CRUD ─────────────────────────────────────────────────────────
+
+  const handleCreateFolder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await dispatch(createRHCFolder({
+        ref_no: folderFormData.ref_no,
+        name: folderFormData.name,
+        category: folderFormData.category,
+        description: folderFormData.description || undefined,
+        parent_folder_id: currentFolderId || folderFormData.parent_folder_id || undefined,
+        status: folderFormData.status,
+      })).unwrap();
+      toast.success('Folder created successfully!');
+      setShowFolderCreateModal(false);
+      resetFolderForm();
+      if (viewMode === 'folder_detail' && currentFolderId) {
+        await handleViewFolder(currentFolderId);
+      }
+      dispatch(fetchRHCFolders({ include_sub_folders: true }));
+      dispatch(fetchRHCFolderCategories());
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to create folder');
+    }
+  };
+
+  const handleUpdateFolder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFolderForEdit) return;
+    try {
+      await dispatch(updateRHCFolder({
+        id: selectedFolderForEdit.id,
+        input: {
+          name: folderFormData.name,
+          description: folderFormData.description || undefined,
+          status: folderFormData.status,
+        },
+      })).unwrap();
+      toast.success('Folder updated successfully!');
+      setShowFolderEditModal(false);
+      setSelectedFolderForEdit(null);
+      resetFolderForm();
+      if (viewMode === 'folder_detail' && currentFolderId) {
+        await handleViewFolder(currentFolderId);
+      }
+      dispatch(fetchRHCFolders({ include_sub_folders: true }));
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to update folder');
+    }
+  };
+
+  const handleDeleteFolder = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this folder? This action cannot be undone.')) {
+      return;
+    }
+    try {
+      await dispatch(deleteRHCFolder(id)).unwrap();
+      toast.success('Folder deleted successfully!');
+      if (viewMode === 'folder_detail' && currentFolderId === id) {
+        handleBackFromFolder();
+      }
+      dispatch(fetchRHCFolders({ include_sub_folders: true }));
+      dispatch(fetchRHCFolderCategories());
+    } catch (err) {
+      toast.error(typeof err === 'string' ? err : 'Failed to delete folder');
+    }
+  };
+
+  const handleEditFolderClick = (folder: RHCFolder) => {
+    setSelectedFolderForEdit(folder);
+    setFolderFormData({
+      ref_no: folder.ref_no,
+      name: folder.name,
+      category: folder.category,
+      description: folder.description || '',
+      status: folder.status,
+      parent_folder_id: folder.parent_folder_id || '',
+    });
+    setShowFolderEditModal(true);
+  };
+
+  const resetFolderForm = () => {
+    setFolderFormData({
+      ref_no: '',
+      name: '',
+      category: 'court',
+      description: '',
+      status: 'active',
+      parent_folder_id: '',
+    });
+  };
+
+  const handleFolderInputChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) => {
+    const { name, value } = e.target;
+    setFolderFormData(prev => ({ ...prev, [name]: value }));
+  };
+
   const routableDocuments = documents.filter((d) => d.status !== 'filed');
 
   const getStationName = (stationId: string | null) => {
@@ -555,23 +1231,33 @@ const SuperAdminRegistry = () => {
     );
   };
 
-  // ── Render Registry Tab ────────────────────────────────────────────────────
-  const renderRegistryTab = () => (
+  // ── Render Stations View ──────────────────────────────────────────────────
+
+  const renderStationsView = () => (
     <>
       {/* Route Document form */}
       <div className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-medium text-slate-900">Route Document</h2>
-          <button
-            onClick={() => {
-              resetStationForm();
-              setIsCreateModalOpen(true);
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-[#8B6914] hover:bg-[#7A5E12] transition"
-          >
-            <Plus size={14} />
-            New Station
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                resetStationForm();
+                setIsCreateModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-[#8B6914] hover:bg-[#7A5E12] transition"
+            >
+              <Plus size={14} />
+              New Station
+            </button>
+            <button
+              onClick={() => setShowFolderCreateModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-emerald-600 hover:bg-emerald-700 transition"
+            >
+              <Folder size={14} />
+              New Folder
+            </button>
+          </div>
         </div>
         <form onSubmit={handleRoute}>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
@@ -659,7 +1345,112 @@ const SuperAdminRegistry = () => {
         </form>
       </div>
 
-      {/* Stations grid */}
+      {/* ── Folders Section ────────────────────────────────────────────────── */}
+      <div className="mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <FolderOpen size={20} className="text-[#8B6914]" />
+            <h3 className="text-sm font-medium text-slate-800">RHC Folders</h3>
+            <span className="text-xs text-slate-400">({folders.length} folders)</span>
+          </div>
+          <button
+            onClick={() => {
+              dispatch(fetchRHCFolders({ include_sub_folders: true }));
+              toast.success('Folders refreshed');
+            }}
+            className="text-xs text-slate-400 hover:text-slate-600 transition"
+          >
+            <RefreshCw size={14} className="inline mr-1" />
+            Refresh
+          </button>
+        </div>
+
+        {/* Category Filters */}
+        {categories.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-3">
+            {categories.map(({ category, count }) => (
+              <button
+                key={category}
+                onClick={() => handleFolderFilter(category)}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition ${
+                  selectedFolderCategory === category
+                    ? `${CATEGORY_COLORS[category]} ring-2 ring-[#8B6914]`
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {CATEGORY_LABELS[category]}
+                <span className="rounded-full bg-slate-200 px-1.5 py-0.5 text-[10px]">
+                  {count}
+                </span>
+              </button>
+            ))}
+            {selectedFolderCategory !== 'all' && (
+              <button
+                onClick={() => handleFolderFilter('all')}
+                className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200"
+              >
+                <X size={12} />
+                Clear Filter
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Folder Search */}
+        <div className="relative mb-3">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Search folders by reference or name..."
+            value={folderSearchQuery}
+            onChange={handleFolderSearch}
+            className="w-full rounded-lg border border-slate-200 bg-white pl-9 pr-4 py-1.5 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+          />
+          {folderSearchQuery && (
+            <button
+              onClick={() => {
+                setFolderSearchQuery('');
+                dispatch(clearSearchResults());
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        {/* Folder Grid */}
+        {foldersLoading.fetch ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 size={24} className="animate-spin text-[#8B6914]" />
+            <span className="ml-2 text-sm text-slate-600">Loading folders...</span>
+          </div>
+        ) : foldersError ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {foldersError}
+          </div>
+        ) : (folderSearchQuery.length >= 2 ? searchResults : rootFolders).length === 0 ? (
+          <div className="py-8 text-center text-sm text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
+            <Folder size={32} className="mx-auto text-slate-300 mb-2" />
+            <p>No folders found</p>
+            <p className="text-xs mt-1">Create a folder using the "New Folder" button above</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+            {(folderSearchQuery.length >= 2 ? searchResults : rootFolders).map(folder => (
+              <FolderCard
+                key={folder.id}
+                folder={folder}
+                onEdit={handleEditFolderClick}
+                onDelete={handleDeleteFolder}
+                onView={handleViewFolder}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Stations Section ────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2 text-sm font-medium text-slate-800">
           <span>🏛</span>
@@ -752,15 +1543,59 @@ const SuperAdminRegistry = () => {
                     className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition"
                     title="Delete station"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>
             ))}
           </div>
         )
+      )}
+    </>
+  );
+
+  // ─── Main Render ──────────────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-slate-50 p-6">
+      <Toaster position="top-right" />
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+          <FolderOpen size={28} className="text-[#8B6914]" />
+          Document Registry
+        </h1>
+        {viewMode === 'folder_detail' && (
+          <button
+            onClick={handleBackFromFolder}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition"
+          >
+            <ArrowLeft size={16} />
+            Back to Registry
+          </button>
+        )}
+      </div>
+
+      {/* ── Content ────────────────────────────────────────────────────────── */}
+      {viewMode === 'folder_detail' && selectedFolder ? (
+        <FolderDetailView
+          folder={selectedFolder}
+          children={hierarchy?.children || []}
+          documents={folderDocuments}
+          loading={foldersLoading.fetch || foldersLoading.fetchOne}
+          onBack={handleBackFromFolder}
+          onEdit={handleEditFolderClick}
+          onDelete={handleDeleteFolder}
+          onViewFolder={handleViewFolder}
+          onRefresh={() => currentFolderId && handleViewFolder(currentFolderId)}
+          onMoveDocuments={() => setIsMoveModalOpen(true)}
+          selectedDocuments={selectedFolderDocs}
+          onToggleSelect={toggleFolderDocumentSelection}
+          onSelectAll={selectAllFolderDocuments}
+          onClearSelection={clearFolderSelection}
+        />
+      ) : (
+        renderStationsView()
       )}
 
       {/* ── Create Station Modal ───────────────────────────────────────────── */}
@@ -937,28 +1772,22 @@ const SuperAdminRegistry = () => {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-            {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
               <div>
                 <h3 className="text-lg font-medium text-slate-900">
                   {getStationName(selectedStationForModal)}
                 </h3>
-                {/* Reference Number - Displayed prominently in modal header */}
                 {getStationRef(selectedStationForModal) && (
                   <p className="text-sm font-mono font-medium text-[#8B6914] mt-0.5">
                     {getStationRef(selectedStationForModal)}
                   </p>
                 )}
-                <p className="text-sm text-slate-500 mt-1">
-                  Routed Documents
-                </p>
+                <p className="text-sm text-slate-500 mt-1">Routed Documents</p>
               </div>
               <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 transition">
                 <X size={24} />
               </button>
             </div>
-
-            {/* Modal Body - Grid Layout */}
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {modalLoading ? (
                 <div className="flex justify-center py-16">
@@ -978,8 +1807,6 @@ const SuperAdminRegistry = () => {
                 </div>
               )}
             </div>
-
-            {/* Modal Footer */}
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-500">
@@ -1097,42 +1924,268 @@ const SuperAdminRegistry = () => {
           </div>
         </div>
       )}
-    </>
-  );
 
-  // ─── Main Render ──────────────────────────────────────────────────────────
-  return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <Toaster position="top-right" />
+      {/* ── Folder Create Modal ────────────────────────────────────────────── */}
+      {showFolderCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+                <Folder size={20} className="text-[#8B6914]" />
+                Create New Folder
+              </h2>
+              <button
+                onClick={() => setShowFolderCreateModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
 
-      {/* ── Tab Navigation ────────────────────────────────────────────────── */}
-      <div className="mb-6 border-b border-slate-200">
-        <div className="flex space-x-1">
-          <button
-            onClick={() => setActiveTab('registry')}
-            className={`px-6 py-3 text-sm font-medium rounded-t-lg transition ${
-              activeTab === 'registry'
-                ? 'text-white bg-[#8B6914]'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            📋 Registry
-          </button>
-          <button
-            onClick={() => setActiveTab('folders')}
-            className={`px-6 py-3 text-sm font-medium rounded-t-lg transition ${
-              activeTab === 'folders'
-                ? 'text-white bg-[#8B6914]'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-            }`}
-          >
-            📁 Folders
-          </button>
+            <form onSubmit={handleCreateFolder} className="p-6 space-y-4">
+              {currentFolderId && viewMode === 'folder_detail' && (
+                <div className="rounded-md bg-blue-50 p-3">
+                  <p className="text-xs text-blue-700">
+                    Creating sub-folder inside: <span className="font-semibold">{selectedFolder?.name}</span>
+                  </p>
+                </div>
+              )}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Reference Number *
+                </label>
+                <input
+                  type="text"
+                  name="ref_no"
+                  value={folderFormData.ref_no}
+                  onChange={handleFolderInputChange}
+                  placeholder="e.g. RHC/FOLDER/001"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Folder Name *
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  value={folderFormData.name}
+                  onChange={handleFolderInputChange}
+                  placeholder="e.g. Case Files 2024"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Category *
+                </label>
+                <select
+                  name="category"
+                  value={folderFormData.category}
+                  onChange={handleFolderInputChange}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                  required
+                >
+                  {Object.entries(CATEGORY_LABELS).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Description
+                </label>
+                <textarea
+                  name="description"
+                  value={folderFormData.description}
+                  onChange={handleFolderInputChange}
+                  rows={3}
+                  placeholder="Folder description..."
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914] resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Status
+                </label>
+                <select
+                  name="status"
+                  value={folderFormData.status}
+                  onChange={handleFolderInputChange}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                >
+                  {Object.entries(STATUS_LABELS).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowFolderCreateModal(false)}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={foldersLoading.create}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#7A5E12] disabled:opacity-50"
+                >
+                  {foldersLoading.create ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Plus size={16} />
+                  )}
+                  Create Folder
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* ── Tab Content ────────────────────────────────────────────────────── */}
-      {activeTab === 'registry' ? renderRegistryTab() : <SuperAdminFolders /> }
+      {/* ── Folder Edit Modal ───────────────────────────────────────────────── */}
+      {showFolderEditModal && selectedFolderForEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+              <h2 className="text-lg font-semibold text-slate-900">Edit Folder</h2>
+              <button
+                onClick={() => {
+                  setShowFolderEditModal(false);
+                  setSelectedFolderForEdit(null);
+                  resetFolderForm();
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateFolder} className="p-6 space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Reference Number
+                </label>
+                <input
+                  type="text"
+                  value={folderFormData.ref_no}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500"
+                  disabled
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Folder Name *
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  value={folderFormData.name}
+                  onChange={handleFolderInputChange}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Category
+                </label>
+                <select
+                  name="category"
+                  value={folderFormData.category}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500"
+                  disabled
+                >
+                  <option value={folderFormData.category}>
+                    {CATEGORY_LABELS[folderFormData.category]}
+                  </option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Description
+                </label>
+                <textarea
+                  name="description"
+                  value={folderFormData.description}
+                  onChange={handleFolderInputChange}
+                  rows={3}
+                  placeholder="Folder description..."
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914] resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Status
+                </label>
+                <select
+                  name="status"
+                  value={folderFormData.status}
+                  onChange={handleFolderInputChange}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+                >
+                  {Object.entries(STATUS_LABELS).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowFolderEditModal(false);
+                    setSelectedFolderForEdit(null);
+                    resetFolderForm();
+                  }}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={foldersLoading.update}
+                  className="inline-flex items-center gap-2 rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#7A5E12] disabled:opacity-50"
+                >
+                  {foldersLoading.update ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <span>Update Folder</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Move Documents Modal ────────────────────────────────────────────── */}
+      <MoveDocumentsModal
+        isOpen={isMoveModalOpen}
+        onClose={() => {
+          setIsMoveModalOpen(false);
+          setSelectedFolderDocs(new Set());
+        }}
+        onMove={handleMoveDocuments}
+        folders={folders}
+        currentFolderId={currentFolderId}
+        selectedCount={selectedFolderDocs.size}
+        isMoving={isMoving}
+      />
     </div>
   );
 };
