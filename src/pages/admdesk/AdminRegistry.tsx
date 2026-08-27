@@ -34,6 +34,7 @@ import {
   deleteRHCFolder,
   searchRHCFolders,
   moveRHCDocumentToFolder,
+  addDocumentToFolder,  // ← IMPORT FROM HERE
   selectAllRHCFolders,
   selectRHCFoldersLoading,
   selectRHCFoldersError,
@@ -48,7 +49,6 @@ import {
   clearHierarchy,
   clearFolderDocuments,
   selectRootFolders,
-  //selectActiveFolders,
   type RHCFolder,
   type FolderCategory,
   type FolderStatus,
@@ -531,6 +531,8 @@ const MoveDocumentsModal: React.FC<{
   );
 };
 
+// ─── Main Component ──────────────────────────────────────────────────────────
+
 const SuperAdminRegistry = () => {
   const dispatch = useAppDispatch();
 
@@ -660,23 +662,56 @@ const SuperAdminRegistry = () => {
     }
 
     try {
-      await dispatch(
-        routeFile({
-          document_id: selectedDoc,
-          station_id: routeTo, // This can be a station OR a folder ID
-          priority,
-          note: note.trim() || undefined,
-        })
-      ).unwrap();
+      // Determine if destination is a station or folder
+      const isStation = stations.some(s => s.id === routeTo);
+      const isFolder = folders.some(f => f.id === routeTo);
 
-      toast.success('Document routed successfully');
+      if (isStation) {
+        // Route to station using registry system
+        await dispatch(
+          routeFile({
+            document_id: selectedDoc,
+            station_id: routeTo,
+            priority,
+            note: note.trim() || undefined,
+          })
+        ).unwrap();
+        toast.success('Document routed to station successfully');
+        
+        // Refresh station counts
+        refreshCounts();
+        
+      } else if (isFolder) {
+        // Add to folder using folder system
+        await dispatch(
+          addDocumentToFolder({
+            folderId: routeTo,
+            documentId: selectedDoc,
+          })
+        ).unwrap();
+        toast.success('Document added to folder successfully');
+        
+        // Refresh folder data
+        dispatch(fetchRHCFolders({ include_sub_folders: true }));
+        if (currentFolderId) {
+          await dispatch(fetchRHCFolderDocuments({ id: currentFolderId }));
+        }
+        
+      } else {
+        toast.error('Invalid destination selected');
+        return;
+      }
+
+      // Reset form
       setSelectedDoc('');
       setRouteTo('');
       setPriority('normal');
       setNote('');
-      refreshCounts();
-    } catch {
-      // error surfaced via the toast effect above
+      
+    } catch (error) {
+      const errorMessage = typeof error === 'string' ? error : 'Failed to route document';
+      toast.error(errorMessage);
+      console.error('Routing error:', error);
     }
   };
 

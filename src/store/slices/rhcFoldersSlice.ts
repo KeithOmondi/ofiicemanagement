@@ -54,7 +54,7 @@ export interface CreateRHCFolderInput {
     name: string;
     category: FolderCategory;
     description?: string;
-    parent_folder_id?: string;
+    parent_folder_id?: string | null;  // Allow null
     status?: FolderStatus;
     department_id?: string;
 }
@@ -99,7 +99,7 @@ export interface FolderDocument {
     created_at: string;
     updated_at: string;
     uploaded_by?: string | null;
-    uploaded_by_name?: string;
+    uploaded_by_name?: string | null;
     added_at?: string;        // When it was added to the folder
 }
 
@@ -108,22 +108,26 @@ export interface FolderDocument {
 export interface MoveDocumentResult {
     sourceFolder: RHCFolder;
     targetFolder: RHCFolder;
-    document: {
-        id: string;
-        title: string;
-        ref: string | null;
-        format: string;
-        file_url: string | null;
-        file_public_id: string | null;
-        created_at: string;
-        added_at: string;
-    };
+    document: FolderDocument;
 }
 
 export interface MoveDocumentInput {
     sourceFolderId: string;
     documentId: string;
     targetFolderId: string;
+}
+
+// ─── Add Document to Folder Types ──────────────────────────────────────────
+
+export interface AddDocumentToFolderInput {
+    folderId: string;
+    documentId: string;
+}
+
+export interface AddDocumentToFolderResult {
+    folderId: string;
+    documentId: string;
+    document?: FolderDocument;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -191,6 +195,7 @@ interface RHCFoldersState {
         fetchCategories: boolean;
         search: boolean;
         fetchDocuments: boolean;
+        addDocument: boolean;
         moveDocument: boolean;
     };
     error: string | null;
@@ -219,6 +224,7 @@ const initialState: RHCFoldersState = {
         fetchCategories: false,
         search: false,
         fetchDocuments: false,
+        addDocument: false,
         moveDocument: false,
     },
     error: null,
@@ -251,7 +257,7 @@ function buildParams(filters: RHCFolderFilters): Record<string, string> {
 
 function getErrorMessage(err: unknown, fallback: string): string {
     const error = err as AxiosError<{ message?: string }>;
-    return error.response?.data?.message ?? fallback;
+    return error.response?.data?.message ?? error.message ?? fallback;
 }
 
 // ─── Thunks ───────────────────────────────────────────────────────────────────
@@ -377,7 +383,12 @@ export const createRHCFolder = createAsyncThunk<
     'rhcFolders/create',
     async (input, { rejectWithValue }) => {
         try {
-            const { data } = await axiosClient.post('/orhc-folders/folders', input);
+            // Convert null to undefined for parent_folder_id
+            const payload = {
+                ...input,
+                parent_folder_id: input.parent_folder_id === null ? undefined : input.parent_folder_id,
+            };
+            const { data } = await axiosClient.post('/orhc-folders/folders', payload);
             return data.data as RHCFolder;
         } catch (err) {
             return rejectWithValue(getErrorMessage(err, 'Failed to create folder'));
@@ -435,6 +446,30 @@ export const fetchRHCFolderDocuments = createAsyncThunk<
             return data.data as FolderDocument[];
         } catch (err) {
             return rejectWithValue(getErrorMessage(err, 'Failed to fetch folder documents'));
+        }
+    }
+);
+
+// ── ADD: Add document to folder ─────────────────────────────────────────────
+export const addDocumentToFolder = createAsyncThunk<
+    AddDocumentToFolderResult,
+    AddDocumentToFolderInput,
+    { rejectValue: string }
+>(
+    'rhcFolders/addDocumentToFolder',
+    async ({ folderId, documentId }, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.post(
+                `/orhc-folders/folders/${folderId}/documents`,
+                { document_id: documentId }
+            );
+            return {
+                folderId,
+                documentId,
+                document: data.data as FolderDocument,
+            };
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to add document to folder'));
         }
     }
 );
@@ -509,7 +544,6 @@ const rhcFoldersSlice = createSlice({
             .addCase(fetchRHCFolderById.fulfilled, (state, action: PayloadAction<RHCFolder>) => {
                 state.loading.fetchOne = false;
                 state.selectedFolder = action.payload;
-                // Update in list if exists
                 const index = state.items.findIndex(f => f.id === action.payload.id);
                 if (index !== -1) {
                     state.items[index] = action.payload;
@@ -528,7 +562,6 @@ const rhcFoldersSlice = createSlice({
             })
             .addCase(fetchRHCFolderChildren.fulfilled, (state, action: PayloadAction<RHCFolder[]>) => {
                 state.loading.fetchChildren = false;
-                // Store children in the hierarchy
                 if (state.hierarchy) {
                     state.hierarchy.children = action.payload;
                 }
@@ -655,6 +688,23 @@ const rhcFoldersSlice = createSlice({
             })
             .addCase(fetchRHCFolderDocuments.rejected, (state, action) => {
                 state.loading.fetchDocuments = false;
+                state.error = action.payload as string;
+            });
+
+        // ── addDocumentToFolder ──────────────────────────────────────────────
+        builder
+            .addCase(addDocumentToFolder.pending, (state) => {
+                state.loading.addDocument = true;
+                state.error = null;
+            })
+            .addCase(addDocumentToFolder.fulfilled, (state, action) => {
+                state.loading.addDocument = false;
+                if (action.payload.document) {
+                    state.folderDocuments = [action.payload.document, ...state.folderDocuments];
+                }
+            })
+            .addCase(addDocumentToFolder.rejected, (state, action) => {
+                state.loading.addDocument = false;
                 state.error = action.payload as string;
             });
 
