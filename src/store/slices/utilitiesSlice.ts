@@ -1,6 +1,4 @@
-// ============================================================
-// utilitiesSlice.ts - Dedicated Utilities Slice with Memo Support
-// ============================================================
+// src/store/slices/utilitiesSlice.ts - Updated with fixes
 
 import {
   createSlice,
@@ -9,6 +7,7 @@ import {
 } from "@reduxjs/toolkit";
 import axiosClient from "../../api/api";
 import type { AxiosError } from "axios";
+import type { HelpdeskDocument } from "./helpdeskDocumentsSlice";
 
 /* ============================================================
    TYPES
@@ -25,15 +24,31 @@ export type UtilityStatus =
   | "Paid"
   | "Payment NA";
 
-// ─── NEW: Approval Status Types ──────────────────────────────────────────
+// ─── Approval Status Types ──────────────────────────────────────────
 
-export type UtilityApprovalStatus = "pending" | "sent" | "approved" | "rejected";
+export type UtilityApprovalStatus = "pending" | "in_memo" | "sent" | "approved" | "rejected";
 
 export type MemoStatus = "draft" | "sent" | "approved" | "rejected" | "cancelled";
 
 export type ConsolidatedMemoType = "all" | "fuel";
 
-// ─── NEW: Utility Item with Approval Fields ──────────────────────────────
+// ─── Document Types ────────────────────────────────────────────────────
+
+export type DocumentStatus = "draft" | "pending_approval" | "approved" | "rejected" | "returned";
+
+export type DocumentSyncStatus = "pending" | "synced" | "failed" | "not_applicable";
+
+export interface DocumentReference {
+  document_id: string;
+  document_ref: string;
+  document_status: DocumentStatus;
+  document_entity_type: string;
+  document_entity_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── Utility Item with Document Sync Fields ──────────────────────────
 
 export interface UtilityItem {
   id: string;
@@ -49,10 +64,17 @@ export interface UtilityItem {
   status: UtilityStatus;
   supporting_document_url: string | null;
   
-  // ─── NEW: Approval tracking fields ────────────────────────────────────
+  // ─── Approval tracking fields ────────────────────────────────────
   approval_status: UtilityApprovalStatus;
   memo_id: string | null;
   memo_sent_at: string | null;
+  
+  // ─── Document sync fields ──────────────────────────────────────
+  document_sync_status: DocumentSyncStatus;
+  document_synced_at: string | null;
+  document_sync_error: string | null;
+  last_document_id: string | null;
+  last_document_status: DocumentStatus | null;
   
   created_at: string;
   updated_at: string;
@@ -68,7 +90,7 @@ export interface JudgeUtility {
   updated_at: string;
 }
 
-// ─── NEW: Consolidated Memo ──────────────────────────────────────────────
+// ─── Consolidated Memo ──────────────────────────────────────────────
 
 export interface ConsolidatedMemo {
   id: string;
@@ -86,6 +108,10 @@ export interface ConsolidatedMemo {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // ─── Document reference ──────────────────────────────────────────
+  document_reference?: DocumentReference | null;
+  has_document: boolean;
+  document_status?: DocumentStatus | null;
 }
 
 // ─── Input Types ──────────────────────────────────────────────────────────
@@ -134,6 +160,9 @@ export interface UpdateUtilityItemInput {
   requisition_number?: string;
   approval_status?: UtilityApprovalStatus;
   memo_id?: string | null;
+  document_sync_status?: DocumentSyncStatus;
+  last_document_id?: string | null;
+  last_document_status?: DocumentStatus | null;
 }
 
 export interface UpdateUtilityInput {
@@ -150,15 +179,18 @@ export interface UtilityFilters {
   period?: string;
   limit?: number;
   offset?: number;
+  document_sync_status?: DocumentSyncStatus;
+  has_document?: boolean;
 }
 
-// ─── NEW: Memo Input Types ───────────────────────────────────────────────
+// ─── Memo Input Types ───────────────────────────────────────────────
 
 export interface GenerateMemoInput {
   type: ConsolidatedMemoType;
   period: string;
   utility_item_ids: string[];
   title?: string;
+  exclude_items_with_documents?: boolean;
 }
 
 export interface MemoFilters {
@@ -167,12 +199,42 @@ export interface MemoFilters {
   status?: MemoStatus;
   limit?: number;
   offset?: number;
+  has_document?: boolean;
+  document_status?: DocumentStatus;
 }
 
 export interface BulkUpdateUtilityItemsInput {
   item_ids: string[];
   approval_status: UtilityApprovalStatus;
   memo_id?: string | null;
+}
+
+// ─── Document Sync Types ──────────────────────────────────────────────────
+
+export interface SyncUtilitiesWithDocumentInput {
+  memo_id: string;
+  document_status: DocumentStatus;
+  document_id: string;
+  document_ref: string;
+  document_entity_type: "consolidated_utility_memo" | "consolidated_fuel_memo";
+  document_entity_id: string;
+}
+
+export interface CheckItemsAvailabilityInput {
+  item_ids: string[];
+  exclude_with_documents?: boolean;
+}
+
+export interface ItemsAvailabilityResult {
+  available: string[];
+  unavailable: Array<{ id: string; reason: string }>;
+}
+
+// ─── Memo With Document ──────────────────────────────────────────────────
+
+export interface MemoWithDocument {
+  memo: ConsolidatedMemo | null;
+  document: HelpdeskDocument | null;
 }
 
 // ─── Stats ──────────────────────────────────────────────────────────────────
@@ -184,6 +246,14 @@ export interface UtilityStats {
   byApprovalStatus: Record<UtilityApprovalStatus, number>;
   byType: Record<string, number>;
   totalAmount: number;
+  documentSyncStats: {
+    synced: number;
+    pending: number;
+    failed: number;
+    notApplicable: number;
+  };
+  itemsWithApprovedDocuments: number;
+  itemsWithRejectedDocuments: number;
 }
 
 export interface MemoSummary {
@@ -191,6 +261,8 @@ export interface MemoSummary {
   byStatus: Record<string, number>;
   totalAmount: number;
   pendingItems: number;
+  memosWithDocuments: number;
+  memosWithoutDocuments: number;
 }
 
 /* ============================================================
@@ -205,6 +277,7 @@ interface UtilitiesState {
   // Selected items
   selectedUtility: JudgeUtility | null;
   selectedMemo: ConsolidatedMemo | null;
+  selectedMemoWithDocument: MemoWithDocument | null;
   
   // Filters
   filters: UtilityFilters;
@@ -223,12 +296,18 @@ interface UtilitiesState {
     mutating: boolean;
     generating: boolean;
     stats: boolean;
+    syncing: boolean;
+    checking: boolean;
   };
   
   // Stats
   stats: UtilityStats | null;
   memoSummary: MemoSummary | null;
   availablePeriods: string[];
+  
+  // Available items for memo
+  availableItems: UtilityItem[];
+  itemsAvailability: ItemsAvailabilityResult | null;
   
   // UI state
   error: string | null;
@@ -245,6 +324,7 @@ const initialState: UtilitiesState = {
   
   selectedUtility: null,
   selectedMemo: null,
+  selectedMemoWithDocument: null,
   
   filters: {},
   memoFilters: {},
@@ -260,11 +340,15 @@ const initialState: UtilitiesState = {
     mutating: false,
     generating: false,
     stats: false,
+    syncing: false,
+    checking: false,
   },
   
   stats: null,
   memoSummary: null,
   availablePeriods: [],
+  availableItems: [],
+  itemsAvailability: null,
   
   error: null,
   success: false,
@@ -282,6 +366,102 @@ const getErrorMessage = (error: unknown): string => {
     "An unexpected error occurred"
   );
 };
+
+const buildQueryString = <T extends object>(filters: T): string => {
+  const params = new URLSearchParams();
+  Object.entries(filters as Record<string, unknown>).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") {
+      if (Array.isArray(value)) {
+        params.append(key, value.join(","));
+      } else {
+        params.append(key, String(value));
+      }
+    }
+  });
+  return params.toString() ? `?${params.toString()}` : "";
+};
+
+/* ============================================================
+   THUNKS - DOCUMENT SYNC
+============================================================ */
+
+// ─── Sync utilities with document ──────────────────────────────────────────
+
+export const syncUtilitiesWithDocument = createAsyncThunk(
+  "utilities/syncWithDocument",
+  async (input: SyncUtilitiesWithDocumentInput, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.post("/utilities/sync-with-document", input);
+      return data.data as { success: boolean; updatedCount: number; message: string };
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  }
+);
+
+// ─── Get available items for memo ──────────────────────────────────────────
+
+export const fetchAvailableItemsForMemo = createAsyncThunk(
+  "utilities/fetchAvailableItemsForMemo",
+  async (
+    params: { period: string; utility_type?: UtilityType; exclude_with_documents?: boolean },
+    { rejectWithValue }
+  ) => {
+    try {
+      const query = buildQueryString(params);
+      const { data } = await axiosClient.get(`/utilities/available-items${query}`);
+      return data.data as UtilityItem[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  }
+);
+
+// ─── Get items with document status ────────────────────────────────────────
+
+export const fetchItemsWithDocumentStatus = createAsyncThunk(
+  "utilities/fetchItemsWithDocumentStatus",
+  async (
+    params: { document_status?: DocumentStatus; period?: string; utility_type?: UtilityType; limit?: number; offset?: number },
+    { rejectWithValue }
+  ) => {
+    try {
+      const query = buildQueryString(params);
+      const { data } = await axiosClient.get(`/utilities/items-with-document-status${query}`);
+      return data.data as UtilityItem[];
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  }
+);
+
+// ─── Get memo with document ─────────────────────────────────────────────────
+
+export const fetchMemoWithDocument = createAsyncThunk(
+  "utilities/fetchMemoWithDocument",
+  async (id: string, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.get(`/utilities/memos/${id}/with-document`);
+      return data.data as MemoWithDocument;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  }
+);
+
+// ─── Check items availability ──────────────────────────────────────────────
+
+export const checkItemsAvailability = createAsyncThunk(
+  "utilities/checkItemsAvailability",
+  async (input: CheckItemsAvailabilityInput, { rejectWithValue }) => {
+    try {
+      const { data } = await axiosClient.post("/utilities/check-items-availability", input);
+      return data.data as ItemsAvailabilityResult;
+    } catch (err) {
+      return rejectWithValue(getErrorMessage(err));
+    }
+  }
+);
 
 /* ============================================================
    THUNKS - UTILITIES
@@ -404,20 +584,6 @@ export const deleteUtility = createAsyncThunk(
 );
 
 // ─── Memo Thunks ─────────────────────────────────────────────────────────
-
-const buildQueryString = <T extends object>(filters: T): string => {
-  const params = new URLSearchParams();
-  Object.entries(filters as Record<string, unknown>).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") {
-      if (Array.isArray(value)) {
-        params.append(key, value.join(","));
-      } else {
-        params.append(key, String(value));
-      }
-    }
-  });
-  return params.toString() ? `?${params.toString()}` : "";
-};
 
 export const fetchMemoById = createAsyncThunk(
   "utilities/fetchMemoById",
@@ -599,6 +765,8 @@ export const fetchUtilityEnums = createAsyncThunk(
         approvalStatuses: UtilityApprovalStatus[];
         memoStatuses: MemoStatus[];
         memoTypes: ConsolidatedMemoType[];
+        documentSyncStatuses: DocumentSyncStatus[];
+        documentStatuses: DocumentStatus[];
       };
     } catch (err) {
       return rejectWithValue(getErrorMessage(err));
@@ -667,6 +835,17 @@ const utilitiesSlice = createSlice({
     setSelectedMemo(state, action: PayloadAction<ConsolidatedMemo | null>) {
       state.selectedMemo = action.payload;
     },
+    clearSelectedMemoWithDocument(state) {
+      state.selectedMemoWithDocument = null;
+    },
+    
+    // ─── Clear available items ──────────────────────────────────────────
+    clearAvailableItems(state) {
+      state.availableItems = [];
+    },
+    clearItemsAvailability(state) {
+      state.itemsAvailability = null;
+    },
     
     // ─── Optimistic Updates ─────────────────────────────────────────────
     updateUtilityItemOptimistically(
@@ -705,6 +884,85 @@ const utilitiesSlice = createSlice({
     resetUtilitiesState: () => initialState,
   },
   extraReducers: (builder) => {
+    // ─── syncUtilitiesWithDocument ─────────────────────────────────────
+    builder
+      .addCase(syncUtilitiesWithDocument.pending, (state) => {
+        state.loading.syncing = true;
+        state.error = null;
+      })
+      .addCase(syncUtilitiesWithDocument.fulfilled, (state) => {
+        state.loading.syncing = false;
+        state.success = true;
+        // We'll refetch utilities to get updated sync status
+      })
+      .addCase(syncUtilitiesWithDocument.rejected, (state, action) => {
+        state.loading.syncing = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── fetchAvailableItemsForMemo ─────────────────────────────────────
+    builder
+      .addCase(fetchAvailableItemsForMemo.pending, (state) => {
+        state.loading.utilities = true;
+        state.error = null;
+      })
+      .addCase(fetchAvailableItemsForMemo.fulfilled, (state, action: PayloadAction<UtilityItem[]>) => {
+        state.loading.utilities = false;
+        state.availableItems = action.payload;
+      })
+      .addCase(fetchAvailableItemsForMemo.rejected, (state, action) => {
+        state.loading.utilities = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── fetchItemsWithDocumentStatus ──────────────────────────────────
+    builder
+      .addCase(fetchItemsWithDocumentStatus.pending, (state) => {
+        state.loading.utilities = true;
+        state.error = null;
+      })
+      .addCase(fetchItemsWithDocumentStatus.fulfilled, (state) => {
+        state.loading.utilities = false;
+        // These are just items, we don't store them in state directly
+      })
+      .addCase(fetchItemsWithDocumentStatus.rejected, (state, action) => {
+        state.loading.utilities = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── fetchMemoWithDocument ──────────────────────────────────────────
+    builder
+      .addCase(fetchMemoWithDocument.pending, (state) => {
+        state.loading.memos = true;
+        state.error = null;
+      })
+      .addCase(fetchMemoWithDocument.fulfilled, (state, action: PayloadAction<MemoWithDocument>) => {
+        state.loading.memos = false;
+        state.selectedMemoWithDocument = action.payload;
+        if (action.payload.memo) {
+          state.selectedMemo = action.payload.memo;
+        }
+      })
+      .addCase(fetchMemoWithDocument.rejected, (state, action) => {
+        state.loading.memos = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── checkItemsAvailability ──────────────────────────────────────────
+    builder
+      .addCase(checkItemsAvailability.pending, (state) => {
+        state.loading.checking = true;
+        state.error = null;
+      })
+      .addCase(checkItemsAvailability.fulfilled, (state, action: PayloadAction<ItemsAvailabilityResult>) => {
+        state.loading.checking = false;
+        state.itemsAvailability = action.payload;
+      })
+      .addCase(checkItemsAvailability.rejected, (state, action) => {
+        state.loading.checking = false;
+        state.error = action.payload as string;
+      });
+
     // ─── fetchUtilities ──────────────────────────────────────────────────
     builder
       .addCase(fetchUtilities.pending, (state) => {
@@ -1025,12 +1283,26 @@ const utilitiesSlice = createSlice({
         state.loading.utilities = true;
         state.error = null;
       })
-    .addCase(fetchPendingUtilities.fulfilled, (state) => {
-  state.loading.utilities = false;
-  // These are just items, not full utilities - we don't store them in state
-  // They're used for the memo generation UI
-})
+      .addCase(fetchPendingUtilities.fulfilled, (state) => {
+        state.loading.utilities = false;
+        // These are just items, not full utilities - we don't store them in state
+        // They're used for the memo generation UI
+      })
       .addCase(fetchPendingUtilities.rejected, (state, action) => {
+        state.loading.utilities = false;
+        state.error = action.payload as string;
+      });
+
+    // ─── fetchUtilitiesByApprovalStatus ──────────────────────────────────
+    builder
+      .addCase(fetchUtilitiesByApprovalStatus.pending, (state) => {
+        state.loading.utilities = true;
+        state.error = null;
+      })
+      .addCase(fetchUtilitiesByApprovalStatus.fulfilled, (state) => {
+        state.loading.utilities = false;
+      })
+      .addCase(fetchUtilitiesByApprovalStatus.rejected, (state, action) => {
         state.loading.utilities = false;
         state.error = action.payload as string;
       });
@@ -1065,12 +1337,17 @@ const utilitiesSlice = createSlice({
           byApprovalStatus: action.payload.byApprovalStatus,
           byType: action.payload.byType,
           totalAmount: action.payload.totalAmount,
+          documentSyncStats: action.payload.documentSyncStats,
+          itemsWithApprovedDocuments: action.payload.itemsWithApprovedDocuments,
+          itemsWithRejectedDocuments: action.payload.itemsWithRejectedDocuments,
         };
         state.memoSummary = {
           totalMemos: action.payload.totalMemos,
           byStatus: action.payload.byStatus,
           totalAmount: action.payload.totalAmount,
           pendingItems: action.payload.pendingItems,
+          memosWithDocuments: action.payload.memosWithDocuments,
+          memosWithoutDocuments: action.payload.memosWithoutDocuments,
         };
       })
       .addCase(fetchUtilitySummary.rejected, (state, action) => {
@@ -1125,6 +1402,9 @@ export const {
   setMemoPagination,
   setSelectedUtility,
   setSelectedMemo,
+  clearSelectedMemoWithDocument,
+  clearAvailableItems,
+  clearItemsAvailability,
   updateUtilityItemOptimistically,
   updateMemoOptimistically,
   clearUtilityError,
@@ -1157,6 +1437,9 @@ export const selectSelectedUtility = (state: { utilities: UtilitiesState }) =>
 export const selectSelectedMemo = (state: { utilities: UtilitiesState }) =>
   state.utilities.selectedMemo;
 
+export const selectSelectedMemoWithDocument = (state: { utilities: UtilitiesState }) =>
+  state.utilities.selectedMemoWithDocument;
+
 // ─── Filters ─────────────────────────────────────────────────────────────
 
 export const selectUtilityFilters = (state: { utilities: UtilitiesState }) =>
@@ -1182,6 +1465,12 @@ export const selectUtilitiesGenerating = (state: { utilities: UtilitiesState }) 
 export const selectUtilitiesStatsLoading = (state: { utilities: UtilitiesState }) =>
   state.utilities.loading.stats;
 
+export const selectUtilitiesSyncing = (state: { utilities: UtilitiesState }) =>
+  state.utilities.loading.syncing;
+
+export const selectUtilitiesChecking = (state: { utilities: UtilitiesState }) =>
+  state.utilities.loading.checking;
+
 // ─── Stats ────────────────────────────────────────────────────────────────
 
 export const selectUtilityStats = (state: { utilities: UtilitiesState }) =>
@@ -1192,6 +1481,14 @@ export const selectMemoSummary = (state: { utilities: UtilitiesState }) =>
 
 export const selectAvailablePeriods = (state: { utilities: UtilitiesState }) =>
   state.utilities.availablePeriods;
+
+// ─── Available Items ──────────────────────────────────────────────────────
+
+export const selectAvailableItemsForMemo = (state: { utilities: UtilitiesState }) =>
+  state.utilities.availableItems;
+
+export const selectItemsAvailability = (state: { utilities: UtilitiesState }) =>
+  state.utilities.itemsAvailability;
 
 // ─── Derived Selectors ──────────────────────────────────────────────────
 
@@ -1213,9 +1510,17 @@ export const selectMemosByPeriod = (period: string) =>
   (state: { utilities: UtilitiesState }) =>
     state.utilities.memos.filter((m) => m.period === period);
 
+// ─── Approval Status Counts ──────────────────────────────────────────────
+
 export const selectPendingItemsCount = (state: { utilities: UtilitiesState }) =>
   state.utilities.utilities.reduce(
     (sum, u) => sum + u.items.filter((item) => item.approval_status === "pending").length,
+    0
+  );
+
+export const selectInMemoItemsCount = (state: { utilities: UtilitiesState }) =>
+  state.utilities.utilities.reduce(
+    (sum, u) => sum + u.items.filter((item) => item.approval_status === "in_memo").length,
     0
   );
 
@@ -1237,11 +1542,45 @@ export const selectRejectedItemsCount = (state: { utilities: UtilitiesState }) =
     0
   );
 
+// ─── Document Sync Counts ──────────────────────────────────────────────────
+
+export const selectItemsWithApprovedDocuments = (state: { utilities: UtilitiesState }) =>
+  state.utilities.utilities.reduce(
+    (sum, u) => sum + u.items.filter((item) => item.last_document_status === "approved").length,
+    0
+  );
+
+export const selectItemsWithRejectedDocuments = (state: { utilities: UtilitiesState }) =>
+  state.utilities.utilities.reduce(
+    (sum, u) => sum + u.items.filter((item) => item.last_document_status === "rejected").length,
+    0
+  );
+
+export const selectItemsWithPendingDocuments = (state: { utilities: UtilitiesState }) =>
+  state.utilities.utilities.reduce(
+    (sum, u) => sum + u.items.filter((item) => item.last_document_status === "pending_approval").length,
+    0
+  );
+
+export const selectSyncedItemsCount = (state: { utilities: UtilitiesState }) =>
+  state.utilities.utilities.reduce(
+    (sum, u) => sum + u.items.filter((item) => item.document_sync_status === "synced").length,
+    0
+  );
+
+export const selectItemsPendingSync = (state: { utilities: UtilitiesState }) =>
+  state.utilities.utilities.reduce(
+    (sum, u) => sum + u.items.filter((item) => item.document_sync_status === "pending").length,
+    0
+  );
+
 export const selectTotalUtilityAmount = (state: { utilities: UtilitiesState }) =>
   state.utilities.utilities.reduce(
     (sum, u) => sum + u.items.reduce((itemSum, item) => itemSum + item.amount, 0),
     0
   );
+
+// ─── Filtered Items ──────────────────────────────────────────────────────
 
 export const selectUtilityItemsByPeriod = (period: string) =>
   (state: { utilities: UtilitiesState }) =>
@@ -1266,6 +1605,22 @@ export const selectItemsByApprovalStatus = (status: UtilityApprovalStatus) =>
         .filter((item) => item.approval_status === status)
         .map((item) => ({ ...item, judge_name: u.judge_name }))
     );
+
+export const selectItemsByDocumentStatus = (status: DocumentStatus) =>
+  (state: { utilities: UtilitiesState }) =>
+    state.utilities.utilities.flatMap((u) =>
+      u.items
+        .filter((item) => item.last_document_status === status)
+        .map((item) => ({ ...item, judge_name: u.judge_name }))
+    );
+
+// ─── Memos with Documents ──────────────────────────────────────────────────
+
+export const selectMemosWithDocuments = (state: { utilities: UtilitiesState }) =>
+  state.utilities.memos.filter((m) => m.has_document === true);
+
+export const selectMemosWithoutDocuments = (state: { utilities: UtilitiesState }) =>
+  state.utilities.memos.filter((m) => m.has_document === false);
 
 // ─── Pagination ──────────────────────────────────────────────────────────
 

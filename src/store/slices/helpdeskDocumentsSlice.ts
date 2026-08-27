@@ -33,6 +33,32 @@ export type DocumentEntityType =
 export type DocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
 
+// ─── Utility Sync Status ──────────────────────────────────────────────────────
+
+/**
+ * Tracks the sync status between a document and its associated utility items
+ */
+export type UtilitySyncStatus = 
+    | 'pending'      // Document is still pending, utility items are not synced
+    | 'synced'       // Utility items have been synced with document status
+    | 'failed'       // Sync attempt failed
+    | 'not_applicable'; // Not a utility document
+
+/**
+ * Represents a utility item that has been synced with a document
+ */
+export interface SyncedUtilityItem {
+    id: string;
+    utility_type: string;
+    amount: number;
+    period: string;
+    judge_name: string;
+    pj_number: string | null;
+    previous_status: string;
+    new_status: string;
+    synced_at: string;
+}
+
 // ─── Stamp Types ──────────────────────────────────────────────────────────────
 
 export type StampType = 'approved' | 'received' | 'official';
@@ -133,7 +159,7 @@ export interface DocumentWithViewStatus {
 export interface ApprovalHistoryEntry {
     id: string;
     document_id: string;
-    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted' | 'signed' | 'stamped';
+    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted' | 'signed' | 'stamped' | 'utility_synced';
     from_user_id: string;
     from_user_name: string;
     to_user_id?: string;
@@ -142,6 +168,12 @@ export interface ApprovalHistoryEntry {
     created_at: string;
     internal_action?: boolean;
     requester_visible?: boolean;
+    // ─── Utility sync metadata ──────────────────────────────────────────────
+    utility_sync_metadata?: {
+        total_items: number;
+        updated_count: number;
+        failed_count: number;
+    };
 }
 
 export interface Comment {
@@ -238,6 +270,28 @@ export interface HelpdeskDocument {
     is_sent_back_to_requester: boolean;
     is_requester_notified: boolean;
 
+    // ─── Utility Sync Fields ──────────────────────────────────────────────
+    /**
+     * Whether utility items have been synced with this document
+     */
+    utility_sync_status: UtilitySyncStatus;
+    /**
+     * When the utility items were last synced
+     */
+    utility_synced_at?: string;
+    /**
+     * Who performed the sync
+     */
+    utility_synced_by?: string;
+    /**
+     * Detailed sync results
+     */
+    utility_sync_result?: {
+        total_items: number;
+        updated_items: SyncedUtilityItem[];
+        failed_items: Array<{ id: string; reason: string }>;
+    };
+
     // ─── Signature Fields ──────────────────────────────────────────────────────
     is_signed: boolean;
     signed_by?: string;
@@ -321,6 +375,8 @@ export interface RequesterDocumentView {
     stamp_type?: StampType;
     // 🔴 NEW: Final stamped file URL for the requester's dashboard/viewer
     stamped_file_url?: string | null;
+    // ─── Utility sync status ──────────────────────────────────────────────
+    utility_sync_status: UtilitySyncStatus;
 }
 
 // ─── Pending Internal Approvals Summary ──────────────────────────────────────
@@ -337,6 +393,8 @@ export interface PendingInternalApprovalsSummary {
     urgent_pending: number;
     oldest_pending_days: number;
     average_review_time_hours?: number;
+    // ─── Utility sync stats ──────────────────────────────────────────────
+    pending_utility_sync: number;
 }
 
 // ─── Filters ─────────────────────────────────────────────────────────────────
@@ -360,6 +418,10 @@ export interface HelpdeskDocumentFilters {
     pending_internal_approval?: boolean;
     ready_to_send_back?: boolean;
     my_requester_documents?: boolean;
+
+    // ─── Utility Sync Filters ────────────────────────────────────────────
+    utility_sync_status?: UtilitySyncStatus;
+    needs_utility_sync?: boolean;
 
     // Unified General Request filters
     request_type?: RequestType;
@@ -453,6 +515,9 @@ export interface UpdateDocumentFilePayload {
     rejection_reason?: string;
     returned_by?: string;
     returned_by_name?: string;
+    // ─── Utility sync fields ────────────────────────────────────────────
+    sync_utilities?: boolean;
+    utility_sync_status?: UtilitySyncStatus;
     // ─── Signature fields ──────────────────────────────────────────────────────
     is_signed?: boolean;
     signed_by?: string;
@@ -497,6 +562,8 @@ export interface InternalApprovalPayload {
     approved_by?: string;
     approved_by_name?: string;
     generate_e_stamp?: boolean;
+    // ─── Utility sync field ──────────────────────────────────────────────
+    sync_utilities?: boolean;
     // ─── Signature position ─────────────────────────────────────────────────
     signature_position_x?: number;
     signature_position_y?: number;
@@ -518,6 +585,8 @@ export interface SendBackToRequesterPayload {
     comments?: string;
     requester_message?: string;
     notify_requester?: boolean;
+    // ─── Utility sync field ──────────────────────────────────────────────
+    sync_utilities?: boolean;
 }
 
 export interface ResubmitAfterChangesPayload {
@@ -526,6 +595,8 @@ export interface ResubmitAfterChangesPayload {
     submitted_by_name?: string;
     comments?: string;
     file_update?: boolean;
+    // ─── Reset utility sync ──────────────────────────────────────────────
+    reset_utility_sync?: boolean;
 }
 
 export interface CancelInternalApprovalPayload {
@@ -533,6 +604,8 @@ export interface CancelInternalApprovalPayload {
     cancelled_by?: string;
     cancelled_by_name?: string;
     reason?: string;
+    // ─── Reset utility sync ──────────────────────────────────────────────
+    reset_utility_sync?: boolean;
 }
 
 // ─── Legacy Payloads (Deprecated) ───────────────────────────────────────────
@@ -706,10 +779,17 @@ export interface DocumentStats {
     // Two-step workflow stats
     pending_internal: number;
     ready_to_send_back: number;
-    // ─── NEW: Stamp stats ──────────────────────────────────────────────────────
+    // ─── Stamp stats ──────────────────────────────────────────────────────
     stamped_count: number;
     signed_count: number;
     signed_and_stamped_count: number;
+    // ─── Utility sync stats ──────────────────────────────────────────────
+    utility_sync_stats: {
+        total_utility_documents: number;
+        synced: number;
+        pending: number;
+        failed: number;
+    };
 }
 
 export interface DocumentSummary {
@@ -733,9 +813,16 @@ export interface DocumentSummary {
     };
     requester_status_summary: Record<RequesterVisibleStatus, number>;
     signed_count: number;
-    // ─── NEW: Stamp summary ────────────────────────────────────────────────────
+    // ─── Stamp summary ────────────────────────────────────────────────────
     stamped_count: number;
     signed_and_stamped_count: number;
+    // ─── Utility sync summary ──────────────────────────────────────────────
+    utility_sync_summary: {
+        synced: number;
+        pending: number;
+        failed: number;
+        not_applicable: number;
+    };
 }
 
 // ── Action Loading Types ─────────────────────────────────────────────────────
@@ -752,7 +839,8 @@ type ActionLoadingKey =
     | 'sendingBack'
     | 'resubmitting'
     | 'cancelling'
-    | 'stamping';
+    | 'stamping'
+    | 'syncing';
 
 type ActionLoadingState = {
     [key in ActionLoadingKey]?: boolean;
@@ -787,9 +875,11 @@ interface HelpdeskDocumentsState {
         resubmit: boolean;
         pendingInternal: boolean;
         requesterDashboard: boolean;
-        // ─── NEW: Stamp loading states ─────────────────────────────────────
+        // ─── Stamp loading states ─────────────────────────────────────
         stamp: boolean;
         sign: boolean;
+        // ─── Utility sync loading state ──────────────────────────────────
+        utilitySync: boolean;
     };
     error: string | null;
     deletingId: string | null;
@@ -843,6 +933,7 @@ const initialState: HelpdeskDocumentsState = {
         requesterDashboard: false,
         stamp: false,
         sign: false,
+        utilitySync: false,
     },
     error: null,
     deletingId: null,
@@ -883,6 +974,10 @@ function buildParams(filters: HelpdeskDocumentFilters): Record<string, string> {
     if (filters.pending_internal_approval) params.pending_internal_approval = String(filters.pending_internal_approval);
     if (filters.ready_to_send_back) params.ready_to_send_back = String(filters.ready_to_send_back);
     if (filters.my_requester_documents) params.my_requester_documents = String(filters.my_requester_documents);
+
+    // ─── Utility sync filters ────────────────────────────────────────────
+    if (filters.utility_sync_status) params.utility_sync_status = filters.utility_sync_status;
+    if (filters.needs_utility_sync) params.needs_utility_sync = String(filters.needs_utility_sync);
 
     // Unified General Request filters
     if (filters.request_type) params.request_type = filters.request_type;
@@ -959,6 +1054,31 @@ export function getConsolidatedMemoEntityType(
 ): DocumentEntityType {
     return type === 'fuel' ? 'consolidated_fuel_memo' : 'consolidated_utility_memo';
 }
+
+// ─── Utility Sync Thunk ──────────────────────────────────────────────────────
+
+/**
+ * Manually sync utility items for a document
+ * POST /api/helpdesk/documents/:id/sync-utilities
+ */
+export const syncUtilitiesForDocument = createAsyncThunk<
+    HelpdeskDocument,
+    { id: string; force?: boolean; comments?: string },
+    { rejectValue: string }
+>(
+    'helpdeskDocuments/syncUtilities',
+    async ({ id, force = false, comments }, { rejectWithValue }) => {
+        try {
+            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/sync-utilities`, {
+                force,
+                comments,
+            });
+            return data.data as HelpdeskDocument;
+        } catch (err) {
+            return rejectWithValue(getErrorMessage(err, 'Failed to sync utility items'));
+        }
+    }
+);
 
 // ─── Thunks ───────────────────────────────────────────────────────────────────
 
@@ -1153,6 +1273,11 @@ export const updateDocumentFile = createAsyncThunk<
             if (payload.rejection_reason) formData.append('rejection_reason', payload.rejection_reason);
             if (payload.returned_by) formData.append('returned_by', payload.returned_by);
             if (payload.returned_by_name) formData.append('returned_by_name', payload.returned_by_name);
+            
+            // ─── Utility sync fields ────────────────────────────────────────────
+            if (payload.sync_utilities !== undefined) formData.append('sync_utilities', String(payload.sync_utilities));
+            if (payload.utility_sync_status) formData.append('utility_sync_status', payload.utility_sync_status);
+            
             // ─── Signature fields ──────────────────────────────────────────────
             if (payload.is_signed !== undefined) formData.append('is_signed', String(payload.is_signed));
             if (payload.signed_by) formData.append('signed_by', payload.signed_by);
@@ -1178,6 +1303,8 @@ export const updateDocumentFile = createAsyncThunk<
                 hasComments: !!payload.comments,
                 is_signed: payload.is_signed,
                 is_stamped: payload.is_stamped,
+                sync_utilities: payload.sync_utilities,
+                utility_sync_status: payload.utility_sync_status,
             });
 
             const { data } = await axiosClient.patch(`/helpdesk/documents/${payload.id}/file`, formData, {
@@ -1316,7 +1443,8 @@ export const internalApproveDocument = createAsyncThunk<
         stamp_position_y,
         stamp_position_width,
         stamp_position_height,
-        stamp_type
+        stamp_type,
+        sync_utilities,
     }, { rejectWithValue }) => {
         try {
             const payload: Record<string, unknown> = {
@@ -1326,6 +1454,7 @@ export const internalApproveDocument = createAsyncThunk<
                 approved_by: approved_by || '',
                 approved_by_name: approved_by_name || '',
                 generate_e_stamp: generate_e_stamp ?? true,
+                sync_utilities: sync_utilities ?? true,
             };
 
             // Add signature position if provided
@@ -1392,7 +1521,7 @@ export const internalRejectDocument = createAsyncThunk<
     { rejectValue: string }
 >(
     'helpdeskDocuments/internalReject',
-    async ({ id, rejection_reason, comments, approved_by, approved_by_name }, { rejectWithValue }) => {
+    async ({ id, rejection_reason, comments, approved_by, approved_by_name, sync_utilities }, { rejectWithValue }) => {
         try {
             if (!rejection_reason) {
                 return rejectWithValue('Rejection reason is required');
@@ -1403,6 +1532,7 @@ export const internalRejectDocument = createAsyncThunk<
                 comments,
                 rejected_by: approved_by,
                 rejected_by_name: approved_by_name,
+                sync_utilities: sync_utilities ?? true,
             });
             return data.data as HelpdeskDocument;
         } catch (err) {
@@ -1450,13 +1580,14 @@ export const cancelInternalApproval = createAsyncThunk<
     { rejectValue: string }
 >(
     'helpdeskDocuments/cancelInternalApproval',
-    async ({ id, cancelled_by, cancelled_by_name, reason }, { rejectWithValue }) => {
+    async ({ id, cancelled_by, cancelled_by_name, reason, reset_utility_sync }, { rejectWithValue }) => {
         try {
             const { data } = await axiosClient.post(`/helpdesk/documents/${id}/internal/cancel`, {
                 document_id: id,
                 cancelled_by,
                 cancelled_by_name,
                 reason,
+                reset_utility_sync: reset_utility_sync ?? true,
             });
             return data.data as HelpdeskDocument;
         } catch (err) {
@@ -1475,7 +1606,7 @@ export const sendBackToRequester = createAsyncThunk<
     { rejectValue: string }
 >(
     'helpdeskDocuments/sendBackToRequester',
-    async ({ id, final_status, sent_by, sent_by_name, comments, requester_message, notify_requester }, { rejectWithValue }) => {
+    async ({ id, final_status, sent_by, sent_by_name, comments, requester_message, notify_requester, sync_utilities }, { rejectWithValue }) => {
         try {
             const { data } = await axiosClient.post(`/helpdesk/documents/${id}/send-back`, {
                 document_id: id,
@@ -1485,6 +1616,7 @@ export const sendBackToRequester = createAsyncThunk<
                 comments,
                 requester_message,
                 notify_requester,
+                sync_utilities: sync_utilities ?? true,
             });
             return data.data as HelpdeskDocument;
         } catch (err) {
@@ -1502,13 +1634,14 @@ export const resubmitDocument = createAsyncThunk<
     { rejectValue: string }
 >(
     'helpdeskDocuments/resubmit',
-    async ({ id, submitted_by, submitted_by_name, comments, file_update }, { rejectWithValue }) => {
+    async ({ id, submitted_by, submitted_by_name, comments, file_update, reset_utility_sync }, { rejectWithValue }) => {
         try {
             const { data } = await axiosClient.post(`/helpdesk/documents/${id}/resubmit`, {
                 submitted_by,
                 submitted_by_name,
                 comments,
                 file_update,
+                reset_utility_sync: reset_utility_sync ?? true,
             });
             return data.data as HelpdeskDocument;
         } catch (err) {
@@ -2015,6 +2148,32 @@ const helpdeskDocumentsSlice = createSlice({
             .addCase(fetchDocumentSummary.rejected, (state, action) => {
                 state.loading.stats = false;
                 state.error = action.payload as string;
+            });
+
+        // ─── syncUtilitiesForDocument ──────────────────────────────────────────
+        builder
+            .addCase(syncUtilitiesForDocument.pending, (state, action) => {
+                state.loading.utilitySync = true;
+                state.error = null;
+                setActionLoading(state, action.meta.arg.id, 'syncing', true);
+            })
+            .addCase(syncUtilitiesForDocument.fulfilled, (state, action: PayloadAction<HelpdeskDocument>) => {
+                state.loading.utilitySync = false;
+                setActionLoading(state, action.payload.id, 'syncing', false);
+                const index = state.items.findIndex(d => d.id === action.payload.id);
+                if (index !== -1) {
+                    state.items[index] = action.payload;
+                }
+                if (state.selectedDocument?.id === action.payload.id) {
+                    state.selectedDocument = action.payload;
+                }
+            })
+            .addCase(syncUtilitiesForDocument.rejected, (state, action) => {
+                state.loading.utilitySync = false;
+                state.error = action.payload as string;
+                if (action.meta.arg) {
+                    setActionLoading(state, action.meta.arg.id, 'syncing', false);
+                }
             });
 
         // ── TWO-STEP APPROVAL REDUCERS ──────────────────────────────────────
@@ -2525,6 +2684,7 @@ export const selectDeletingDocumentId = (state: RootState) => state.helpdeskDocu
 export const selectDocumentError = (state: RootState) => state.helpdeskDocuments.error;
 export const selectDocumentActionLoading = (state: RootState) => state.helpdeskDocuments.actionLoading;
 export const selectDocumentUpdatingFile = (state: RootState) => state.helpdeskDocuments.loading.updateFile;
+export const selectDocumentUtilitySyncing = (state: RootState) => state.helpdeskDocuments.loading.utilitySync;
 
 // ─── Two-Step Approval Selectors ─────────────────────────────────────────────
 
@@ -2560,6 +2720,8 @@ export const selectIsResubmitting = (state: RootState, id: string) =>
     state.helpdeskDocuments.actionLoading[id]?.resubmitting || false;
 export const selectIsCancelling = (state: RootState, id: string) =>
     state.helpdeskDocuments.actionLoading[id]?.cancelling || false;
+export const selectIsSyncingUtilities = (state: RootState, id: string) =>
+    state.helpdeskDocuments.actionLoading[id]?.syncing || false;
 
 // ─── Entity Selectors ──────────────────────────────────────────────────────
 
@@ -2603,6 +2765,22 @@ export const selectDocumentsReadyToSendBack = (state: RootState) =>
 export const selectDocumentsPendingInternalReview = (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => 
         d.internal_approval_status === 'pending' || d.internal_approval_status === 'previewed'
+    );
+
+// ─── Utility Sync Selectors ──────────────────────────────────────────────────
+
+export const selectDocumentsByUtilitySyncStatus = (status: UtilitySyncStatus) => (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.utility_sync_status === status);
+
+export const selectDocumentsPendingUtilitySync = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.utility_sync_status === 'pending');
+
+export const selectDocumentsWithFailedSync = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.utility_sync_status === 'failed');
+
+export const selectUtilityDocuments = (state: RootState) =>
+    state.helpdeskDocuments.items.filter(
+        (d) => d.entity_type === 'consolidated_utility_memo' || d.entity_type === 'consolidated_fuel_memo' || d.entity_type === 'utility_memo'
     );
 
 // ─── Consolidated Memo Selectors ──────────────────────────────────────────

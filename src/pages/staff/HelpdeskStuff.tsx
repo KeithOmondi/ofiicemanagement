@@ -1,4 +1,4 @@
-// src/pages/Helpdesk.tsx - COMPLETE UPDATED VERSION
+// src/pages/Helpdesk.tsx - COMPLETE UPDATED VERSION WITH AUTO-SYNC
 
 import React, { useState, useEffect, useRef, type ChangeEvent, useMemo } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
@@ -66,21 +66,23 @@ import {
   type OtherPayment,
   type ServiceWeek,
   type ClubMembership,
-  type UtilityStatus,
+  //type UtilityStatus,
   type RequestType,
   type RemarkType,
-  type UtilityItem,
+  type UtilityStatus,
+  // type UtilityItem,  // ← REMOVED - now imported from utilitiesSlice
 } from '../../store/slices/helpdeskSlice';
 
 // ─── IMPORT FROM UTILITIES SLICE ──────────────────────────────────────────
 import {
   fetchUtilities,
   deleteUtility,
-  updateUtilityItem,
+  ///updateUtilityItem,
   selectAllUtilities as selectAllUtilitiesFromSlice,
   selectUtilitiesLoading,
   selectUtilitiesMutating,
   type JudgeUtility,
+  type UtilityItem,  // ← ADDED - uses updated type with document sync fields
 } from '../../store/slices/utilitiesSlice';
 
 // ─── Helpdesk Documents imports ───────────────────────────────────────────
@@ -672,7 +674,7 @@ function UtilityTypeBadge({ type }: { type: string }) {
   );
 }
 
-// ─── Utilities Tab (UPDATED to use utilitiesSlice) ──────────────────────
+// ─── Utilities Tab (UPDATED with Auto-Sync) ──────────────────────────────
 
 function UtilitiesTab({
   onViewJudge,
@@ -687,6 +689,9 @@ function UtilitiesTab({
   const data = useAppSelector(selectAllUtilitiesFromSlice);
   const loading = useAppSelector(selectUtilitiesLoading);
   const mutating = useAppSelector(selectUtilitiesMutating);
+  
+  // ─── Get documents to check sync status ────────────────────────────────
+  const allDocs = useAppSelector(selectAllHelpdeskDocuments);
 
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState<JudgeUtility | null>(null);
@@ -707,21 +712,7 @@ function UtilitiesTab({
     setEditingItem(null);
   };
 
-  const handleStatusChange = async (
-    utilityId: string,
-    itemId: string,
-    status: UtilityStatus
-  ) => {
-    await dispatch(
-      updateUtilityItem({
-        id: utilityId,
-        itemId: itemId,
-        updates: { status },
-      })
-    );
-    await dispatch(fetchUtilities({}));
-    await dispatch(fetchHelpDeskStats());
-  };
+  // ─── No more manual status change - it's automatic! ────────────────────
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -736,6 +727,121 @@ function UtilitiesTab({
       onViewJudge(item.judge_name);
     }
   };
+
+  // ─── Helper: Get document status for a utility item ────────────────────
+  const getDocumentStatusForItem = (item: UtilityItem): DocumentStatus | null => {
+    if (!item.last_document_id) return null;
+    const doc = allDocs.find(d => d.id === item.last_document_id);
+    return doc?.status || null;
+  };
+
+  // ─── Helper: Get document reference for a utility item ─────────────────
+  const getDocumentRefForItem = (item: UtilityItem): string | null => {
+    if (!item.last_document_id) return null;
+    const doc = allDocs.find(d => d.id === item.last_document_id);
+    return doc?.ref || null;
+  };
+
+  // ─── Helper: Get document sync status badge ────────────────────────────
+// ─── Updated getDocumentSyncBadge function in UtilitiesTab ────────────────
+
+const getDocumentSyncBadge = (item: UtilityItem) => {
+  const docStatus = getDocumentStatusForItem(item);
+  
+  // ─── If there's a document, show its status ──────────────────────────────
+  if (docStatus) {
+    switch (docStatus) {
+      case 'approved':
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
+            <CheckCircle size={10} />
+            Approved ✓
+          </span>
+        );
+      case 'rejected':
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-[10px] font-semibold text-red-700 border border-red-200">
+            <XCircle size={10} />
+            Rejected ✗
+          </span>
+        );
+      case 'pending_approval':
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-semibold text-amber-700 border border-amber-200">
+            <ClockIcon size={10} />
+            Pending
+          </span>
+        );
+      case 'returned':
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-[10px] font-semibold text-orange-700 border border-orange-200">
+            <ArrowLeft size={10} />
+            Returned
+          </span>
+        );
+      case 'draft':
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-1 text-[10px] font-semibold text-stone-600 border border-stone-200">
+            <FileText size={10} />
+            Draft
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-1 text-[10px] font-medium text-stone-500 border border-stone-200">
+            <AlertCircle size={10} />
+            {docStatus}
+          </span>
+        );
+    }
+  }
+
+  // ─── No document yet - show memo/approval status ─────────────────────────
+  switch (item.approval_status) {
+    case 'pending':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-1 text-[10px] font-medium text-stone-500 border border-stone-200">
+          <ClockIcon size={10} />
+          Awaiting Memo
+        </span>
+      );
+    case 'in_memo':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-semibold text-amber-700 border border-amber-200">
+          <FileText size={10} />
+          In Memo
+        </span>
+      );
+    case 'sent':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-[10px] font-semibold text-blue-700 border border-blue-200">
+          <Send size={10} />
+          Sent for Approval
+        </span>
+      );
+    case 'approved':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
+          <CheckCircle size={10} />
+          Approved ✓
+        </span>
+      );
+    case 'rejected':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-[10px] font-semibold text-red-700 border border-red-200">
+          <XCircle size={10} />
+          Rejected ✗
+        </span>
+      );
+    default:
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-1 text-[10px] font-medium text-stone-400 border border-stone-200">
+          <AlertCircle size={10} />
+          Unknown
+        </span>
+      );
+  }
+};
 
   // ─── Group items by judge ──────────────────────────────────────────────────
   const groupedData = useMemo(() => {
@@ -773,7 +879,6 @@ function UtilitiesTab({
     return groups;
   }, [data]);
 
-  // ─── Calculate total items ──────────────────────────────────────────────────
   const totalItems = groupedData.reduce((sum, g) => sum + g.items.length, 0);
 
   return (
@@ -840,6 +945,9 @@ function UtilitiesTab({
                 <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500 text-center">
                   Status
                 </th>
+                <th className="px-3.5 py-3 text-[11px] font-semibold uppercase tracking-wider text-stone-500">
+                  Document
+                </th>
                 <th className="px-3.5 py-3 text-center text-[11px] font-semibold uppercase tracking-wider text-stone-500">
                   Actions
                 </th>
@@ -848,7 +956,7 @@ function UtilitiesTab({
             <tbody className="divide-y divide-stone-100">
               {loading ? (
                 <tr>
-                  <td colSpan={12} className="px-3 py-16 text-center">
+                  <td colSpan={13} className="px-3 py-16 text-center">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Loader2 className="h-6 w-6 animate-spin text-[#c9a84c]" />
                       <span className="text-xs text-stone-400">Loading utility records...</span>
@@ -857,7 +965,7 @@ function UtilitiesTab({
                 </tr>
               ) : groupedData.length === 0 || totalItems === 0 ? (
                 <tr>
-                  <td colSpan={12} className="px-3 py-16 text-center">
+                  <td colSpan={13} className="px-3 py-16 text-center">
                     <div className="flex flex-col items-center justify-center gap-1">
                       <Info className="h-5 w-5 text-stone-300" />
                       <span className="text-sm font-medium text-stone-600">No records found</span>
@@ -874,6 +982,8 @@ function UtilitiesTab({
                   return group.items.map((row, itemIndex) => {
                     const isFirstRow = itemIndex === 0;
                     const isLastRowInGroup = itemIndex === rowCount - 1;
+                    const docStatus = getDocumentStatusForItem(row.item);
+                    const docRef = getDocumentRefForItem(row.item);
 
                     return (
                       <tr
@@ -882,7 +992,7 @@ function UtilitiesTab({
                           isLastRowInGroup ? "border-b-2 border-stone-200/60" : ""
                         }`}
                       >
-                        {/* Judge Name (Sticky Rowspan Cell) */}
+                        {/* Judge Name */}
                         {isFirstRow && (
                           <td
                             rowSpan={rowCount}
@@ -907,7 +1017,7 @@ function UtilitiesTab({
                           </td>
                         )}
 
-                        {/* PJ Number (Sticky Rowspan Cell) */}
+                        {/* PJ Number */}
                         {isFirstRow && (
                           <td
                             rowSpan={rowCount}
@@ -966,21 +1076,28 @@ function UtilitiesTab({
                           {formatDate(row.item.date_paid) || <span className="text-stone-300">—</span>}
                         </td>
 
-                        {/* Status Dropdown */}
-                        <td
-                          className="px-3.5 py-3 text-center whitespace-nowrap"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <UtilityStatusDropdown
-                            status={row.item.status}
-                            onStatusChange={(s) =>
-                              handleStatusChange(group.judgeId, row.id, s)
-                            }
-                            disabled={mutating}
-                          />
+                        {/* ─── Status - AUTOMATIC (No Dropdown) ────────────── */}
+                        <td className="px-3.5 py-3 text-center whitespace-nowrap">
+                          {getDocumentSyncBadge(row.item)}
+                          {!docStatus && row.item.approval_status === 'pending' && (
+                            <span className="inline-flex items-center rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-500">
+                              No Document
+                            </span>
+                          )}
                         </td>
 
-                        {/* Inline Actions */}
+                        {/* ─── Document Reference ────────────────────────────── */}
+                        <td className="px-3.5 py-3 whitespace-nowrap">
+                          {docRef ? (
+                            <span className="font-mono text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">
+                              {docRef}
+                            </span>
+                          ) : (
+                            <span className="text-stone-300">—</span>
+                          )}
+                        </td>
+
+                        {/* Actions */}
                         <td
                           className="px-3.5 py-3 text-center whitespace-nowrap"
                           onClick={(e) => e.stopPropagation()}
@@ -1020,6 +1137,18 @@ function UtilitiesTab({
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
+                            {/* ─── View Document button ────────────────────── */}
+                            {row.item.last_document_id && (
+                              <button
+                                onClick={() => {
+                                  window.open(`/helpdesk/documents/${row.item.last_document_id}`, '_blank');
+                                }}
+                                className="rounded-lg p-1.5 text-emerald-500 hover:text-emerald-700 hover:bg-emerald-50 transition-all duration-150"
+                                title="View Document"
+                              >
+                                <FileText className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1051,75 +1180,7 @@ function UtilitiesTab({
   );
 }
 
-// ─── Utility Status Dropdown ─────────────────────────────────────────────────
 
-function UtilityStatusDropdown({
-  status,
-  onStatusChange,
-  disabled,
-}: {
-  status: UtilityStatus;
-  onStatusChange: (status: UtilityStatus) => void;
-  disabled?: boolean;
-}) {
-  const options: UtilityStatus[] = [
-    'Awaiting',
-    'Awaiting Documentation',
-    'Awaiting Funding',
-    'In Process',
-    'Approved',
-    'Paid',
-    'Payment NA',
-  ];
-
-  const getStatusColor = (s: UtilityStatus): string => {
-    const map: Record<UtilityStatus, string> = {
-      Awaiting: 'bg-stone-100 text-stone-700 border-stone-200',
-      'Awaiting Documentation': 'bg-amber-50 text-amber-700 border-amber-200',
-      'Awaiting Funding': 'bg-amber-50 text-amber-700 border-amber-200',
-      'In Process': 'bg-blue-50 text-blue-700 border-blue-200',
-      Approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-      Paid: 'bg-green-50 text-green-700 border-green-200',
-      'Payment NA': 'bg-stone-100 text-stone-500 border-stone-200',
-    };
-    return map[s] || 'bg-stone-50 text-stone-600 border-stone-200';
-  };
-
-  const getStatusIcon = (s: UtilityStatus): React.ReactNode => {
-    switch (s) {
-      case 'Approved':
-      case 'Paid':
-        return <CheckCircle className="h-3 w-3" />;
-      case 'Awaiting':
-      case 'Awaiting Documentation':
-      case 'Awaiting Funding':
-      case 'In Process':
-        return <ClockIcon className="h-3 w-3" />;
-      case 'Payment NA':
-        return <XCircle className="h-3 w-3" />;
-      default:
-        return <AlertCircle className="h-3 w-3" />;
-    }
-  };
-
-  return (
-    <div className="inline-flex items-center gap-1.5">
-      <span className="text-stone-400">{getStatusIcon(status)}</span>
-      <select
-        value={status}
-        onChange={(e) => onStatusChange(e.target.value as UtilityStatus)}
-        disabled={disabled}
-        className={`rounded-full border-0 px-3 py-1 text-xs font-medium transition-all duration-150 ${getStatusColor(status)} focus:outline-none focus:ring-2 focus:ring-[#1a3d1c]/20 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-sm`}
-      >
-        {options.map((opt) => (
-          <option key={opt} value={opt}>
-            {opt}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
 
 // ─── Club Tab ─────────────────────────────────────────────────────────────────
 
@@ -1618,8 +1679,6 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
 
 // ─── Circuits Tab ────────────────────────────────────────────────────────────
 
-// ─── Circuits Tab ────────────────────────────────────────────────────────────
-
 function CircuitsTab() {
   const dispatch = useAppDispatch();
   const data = useAppSelector(selectAllCircuits);
@@ -1661,7 +1720,6 @@ function CircuitsTab() {
     setDeleteTarget(null);
   };
 
-  // Helper to get unique judge names from DSA details
   const getJudgeNames = (item: Circuit) => {
     if (!item.dsa_details || item.dsa_details.length === 0) return null;
     const uniqueJudges = [...new Set(item.dsa_details.map(d => d.judge_name).filter(Boolean))];
@@ -2692,8 +2750,6 @@ function MedicalClaimsTab() {
   );
 }
 
-
-
 // ─── General Requests Tab ─────────────────────────────────────────────────
 
 function GeneralRequestsTab() {
@@ -3458,6 +3514,8 @@ interface JudgeDetailModalProps {
   onEdit: () => void;
 }
 
+// ─── Updated JudgeDetailModal with Period Grouping ─────────────────────────
+
 function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetailModalProps) {
   const dispatch = useAppDispatch();
   const allDocs = useAppSelector(selectAllHelpdeskDocuments);
@@ -3602,6 +3660,131 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
 
   const totalItems = utilities.reduce((acc, u) => acc + u.items.length, 0);
 
+  // ─── Group items by period ──────────────────────────────────────────────────
+  const groupedItems = useMemo(() => {
+    const groups: Record<string, UtilityItem[]> = {};
+    
+    utilities.forEach((utility) => {
+      utility.items.forEach((item) => {
+        const period = item.period || 'Unknown';
+        if (!groups[period]) {
+          groups[period] = [];
+        }
+        groups[period].push(item);
+      });
+    });
+
+    // Sort periods in descending order (newest first)
+    const sortedPeriods = Object.keys(groups).sort((a, b) => {
+      // Try to parse as date, fallback to string comparison
+      const dateA = new Date(a);
+      const dateB = new Date(b);
+      if (!isNaN(dateA.getTime()) && !isNaN(dateB.getTime())) {
+        return dateB.getTime() - dateA.getTime();
+      }
+      return b.localeCompare(a);
+    });
+
+    const sortedGroups: Record<string, UtilityItem[]> = {};
+    sortedPeriods.forEach((period) => {
+      sortedGroups[period] = groups[period];
+    });
+
+    return sortedGroups;
+  }, [utilities]);
+
+  // ─── Get status badge for a utility item ──────────────────────────────────
+  const getItemStatusBadge = (item: UtilityItem) => {
+    const styles: Record<UtilityStatus, string> = {
+      'Awaiting': 'bg-stone-100 text-stone-700 border-stone-200',
+      'Awaiting Documentation': 'bg-amber-50 text-amber-700 border-amber-200',
+      'Awaiting Funding': 'bg-amber-50 text-amber-700 border-amber-200',
+      'In Process': 'bg-blue-50 text-blue-700 border-blue-200',
+      'Approved': 'bg-emerald-50 text-emerald-700 border-emerald-200',
+      'Paid': 'bg-green-50 text-green-700 border-green-200',
+      'Payment NA': 'bg-stone-100 text-stone-500 border-stone-200',
+    };
+
+    return (
+      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border ${styles[item.status] || 'bg-stone-50 text-stone-600 border-stone-200'}`}>
+        {item.status}
+      </span>
+    );
+  };
+
+  // ─── Get approval status badge ─────────────────────────────────────────────
+  const getApprovalStatusBadge = (item: UtilityItem) => {
+    const doc = allDocs.find(d => d.id === item.last_document_id);
+    const docStatus = doc?.status || null;
+
+    if (docStatus) {
+      switch (docStatus) {
+        case 'approved':
+          return (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200">
+              <CheckCircle size={10} />
+              Approved ✓
+            </span>
+          );
+        case 'rejected':
+          return (
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700 border border-red-200">
+              <XCircle size={10} />
+              Rejected
+            </span>
+          );
+        case 'pending_approval':
+          return (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
+              <ClockIcon size={10} />
+              Pending
+            </span>
+          );
+        case 'returned':
+          return (
+            <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-700 border border-orange-200">
+              <ArrowLeft size={10} />
+              Returned
+            </span>
+          );
+        default:
+          return (
+            <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-500 border border-stone-200">
+              <FileText size={10} />
+              {docStatus || 'No Doc'}
+            </span>
+          );
+      }
+    }
+
+    // No document - show approval status
+    switch (item.approval_status) {
+      case 'pending':
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-500 border border-stone-200">
+            <ClockIcon size={10} />
+            No Doc
+          </span>
+        );
+      case 'in_memo':
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
+            <FileText size={10} />
+            In Memo
+          </span>
+        );
+      case 'sent':
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 border border-blue-200">
+            <Send size={10} />
+            Sent
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
@@ -3626,62 +3809,89 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
           {totalItems === 0 ? (
             <EmptyState message={`No utility records found for ${judgeName}.`} />
           ) : (
-            <div className="space-y-4 mb-6">
-              <h4 className="text-sm font-semibold text-stone-700">Utility Items</h4>
-              {utilities.map((utility) => (
-                <div
-                  key={utility.id}
-                  className="rounded-lg border border-stone-200 p-4 hover:bg-stone-50 transition-colors"
-                >
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-semibold text-stone-700">
-                      {utility.items.length} item{utility.items.length !== 1 ? 's' : ''}
-                    </span>
-                    <span className="text-xs text-stone-400">
-                      {new Date(utility.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <div className="space-y-2">
-                    {utility.items.map((item) => (
-                      <div
-                        key={item.id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-stone-50 px-3 py-2 text-sm"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-stone-800">{item.utility_type}</span>
-                          {item.requisition_number && (
-                            <span className="text-xs text-stone-400 bg-stone-200 px-1.5 py-0.5 rounded">
-                              #{item.requisition_number}
-                            </span>
-                          )}
-                          <span className="text-stone-600">• {formatCurrency(item.amount)}</span>
-                          <span className="text-stone-500">• {item.period}</span>
-                        </div>
-                        <div className="flex items-center gap-3 text-xs">
-                          {item.date_received && (
-                            <span className="text-stone-400">Received: {formatDate(item.date_received)}</span>
-                          )}
-                          {item.date_forwarded_dass && (
-                            <span className="text-stone-400">Fwd: {formatDate(item.date_forwarded_dass)}</span>
-                          )}
-                          {item.date_paid && (
-                            <span className="text-stone-400">Paid: {formatDate(item.date_paid)}</span>
-                          )}
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${getStatusColor(item.status)}`}
-                          >
-                            {getStatusIcon(item.status)}
-                            {item.status}
-                          </span>
-                        </div>
+            <div className="space-y-6 mb-6">
+              <h4 className="text-sm font-semibold text-stone-700">Utility Items by Period</h4>
+              
+              {/* ─── Group by Period ────────────────────────────────────────── */}
+              {Object.entries(groupedItems).map(([period, items]) => {
+                const totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
+                const itemCount = items.length;
+                //const hasPending = items.some(item => item.approval_status === 'pending');
+                const hasInMemo = items.some(item => item.approval_status === 'in_memo');
+                const hasSent = items.some(item => item.approval_status === 'sent');
+                
+                // Determine the status of this period group
+                let groupStatus = 'pending';
+                if (hasSent) groupStatus = 'sent';
+                else if (hasInMemo) groupStatus = 'in_memo';
+                
+                const groupStatusLabel = groupStatus === 'sent' ? 'Sent for Approval' 
+                  : groupStatus === 'in_memo' ? 'In Memo' 
+                  : 'Awaiting Memo';
+                
+                const groupStatusColor = groupStatus === 'sent' ? 'bg-blue-50 text-blue-700 border-blue-200'
+                  : groupStatus === 'in_memo' ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : 'bg-stone-100 text-stone-500 border-stone-200';
+
+                return (
+                  <div key={period} className="rounded-lg border border-stone-200 overflow-hidden">
+                    {/* ─── Period Header ────────────────────────────────────── */}
+                    <div className="flex items-center justify-between bg-stone-50 px-4 py-2 border-b border-stone-200">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-semibold text-stone-800">{period}</span>
+                        <span className="rounded-full bg-stone-200 px-2 py-0.5 text-[10px] font-medium text-stone-600">
+                          {itemCount} item{itemCount !== 1 ? 's' : ''}
+                        </span>
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium border ${groupStatusColor}`}>
+                          {groupStatus === 'sent' && <Send size={10} />}
+                          {groupStatus === 'in_memo' && <FileText size={10} />}
+                          {groupStatus === 'pending' && <ClockIcon size={10} />}
+                          {groupStatusLabel}
+                        </span>
                       </div>
-                    ))}
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-semibold text-emerald-700">
+                          {formatCurrency(totalAmount)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* ─── Items ────────────────────────────────────────────── */}
+                    <div className="divide-y divide-stone-100">
+                      {items.map((item) => (
+                        <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 hover:bg-stone-50/50 transition-colors">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <span className="font-medium text-stone-800 text-sm">{item.utility_type}</span>
+                            <span className="text-stone-600 text-sm">• {formatCurrency(item.amount)}</span>
+                            {item.requisition_number && (
+                              <span className="text-xs text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded">
+                                #{item.requisition_number}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 text-xs flex-wrap">
+                            {item.date_received && (
+                              <span className="text-stone-400">Received: {formatDate(item.date_received)}</span>
+                            )}
+                            {item.date_forwarded_dass && (
+                              <span className="text-stone-400">Fwd: {formatDate(item.date_forwarded_dass)}</span>
+                            )}
+                            {item.date_paid && (
+                              <span className="text-stone-400">Paid: {formatDate(item.date_paid)}</span>
+                            )}
+                            {getItemStatusBadge(item)}
+                            {getApprovalStatusBadge(item)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
+          {/* ─── Documents Section ────────────────────────────────────────── */}
           <div className="border-t border-stone-200 pt-6">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-stone-800 flex items-center gap-2">
@@ -4024,3 +4234,4 @@ const HelpdeskStuff: React.FC = () => {
 };
 
 export default HelpdeskStuff;
+//kevomosh08@gmail.com

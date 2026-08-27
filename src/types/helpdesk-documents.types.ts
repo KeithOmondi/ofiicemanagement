@@ -31,6 +31,32 @@ export type EStampStatus = 'pending' | 'stamped' | 'failed';
 
 export type StampType = 'approved' | 'received' | 'official';
 
+// ─── Utility Sync Status ──────────────────────────────────────────────────────
+
+/**
+ * Tracks the sync status between a document and its associated utility items
+ */
+export type UtilitySyncStatus = 
+    | 'pending'      // Document is still pending, utility items are not synced
+    | 'synced'       // Utility items have been synced with document status
+    | 'failed'       // Sync attempt failed
+    | 'not_applicable'; // Not a utility document
+
+/**
+ * Represents a utility item that has been synced with a document
+ */
+export interface SyncedUtilityItem {
+    id: string;
+    utility_type: string;
+    amount: number;
+    period: string;
+    judge_name: string;
+    pj_number: string | null;
+    previous_status: string;
+    new_status: string;
+    synced_at: string;
+}
+
 // ─── Two-Step Approval Types ──────────────────────────────────────────────────
 
 /**
@@ -143,7 +169,7 @@ export type ConferenceType =
 export interface ApprovalHistoryEntry {
     id: string;
     document_id: string;
-    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted' | 'signed' | 'stamped';
+    action: 'submitted' | 'approved' | 'rejected' | 'returned' | 'previewed' | 'sent_back' | 'resubmitted' | 'signed' | 'stamped' | 'utility_synced';
     from_user_id: string;
     from_user_name: string;
     to_user_id?: string;
@@ -153,6 +179,12 @@ export interface ApprovalHistoryEntry {
     // For two-step workflow
     internal_action?: boolean; // Whether this was an internal action (super admin only)
     requester_visible?: boolean; // Whether this action is visible to requester
+    // ─── Utility sync metadata ──────────────────────────────────────────────
+    utility_sync_metadata?: {
+        total_items: number;
+        updated_count: number;
+        failed_count: number;
+    };
 }
 
 // ─── Comments ──────────────────────────────────────────────────────────────
@@ -282,6 +314,28 @@ export interface HelpdeskDocument {
     is_sent_back_to_requester: boolean; // Document has been sent back to requester
     is_requester_notified: boolean; // Requester has been notified
 
+    // ─── Utility Sync Fields ──────────────────────────────────────────────
+    /**
+     * Whether utility items have been synced with this document
+     */
+    utility_sync_status: UtilitySyncStatus;
+    /**
+     * When the utility items were last synced
+     */
+    utility_synced_at?: string;
+    /**
+     * Who performed the sync
+     */
+    utility_synced_by?: string;
+    /**
+     * Detailed sync results
+     */
+    utility_sync_result?: {
+        total_items: number;
+        updated_items: SyncedUtilityItem[];
+        failed_items: Array<{ id: string; reason: string }>;
+    };
+
     // ─── Signature Fields ──────────────────────────────────────────────────────
     is_signed: boolean;                    // Whether the document has been signed
     signed_by?: string;                    // ID of the user who signed
@@ -372,6 +426,8 @@ export interface RequesterDocumentView {
     stamp_type?: StampType;
     // 🔴 NEW: Final generated stamped file URL for the requester's dashboard/viewer
     stamped_file_url?: string | null;
+    // ─── Utility sync status ──────────────────────────────────────────────
+    utility_sync_status: UtilitySyncStatus;
 }
 
 // ─── Pending Internal Approvals Summary ──────────────────────────────────────
@@ -391,6 +447,8 @@ export interface PendingInternalApprovalsSummary {
     urgent_pending: number;
     oldest_pending_days: number;
     average_review_time_hours?: number;
+    // ─── Utility sync stats ──────────────────────────────────────────────
+    pending_utility_sync: number;    // Documents waiting for utility sync
 }
 
 // ─── Helpdesk Document Filters ───────────────────────────────────────────────
@@ -414,6 +472,10 @@ export interface HelpdeskDocumentFilters {
     pending_internal_approval?: boolean; // For super admin dashboard
     ready_to_send_back?: boolean; // Super admin has decided, ready to send back
     my_requester_documents?: boolean; // For requester dashboard
+
+    // ─── Utility Sync Filters ────────────────────────────────────────────
+    utility_sync_status?: UtilitySyncStatus;
+    needs_utility_sync?: boolean; // Documents that haven't been synced yet
 
     // Unified General Request filters
     request_type?: RequestType;
@@ -521,6 +583,8 @@ export interface InternalApprovalPayload {
     approved_by?: string;
     approved_by_name?: string;
     generate_e_stamp?: boolean;
+    // ─── Utility sync field ──────────────────────────────────────────────
+    sync_utilities?: boolean;
     // ─── Signature position ─────────────────────────────────────────────────
     signature_position_x?: number;
     signature_position_y?: number;
@@ -546,6 +610,8 @@ export interface SendBackToRequesterPayload {
     comments?: string;
     requester_message?: string;
     notify_requester?: boolean;
+    // ─── Utility sync field ──────────────────────────────────────────────
+    sync_utilities?: boolean;
 }
 
 /**
@@ -557,6 +623,8 @@ export interface ResubmitAfterChangesPayload {
     submitted_by_name?: string;
     comments?: string;
     file_update?: boolean;
+    // ─── Reset utility sync ──────────────────────────────────────────────
+    reset_utility_sync?: boolean;
 }
 
 /**
@@ -567,6 +635,8 @@ export interface CancelInternalApprovalPayload {
     cancelled_by?: string;
     cancelled_by_name?: string;
     reason?: string;
+    // ─── Reset utility sync ──────────────────────────────────────────────
+    reset_utility_sync?: boolean;
 }
 
 // ─── Update Document File Payload ─────────────────────────────────────────────
@@ -585,6 +655,9 @@ export interface UpdateDocumentFilePayload {
     rejection_reason?: string;
     returned_by?: string;
     returned_by_name?: string;
+    // ─── Utility sync fields ────────────────────────────────────────────
+    sync_utilities?: boolean;
+    utility_sync_status?: UtilitySyncStatus;
     // ─── Signature fields ──────────────────────────────────────────────────────
     is_signed?: boolean;
     signed_by?: string;
@@ -803,6 +876,7 @@ export interface HelpdeskDocumentsState {
         resubmit: boolean;
         pendingInternal: boolean;
         requesterDashboard: boolean;
+        utilitySync: boolean;
     };
     error: string | null;
     deletingId: string | null;
@@ -820,6 +894,7 @@ export interface HelpdeskDocumentsState {
             resubmitting?: boolean;
             cancelling?: boolean;
             stamping?: boolean;
+            syncing?: boolean;
         };
     };
     stats: DocumentStats | null;
@@ -865,10 +940,17 @@ export interface DocumentStats {
     // Two-step workflow stats
     pending_internal: number;
     ready_to_send_back: number;
-    // ─── NEW: Stamp stats ──────────────────────────────────────────────────────
+    // ─── Stamp stats ──────────────────────────────────────────────────────
     stamped_count: number;
     signed_count: number;
     signed_and_stamped_count: number;
+    // ─── Utility sync stats ──────────────────────────────────────────────
+    utility_sync_stats: {
+        total_utility_documents: number;
+        synced: number;
+        pending: number;
+        failed: number;
+    };
 }
 
 export interface DocumentSummary {
@@ -892,9 +974,16 @@ export interface DocumentSummary {
     };
     requester_status_summary: Record<RequesterVisibleStatus, number>;
     signed_count: number;
-    // ─── NEW: Stamp summary ────────────────────────────────────────────────────
+    // ─── Stamp summary ────────────────────────────────────────────────────
     stamped_count: number;
     signed_and_stamped_count: number;
+    // ─── Utility sync summary ──────────────────────────────────────────────
+    utility_sync_summary: {
+        synced: number;
+        pending: number;
+        failed: number;
+        not_applicable: number;
+    };
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -1183,6 +1272,26 @@ export const CATEGORY_TYPE_LABELS: Record<GeneralRequestCategory, string> = {
     Personnel: 'Personnel',
     Administrative: 'Administrative',
 };
+
+// ─── Utility Sync Helper Functions ───────────────────────────────────────────
+
+export function getUtilitySyncStatusLabel(status: UtilitySyncStatus): string {
+    const labels: Record<UtilitySyncStatus, string> = {
+        pending: 'Pending Sync',
+        synced: 'Synced ✓',
+        failed: 'Sync Failed',
+        not_applicable: 'N/A',
+    };
+    return labels[status] || status;
+}
+
+export function isUtilityDocument(entityType: HelpdeskEntityType): boolean {
+    return ['consolidated_utility_memo', 'consolidated_fuel_memo', 'utility_memo'].includes(entityType);
+}
+
+export function isConsolidatedUtilityDocument(entityType: HelpdeskEntityType): boolean {
+    return ['consolidated_utility_memo', 'consolidated_fuel_memo'].includes(entityType);
+}
 
 // ─── Helper Functions ──────────────────────────────────────────────────────
 
@@ -1550,6 +1659,10 @@ export function isRequesterVisibleStatus(value: string): value is RequesterVisib
 
 export function isStampType(value: string): value is StampType {
     return ['approved', 'received', 'official'].includes(value);
+}
+
+export function isUtilitySyncStatus(value: string): value is UtilitySyncStatus {
+    return ['pending', 'synced', 'failed', 'not_applicable'].includes(value);
 }
 
 // ─── URL Helpers ─────────────────────────────────────────────────────────────

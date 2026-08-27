@@ -30,7 +30,14 @@ import {
   type DocumentFormat,
   type DocumentStatus,
   type DocumentEntityType,
+  type HelpdeskDocument,
 } from '../../store/slices/helpdeskDocumentsSlice';
+import {
+  fetchJudges,
+  //searchJudges,
+  selectAllJudges,
+  selectJudgesLoading,
+} from '../../store/slices/JudgesSlice';
 import {
   getConsolidatedMemoEntityId,
   getConsolidatedMemoEntityType,
@@ -65,6 +72,7 @@ import { generateUtilityMemoExcel } from '../../utils/generateUtilityMemoExcel';
 import toast, { Toaster } from 'react-hot-toast';
 import type { UtilityMemoData } from '../../types/generateUtilityMemoTypes';
 import { generateUtilityMemoPdf } from '../../utils/generateUtilityMemoPdf';
+import type { Judge } from '../../types/judges.types';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -82,6 +90,11 @@ const UTILITY_STATUSES: UtilityStatus[] = [
 
 const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784363826/ORHC_L_crclut.jpg';
 const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784364354/ORHC_EMBLEM_wzmp94.jpg';
+
+// Hoisted to module scope
+const FUEL_MEMO_BODY = `I hereby forward the fuel bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`;
+
+const UTILITY_MEMO_BODY = `I hereby forward the utility bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.`;
 
 // ─── Helper Functions ──────────────────────────────────────────────────────
 
@@ -109,63 +122,6 @@ const documentFormatIcon = (format: DocumentFormat) => {
   if (format === 'docx') return <FileText size={16} className="text-blue-600" />;
   return <FileText size={16} className="text-red-600" />;
 };
-
-// ─── Sent-Item Tracking (Only for Approved Documents) ────────────────────
-
-const SENT_ITEMS_STORAGE_KEY = 'orhc_helpdesk_sent_utility_items_v1';
-
-interface SentItemRecord {
-  itemId: string;
-  memoRef: string;
-  sentAt: string;
-  approvedAt: string;
-  documentId: string;
-}
-
-function loadSentItems(): Map<string, SentItemRecord> {
-  try {
-    const raw = localStorage.getItem(SENT_ITEMS_STORAGE_KEY);
-    if (!raw) return new Map();
-    const arr: SentItemRecord[] = JSON.parse(raw);
-    return new Map(arr.map((r) => [r.itemId, r]));
-  } catch {
-    return new Map();
-  }
-}
-
-function persistSentItems(map: Map<string, SentItemRecord>) {
-  try {
-    localStorage.setItem(SENT_ITEMS_STORAGE_KEY, JSON.stringify(Array.from(map.values())));
-  } catch {
-    // ignore quota / privacy-mode errors
-  }
-}
-
-function markItemsSent(
-  itemIds: string[],
-  memoRef: string,
-  documentId: string,
-  approvedAt: string
-): Map<string, SentItemRecord> {
-  const map = loadSentItems();
-  const now = new Date().toISOString();
-  itemIds.forEach((id) => {
-    if (!id.startsWith('temp-item-')) {
-      const existing = map.get(id);
-      if (!existing || existing.approvedAt !== approvedAt) {
-        map.set(id, {
-          itemId: id,
-          memoRef,
-          sentAt: now,
-          approvedAt,
-          documentId,
-        });
-      }
-    }
-  });
-  persistSentItems(map);
-  return map;
-}
 
 // ─── UI Helpers ──────────────────────────────────────────────────────────────
 
@@ -564,9 +520,9 @@ interface HiddenSentItem {
   utility_type: UtilityType;
   amount: number;
   period: string;
-  sentAt?: string;
-  approvedAt?: string;
-  documentId?: string;
+  document_status: DocumentStatus;
+  document_ref: string;
+  document_id: string;
 }
 
 interface TotalsResult {
@@ -576,11 +532,45 @@ interface TotalsResult {
   hiddenSentItems: HiddenSentItem[];
 }
 
+// ─── Check if an item has an approved document ────────────────────────────
+function hasApprovedDocument(
+  item: UtilityItem,
+  approvedDocumentIds: Set<string>
+): boolean {
+  if (!item.last_document_id) return false;
+  return approvedDocumentIds.has(item.last_document_id);
+}
+
+// ─── Check if an item has a pending document ──────────────────────────────
+function hasPendingDocument(
+  item: UtilityItem,
+  allDocuments: HelpdeskDocument[]
+): boolean {
+  if (!item.last_document_id) return false;
+  const doc = allDocuments.find(d => d.id === item.last_document_id);
+  return doc?.status === 'pending_approval' || doc?.requester_status === 'pending_approval';
+}
+
+// ─── Get document info for an item ────────────────────────────────────────
+function getDocumentInfoForItem(
+  item: UtilityItem,
+  allDocuments: HelpdeskDocument[]
+): { document_id: string; document_status: DocumentStatus; document_ref: string } | null {
+  if (!item.last_document_id) return null;
+  const doc = allDocuments.find(d => d.id === item.last_document_id);
+  if (!doc) return null;
+  return {
+    document_id: doc.id,
+    document_status: doc.status || doc.requester_status,
+    document_ref: doc.ref,
+  };
+}
+
 function computeFuelTotals(
   judges: JudgeUtility[],
-  sentItems: Map<string, SentItemRecord>,
-  manualIncludeIds: Set<string>,
+  allDocuments: HelpdeskDocument[],
   approvedDocumentIds: Set<string>,
+  manualIncludeIds: Set<string>,
 ): TotalsResult {
   const includedItemIds: string[] = [];
   const includedItemIdsByJudge: Record<string, string[]> = {};
@@ -593,20 +583,24 @@ function computeFuelTotals(
       j.items.forEach((item) => {
         if (item.utility_type !== 'Fuel' || item.status !== 'Awaiting') return;
 
-        const sentRecord = sentItems.get(item.id);
-        const isSentAndApproved = sentRecord && approvedDocumentIds.has(sentRecord.documentId);
+        const isApproved = hasApprovedDocument(item, approvedDocumentIds);
+        const docInfo = getDocumentInfoForItem(item, allDocuments);
 
-        if (isSentAndApproved && !manualIncludeIds.has(item.id)) {
+        if (isApproved && !manualIncludeIds.has(item.id) && docInfo) {
           hiddenSentItems.push({
             judge_name: j.judge_name,
             item_id: item.id,
             utility_type: item.utility_type,
             amount: item.amount,
             period: item.period,
-            sentAt: sentRecord.sentAt,
-            approvedAt: sentRecord.approvedAt,
-            documentId: sentRecord.documentId,
+            document_status: docInfo.document_status,
+            document_ref: docInfo.document_ref,
+            document_id: docInfo.document_id,
           });
+          return;
+        }
+
+        if (hasPendingDocument(item, allDocuments)) {
           return;
         }
 
@@ -634,9 +628,9 @@ function computeFuelTotals(
 
 function computeNonFuelTotals(
   judges: JudgeUtility[],
-  sentItems: Map<string, SentItemRecord>,
-  manualIncludeIds: Set<string>,
+  allDocuments: HelpdeskDocument[],
   approvedDocumentIds: Set<string>,
+  manualIncludeIds: Set<string>,
 ): TotalsResult {
   const includedItemIds: string[] = [];
   const includedItemIdsByJudge: Record<string, string[]> = {};
@@ -652,20 +646,24 @@ function computeNonFuelTotals(
         if (item.status !== 'Awaiting') return;
         if (!['Electricity', 'Water', 'Internet'].includes(item.utility_type)) return;
 
-        const sentRecord = sentItems.get(item.id);
-        const isSentAndApproved = sentRecord && approvedDocumentIds.has(sentRecord.documentId);
+        const isApproved = hasApprovedDocument(item, approvedDocumentIds);
+        const docInfo = getDocumentInfoForItem(item, allDocuments);
 
-        if (isSentAndApproved && !manualIncludeIds.has(item.id)) {
+        if (isApproved && !manualIncludeIds.has(item.id) && docInfo) {
           hiddenSentItems.push({
             judge_name: j.judge_name,
             item_id: item.id,
             utility_type: item.utility_type,
             amount: item.amount,
             period: item.period,
-            sentAt: sentRecord.sentAt,
-            approvedAt: sentRecord.approvedAt,
-            documentId: sentRecord.documentId,
+            document_status: docInfo.document_status,
+            document_ref: docInfo.document_ref,
+            document_id: docInfo.document_id,
           });
+          return;
+        }
+
+        if (hasPendingDocument(item, allDocuments)) {
           return;
         }
 
@@ -738,46 +736,18 @@ const MemoModal: React.FC<MemoModalProps> = ({
   const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
   const isLinking = useAppSelector(selectDocumentLinking);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [showLinkPicker, setShowLinkPicker] = useState(false);
-  const [uploadingDocument, setUploadingDocument] = useState(false);
 
-  // ─── Tab state ──────────────────────────────────────────────────────────
+  // ─── State ──────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'all' | 'fuel'>('all');
-
-  // ─── Sent-item tracking state ──────────────────────────────────────────
-  const [sentItems, setSentItems] = useState<Map<string, SentItemRecord>>(() => loadSentItems());
   const [manualIncludeIds, setManualIncludeIds] = useState<Set<string>>(new Set());
   const [showSentPanel, setShowSentPanel] = useState(false);
-  const [wasOpen, setWasOpen] = useState(false);
-
-  // ─── Track approved document IDs - COMPUTED, not state ────────────────
-  const approvedDocumentIds = useMemo(() => {
-    const approvedIds = new Set<string>();
-    allDocuments.forEach((doc) => {
-      if (doc.requester_status === 'approved' || doc.status === 'approved') {
-        approvedIds.add(doc.id);
-      }
-    });
-    return approvedIds;
-  }, [allDocuments]);
-
   const [excludedJudgeNames, setExcludedJudgeNames] = useState<Set<string>>(new Set());
-
-  // ─── Reload sent items when modal opens ───────────────────────────────
-  if (isOpen !== wasOpen) {
-    setWasOpen(isOpen);
-    if (isOpen) {
-      setSentItems(loadSentItems());
-      setManualIncludeIds(new Set());
-      setShowSentPanel(false);
-      setExcludedJudgeNames(new Set());
-    }
-  }
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
 
   // ─── Memo field state ──────────────────────────────────────────────────
   const [toField, setToField] = useState('DEPUTY DIRECTOR - DASS');
   const [fromField, setFromField] = useState('OFFICE OF THE REGISTRAR');
-
   const [refField] = useState(() => {
     const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
     return `RHC/UTILITY/${random}`;
@@ -785,35 +755,28 @@ const MemoModal: React.FC<MemoModalProps> = ({
   const [dateField, setDateField] = useState(() =>
     new Date().toLocaleDateString('en-KE', { day: '2-digit', month: 'short', year: 'numeric' })
   );
-
-  // ─── Body texts ────────────────────────────────────────────────────────
-  const fuelBody = `I hereby forward the fuel bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`;
-
-  const utilityBody = `I hereby forward the utility bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.`;
-
-  // ─── Additional notes textarea ────────────────────────────────────────
   const [additionalNotes, setAdditionalNotes] = useState('');
-
-  // ─── Initialise subject/body based on activeTab ──────────────────────
-  const [subjectField, setSubjectField] = useState(
-    activeTab === 'fuel' ? 'FUEL BILL CLAIMS' : 'UTILITY BILL CLAIMS'
-  );
-  const [bodyText, setBodyText] = useState(activeTab === 'fuel' ? fuelBody : utilityBody);
-
-  // ─── Tab change handler ──────────────────────────────────────────────
-  const handleTabChange = (tab: 'all' | 'fuel') => {
-    setActiveTab(tab);
-    setSubjectField(tab === 'fuel' ? 'FUEL BILL CLAIMS' : 'UTILITY BILL CLAIMS');
-    setBodyText(tab === 'fuel' ? fuelBody : utilityBody);
-  };
-
+  const [subjectField, setSubjectField] = useState('UTILITY BILL CLAIMS');
+  const [bodyText, setBodyText] = useState(UTILITY_MEMO_BODY);
   const [downloadingFormat, setDownloadingFormat] = useState<DownloadFormat | null>(null);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
 
-  // ─── Manual row exclusion ───────────────────────────────────────────────
-  //const [excludedJudgeNames, setExcludedJudgeNames] = useState<Set<string>>(new Set());
+  // ─── Body texts ────────────────────────────────────────────────────────
+  const fuelBody = FUEL_MEMO_BODY;
+  const utilityBody = UTILITY_MEMO_BODY;
 
-  // ─── Determine which judges to use ──────────────────────────────────────
+  // ─── Track approved document IDs ──────────────────────────────────────
+  const approvedDocumentIds = useMemo(() => {
+    const approvedIds = new Set<string>();
+    allDocuments.forEach((doc) => {
+      if (doc.status === 'approved' || doc.requester_status === 'approved') {
+        approvedIds.add(doc.id);
+      }
+    });
+    return approvedIds;
+  }, [allDocuments]);
+
+  // ─── Derived values ────────────────────────────────────────────────────
   const effectiveJudges = useMemo(() => {
     if (isConsolidated && allJudgesForConsolidated && allJudgesForConsolidated.length > 0) {
       return allJudgesForConsolidated;
@@ -821,7 +784,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
     return judges;
   }, [isConsolidated, allJudgesForConsolidated, judges]);
 
-  // ─── Derived entity type and ID ──────────────────────────────────────────
   const currentEntityType = useMemo(() => {
     if (propEntityType) return propEntityType;
     if (!isConsolidated) return 'utility_memo' as DocumentEntityType;
@@ -834,7 +796,18 @@ const MemoModal: React.FC<MemoModalProps> = ({
     return getConsolidatedMemoEntityId(activeTab);
   }, [propEntityId, isConsolidated, entityId, activeTab]);
 
-  // ─── Effects ────────────────────────────────────────────────────────────
+  // ─── Reset state when modal opens ──────────────────────────────────────
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen);
+    if (isOpen) {
+      setManualIncludeIds(new Set());
+      setShowSentPanel(false);
+      setExcludedJudgeNames(new Set());
+    }
+  }
+
+  // ─── Fetch documents when modal opens ──────────────────────────────────
   useEffect(() => {
     if (isOpen && currentEntityId) {
       dispatch(fetchHelpdeskDocuments({
@@ -849,6 +822,13 @@ const MemoModal: React.FC<MemoModalProps> = ({
       dispatch(fetchHelpdeskDocuments({ unlinked: true }));
     }
   }, [dispatch, showLinkPicker]);
+
+  // ─── Tab change handler ──────────────────────────────────────────────
+  const handleTabChange = useCallback((tab: 'all' | 'fuel') => {
+    setActiveTab(tab);
+    setSubjectField(tab === 'fuel' ? 'FUEL BILL CLAIMS' : 'UTILITY BILL CLAIMS');
+    setBodyText(tab === 'fuel' ? fuelBody : utilityBody);
+  }, [fuelBody, utilityBody]);
 
   // ─── Formatting ────────────────────────────────────────────────────────
   const formatAmount = (amount: number) =>
@@ -871,26 +851,17 @@ const MemoModal: React.FC<MemoModalProps> = ({
     return result;
   };
 
-  // ─── Compute totals based on active tab ──────────────────────────────────
-  const { rows: computedRows, includedItemIdsByJudge, hiddenSentItems } = useMemo(() => {
+  // ─── Compute totals ────────────────────────────────────────────────────
+  const { rows: computedRows, hiddenSentItems } = useMemo(() => {
     return activeTab === 'fuel'
-      ? computeFuelTotals(effectiveJudges, sentItems, manualIncludeIds, approvedDocumentIds)
-      : computeNonFuelTotals(effectiveJudges, sentItems, manualIncludeIds, approvedDocumentIds);
-  }, [activeTab, effectiveJudges, sentItems, manualIncludeIds, approvedDocumentIds]);
+      ? computeFuelTotals(effectiveJudges, allDocuments, approvedDocumentIds, manualIncludeIds)
+      : computeNonFuelTotals(effectiveJudges, allDocuments, approvedDocumentIds, manualIncludeIds);
+  }, [activeTab, effectiveJudges, allDocuments, approvedDocumentIds, manualIncludeIds]);
 
-  // ─── Rows actually going into the memo ─────────────────────────────────
   const judgeTotals = useMemo(
     () => computedRows.filter((row) => !excludedJudgeNames.has(row.judge_name)),
     [computedRows, excludedJudgeNames],
   );
-
-  const includedItemIds = useMemo(() => {
-    const ids: string[] = [];
-    judgeTotals.forEach((row) => {
-      ids.push(...(includedItemIdsByJudge[row.judge_name] || []));
-    });
-    return ids;
-  }, [judgeTotals, includedItemIdsByJudge]);
 
   const grandKplc = judgeTotals.reduce((s, r) => s + r.kplc, 0);
   const grandWater = judgeTotals.reduce((s, r) => s + r.water, 0);
@@ -898,26 +869,27 @@ const MemoModal: React.FC<MemoModalProps> = ({
   const grandFuel = judgeTotals.reduce((s, r) => s + r.fuel, 0);
   const grandTotal = judgeTotals.reduce((s, r) => s + r.total, 0);
 
-  const toggleManualInclude = (itemId: string, checked: boolean) => {
+  // ─── Handlers ──────────────────────────────────────────────────────────
+  const toggleManualInclude = useCallback((itemId: string, checked: boolean) => {
     setManualIncludeIds((prev) => {
       const next = new Set(prev);
       if (checked) next.add(itemId);
       else next.delete(itemId);
       return next;
     });
-  };
+  }, []);
 
-  const toggleJudgeExclusion = (judgeName: string) => {
+  const toggleJudgeExclusion = useCallback((judgeName: string) => {
     setExcludedJudgeNames((prev) => {
       const next = new Set(prev);
       if (next.has(judgeName)) next.delete(judgeName);
       else next.add(judgeName);
       return next;
     });
-  };
+  }, []);
 
   // ─── Build memo data ────────────────────────────────────────────────────
-  const buildMemoData = (): UtilityMemoData => ({
+  const buildMemoData = useCallback((): UtilityMemoData => ({
     to: toField,
     from: fromField,
     ref: refField,
@@ -941,10 +913,10 @@ const MemoModal: React.FC<MemoModalProps> = ({
     footerEmblemUrl: FOOTER_EMBLEM_SRC,
     memoType: activeTab,
     signatoryName: 'REGISTRAR HIGH COURT',
-  });
+  }), [toField, fromField, refField, dateField, subjectField, bodyText, additionalNotes, judgeTotals, grandKplc, grandWater, grandWifi, grandTotal, activeTab]);
 
   // ─── Document handlers ──────────────────────────────────────────────────
-  const handleAttachDocument = async (e: ChangeEvent<HTMLInputElement>) => {
+  const handleAttachDocument = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -987,9 +959,9 @@ const MemoModal: React.FC<MemoModalProps> = ({
       setUploadingDocument(false);
       e.target.value = '';
     }
-  };
+  }, [currentEntityId, currentEntityType, refField, subjectField, dispatch]);
 
-  const handleLinkExisting = async (docId: string) => {
+  const handleLinkExisting = useCallback(async (docId: string) => {
     if (!currentEntityId) {
       toast.error('Entity ID is required to link a document.');
       return;
@@ -1012,9 +984,9 @@ const MemoModal: React.FC<MemoModalProps> = ({
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to link document.');
     }
-  };
+  }, [currentEntityId, currentEntityType, dispatch]);
 
-  const handleSendDocumentForApproval = async (docId: string) => {
+  const handleSendDocumentForApproval = useCallback(async (docId: string) => {
     try {
       const approvedDoc = await dispatch(internalApproveDocument({
         id: docId,
@@ -1030,21 +1002,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
         notify_requester: true,
       })).unwrap();
 
-      // ✅ Mark items as sent ONLY when document is approved
-      const doc = allDocuments.find(d => d.id === docId);
-      if (doc) {
-        const itemIds = includedItemIds;
-        if (itemIds.length > 0) {
-          const newSentItems = markItemsSent(
-            itemIds,
-            doc.ref,
-            doc.id,
-            new Date().toISOString()
-          );
-          setSentItems(newSentItems);
-        }
-      }
-
       toast.success('Document approved and sent back to requester.');
       dispatch(fetchHelpdeskDocuments({
         entity_type: currentEntityType,
@@ -1053,10 +1010,10 @@ const MemoModal: React.FC<MemoModalProps> = ({
     } catch (err) {
       toast.error(typeof err === 'string' ? err : 'Failed to process document approval.');
     }
-  };
+  }, [currentEntityType, currentEntityId, dispatch]);
 
   // ─── Generate memo ─────────────────────────────────────────────────────
-  const handleGenerate = async (format: DownloadFormat) => {
+  const handleGenerate = useCallback(async (format: DownloadFormat) => {
     setShowDownloadMenu(false);
     setDownloadingFormat(format);
 
@@ -1098,9 +1055,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
       const result = await dispatch(uploadHelpdeskDocument(uploadPayload)).unwrap();
 
-      // ⚠️ IMPORTANT: Do NOT mark items as sent here - only when document is approved
-      // Items will be marked as sent in handleSendDocumentForApproval
-
       toast.success(`${format.toUpperCase()} memo saved to the system.`);
 
       if (!isConsolidated && entityId) {
@@ -1135,7 +1089,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
     } finally {
       setDownloadingFormat(null);
     }
-  };
+  }, [buildMemoData, refField, subjectField, currentEntityType, currentEntityId, isConsolidated, entityId, dispatch, onMemoGenerated]);
 
   const downloadLabels: Record<DownloadFormat, string> = {
     docx: 'Preparing Word…',
@@ -1289,7 +1243,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
                             {h.judge_name} — {h.utility_type} ({h.period})
                           </label>
                           <span className="text-amber-500">
-                            {h.approvedAt ? new Date(h.approvedAt).toLocaleDateString('en-KE') : ''}
+                            {h.document_ref} ({h.document_status})
                           </span>
                         </li>
                       ))}
@@ -1626,6 +1580,14 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
 }) => {
   const dispatch = useAppDispatch();
 
+  // ─── Judge Selection State ──────────────────────────────────────────────
+  const allJudges = useAppSelector(selectAllJudges);
+  const judgesLoading = useAppSelector(selectJudgesLoading);
+  const [judgeSearchTerm, setJudgeSearchTerm] = useState('');
+  const [selectedJudge, setSelectedJudge] = useState<Judge | null>(null);
+  const [showJudgeDropdown, setShowJudgeDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
   // ─── Form State ──────────────────────────────────────────────────────────
   const [judgeName, setJudgeName] = useState('');
   const [pjNumber, setPjNumber] = useState('');
@@ -1645,10 +1607,41 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
   const [deleteTarget, setDeleteTarget] = useState<'judge' | number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // ─── Load judges on mount ────────────────────────────────────────────────
+  useEffect(() => {
+    if (isOpen) {
+      dispatch(fetchJudges({ limit: 100, is_active: true }));
+    }
+  }, [dispatch, isOpen]);
+
+  // ─── Click outside dropdown ─────────────────────────────────────────────
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowJudgeDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // ─── Filter judges based on search ──────────────────────────────────────
+  const filteredJudges = useMemo(() => {
+    if (!judgeSearchTerm.trim()) return allJudges;
+    const term = judgeSearchTerm.toLowerCase().trim();
+    return allJudges.filter(
+      (j) =>
+        j.name.toLowerCase().includes(term) ||
+        j.pj_number.toLowerCase().includes(term)
+    );
+  }, [allJudges, judgeSearchTerm]);
+
   // ─── resetForm function ──────────────────────────────────────────────────
   const resetForm = useCallback(() => {
     setJudgeName('');
     setPjNumber('');
+    setSelectedJudge(null);
+    setJudgeSearchTerm('');
     setItems(buildInitialItems(null));
     setDirtyItemIds(new Set());
     setCurrentStep(1);
@@ -1659,19 +1652,26 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
   const populateForm = useCallback((utility: JudgeUtility) => {
     setJudgeName(utility.judge_name ?? '');
     setPjNumber(utility.pj_number ?? '');
+    // Try to find matching judge in the list
+    const matchingJudge = allJudges.find(
+      (j) => j.pj_number === utility.pj_number || j.name === utility.judge_name
+    );
+    if (matchingJudge) {
+      setSelectedJudge(matchingJudge);
+      setJudgeSearchTerm(matchingJudge.name);
+    }
     setItems(buildInitialItems(utility));
     setDirtyItemIds(new Set());
     setCurrentStep(1);
     setPendingDocumentId(undefined);
-  }, []);
+  }, [allJudges]);
 
-  // ─── Sync form state to props DURING RENDER ─────────────────────────
+  // ─── Sync form state to props ─────────────────────────────────────────
   const syncKey = isOpen ? (editingUtility?.id ?? 'new') : null;
   const [lastSyncedKey, setLastSyncedKey] = useState<string | null>(null);
 
   if (syncKey !== lastSyncedKey) {
     setLastSyncedKey(syncKey);
-
     if (syncKey !== null) {
       if (editingUtility) {
         populateForm(editingUtility);
@@ -1681,8 +1681,18 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     }
   }
 
+  // ─── Handle judge selection ─────────────────────────────────────────────
+  const handleSelectJudge = useCallback((judge: Judge) => {
+    setSelectedJudge(judge);
+    setJudgeName(judge.name);
+    setPjNumber(judge.pj_number);
+    setJudgeSearchTerm(judge.name);
+    setShowJudgeDropdown(false);
+  }, []);
+
+
   // ─── Helper to get judges for memo ──────────────────────────────────────
-  const getJudgesForMemo = (): JudgeUtility[] => {
+  const getJudgesForMemo = useCallback((): JudgeUtility[] => {
     if (isEditing && editingUtility) {
       return [editingUtility];
     }
@@ -1715,6 +1725,11 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         approval_status: 'pending',
         memo_id: null,
         memo_sent_at: null,
+        document_sync_status: 'not_applicable',
+        document_synced_at: null,
+        document_sync_error: null,
+        last_document_id: null,
+        last_document_status: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })),
@@ -1723,22 +1738,22 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     };
 
     return [tempJudge];
-  };
+  }, [isEditing, editingUtility, items, judgeName, pjNumber]);
 
-  const handleMemoGenerated = (docId: string) => {
+  const handleMemoGenerated = useCallback((docId: string) => {
     setPendingDocumentId(docId);
-  };
+  }, []);
 
-  const handleAddNewRow = () => {
+  const handleAddNewRow = useCallback(() => {
     setItems((prev) => [...prev, buildEmptyItem()]);
-  };
+  }, []);
 
-  const handleRemoveRow = (index: number) => {
+  const handleRemoveRow = useCallback((index: number) => {
     if (items.length <= 1) return;
     setItems((prev) => prev.filter((_, i) => i !== index));
-  };
+  }, [items.length]);
 
-  const handleRowChange = (
+  const handleRowChange = useCallback((
     index: number,
     field: keyof UtilityItemFormState,
     value: string | number,
@@ -1752,9 +1767,9 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     if (isEditing && items[index].id) {
       setDirtyItemIds((prev) => new Set(prev).add(items[index].id!));
     }
-  };
+  }, [isEditing, items]);
 
-  const handleSaveRow = async (index: number) => {
+  const handleSaveRow = useCallback(async (index: number) => {
     if (!editingUtility) return;
     const item = items[index];
     if (!item.id) return;
@@ -1791,9 +1806,9 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     } finally {
       setSavingItemIndex(null);
     }
-  };
+  }, [editingUtility, items, dispatch]);
 
-  const handleDeleteRow = async (index: number) => {
+  const handleDeleteRow = useCallback(async (index: number) => {
     if (!editingUtility) return;
     const item = items[index];
     if (!item.id) return;
@@ -1808,10 +1823,9 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     } finally {
       setDeletingItemIndex(null);
     }
-  };
+  }, [editingUtility, items, dispatch]);
 
-  // ─── Add item to existing ──────────────────────────────────────────────
-  const handleAddItemToExisting = async () => {
+  const handleAddItemToExisting = useCallback(async () => {
     if (!editingUtility) return;
 
     const utilityPjNumber = editingUtility.pj_number;
@@ -1839,11 +1853,11 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     } finally {
       setSavingItemIndex(null);
     }
-  };
+  }, [editingUtility, items.length, dispatch]);
 
-  const handleNextStep = () => {
+  const handleNextStep = useCallback(() => {
     if (!judgeName.trim()) {
-      toast.error('Please enter the judge name.');
+      toast.error('Please select or enter a judge name.');
       return;
     }
     const filledItems = items.filter(isItemFilled);
@@ -1852,13 +1866,13 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
       return;
     }
     setCurrentStep(2);
-  };
+  }, [judgeName, items]);
 
-  const handlePrevStep = () => {
+  const handlePrevStep = useCallback(() => {
     setCurrentStep(1);
-  };
+  }, []);
 
-  const handleCreateRecord = async () => {
+  const handleCreateRecord = useCallback(async () => {
     if (isEditing) return;
 
     if (currentStep !== 2) return;
@@ -1883,11 +1897,21 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         return;
       }
 
-      const result = await dispatch(
-        createUtility({
-          pj_number: finalPjNumber,
-          judge_name: judgeName.trim(),
-          items: filledItems.map((item) => ({
+      // ─── Check if PJ number already exists ──────────────────────────────────
+      let existingUtility: JudgeUtility | null = null;
+      try {
+        existingUtility = await dispatch(fetchUtilityByPjNumber(finalPjNumber)).unwrap();
+      } catch {
+        // PJ number doesn't exist - we'll create a new record
+      }
+
+      let result: JudgeUtility;
+
+      if (existingUtility) {
+        // ─── PJ EXISTS: Add items to existing record ──────────────────────────
+        for (const item of filledItems) {
+          const addInput: AddUtilityItemInput = {
+            pj_number: finalPjNumber,
             utility_type: item.utility_type,
             requisition_number: item.requisition_number.trim() || undefined,
             amount: item.amount,
@@ -1897,9 +1921,33 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
             date_forwarded_dass: formatDateForAPI(item.date_forwarded_dass),
             date_paid: formatDateForAPI(item.date_paid),
             status: item.status,
-          })),
-        }),
-      ).unwrap();
+          };
+          await dispatch(addUtilityItem(addInput)).unwrap();
+        }
+        
+        result = await dispatch(fetchUtilityByPjNumber(finalPjNumber)).unwrap();
+        toast.success(`${filledItems.length} utility item(s) added to existing record for ${judgeName.trim()}.`);
+      } else {
+        // ─── PJ DOES NOT EXIST: Create new record ─────────────────────────────
+        result = await dispatch(
+          createUtility({
+            pj_number: finalPjNumber,
+            judge_name: judgeName.trim(),
+            items: filledItems.map((item) => ({
+              utility_type: item.utility_type,
+              requisition_number: item.requisition_number.trim() || undefined,
+              amount: item.amount,
+              period: item.period.trim(),
+              description: item.description.trim() || undefined,
+              date_received: formatDateForAPI(item.date_received),
+              date_forwarded_dass: formatDateForAPI(item.date_forwarded_dass),
+              date_paid: formatDateForAPI(item.date_paid),
+              status: item.status,
+            })),
+          }),
+        ).unwrap();
+        toast.success(`New judge utility record created for ${judgeName.trim()}.`);
+      }
 
       if (pendingDocumentId && result?.id) {
         try {
@@ -1917,19 +1965,37 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
       }
 
       await dispatch(fetchUtilities({}));
-      toast.success('Judge utility record created successfully.');
       onClose();
       resetForm();
     } catch (err) {
-      console.error('Failed to create judge utility record:', err);
-      toast.error('Failed to create judge utility record.');
+      console.error('Failed to create/add utility record:', err);
+      
+      let errorMessage = 'Failed to create judge utility record.';
+      
+      const isAxiosError = (error: unknown): error is { 
+        response?: { status?: number; data?: { message?: string } };
+        message?: string;
+      } => {
+        return typeof error === 'object' && error !== null;
+      };
+      
+      if (isAxiosError(err)) {
+        if (err.response?.status === 409) {
+          errorMessage = `A record with PJ number "${pjNumber.trim()}" already exists. Please use a different PJ number or add items to the existing record.`;
+        } else if (err.response?.data?.message) {
+          errorMessage = err.response.data.message;
+        } else if (err.message) {
+          errorMessage = err.message;
+        }
+      }
+      
+      toast.error(errorMessage);
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [isEditing, currentStep, judgeName, pjNumber, items, pendingDocumentId, dispatch, onClose, resetForm]);
 
-  // ─── Update the main utility record ──────────────────────────────────────
-  const handleUpdateUtilityRecord = async () => {
+  const handleUpdateUtilityRecord = useCallback(async () => {
     if (!editingUtility) return;
 
     const updates: UpdateUtilityInput = {};
@@ -1975,9 +2041,9 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [editingUtility, judgeName, pjNumber, dispatch]);
 
-  const handleConfirmDelete = async () => {
+  const handleConfirmDelete = useCallback(async () => {
     if (deleteTarget === null) return;
     setIsDeleting(true);
     try {
@@ -1994,12 +2060,12 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     } finally {
       setIsDeleting(false);
     }
-  };
+  }, [deleteTarget, editingUtility, dispatch, onClose, resetForm]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     resetForm();
     onClose();
-  };
+  }, [resetForm, onClose]);
 
   if (!isOpen) return null;
 
@@ -2049,19 +2115,66 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
             <div className="flex-1 overflow-y-auto p-4">
               {isEditing ? (
                 <div className="space-y-4">
+                  {/* ─── Judge Name with Search ──────────────────────────────── */}
                   <div>
                     <FieldLabel required>Judge Name</FieldLabel>
-                    <div className="relative">
-                      <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-                      <input
-                        type="text"
-                        value={judgeName}
-                        onChange={(e) => setJudgeName(e.target.value)}
-                        className={`${inputClasses} pl-9`}
-                      />
+                    <div className="relative" ref={dropdownRef}>
+                      <div className="relative">
+                        <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                        <input
+                          type="text"
+                          value={judgeSearchTerm}
+                          onChange={(e) => {
+                            setJudgeSearchTerm(e.target.value);
+                            setShowJudgeDropdown(true);
+                            if (selectedJudge && selectedJudge.name !== e.target.value) {
+                              setSelectedJudge(null);
+                              setJudgeName(e.target.value);
+                              if (pjNumber === selectedJudge.pj_number) {
+                                setPjNumber('');
+                              }
+                            } else {
+                              setJudgeName(e.target.value);
+                            }
+                          }}
+                          onFocus={() => setShowJudgeDropdown(true)}
+                          placeholder="Search judge by name or PJ number..."
+                          className={`${inputClasses} pl-9`}
+                        />
+                        {judgesLoading && (
+                          <Loader2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-stone-400" />
+                        )}
+                      </div>
+
+                      {showJudgeDropdown && filteredJudges.length > 0 && (
+                        <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-stone-200 bg-white shadow-lg">
+                          {filteredJudges.map((judge) => (
+                            <button
+                              key={judge.id}
+                              onClick={() => handleSelectJudge(judge)}
+                              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-stone-50 transition-colors border-b border-stone-100 last:border-b-0"
+                            >
+                              <span className="font-medium text-stone-800">{judge.name}</span>
+                              <span className="text-xs text-stone-400 font-mono">{judge.pj_number}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {showJudgeDropdown && filteredJudges.length === 0 && judgeSearchTerm.trim() && (
+                        <div className="absolute z-20 mt-1 w-full rounded-lg border border-stone-200 bg-white p-3 text-center text-sm text-stone-500 shadow-lg">
+                          No matching judges found. Enter name manually.
+                        </div>
+                      )}
                     </div>
+                    {selectedJudge && (
+                      <p className="mt-1 text-[11px] text-emerald-600">
+                        ✓ Selected: {selectedJudge.name} ({selectedJudge.pj_number})
+                      </p>
+                    )}
                   </div>
 
+                  {/* ─── PJ Number ──────────────────────────────────────────────── */}
                   <div>
                     <FieldLabel required>PJ Number</FieldLabel>
                     <div className="relative">
@@ -2139,21 +2252,66 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                 </div>
               ) : currentStep === 1 ? (
                 <div className="space-y-4">
+                  {/* ─── Judge Name with Search ──────────────────────────────── */}
                   <div>
                     <FieldLabel required>Judge Name</FieldLabel>
-                    <div className="relative">
-                      <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-                      <input
-                        type="text"
-                        value={judgeName}
-                        onChange={(e) => setJudgeName(e.target.value)}
-                        placeholder="e.g. Hon. Justice Korir"
-                        className={`${inputClasses} pl-9`}
-                        required
-                      />
+                    <div className="relative" ref={dropdownRef}>
+                      <div className="relative">
+                        <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                        <input
+                          type="text"
+                          value={judgeSearchTerm}
+                          onChange={(e) => {
+                            setJudgeSearchTerm(e.target.value);
+                            setShowJudgeDropdown(true);
+                            if (selectedJudge && selectedJudge.name !== e.target.value) {
+                              setSelectedJudge(null);
+                              setJudgeName(e.target.value);
+                              if (pjNumber === selectedJudge.pj_number) {
+                                setPjNumber('');
+                              }
+                            } else {
+                              setJudgeName(e.target.value);
+                            }
+                          }}
+                          onFocus={() => setShowJudgeDropdown(true)}
+                          placeholder="Search judge by name or PJ number..."
+                          className={`${inputClasses} pl-9`}
+                        />
+                        {judgesLoading && (
+                          <Loader2 size={16} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-stone-400" />
+                        )}
+                      </div>
+
+                      {showJudgeDropdown && filteredJudges.length > 0 && (
+                        <div className="absolute z-20 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-stone-200 bg-white shadow-lg">
+                          {filteredJudges.map((judge) => (
+                            <button
+                              key={judge.id}
+                              onClick={() => handleSelectJudge(judge)}
+                              className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-stone-50 transition-colors border-b border-stone-100 last:border-b-0"
+                            >
+                              <span className="font-medium text-stone-800">{judge.name}</span>
+                              <span className="text-xs text-stone-400 font-mono">{judge.pj_number}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {showJudgeDropdown && filteredJudges.length === 0 && judgeSearchTerm.trim() && (
+                        <div className="absolute z-20 mt-1 w-full rounded-lg border border-stone-200 bg-white p-3 text-center text-sm text-stone-500 shadow-lg">
+                          No matching judges found. Enter name manually.
+                        </div>
+                      )}
                     </div>
+                    {selectedJudge && (
+                      <p className="mt-1 text-[11px] text-emerald-600">
+                        ✓ Selected: {selectedJudge.name} ({selectedJudge.pj_number})
+                      </p>
+                    )}
                   </div>
 
+                  {/* ─── PJ Number ──────────────────────────────────────────────── */}
                   <div>
                     <FieldLabel required>PJ Number</FieldLabel>
                     <div className="relative">
