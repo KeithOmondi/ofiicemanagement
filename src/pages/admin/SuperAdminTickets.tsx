@@ -68,13 +68,14 @@ import type {
 // ── Document Status Badge ───────────────────────────────────────────────────
 
 interface DocumentStatusBadgeProps {
-  status: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
+  status: 'draft' | 'pending_approval' | 'ready_to_send' | 'approved' | 'rejected' | 'returned';
 }
 
 const DocumentStatusBadge: React.FC<DocumentStatusBadgeProps> = ({ status }) => {
   const configs: Record<string, { label: string; color: string; bg: string }> = {
     draft: { label: 'Draft', color: 'text-stone-600', bg: 'bg-stone-100' },
     pending_approval: { label: 'Pending Approval', color: 'text-amber-700', bg: 'bg-amber-50' },
+    ready_to_send: { label: 'Ready to Send', color: 'text-blue-700', bg: 'bg-blue-50' },
     approved: { label: 'Approved ✓', color: 'text-emerald-700', bg: 'bg-emerald-50' },
     rejected: { label: 'Rejected', color: 'text-red-700', bg: 'bg-red-50' },
     returned: { label: 'Returned', color: 'text-blue-700', bg: 'bg-blue-50' },

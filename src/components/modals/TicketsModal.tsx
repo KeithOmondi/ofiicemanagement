@@ -165,6 +165,7 @@ const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => {
   const map: Record<DocumentStatus, string> = {
     draft: 'bg-stone-100 text-stone-600 ring-stone-200',
     pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
+    ready_to_send: 'bg-blue-50 text-blue-700 ring-blue-200',
     approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
     rejected: 'bg-red-50 text-red-700 ring-red-200',
     returned: 'bg-orange-50 text-orange-700 ring-orange-200',
@@ -172,6 +173,7 @@ const StatusBadge: React.FC<{ status: DocumentStatus }> = ({ status }) => {
   const labels: Record<DocumentStatus, string> = {
     draft: 'Draft',
     pending_approval: 'Pending Approval',
+    ready_to_send: 'Ready to Send',
     approved: 'Approved',
     rejected: 'Rejected',
     returned: 'Returned',
