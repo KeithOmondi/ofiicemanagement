@@ -300,14 +300,17 @@ const SuccessBanner: React.FC<{ success: boolean; onClear: () => void }> = ({ su
 
 // ─── Document Status Badge ───────────────────────────────────────────────────
 
+// ── Document Status Badge ───────────────────────────────────────────────────
+
 interface DocumentStatusBadgeProps {
-  status: 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
+  status: 'draft' | 'pending_approval' | 'ready_to_send' | 'approved' | 'rejected' | 'returned';
 }
 
 const DocumentStatusBadge: React.FC<DocumentStatusBadgeProps> = ({ status }) => {
   const configs: Record<string, { label: string; color: string; bg: string }> = {
     draft: { label: 'Draft', color: 'text-stone-600', bg: 'bg-stone-100' },
     pending_approval: { label: 'Pending Approval', color: 'text-amber-700', bg: 'bg-amber-50' },
+    ready_to_send: { label: 'Ready to Send', color: 'text-blue-700', bg: 'bg-blue-50' },
     approved: { label: 'Approved ✓', color: 'text-emerald-700', bg: 'bg-emerald-50' },
     rejected: { label: 'Rejected', color: 'text-red-700', bg: 'bg-red-50' },
     returned: { label: 'Returned', color: 'text-blue-700', bg: 'bg-blue-50' },
@@ -815,6 +818,7 @@ const documentStatusColor = (status: DocumentStatus): string => {
   const map: Record<DocumentStatus, string> = {
     draft: 'bg-stone-100 text-stone-600 ring-stone-200',
     pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
+    ready_to_send: 'bg-blue-50 text-blue-700 ring-blue-200',
     approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
     rejected: 'bg-red-50 text-red-700 ring-red-200',
     returned: 'bg-orange-50 text-orange-700 ring-orange-200',
