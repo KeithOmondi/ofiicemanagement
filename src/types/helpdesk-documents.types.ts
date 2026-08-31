@@ -24,7 +24,27 @@ export type HelpdeskEntityType =
 
 export type HelpdeskDocumentFormat = 'pdf' | 'docx' | 'xlsx';
 
-export type HelpdeskDocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
+// ─── UPDATED: Document Status with 'ready_to_send' ───────────────────────────
+// 
+// Status Flow:
+// ┌─────────────────────────────────────────────────────────────────────────────┐
+// │ Status              │ Description                                         │
+// ├─────────────────────────────────────────────────────────────────────────────┤
+// │ draft               │ Document is being created/edited (requester only)    │
+// │ pending_approval    │ Document is in the super admin's queue (PENDING)    │
+// │ ready_to_send       │ Super admin approved/rejected, ready to send back   │
+// │ approved            │ Fully approved and sent back to requester           │
+// │ rejected            │ Fully rejected and sent back to requester           │
+// │ returned            │ Returned for changes and sent back to requester     │
+// └─────────────────────────────────────────────────────────────────────────────┘
+export type HelpdeskDocumentStatus = 
+    | 'draft' 
+    | 'pending_approval' 
+    | 'ready_to_send' 
+    | 'approved' 
+    | 'rejected' 
+    | 'returned';
+
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
 
 // ─── Stamp Types ──────────────────────────────────────────────────────────────
@@ -61,24 +81,29 @@ export interface SyncedUtilityItem {
 
 /**
  * Internal approval status (only visible to super admin)
- * - 'pending': Awaiting super admin action
- * - 'previewed': Super admin has previewed the document
- * - 'approved_internal': Super admin approved internally (not yet sent to requester)
- * - 'rejected_internal': Super admin rejected internally (not yet sent to requester)
- * - 'changes_requested_internal': Super admin requested changes internally (not yet sent to requester)
- * - 'changes_ready': Requester has made changes, ready for re-review
+ * Tracks the super admin's decision before the requester is notified
+ * 
+ * Workflow:
+ * 1. Requester submits → internal_approval_status = 'pending'
+ * 2. Super admin previews → internal_approval_status = 'previewed'
+ * 3. Super admin makes decision → 'approved_internal' | 'rejected_internal' | 'changes_requested_internal'
+ * 4. Requester resubmits after changes → internal_approval_status = 'changes_ready'
+ * 5. Super admin cancels decision → internal_approval_status = 'pending'
  */
 export type InternalApprovalStatus = 
     | 'pending'                    // Awaiting super admin review
     | 'previewed'                  // Super admin has previewed the document
-    | 'approved_internal'          // Super admin approved (waiting to send back)
-    | 'rejected_internal'          // Super admin rejected (waiting to send back)
-    | 'changes_requested_internal' // Super admin wants changes (waiting to send back)
-    | 'changes_ready';             // Changes have been made, ready for re-preview
+    | 'approved_internal'          // Super admin approved (ready to send back to requester)
+    | 'rejected_internal'          // Super admin rejected (ready to send back to requester)
+    | 'changes_requested_internal' // Super admin wants changes (ready to send back to requester)
+    | 'changes_ready';             // Requester has made changes, ready for re-review
 
 /**
  * External/Requester visible status (what the requester sees)
  * Only changes when super admin clicks "Send Back to Requester"
+ * 
+ * The requester's status is independent of the internal status until
+ * the super admin explicitly sends it back.
  */
 export type RequesterVisibleStatus = 
     | 'pending_approval'    // Requester sees: Waiting for approval
@@ -309,10 +334,21 @@ export interface HelpdeskDocument {
     last_resubmitted_at?: string;
     last_resubmitted_by?: string;
     
-    // Flags
-    is_internal_approval_complete: boolean; // Super admin has made a decision internally
-    is_sent_back_to_requester: boolean; // Document has been sent back to requester
-    is_requester_notified: boolean; // Requester has been notified
+    // ─── Flags that determine document state ──────────────────────────────────
+    /**
+     * Whether the super admin has made an internal decision
+     * True when internal_approval_status is 'approved_internal', 'rejected_internal', or 'changes_requested_internal'
+     */
+    is_internal_approval_complete: boolean;
+    
+    /**
+     * Whether the document has been sent back to the requester
+     * True only after super admin clicks "Send Back to Requester"
+     * When true, the document is removed from the super admin's queue
+     */
+    is_sent_back_to_requester: boolean;
+    
+    is_requester_notified: boolean;
 
     // ─── Utility Sync Fields ──────────────────────────────────────────────
     /**
@@ -439,6 +475,7 @@ export interface PendingInternalApprovalsSummary {
     total_pending_internal: number;
     pending_review: number;           // Awaiting super admin review
     previewed: number;               // Super admin previewed but not decided
+    changes_ready: number;           // Requester made changes, ready for re-review
     approved_internal: number;       // Approved internally, waiting to send back
     rejected_internal: number;       // Rejected internally, waiting to send back
     changes_requested_internal: number; // Changes requested, waiting to send back
@@ -919,6 +956,7 @@ export interface HelpdeskDocumentsState {
 export interface DocumentStats {
     total: number;
     pending_approval: number;
+    ready_to_send: number;
     approved: number;
     rejected: number;
     returned: number;
@@ -959,6 +997,7 @@ export interface DocumentSummary {
     by_entity_type: Record<HelpdeskEntityType, number>;
     by_format: Record<HelpdeskDocumentFormat, number>;
     pending_approval: number;
+    ready_to_send: number;
     draft: number;
     approved: number;
     rejected: number;
@@ -1051,9 +1090,12 @@ export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
     conference: 'text-purple-600 bg-purple-50',
 };
 
+// ─── UPDATED: Document Status Constants with 'ready_to_send' ─────────────────
+
 export const DOCUMENT_STATUS_LABELS: Record<HelpdeskDocumentStatus, string> = {
     draft: 'Draft',
     pending_approval: 'Pending Approval',
+    ready_to_send: 'Ready to Send',
     approved: 'Approved',
     rejected: 'Rejected',
     returned: 'Returned',
@@ -1062,6 +1104,7 @@ export const DOCUMENT_STATUS_LABELS: Record<HelpdeskDocumentStatus, string> = {
 export const DOCUMENT_STATUS_COLORS: Record<HelpdeskDocumentStatus, string> = {
     draft: 'bg-stone-100 text-stone-600',
     pending_approval: 'bg-amber-50 text-amber-700',
+    ready_to_send: 'bg-blue-50 text-blue-700',
     approved: 'bg-emerald-50 text-emerald-700',
     rejected: 'bg-red-50 text-red-700',
     returned: 'bg-blue-50 text-blue-700',
@@ -1070,6 +1113,7 @@ export const DOCUMENT_STATUS_COLORS: Record<HelpdeskDocumentStatus, string> = {
 export const DOCUMENT_STATUS_BADGE_STYLES: Record<HelpdeskDocumentStatus, string> = {
     draft: 'badge-stone',
     pending_approval: 'badge-amber',
+    ready_to_send: 'badge-blue',
     approved: 'badge-emerald',
     rejected: 'badge-red',
     returned: 'badge-blue',
@@ -1381,6 +1425,8 @@ export function getStampTypeColor(stampType: StampType): string {
     return STAMP_TYPE_COLORS[stampType] || '';
 }
 
+// ─── State Check Helpers ──────────────────────────────────────────────────────
+
 export function isInternalApprovalPending(status: InternalApprovalStatus): boolean {
     return ['pending', 'previewed'].includes(status);
 }
@@ -1404,6 +1450,69 @@ export function isDocumentVisibleToRequester(requesterStatus: RequesterVisibleSt
 export function isPreviewRequired(internalStatus: InternalApprovalStatus): boolean {
     return ['pending', 'changes_ready'].includes(internalStatus);
 }
+
+/**
+ * Check if a document is in the "pending review" state (needs super admin action)
+ * These documents appear as "PENDING" in the super admin list
+ */
+export function isPendingReview(doc: HelpdeskDocument): boolean {
+    return doc.internal_approval_status === 'pending' 
+        || doc.internal_approval_status === 'previewed'
+        || doc.internal_approval_status === 'changes_ready';
+}
+
+/**
+ * Check if a document is in the "ready to send back" state
+ * These documents appear as "READY" in the super admin list
+ */
+export function isReadyToSendBack(doc: HelpdeskDocument): boolean {
+    return doc.is_internal_approval_complete 
+        && !doc.is_sent_back_to_requester
+        && doc.status === 'pending_approval';
+}
+
+/**
+ * Check if a document is in the super admin's active queue
+ * Documents in the queue are NOT sent back to requester yet
+ */
+export function isInSuperAdminQueue(doc: HelpdeskDocument): boolean {
+    return doc.status === 'pending_approval' 
+        && !doc.is_sent_back_to_requester;
+}
+
+/**
+ * Get the display status for a document in the super admin list
+ * Returns "PENDING" if needs review, "READY" if approved and ready to send back
+ */
+export function getSuperAdminDisplayStatus(doc: HelpdeskDocument): 'PENDING' | 'READY' {
+    if (isReadyToSendBack(doc)) {
+        return 'READY';
+    }
+    return 'PENDING';
+}
+
+/**
+ * Check if the super admin can approve this document
+ */
+export function canSuperAdminApprove(doc: HelpdeskDocument): boolean {
+    return doc.status === 'pending_approval' 
+        && !doc.is_sent_back_to_requester
+        && !doc.is_internal_approval_complete
+        && (doc.internal_approval_status === 'pending' 
+            || doc.internal_approval_status === 'previewed'
+            || doc.internal_approval_status === 'changes_ready');
+}
+
+/**
+ * Check if the super admin can send this document back to requester
+ */
+export function canSuperAdminSendBack(doc: HelpdeskDocument): boolean {
+    return doc.is_internal_approval_complete 
+        && !doc.is_sent_back_to_requester
+        && doc.status === 'pending_approval';
+}
+
+// ─── Status Transition Functions ────────────────────────────────────────────
 
 /**
  * Gets the next internal approval status based on super admin action
@@ -1509,6 +1618,105 @@ export function getRequesterVisibleStatus(
     return mapping[internalStatus]?.[sendBackAction] || 'pending_approval';
 }
 
+/**
+ * Validates document status transition with two-step workflow
+ */
+export function validateDocumentStatusWithTwoStepWorkflow(
+    currentStatus: HelpdeskDocumentStatus,
+    currentInternalStatus: InternalApprovalStatus,
+    currentRequesterStatus: RequesterVisibleStatus,
+    newStatus: HelpdeskDocumentStatus,
+    newInternalStatus?: InternalApprovalStatus,
+    newRequesterStatus?: RequesterVisibleStatus
+): boolean {
+    // Basic document status transition validation
+    const validTransitions: Record<HelpdeskDocumentStatus, HelpdeskDocumentStatus[]> = {
+        draft: ['pending_approval', 'returned', 'approved'],
+        pending_approval: ['ready_to_send', 'approved', 'rejected', 'returned', 'draft'],
+        ready_to_send: ['approved', 'rejected', 'returned'],
+        approved: ['returned'],
+        rejected: ['draft', 'pending_approval'],
+        returned: ['draft', 'pending_approval'],
+    };
+
+    if (!validTransitions[currentStatus]?.includes(newStatus)) {
+        return false;
+    }
+
+    // If no internal status change, it's valid
+    if (!newInternalStatus) {
+        return true;
+    }
+
+    // Validate internal status transitions
+    const validInternalTransitions: Record<InternalApprovalStatus, InternalApprovalStatus[]> = {
+        pending: ['previewed', 'approved_internal', 'rejected_internal', 'changes_requested_internal'],
+        previewed: ['previewed', 'approved_internal', 'rejected_internal', 'changes_requested_internal'],
+        approved_internal: ['approved_internal', 'rejected_internal', 'changes_requested_internal', 'pending'],
+        rejected_internal: ['approved_internal', 'rejected_internal', 'changes_requested_internal', 'pending'],
+        changes_requested_internal: ['approved_internal', 'rejected_internal', 'changes_requested_internal', 'changes_ready', 'pending'],
+        changes_ready: ['previewed', 'approved_internal', 'rejected_internal', 'changes_requested_internal'],
+    };
+
+    if (!validInternalTransitions[currentInternalStatus]?.includes(newInternalStatus)) {
+        return false;
+    }
+
+    // Validate requester status transitions
+    if (newRequesterStatus) {
+        const validRequesterTransitions: Record<RequesterVisibleStatus, RequesterVisibleStatus[]> = {
+            pending_approval: ['approved', 'rejected', 'changes_requested'],
+            approved: ['pending_approval'],
+            rejected: ['in_revision', 'pending_approval'],
+            changes_requested: ['in_revision', 'pending_approval'],
+            in_revision: ['pending_approval'],
+        };
+
+        if (!validRequesterTransitions[currentRequesterStatus]?.includes(newRequesterStatus)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// ─── Document Validation ────────────────────────────────────────────────────
+
+/**
+ * Validates document status transition (simple version without two-step workflow)
+ */
+export function validateDocumentStatusTransition(
+    currentStatus: HelpdeskDocumentStatus,
+    newStatus: HelpdeskDocumentStatus
+): boolean {
+    const validTransitions: Record<HelpdeskDocumentStatus, HelpdeskDocumentStatus[]> = {
+        draft: ['pending_approval'],
+        pending_approval: ['ready_to_send', 'approved', 'rejected', 'returned'],
+        ready_to_send: ['approved', 'rejected', 'returned'],
+        approved: ['returned'],
+        rejected: ['draft'],
+        returned: ['draft'],
+    };
+
+    return validTransitions[currentStatus]?.includes(newStatus) || false;
+}
+
+/**
+ * Gets available status transitions for a document
+ */
+export function getAvailableStatusTransitions(currentStatus: HelpdeskDocumentStatus): HelpdeskDocumentStatus[] {
+    const transitions: Record<HelpdeskDocumentStatus, HelpdeskDocumentStatus[]> = {
+        draft: ['pending_approval'],
+        pending_approval: ['ready_to_send', 'approved', 'rejected', 'returned'],
+        ready_to_send: ['approved', 'rejected', 'returned'],
+        approved: ['returned'],
+        rejected: ['draft'],
+        returned: ['draft'],
+    };
+
+    return transitions[currentStatus] || [];
+}
+
 // ─── Request Type Helpers ────────────────────────────────────────────────────
 
 export function getRequestTypeLabel(requestType: RequestType): string {
@@ -1545,6 +1753,68 @@ export function getSentryStatusLabel(status: SentryStatus): string {
 
 export function getSentryStatusColor(status: SentryStatus): string {
     return SENTRY_STATUS_COLORS[status] || '';
+}
+
+// ─── Type Guards ─────────────────────────────────────────────────────────────
+
+export function isHelpdeskEntityType(value: string): value is HelpdeskEntityType {
+    return [
+        'circuit',
+        'bench',
+        'partHeard',
+        'serviceWeek',
+        'otherPayment',
+        'ticket',
+        'medicalClaim',
+        'generalRequest',
+        'securityRequest',
+        'visa',
+        'protocol',
+        'club',
+        'utility_memo',
+        'consolidated_utility_memo',
+        'consolidated_fuel_memo',
+        'aide',
+        'sentry',
+        'conference'
+    ].includes(value);
+}
+
+export function isHelpdeskDocumentStatus(value: string): value is HelpdeskDocumentStatus {
+    return ['draft', 'pending_approval', 'ready_to_send', 'approved', 'rejected', 'returned'].includes(value);
+}
+
+export function isEStampStatus(value: string): value is EStampStatus {
+    return ['pending', 'stamped', 'failed'].includes(value);
+}
+
+export function isInternalApprovalStatus(value: string): value is InternalApprovalStatus {
+    return [
+        'pending',
+        'previewed',
+        'approved_internal',
+        'rejected_internal',
+        'changes_requested_internal',
+        'changes_ready'
+    ].includes(value);
+}
+
+export function isRequesterVisibleStatus(value: string): value is RequesterVisibleStatus {
+    return [
+        'pending_approval',
+        'approved',
+        'rejected',
+        'changes_requested',
+        'in_revision'
+    ].includes(value);
+}
+
+export function isStampType(value: string): value is StampType {
+    return ['approved', 'received', 'official'].includes(value);
+}
+
+export function isUtilitySyncStatus(value: string): value is UtilitySyncStatus {
+    return ['pending', 'synced', 'failed', 'not_applicable'].includes(value);
 }
 
 export function isRequestType(value: string): value is RequestType {
@@ -1603,68 +1873,6 @@ export function isConferenceType(value: string): value is ConferenceType {
     return ['judicial', 'administrative', 'training', 'workshop', 'seminar', 'other'].includes(value);
 }
 
-// ─── Type Guards ─────────────────────────────────────────────────────────────
-
-export function isHelpdeskEntityType(value: string): value is HelpdeskEntityType {
-    return [
-        'circuit',
-        'bench',
-        'partHeard',
-        'serviceWeek',
-        'otherPayment',
-        'ticket',
-        'medicalClaim',
-        'generalRequest',
-        'securityRequest',
-        'visa',
-        'protocol',
-        'club',
-        'utility_memo',
-        'consolidated_utility_memo',
-        'consolidated_fuel_memo',
-        'aide',
-        'sentry',
-        'conference'
-    ].includes(value);
-}
-
-export function isHelpdeskDocumentStatus(value: string): value is HelpdeskDocumentStatus {
-    return ['draft', 'pending_approval', 'approved', 'rejected', 'returned'].includes(value);
-}
-
-export function isEStampStatus(value: string): value is EStampStatus {
-    return ['pending', 'stamped', 'failed'].includes(value);
-}
-
-export function isInternalApprovalStatus(value: string): value is InternalApprovalStatus {
-    return [
-        'pending',
-        'previewed',
-        'approved_internal',
-        'rejected_internal',
-        'changes_requested_internal',
-        'changes_ready'
-    ].includes(value);
-}
-
-export function isRequesterVisibleStatus(value: string): value is RequesterVisibleStatus {
-    return [
-        'pending_approval',
-        'approved',
-        'rejected',
-        'changes_requested',
-        'in_revision'
-    ].includes(value);
-}
-
-export function isStampType(value: string): value is StampType {
-    return ['approved', 'received', 'official'].includes(value);
-}
-
-export function isUtilitySyncStatus(value: string): value is UtilitySyncStatus {
-    return ['pending', 'synced', 'failed', 'not_applicable'].includes(value);
-}
-
 // ─── URL Helpers ─────────────────────────────────────────────────────────────
 
 export function getDocumentDownloadUrl(documentId: string): string {
@@ -1677,33 +1885,4 @@ export function getDocumentViewUrl(documentId: string): string {
 
 export function getEStampDownloadUrl(documentId: string): string {
     return `/api/helpdesk/documents/${documentId}/estampt/download`;
-}
-
-// ─── Status Transition Validation ───────────────────────────────────────────
-
-export function validateDocumentStatusTransition(
-    currentStatus: HelpdeskDocumentStatus,
-    newStatus: HelpdeskDocumentStatus
-): boolean {
-    const validTransitions: Record<HelpdeskDocumentStatus, HelpdeskDocumentStatus[]> = {
-        draft: ['pending_approval'],
-        pending_approval: ['approved', 'rejected', 'returned'],
-        approved: ['returned'],
-        rejected: ['draft'],
-        returned: ['draft'],
-    };
-
-    return validTransitions[currentStatus]?.includes(newStatus) || false;
-}
-
-export function getAvailableStatusTransitions(currentStatus: HelpdeskDocumentStatus): HelpdeskDocumentStatus[] {
-    const transitions: Record<HelpdeskDocumentStatus, HelpdeskDocumentStatus[]> = {
-        draft: ['pending_approval'],
-        pending_approval: ['approved', 'rejected', 'returned'],
-        approved: ['returned'],
-        rejected: ['draft'],
-        returned: ['draft'],
-    };
-
-    return transitions[currentStatus] || [];
 }

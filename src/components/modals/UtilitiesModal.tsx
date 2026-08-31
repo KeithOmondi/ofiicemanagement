@@ -1,3 +1,5 @@
+// src/components/modals/UtilitiesModal.tsx - COMPLETE REWRITE WITH FIXED SIZING
+
 import React, { useState, useEffect, useRef, type ChangeEvent, useMemo, useCallback } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -20,8 +22,7 @@ import {
   fetchHelpdeskDocuments,
   uploadHelpdeskDocument,
   linkHelpdeskDocument,
-  internalApproveDocument,
-  sendBackToRequester,
+  submitForApproval,
   selectAllHelpdeskDocuments,
   selectDocumentsUploading,
   selectDocumentActionLoading,
@@ -34,7 +35,6 @@ import {
 } from '../../store/slices/helpdeskDocumentsSlice';
 import {
   fetchJudges,
-  //searchJudges,
   selectAllJudges,
   selectJudgesLoading,
 } from '../../store/slices/JudgesSlice';
@@ -93,7 +93,6 @@ const UTILITY_STATUSES: UtilityStatus[] = [
 const JUDICIARY_CREST_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784363826/ORHC_L_crclut.jpg';
 const FOOTER_EMBLEM_SRC = 'https://res.cloudinary.com/do0yflasl/image/upload/v1784364354/ORHC_EMBLEM_wzmp94.jpg';
 
-// Hoisted to module scope
 const FUEL_MEMO_BODY = `I hereby forward the fuel bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.\n\nPlease note that these claims, along with the accompanying documentation, had been submitted earlier for processing. However, the claims appear to have stalled within the processing chain and remain outstanding to date.\n\nThis memo therefore serves as a resubmission of the pending claims to facilitate their review and expeditious processing. Kindly accord the matter the necessary attention and take the appropriate action to ensure reimbursement is affected.`;
 
 const UTILITY_MEMO_BODY = `I hereby forward the utility bill refund claims for the Judges listed below, together with the requisite supporting documentation for processing and reimbursement.`;
@@ -112,6 +111,7 @@ const documentStatusColor = (status: DocumentStatus): string => {
   const map: Record<DocumentStatus, string> = {
     draft: 'bg-stone-100 text-stone-600 ring-stone-200',
     pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
+    ready_to_send: 'bg-blue-50 text-blue-700 ring-blue-200',
     approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
     rejected: 'bg-red-50 text-red-700 ring-red-200',
     returned: 'bg-orange-50 text-orange-700 ring-orange-200',
@@ -534,7 +534,6 @@ interface TotalsResult {
   hiddenSentItems: HiddenSentItem[];
 }
 
-// ─── Check if an item has an approved document ────────────────────────────
 function hasApprovedDocument(
   item: UtilityItem,
   approvedDocumentIds: Set<string>
@@ -543,7 +542,6 @@ function hasApprovedDocument(
   return approvedDocumentIds.has(item.last_document_id);
 }
 
-// ─── Check if an item has a pending document ──────────────────────────────
 function hasPendingDocument(
   item: UtilityItem,
   allDocuments: HelpdeskDocument[]
@@ -553,7 +551,6 @@ function hasPendingDocument(
   return doc?.status === 'pending_approval' || doc?.requester_status === 'pending_approval';
 }
 
-// ─── Get document info for an item ────────────────────────────────────────
 function getDocumentInfoForItem(
   item: UtilityItem,
   allDocuments: HelpdeskDocument[]
@@ -851,7 +848,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
     setActiveTab(tab);
     setSubjectField(tab === 'fuel' ? 'FUEL BILL CLAIMS' : 'UTILITY BILL CLAIMS');
     setBodyText(tab === 'fuel' ? fuelBody : utilityBody);
-    // Reset edited amounts when switching tabs
     setEditedAmounts({});
     setEditingCell(null);
   }, [fuelBody, utilityBody]);
@@ -947,7 +943,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
       const current = prev[judgeName] || {};
       const updated = { ...current, [field]: value };
       
-      // Calculate total based on active tab
       if (activeTab === 'fuel') {
         updated.total = updated.fuel ?? 0;
       } else {
@@ -977,11 +972,9 @@ const MemoModal: React.FC<MemoModalProps> = ({
         const judge = effectiveJudges.find(j => j.judge_name === judgeName);
         if (!judge) continue;
 
-        // Find items that need updating
         const itemsToUpdate: Array<{ item: UtilityItem; newAmount: number }> = [];
 
         if (activeTab === 'fuel') {
-          // For fuel tab, update fuel items
           const fuelItems = judge.items.filter(item => item.utility_type === 'Fuel' && item.status === 'Awaiting');
           if (fuelItems.length > 0 && edits.fuel !== undefined) {
             const newAmount = edits.fuel / fuelItems.length;
@@ -990,7 +983,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
             });
           }
         } else {
-          // For all utilities tab
           if (edits.kplc !== undefined) {
             const items = judge.items.filter(item => item.utility_type === 'Electricity' && item.status === 'Awaiting');
             if (items.length > 0) {
@@ -1020,7 +1012,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
           }
         }
 
-        // Update each item
         for (const { item, newAmount } of itemsToUpdate) {
           try {
             await dispatch(updateUtilityItem({
@@ -1038,11 +1029,8 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
       if (successCount > 0) {
         toast.success(`${successCount} utility item(s) updated successfully.`);
-        // Clear edited amounts
         setEditedAmounts({});
-        // Refresh data
         await dispatch(fetchUtilities({}));
-        // Refresh documents
         if (currentEntityId) {
           dispatch(fetchHelpdeskDocuments({
             entity_type: currentEntityType,
@@ -1159,31 +1147,28 @@ const MemoModal: React.FC<MemoModalProps> = ({
     }
   }, [currentEntityId, currentEntityType, dispatch]);
 
-  const handleSendDocumentForApproval = useCallback(async (docId: string) => {
+  // ─── Submit document for approval ──────────────────────────────────────
+  const handleSubmitForApproval = useCallback(async (docId: string) => {
     try {
-      const approvedDoc = await dispatch(internalApproveDocument({
+      await dispatch(submitForApproval({
         id: docId,
-        action: 'approve',
-        comments: 'Document approved via utility memo.',
-        generate_e_stamp: true,
+        comments: `Submitted for approval via ${activeTab === 'fuel' ? 'fuel' : 'utility'} memo.`,
       })).unwrap();
-
-      await dispatch(sendBackToRequester({
-        id: approvedDoc.id,
-        final_status: 'approved',
-        comments: 'Document approved and sent back to requester.',
-        notify_requester: true,
-      })).unwrap();
-
-      toast.success('Document approved and sent back to requester.');
+      
+      toast.success('Document submitted to Super Admin for review and approval.');
+      
       dispatch(fetchHelpdeskDocuments({
         entity_type: currentEntityType,
         entity_id: currentEntityId
       }));
+      
+      await dispatch(fetchUtilities({}));
+      
     } catch (err) {
-      toast.error(typeof err === 'string' ? err : 'Failed to process document approval.');
+      console.error('Failed to submit document for approval:', err);
+      toast.error(typeof err === 'string' ? err : 'Failed to submit document for approval.');
     }
-  }, [currentEntityType, currentEntityId, dispatch]);
+  }, [currentEntityType, currentEntityId, activeTab, dispatch]);
 
   // ─── Generate memo ─────────────────────────────────────────────────────
   const handleGenerate = useCallback(async (format: DownloadFormat) => {
@@ -1355,7 +1340,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-2 sm:p-4">
       <Toaster
         position="bottom-right"
         toastOptions={{
@@ -1364,9 +1349,9 @@ const MemoModal: React.FC<MemoModalProps> = ({
           error: { iconTheme: { primary: '#dc2626', secondary: '#fff' } },
         }}
       />
-      <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl">
+      <div className="flex max-h-[95vh] sm:max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
+        <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 shrink-0">
           <h3 className="text-sm font-semibold text-[#1a3d1c]">
             {modalTitle}
           </h3>
@@ -1377,7 +1362,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
         {/* Tabs */}
         {effectiveJudges.length > 0 && (
-          <div className="flex gap-2 border-b border-stone-200 px-4 py-2">
+          <div className="flex gap-2 border-b border-stone-200 px-4 py-2 shrink-0">
             <button
               onClick={() => handleTabChange('all')}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${activeTab === 'all'
@@ -1401,7 +1386,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
         {/* Consolidated Memo Edit Hint */}
         {isConsolidated && effectiveJudges.length > 0 && (
-          <div className="mx-4 mt-3 rounded-lg border border-[#c9a84c]/40 bg-[#c9a84c]/10 px-3 py-2 flex items-center gap-2">
+          <div className="mx-4 mt-3 rounded-lg border border-[#c9a84c]/40 bg-[#c9a84c]/10 px-3 py-2 flex items-center gap-2 shrink-0">
             <Info size={16} className="text-[#c9a84c] shrink-0" />
             <p className="text-xs text-stone-700">
               <span className="font-semibold">Double-click</span> any amount cell to edit it. 
@@ -1410,64 +1395,65 @@ const MemoModal: React.FC<MemoModalProps> = ({
           </div>
         )}
 
-        <div className="max-h-[70vh] overflow-y-auto p-4 space-y-4">
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {effectiveJudges.length > 0 ? (
-            <div className="border border-stone-300 bg-white p-10 shadow-sm font-sans text-black">
+            <div className="border border-stone-300 bg-white p-4 sm:p-10 shadow-sm font-sans text-black overflow-x-auto">
               <div className="flex justify-center mb-2">
                 <img
                   src={JUDICIARY_CREST_SRC}
                   alt="Judiciary of Kenya crest"
-                  className="h-24 w-auto object-contain"
+                  className="h-16 sm:h-24 w-auto object-contain"
                 />
               </div>
               <div className="text-center mb-1">
-                <p className="text-base font-bold uppercase leading-snug tracking-wide text-stone-800">
+                <p className="text-sm sm:text-base font-bold uppercase leading-snug tracking-wide text-stone-800">
                   OFFICE OF THE REGISTRAR HIGH COURT
                 </p>
               </div>
               <div className="text-center mb-6">
-                <p className="text-base font-bold uppercase tracking-wide text-stone-800">
+                <p className="text-sm sm:text-base font-bold uppercase tracking-wide text-stone-800">
                   INTERNAL MEMO
                 </p>
                 <hr className="border-t-2 border-black w-full mt-1" />
               </div>
 
               <div className="space-y-3 text-sm font-bold mb-8">
-                <div className="flex">
-                  <span className="w-24 shrink-0">FROM</span>
+                <div className="flex flex-wrap">
+                  <span className="w-20 sm:w-24 shrink-0">FROM</span>
                   <span className="w-4 shrink-0">:</span>
                   <input
                     type="text"
                     value={fromField}
                     onChange={(e) => setFromField(e.target.value)}
-                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase font-bold"
+                    className="flex-1 min-w-[120px] bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase font-bold"
                     placeholder="Department/Office"
                   />
                 </div>
-                <div className="flex">
-                  <span className="w-24 shrink-0">TO</span>
+                <div className="flex flex-wrap">
+                  <span className="w-20 sm:w-24 shrink-0">TO</span>
                   <span className="w-4 shrink-0">:</span>
                   <input type="text" value={toField} onChange={(e) => setToField(e.target.value)}
-                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase" />
+                    className="flex-1 min-w-[120px] bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase" />
                 </div>
-                <div className="flex">
-                  <span className="w-24 shrink-0">DATE</span>
+                <div className="flex flex-wrap">
+                  <span className="w-20 sm:w-24 shrink-0">DATE</span>
                   <span className="w-4 shrink-0">:</span>
                   <input type="text" value={dateField} onChange={(e) => setDateField(e.target.value)}
-                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none" />
+                    className="flex-1 min-w-[120px] bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none" />
                 </div>
-                <div className="flex border-b-2 border-black pb-3">
-                  <span className="w-24 shrink-0">SUBJECT</span>
+                <div className="flex flex-wrap border-b-2 border-black pb-3">
+                  <span className="w-20 sm:w-24 shrink-0">SUBJECT</span>
                   <span className="w-4 shrink-0">:</span>
                   <input type="text" value={subjectField} onChange={(e) => setSubjectField(e.target.value)}
-                    className="flex-1 bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase" />
+                    className="flex-1 min-w-[120px] bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none uppercase" />
                 </div>
               </div>
 
               <textarea
                 value={bodyText}
                 onChange={(e) => setBodyText(e.target.value)}
-                rows={6}
+                rows={4}
                 className="w-full bg-transparent border-0 border-b border-dashed border-transparent px-0.5 -mx-0.5 hover:border-stone-300 focus:border-stone-500 focus:outline-none resize-none text-sm leading-relaxed mb-6"
               />
 
@@ -1506,13 +1492,13 @@ const MemoModal: React.FC<MemoModalProps> = ({
               )}
 
               <div className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse border border-black">
+                <table className="w-full text-sm border-collapse border border-black min-w-[600px]">
                   <thead>
                     <tr>
-                      <th className="border border-black px-2 py-1 text-center text-xs font-bold w-10">
+                      <th className="border border-black px-2 py-1 text-center text-xs font-bold w-8 sm:w-10">
                         <span className="sr-only">Include</span>
                       </th>
-                      <th className="border border-black px-2 py-1 text-left text-xs font-bold">S/NO.</th>
+                      <th className="border border-black px-2 py-1 text-left text-xs font-bold w-8">S/NO.</th>
                       <th className="border border-black px-2 py-1 text-left text-xs font-bold">NAMES</th>
                       {showNonFuelColumns && (
                         <>
@@ -1528,7 +1514,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
                         <th className="border border-black px-2 py-1 text-right text-xs font-bold">TOTAL</th>
                       )}
                       {isConsolidated && onEditJudge && (
-                        <th className="border border-black px-2 py-1 text-center text-xs font-bold w-10">EDIT</th>
+                        <th className="border border-black px-2 py-1 text-center text-xs font-bold w-8 sm:w-10">EDIT</th>
                       )}
                     </tr>
                   </thead>
@@ -1543,10 +1529,11 @@ const MemoModal: React.FC<MemoModalProps> = ({
                               checked={!isExcluded}
                               onChange={() => toggleJudgeExclusion(row.judge_name)}
                               title={isExcluded ? 'Excluded from this memo — click to include' : 'Included in this memo — click to exclude'}
+                              className="h-3.5 w-3.5 sm:h-4 sm:w-4"
                             />
                           </td>
                           <td className="border border-black px-2 py-1 text-center">{index + 1}</td>
-                          <td className="border border-black px-2 py-1 font-medium">{row.judge_name}</td>
+                          <td className="border border-black px-2 py-1 font-medium text-xs sm:text-sm">{row.judge_name}</td>
                           {showNonFuelColumns && (
                             <>
                               {renderEditableCell(row, 'kplc', row.kplc)}
@@ -1635,7 +1622,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
                   value={additionalNotes}
                   onChange={(e) => setAdditionalNotes(e.target.value)}
                   placeholder="Add any additional remarks, clarifications, or instructions..."
-                  rows={4}
+                  rows={3}
                   className="w-full rounded-md border border-stone-300 bg-white px-3 py-2 text-sm text-stone-800 placeholder:text-stone-400 focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] resize-y"
                 />
                 <p className="mt-1 text-[10px] text-stone-400 italic">
@@ -1643,15 +1630,15 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 </p>
               </div>
 
-              <div className="mt-16">
+              <div className="mt-8 sm:mt-16">
                 <p className="text-xs text-stone-400 italic">
                   Signature block will be added by the system when the document is processed.
                 </p>
               </div>
 
-              <div className="mt-12 pt-3 border-t border-stone-300 flex items-center justify-between gap-3">
-                <img src={FOOTER_EMBLEM_SRC} alt="" className="h-10 w-auto object-contain shrink-0" />
-                <div className="text-[10px] leading-tight text-stone-700 text-right">
+              <div className="mt-8 sm:mt-12 pt-3 border-t border-stone-300 flex flex-wrap items-center justify-between gap-3">
+                <img src={FOOTER_EMBLEM_SRC} alt="" className="h-8 sm:h-10 w-auto object-contain shrink-0" />
+                <div className="text-[8px] sm:text-[10px] leading-tight text-stone-700 text-right">
                   <p>Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi</p>
                   <p>Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke</p>
                   <p className="mt-1 font-bold text-emerald-800">Justice Be Our Shield and Defender</p>
@@ -1666,9 +1653,9 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
           {/* Document Section */}
           <div className="mt-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-stone-800">Supporting Documents</h3>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <GhostButton
                   onClick={() => setShowLinkPicker((v) => !v)}
                   icon={<Paperclip size={14} />}
@@ -1709,7 +1696,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
                 ) : (
                   <ul className="divide-y divide-stone-100">
                     {unlinkedDocuments.map((doc) => (
-                      <li key={doc.id} className="flex items-center justify-between gap-2 px-2 py-2">
+                      <li key={doc.id} className="flex flex-wrap items-center justify-between gap-2 px-2 py-2">
                         <div className="flex min-w-0 items-center gap-2">
                           {documentFormatIcon(doc.format)}
                           <span className="truncate text-sm text-stone-700">{doc.subject}</span>
@@ -1738,16 +1725,16 @@ const MemoModal: React.FC<MemoModalProps> = ({
             ) : (
               <ul className="mt-2 divide-y divide-stone-100 rounded-lg border border-stone-200">
                 {linkedDocuments.map((doc) => (
-                  <li key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                  <li key={doc.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
                     <div className="flex min-w-0 items-center gap-2">
                       {documentFormatIcon(doc.format)}
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
-                        <div className="mt-0.5 flex items-center gap-2">
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2">
                           <span
                             className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
                           >
-                            {doc.status.replace('_', ' ')}
+                            {doc.status === 'pending_approval' ? 'Pending Review' : doc.status.replace('_', ' ')}
                           </span>
                           <span className="text-[11px] text-stone-400">{doc.ref}</span>
                         </div>
@@ -1756,8 +1743,9 @@ const MemoModal: React.FC<MemoModalProps> = ({
                         )}
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <a href={doc.file_url}
+                    <div className="flex shrink-0 items-center gap-2 flex-wrap">
+                      <a
+                        href={doc.file_url}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
@@ -1767,7 +1755,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
                       </a>
                       {doc.status === 'draft' && (
                         <GhostButton
-                          onClick={() => handleSendDocumentForApproval(doc.id)}
+                          onClick={() => handleSubmitForApproval(doc.id)}
                           disabled={!!documentActionLoading[doc.id]?.submitting}
                           icon={
                             documentActionLoading[doc.id]?.submitting ? (
@@ -1777,8 +1765,20 @@ const MemoModal: React.FC<MemoModalProps> = ({
                             )
                           }
                         >
-                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
+                          {documentActionLoading[doc.id]?.submitting ? 'Submitting…' : 'Submit for Approval'}
                         </GhostButton>
+                      )}
+                      {doc.status === 'pending_approval' && (
+                        <span className="inline-flex items-center gap-1 text-xs text-amber-600">
+                          <ClockIcon size={12} />
+                          Waiting for Review
+                        </span>
+                      )}
+                      {doc.status === 'approved' && (
+                        <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+                          <CheckCircle size={12} />
+                          Approved ✓
+                        </span>
                       )}
                     </div>
                   </li>
@@ -1788,9 +1788,9 @@ const MemoModal: React.FC<MemoModalProps> = ({
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex justify-between border-t border-stone-100 px-4 py-3">
-          <div className="flex gap-2">
+        {/* Footer - Always Visible */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 bg-white px-3 sm:px-4 py-2.5 sm:py-3 shrink-0">
+          <div className="flex flex-wrap gap-2">
             <GhostButton onClick={onClose}>Close</GhostButton>
             {isConsolidated && Object.keys(editedAmounts).length > 0 && (
               <GoldButton
@@ -2197,7 +2197,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     try {
       const finalPjNumber = pjNumber.trim();
 
-      // ─── Check if PJ number already exists ──────────────────────────────────
       let existingUtility: JudgeUtility | null = null;
       try {
         existingUtility = await dispatch(fetchUtilityByPjNumber(finalPjNumber)).unwrap();
@@ -2208,7 +2207,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
       let result: JudgeUtility;
 
       if (existingUtility) {
-        // ─── PJ EXISTS: Add items to existing record ──────────────────────────
         for (const item of filledItems) {
           const addInput: AddUtilityItemInput = {
             pj_number: finalPjNumber,
@@ -2228,7 +2226,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         result = await dispatch(fetchUtilityByPjNumber(finalPjNumber)).unwrap();
         toast.success(`${filledItems.length} utility item(s) added to existing record for ${judgeName.trim()}.`);
       } else {
-        // ─── PJ DOES NOT EXIST: Create new record ─────────────────────────────
         result = await dispatch(
           createUtility({
             pj_number: finalPjNumber,
@@ -2457,7 +2454,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                 </tr>
               );
             })}
-            {/* Add row button */}
             <tr>
               <td colSpan={6} className="px-3 py-2">
                 <button
@@ -2495,9 +2491,9 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
-          <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-2 sm:p-4">
+        <div className="flex max-h-[95vh] sm:max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+          <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3 shrink-0">
             <div className="flex items-center gap-2">
               <Wallet size={18} className="text-[#c9a84c]" />
               <h3 className="text-sm font-semibold text-[#1a3d1c]">
@@ -2510,7 +2506,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
           </div>
 
           {!isEditing && (
-            <div className="px-4 pt-4">
+            <div className="px-4 pt-4 shrink-0">
               <div className="mb-1 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className={`flex items-center gap-2 ${currentStep >= 1 ? 'text-[#1a3d1c]' : 'text-stone-400'}`}>
@@ -2536,7 +2532,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
             <div className="flex-1 overflow-y-auto p-4">
               {isEditing ? (
                 <div className="space-y-4">
-                  {/* ─── Judge Name with Search ──────────────────────────────── */}
                   <div>
                     <FieldLabel required>Judge Name</FieldLabel>
                     <div className="relative" ref={dropdownRef}>
@@ -2595,7 +2590,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                     )}
                   </div>
 
-                  {/* ─── PJ Number ──────────────────────────────────────────────── */}
                   <div>
                     <FieldLabel required>PJ Number</FieldLabel>
                     <div className="relative">
@@ -2625,7 +2619,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                   </div>
 
                   <div>
-                    <div className="mb-2 flex items-center justify-between">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <FieldLabel>Utility Items ({items.length})</FieldLabel>
                       <GhostButton
                         onClick={handleAddItemToExisting}
@@ -2647,7 +2641,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                       </p>
                     )}
 
-                    <div className="space-y-3">
+                    <div className="space-y-3 max-h-[300px] sm:max-h-[400px] overflow-y-auto pr-1">
                       {items.map((item, index) => (
                         <UtilityItemRow
                           key={item.id ?? `pending-${index}`}
@@ -2673,7 +2667,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                 </div>
               ) : currentStep === 1 ? (
                 <div className="space-y-4">
-                  {/* ─── Judge Name with Search ──────────────────────────────── */}
                   <div>
                     <FieldLabel required>Judge Name</FieldLabel>
                     <div className="relative" ref={dropdownRef}>
@@ -2732,7 +2725,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                     )}
                   </div>
 
-                  {/* ─── PJ Number ──────────────────────────────────────────────── */}
                   <div>
                     <FieldLabel required>PJ Number</FieldLabel>
                     <div className="relative">
@@ -2751,14 +2743,14 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                   </div>
 
                   <div>
-                    <div className="mb-2 flex items-center justify-between">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <FieldLabel required>Utility Items</FieldLabel>
                       <GhostButton onClick={handleAddNewRow} icon={<Plus size={12} />}>
                         Add Utility
                       </GhostButton>
                     </div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-3 max-h-[300px] sm:max-h-[400px] overflow-y-auto pr-1">
                       {items.map((item, index) => (
                         <UtilityItemRow
                           key={`pending-${index}`}
@@ -2775,7 +2767,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {/* ─── Summary Section ───────────────────────────────────────── */}
                   <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
                     <div className="grid grid-cols-2 gap-4">
                       <div>
@@ -2801,9 +2792,8 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                     </div>
                   </div>
 
-                  {/* ─── Editable Preview Table ────────────────────────────────── */}
                   <div>
-                    <div className="mb-2 flex items-center justify-between">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-500">
                         Utility Items — Click any field to edit
                       </p>
@@ -2811,7 +2801,9 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                         {items.filter(isItemFilled).length} filled
                       </span>
                     </div>
-                    {renderEditablePreviewTable()}
+                    <div className="max-h-[300px] sm:max-h-[400px] overflow-y-auto">
+                      {renderEditablePreviewTable()}
+                    </div>
                   </div>
 
                   <p className="text-xs text-stone-400">
@@ -2821,7 +2813,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
               )}
             </div>
 
-            <div className="flex items-center justify-between border-t border-stone-100 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 bg-white px-3 sm:px-4 py-2.5 sm:py-3 shrink-0">
               <div>
                 {isEditing ? (
                   <GhostButton onClick={() => setDeleteTarget('judge')} disabled={isDeleting}>
@@ -2836,7 +2828,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                   )
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {!isEditing && currentStep === 2 && (
                   <GoldButton
                     size="sm"
@@ -2877,7 +2869,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         </div>
       </div>
 
-      {/* ─── Memo Modal ────────────────────────────────────────────────────── */}
       <MemoModal
         isOpen={showMemoModal}
         onClose={() => setShowMemoModal(false)}

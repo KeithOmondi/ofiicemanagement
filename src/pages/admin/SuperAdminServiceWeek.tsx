@@ -5,10 +5,12 @@ import { useDispatch, useSelector } from 'react-redux';
 import {
   fetchReports,
   generatePDF,
+  superAdminEditReport,
   selectAllReports,
   selectIsLoading,
   selectError,
   selectPagination,
+  selectIsSubmitting,
   downloadFile,
 } from '../../store/slices/serviceweekSlice';
 import {
@@ -17,9 +19,11 @@ import {
   type ServiceWeekStatus,
   type ServiceWeekReport,
   type ServiceWeekFilters,
+  type CaseReturn,
+  type UpdateServiceWeekPayload,
 } from '../../types/service-week.types';
 import type { AppDispatch } from '../../store/store';
-import { Calendar, Download, Eye, FileSearch, FileSearch2 } from 'lucide-react';
+import { Calendar, Download, Eye, FileSearch, FileSearch2, Edit, Save, X } from 'lucide-react';
 
 const STATUS_OPTIONS: { value: ServiceWeekStatus | 'all'; label: string }[] = [
   { value: 'all', label: 'All Status' },
@@ -39,7 +43,6 @@ const groupReportsByDay = (reports: ServiceWeekReport[]): GroupedReports => {
   const groups: GroupedReports = {};
   
   reports.forEach((report) => {
-    // Use created_at if available, otherwise fallback to week_start
     const dateStr = report.created_at || report.week_start;
     const dayKey = dateStr ? new Date(dateStr).toISOString().split('T')[0] : 'unknown';
     
@@ -49,7 +52,6 @@ const groupReportsByDay = (reports: ServiceWeekReport[]): GroupedReports => {
     groups[dayKey].push(report);
   });
   
-  // Sort groups by date (newest first)
   const sortedKeys = Object.keys(groups).sort((a, b) => {
     if (a === 'unknown') return 1;
     if (b === 'unknown') return -1;
@@ -118,7 +120,333 @@ const getGroupStatus = (reportsInGroup: ServiceWeekReport[]): GroupStatus => {
   return { label: 'All Draft', color: 'bg-gray-100 text-gray-600 border-gray-200' };
 };
 
-// ─── Read-only field display, matching the submitted-form's visual language ──
+// ─── Editable Field ──────────────────────────────────────────────────────────
+interface EditableFieldProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: 'text' | 'date';
+  placeholder?: string;
+}
+
+const EditableField: React.FC<EditableFieldProps> = ({ 
+  label, 
+  value, 
+  onChange, 
+  type = 'text',
+  placeholder = ''
+}) => (
+  <div>
+    <label className="block text-xs font-semibold text-stone-500 mb-1">{label}</label>
+    <input
+      type={type}
+      value={value || ''}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full border border-stone-300 rounded-md px-3 py-2 text-sm bg-white text-gray-800 focus:ring-2 focus:ring-[#C48B28] focus:border-transparent outline-none min-h-[38px]"
+      placeholder={placeholder}
+    />
+  </div>
+);
+
+// ─── Editable Case Row ───────────────────────────────────────────────────────
+interface EditableCaseRowProps {
+  caseItem: CaseReturn;
+  index: number;
+  onChange: (index: number, field: keyof CaseReturn, value: string | number) => void;
+  onRemove: (index: number) => void;
+}
+
+const EditableCaseRow: React.FC<EditableCaseRowProps> = ({ caseItem, index, onChange, onRemove }) => (
+  <tr className="bg-white">
+    <td className="px-3 py-2 border border-[#d6d3c4]">
+      <input
+        type="number"
+        value={caseItem.serial_number}
+        onChange={(e) => onChange(index, 'serial_number', Number(e.target.value))}
+        className="w-16 px-2 py-1 border border-stone-200 rounded text-sm focus:ring-2 focus:ring-[#C48B28] focus:border-transparent outline-none"
+      />
+    </td>
+    <td className="px-3 py-2 border border-[#d6d3c4]">
+      <input
+        type="text"
+        value={caseItem.case_number}
+        onChange={(e) => onChange(index, 'case_number', e.target.value)}
+        className="w-full px-2 py-1 border border-stone-200 rounded text-sm focus:ring-2 focus:ring-[#C48B28] focus:border-transparent outline-none"
+      />
+    </td>
+    <td className="px-3 py-2 border border-[#d6d3c4]">
+      <input
+        type="text"
+        value={caseItem.cause_listed_activity}
+        onChange={(e) => onChange(index, 'cause_listed_activity', e.target.value)}
+        className="w-full px-2 py-1 border border-stone-200 rounded text-sm focus:ring-2 focus:ring-[#C48B28] focus:border-transparent outline-none"
+      />
+    </td>
+    <td className="px-3 py-2 border border-[#d6d3c4]">
+      <input
+        type="text"
+        value={caseItem.outcome}
+        onChange={(e) => onChange(index, 'outcome', e.target.value)}
+        className="w-full px-2 py-1 border border-stone-200 rounded text-sm focus:ring-2 focus:ring-[#C48B28] focus:border-transparent outline-none"
+      />
+    </td>
+    <td className="px-3 py-2 border border-[#d6d3c4]">
+      <div className="flex items-center gap-1">
+        <input
+          type="text"
+          value={caseItem.remarks || ''}
+          onChange={(e) => onChange(index, 'remarks', e.target.value)}
+          className="flex-1 px-2 py-1 border border-stone-200 rounded text-sm focus:ring-2 focus:ring-[#C48B28] focus:border-transparent outline-none"
+        />
+        <button
+          onClick={() => onRemove(index)}
+          className="text-red-500 hover:text-red-700 p-1"
+          title="Remove case"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    </td>
+  </tr>
+);
+
+// ─── Editable Report View ────────────────────────────────────────────────────
+interface EditableReportDetailViewProps {
+  report: ServiceWeekReport;
+  onSave: (updatedData: UpdateServiceWeekPayload & { edit_reason: string }) => void;
+  onCancel: () => void;
+  isSaving: boolean;
+}
+
+const EditableReportDetailView: React.FC<EditableReportDetailViewProps> = ({ 
+  report, 
+  onSave, 
+  onCancel,
+  isSaving 
+}) => {
+  const [formData, setFormData] = useState<UpdateServiceWeekPayload>({
+    station: report.station,
+    division: report.division || '',
+    week_start: report.week_start,
+    week_end: report.week_end,
+    date: report.date,
+    judge_name: report.judge_name,
+    cases: [...(report.cases || [])],
+    prepared_by: report.prepared_by,
+    prepared_designation: report.prepared_designation,
+    prepared_date: report.prepared_date || '',
+  });
+
+  const [editReason, setEditReason] = useState('');
+
+  const getCases = (): CaseReturn[] => {
+    return formData.cases || [];
+  };
+
+  const handleFieldChange = (field: keyof UpdateServiceWeekPayload, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleCaseChange = (index: number, field: keyof CaseReturn, value: string | number) => {
+    setFormData((prev) => {
+      const currentCases = prev.cases || [];
+      const updatedCases = [...currentCases];
+      updatedCases[index] = { ...updatedCases[index], [field]: value };
+      return { ...prev, cases: updatedCases };
+    });
+  };
+
+  const handleAddCase = () => {
+    setFormData((prev) => {
+      const currentCases = prev.cases || [];
+      const newCase: CaseReturn = {
+        serial_number: currentCases.length + 1,
+        case_number: '',
+        cause_listed_activity: '',
+        outcome: '',
+        remarks: '',
+      };
+      return { ...prev, cases: [...currentCases, newCase] };
+    });
+  };
+
+  const handleRemoveCase = (index: number) => {
+    setFormData((prev) => {
+      const currentCases = prev.cases || [];
+      const updatedCases = currentCases.filter((_, i) => i !== index);
+      updatedCases.forEach((c, i) => c.serial_number = i + 1);
+      return { ...prev, cases: updatedCases };
+    });
+  };
+
+  const handleSubmit = () => {
+    if (!formData.station || !formData.judge_name) {
+      alert('Station and Judge Name are required');
+      return;
+    }
+    const cases = formData.cases || [];
+    if (cases.length === 0) {
+      alert('At least one case is required');
+      return;
+    }
+    if (!editReason.trim()) {
+      alert('Please provide a reason for editing');
+      return;
+    }
+    onSave({ ...formData, edit_reason: editReason });
+  };
+
+  const cases = getCases();
+
+  return (
+    <div className="bg-white border border-stone-200 rounded-xl p-5 space-y-6">
+      {/* Edit Reason */}
+      <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+        <label className="block text-xs font-semibold text-amber-700 mb-1">
+          Edit Reason <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="text"
+          value={editReason}
+          onChange={(e) => setEditReason(e.target.value)}
+          placeholder="Why are you editing this report?"
+          className="w-full border border-amber-300 rounded-md px-3 py-2 text-sm bg-white text-gray-800 focus:ring-2 focus:ring-[#C48B28] focus:border-transparent outline-none"
+        />
+      </div>
+
+      {/* Report Details - Editable */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <EditableField 
+          label="Station" 
+          value={formData.station || ''} 
+          onChange={(v) => handleFieldChange('station', v)} 
+        />
+        <EditableField 
+          label="Division" 
+          value={formData.division || ''} 
+          onChange={(v) => handleFieldChange('division', v)} 
+        />
+        <EditableField 
+          label="Judge Name" 
+          value={formData.judge_name || ''} 
+          onChange={(v) => handleFieldChange('judge_name', v)} 
+        />
+      </div>
+
+      {/* Dates - Editable */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <EditableField 
+          label="Week Start" 
+          type="date"
+          value={formData.week_start || ''} 
+          onChange={(v) => handleFieldChange('week_start', v)} 
+        />
+        <EditableField 
+          label="Week End" 
+          type="date"
+          value={formData.week_end || ''} 
+          onChange={(v) => handleFieldChange('week_end', v)} 
+        />
+        <EditableField 
+          label="Report Date" 
+          type="date"
+          value={formData.date || ''} 
+          onChange={(v) => handleFieldChange('date', v)} 
+        />
+      </div>
+
+      {/* Cases Table - Editable */}
+      <div>
+        <div className="flex justify-between items-center mb-2">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-[#9C7A1E]">
+            Cases ({cases.length})
+          </h4>
+          <button
+            onClick={handleAddCase}
+            className="px-3 py-1 text-xs font-medium text-[#163328] border border-[#163328] rounded-lg hover:bg-[#163328] hover:text-white transition-colors"
+          >
+            + Add Case
+          </button>
+        </div>
+        <div className="overflow-x-auto border border-[#1E4620]/20 rounded-lg">
+          <table className="w-full text-sm">
+            <thead className="bg-[#1E4620]">
+              <tr>
+                <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wide text-white">Serial No.</th>
+                <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wide text-white">Case Number</th>
+                <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wide text-white">Cause - Listed Activity</th>
+                <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wide text-white">Outcome</th>
+                <th className="px-3 py-3 text-left text-xs font-bold uppercase tracking-wide text-white">Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cases.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-3 py-4 text-center text-gray-400 text-sm border border-[#d6d3c4]">
+                    No cases recorded. Click "Add Case" to add one.
+                  </td>
+                </tr>
+              ) : (
+                cases.map((c, i) => (
+                  <EditableCaseRow
+                    key={i}
+                    caseItem={c}
+                    index={i}
+                    onChange={handleCaseChange}
+                    onRemove={handleRemoveCase}
+                  />
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Prepared By - Editable */}
+      <div>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-[#9C7A1E] mb-2">Submitted By</h4>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-3 border border-stone-200 rounded-lg bg-gray-50/50">
+          <EditableField 
+            label="Name" 
+            value={formData.prepared_by || ''} 
+            onChange={(v) => handleFieldChange('prepared_by', v)} 
+          />
+          <EditableField 
+            label="Designation" 
+            value={formData.prepared_designation || ''} 
+            onChange={(v) => handleFieldChange('prepared_designation', v)} 
+          />
+          <EditableField 
+            label="Date" 
+            type="date"
+            value={formData.prepared_date || ''} 
+            onChange={(v) => handleFieldChange('prepared_date', v)} 
+          />
+        </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex gap-3 justify-end border-t border-stone-200 pt-4">
+        <button
+          onClick={onCancel}
+          className="px-4 py-2 text-sm font-medium border border-stone-300 rounded-lg hover:bg-stone-50 transition-colors text-stone-700"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleSubmit}
+          disabled={isSaving}
+          className="px-4 py-2 text-sm font-medium bg-[#163328] text-white rounded-lg hover:bg-[#0f241c] transition-colors flex items-center gap-2 disabled:opacity-50"
+        >
+          <Save className="w-4 h-4" />
+          {isSaving ? 'Saving...' : 'Save Changes'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── Read-only field display ──────────────────────────────────────────────
 const ReadOnlyField: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <div>
     <label className="block text-xs font-semibold text-stone-500 mb-1">{label}</label>
@@ -128,7 +456,7 @@ const ReadOnlyField: React.FC<{ label: string; value: React.ReactNode }> = ({ la
   </div>
 );
 
-// ─── Full read-only report view — mirrors ServiceWeekForm's layout exactly ──
+// ─── Full read-only report view ──────────────────────────────────────────
 const ReportDetailView: React.FC<{ report: ServiceWeekReport }> = ({ report }) => {
   const cases = report.cases || [];
 
@@ -136,21 +464,18 @@ const ReportDetailView: React.FC<{ report: ServiceWeekReport }> = ({ report }) =
 
   return (
     <div className="bg-white border border-stone-200 rounded-xl p-5 space-y-6">
-      {/* Report Details */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <ReadOnlyField label="Station" value={report.station} />
         <ReadOnlyField label="Division" value={report.division} />
         <ReadOnlyField label="Judge Name" value={report.judge_name} />
       </div>
 
-      {/* Dates */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <ReadOnlyField label="Week Start" value={fmtDate(report.week_start)} />
         <ReadOnlyField label="Week End" value={fmtDate(report.week_end)} />
         <ReadOnlyField label="Report Date" value={fmtDate(report.date)} />
       </div>
 
-      {/* Cases Table — matches the exported PDF's dark green / gold styling */}
       <div>
         <h4 className="text-xs font-semibold uppercase tracking-wide text-[#9C7A1E] mb-2">
           Cases ({cases.length})
@@ -192,7 +517,6 @@ const ReportDetailView: React.FC<{ report: ServiceWeekReport }> = ({ report }) =
         </div>
       </div>
 
-      {/* Submitted By — only remaining sign-off, matches the PDF's single footer block */}
       <div>
         <h4 className="text-xs font-semibold uppercase tracking-wide text-[#9C7A1E] mb-2">Submitted By</h4>
         <div className="p-3 border border-stone-200 rounded-lg bg-gray-50/50 max-w-md">
@@ -212,6 +536,7 @@ const SuperAdminServiceWeek: React.FC = () => {
 
   const reports = useSelector(selectAllReports);
   const isLoading = useSelector(selectIsLoading);
+  const isSubmitting = useSelector(selectIsSubmitting);
   const error = useSelector(selectError);
   const pagination = useSelector(selectPagination);
 
@@ -222,6 +547,7 @@ const SuperAdminServiceWeek: React.FC = () => {
   const [limit] = useState(20);
 
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
+  const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -237,7 +563,6 @@ const SuperAdminServiceWeek: React.FC = () => {
     dispatch(fetchReports(filterParams));
   }, [dispatch, selectedStatus, searchStation, searchJudge, currentPage, limit]);
 
-  // ─── Group reports by day ──────────────────────────────────────────────────
   const groupedReports = useMemo(() => groupReportsByDay(reports), [reports]);
 
   const handleDownloadPDF = async (id: string, station: string) => {
@@ -251,11 +576,34 @@ const SuperAdminServiceWeek: React.FC = () => {
     }
   };
 
+  const handleSuperAdminEdit = async (id: string, data: UpdateServiceWeekPayload & { edit_reason: string }) => {
+    try {
+      await dispatch(superAdminEditReport({ id, data })).unwrap();
+      setEditingReportId(null);
+      setExpandedReportId(null);
+      alert('✅ Report updated successfully!');
+      // Refresh the list
+      dispatch(fetchReports({
+        limit,
+        offset: (currentPage - 1) * limit,
+        ...(selectedStatus !== 'all' && { status: selectedStatus }),
+        ...(searchStation && { station: searchStation }),
+        ...(searchJudge && { judge_name: searchJudge }),
+      }));
+    } catch (err) {
+      console.error('Failed to update report:', err);
+      alert('❌ Failed to update report');
+    }
+  };
+
   const handlePageChange = (newPage: number) => {
     setCurrentPage(newPage);
   };
 
   const toggleExpanded = (id: string) => {
+    if (editingReportId) {
+      setEditingReportId(null);
+    }
     setExpandedReportId((prev) => (prev === id ? null : id));
   };
 
@@ -264,6 +612,15 @@ const SuperAdminServiceWeek: React.FC = () => {
       ...prev,
       [dayKey]: !prev[dayKey],
     }));
+  };
+
+  const handleStartEditing = (id: string) => {
+    setEditingReportId(id);
+    setExpandedReportId(id);
+  };
+
+  const handleCancelEditing = () => {
+    setEditingReportId(null);
   };
 
   if (isLoading && reports.length === 0) {
@@ -342,7 +699,7 @@ const SuperAdminServiceWeek: React.FC = () => {
           </div>
         ) : (
           Object.entries(groupedReports).map(([dayKey, dayReports]) => {
-            const isExpanded = expandedGroups[dayKey] !== false; // Default to expanded
+            const isExpanded = expandedGroups[dayKey] !== false;
             const groupStatus = getGroupStatus(dayReports);
             const totalCases = dayReports.reduce((sum, r) => sum + (r.cases?.length || 0), 0);
             const dateLabel = getDateLabel(dayKey);
@@ -417,10 +774,11 @@ const SuperAdminServiceWeek: React.FC = () => {
                       <tbody className="divide-y divide-gray-100">
                         {dayReports.map((report) => {
                           const isReportExpanded = expandedReportId === report.id;
+                          const isEditing = editingReportId === report.id;
 
                           return (
                             <React.Fragment key={report.id}>
-                              <tr className="hover:bg-amber-50/40 transition-colors">
+                              <tr className={`hover:bg-amber-50/40 transition-colors ${isEditing ? 'bg-amber-50' : ''}`}>
                                 <td className="px-4 py-3 font-semibold text-gray-900">
                                   {report.station}
                                   {report.division && <span className="text-gray-400 text-xs ml-1 font-normal">({report.division})</span>}
@@ -446,23 +804,46 @@ const SuperAdminServiceWeek: React.FC = () => {
                                       PDF
                                     </button>
 
-                                    <button
-                                      onClick={() => toggleExpanded(report.id)}
-                                      aria-expanded={isReportExpanded}
-                                      className="flex items-center gap-1 px-2.5 py-1 bg-[#163328] text-white text-xs font-medium rounded-lg hover:bg-[#0f241c] transition-colors"
-                                    >
-                                      <Eye className="w-3.5 h-3.5" />
-                                      View
-                                      <svg
-                                        className={`w-3 h-3 transition-transform ${isReportExpanded ? 'rotate-180' : ''}`}
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2.5}
-                                      >
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                                      </svg>
-                                    </button>
+                                    {isEditing ? (
+                                      <>
+                                        <button
+                                          onClick={handleCancelEditing}
+                                          className="flex items-center gap-1 px-2.5 py-1 bg-gray-500 text-white text-xs font-medium rounded-lg hover:bg-gray-600 transition-colors"
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                          Cancel
+                                        </button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <button
+                                          onClick={() => handleStartEditing(report.id)}
+                                          className="flex items-center gap-1 px-2.5 py-1 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                                          disabled={isSubmitting}
+                                        >
+                                          <Edit className="w-3.5 h-3.5" />
+                                          Edit
+                                        </button>
+
+                                        <button
+                                          onClick={() => toggleExpanded(report.id)}
+                                          aria-expanded={isReportExpanded}
+                                          className="flex items-center gap-1 px-2.5 py-1 bg-[#163328] text-white text-xs font-medium rounded-lg hover:bg-[#0f241c] transition-colors"
+                                        >
+                                          <Eye className="w-3.5 h-3.5" />
+                                          View
+                                          <svg
+                                            className={`w-3 h-3 transition-transform ${isReportExpanded ? 'rotate-180' : ''}`}
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={2.5}
+                                          >
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                          </svg>
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -470,7 +851,16 @@ const SuperAdminServiceWeek: React.FC = () => {
                               {isReportExpanded && (
                                 <tr>
                                   <td colSpan={7} className="px-4 py-4 bg-gray-50 border-t border-b border-gray-200">
-                                    <ReportDetailView report={report} />
+                                    {isEditing ? (
+                                      <EditableReportDetailView
+                                        report={report}
+                                        onSave={(data) => handleSuperAdminEdit(report.id, data)}
+                                        onCancel={handleCancelEditing}
+                                        isSaving={isSubmitting}
+                                      />
+                                    ) : (
+                                      <ReportDetailView report={report} />
+                                    )}
                                   </td>
                                 </tr>
                               )}

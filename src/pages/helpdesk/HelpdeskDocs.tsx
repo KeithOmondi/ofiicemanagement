@@ -71,39 +71,52 @@ interface UploadFormData {
 
 const FORMAT_OPTIONS: DocumentFormat[] = ['pdf', 'docx', 'xlsx'];
 
-const STATUS_CONFIG: Record<DocumentStatus, { label: string; color: string; icon: React.ReactNode; bgColor: string }> =
-  {
-    draft: {
-      label: 'Draft',
-      color: 'text-stone-600',
-      bgColor: 'bg-stone-100',
-      icon: <File size={14} />,
-    },
-    pending_approval: {
-      label: 'Pending Approval',
-      color: 'text-amber-700',
-      bgColor: 'bg-amber-50',
-      icon: <Clock size={14} />,
-    },
-    approved: {
-      label: 'Approved ✓',
-      color: 'text-emerald-700',
-      bgColor: 'bg-emerald-50',
-      icon: <CheckCircle size={14} />,
-    },
-    rejected: {
-      label: 'Rejected',
-      color: 'text-red-700',
-      bgColor: 'bg-red-50',
-      icon: <XCircle size={14} />,
-    },
-    returned: {
-      label: 'Returned',
-      color: 'text-blue-700',
-      bgColor: 'bg-blue-50',
-      icon: <ArrowLeft size={14} />,
-    },
-  };
+// ─── UPDATED: STATUS_CONFIG with ready_to_send ──────────────────────────────
+
+const STATUS_CONFIG: Record<DocumentStatus, { label: string; color: string; icon: React.ReactNode; bgColor: string; borderColor: string }> = {
+  draft: {
+    label: 'Draft',
+    color: 'text-stone-600',
+    bgColor: 'bg-stone-100',
+    borderColor: 'border-stone-200',
+    icon: <File size={14} />,
+  },
+  pending_approval: {
+    label: 'Pending Approval',
+    color: 'text-amber-700',
+    bgColor: 'bg-amber-50',
+    borderColor: 'border-amber-200',
+    icon: <Clock size={14} />,
+  },
+  ready_to_send: {
+    label: 'Ready to Send',
+    color: 'text-blue-700',
+    bgColor: 'bg-blue-50',
+    borderColor: 'border-blue-200',
+    icon: <Send size={14} />,
+  },
+  approved: {
+    label: 'Approved ✓',
+    color: 'text-emerald-700',
+    bgColor: 'bg-emerald-50',
+    borderColor: 'border-emerald-200',
+    icon: <CheckCircle size={14} />,
+  },
+  rejected: {
+    label: 'Rejected',
+    color: 'text-red-700',
+    bgColor: 'bg-red-50',
+    borderColor: 'border-red-200',
+    icon: <XCircle size={14} />,
+  },
+  returned: {
+    label: 'Returned',
+    color: 'text-blue-700',
+    bgColor: 'bg-blue-50',
+    borderColor: 'border-blue-200',
+    icon: <ArrowLeft size={14} />,
+  },
+};
 
 const ACTION_LABELS: Record<string, string> = {
   submitted: 'Submitted for Approval',

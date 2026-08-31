@@ -30,7 +30,8 @@ export type DocumentEntityType =
     | 'sentry'
     | 'conference';
 
-export type DocumentStatus = 'draft' | 'pending_approval' | 'approved' | 'rejected' | 'returned';
+// ✅ FIXED: Added 'ready_to_send' to match the types file
+export type DocumentStatus = 'draft' | 'pending_approval' | 'ready_to_send' | 'approved' | 'rejected' | 'returned';
 export type EStampStatus = 'pending' | 'stamped' | 'failed';
 
 // ─── Utility Sync Status ──────────────────────────────────────────────────────
@@ -758,6 +759,7 @@ export interface BulkOperationResult {
 export interface DocumentStats {
     total: number;
     pending_approval: number;
+    ready_to_send: number;  // ✅ Added
     approved: number;
     rejected: number;
     returned: number;
@@ -798,6 +800,7 @@ export interface DocumentSummary {
     by_entity_type: Record<DocumentEntityType, number>;
     by_format: Record<DocumentFormat, number>;
     pending_approval: number;
+    ready_to_send: number;  // ✅ Added
     draft: number;
     approved: number;
     rejected: number;
@@ -1472,12 +1475,34 @@ export const internalApproveDocument = createAsyncThunk<
 
             console.log('📤 Internal approve payload:', JSON.stringify(payload, null, 2));
 
-            const { data } = await axiosClient.post(`/helpdesk/documents/${id}/internal/approve`, payload);
+            const url = `/helpdesk/documents/${id}/internal/approve`;
+            console.log('🌐 Internal approve request:', {
+                url,
+                fullUrl: `${axiosClient.defaults.baseURL || ''}${url}`,
+                method: 'POST',
+                headers: axiosClient.defaults.headers?.common,
+                withCredentials: axiosClient.defaults.withCredentials,
+            });
+
+            const { data } = await axiosClient.post(url, payload);
+
+            console.log('✅ Internal approve response:', { status: 200, data });
+
             return data.data as HelpdeskDocument;
         } catch (err) {
             const error = err as AxiosError<{ message?: string; errors?: Record<string, string[]> }>;
-            
+
             console.error('❌ Internal approve error details:', {
+                code: error.code,
+                message: error.message,
+                isAxiosError: error.isAxiosError,
+                request: error.request ? 'request was made, no response received' : 'request was never sent',
+                config: {
+                    url: error.config?.url,
+                    baseURL: error.config?.baseURL,
+                    method: error.config?.method,
+                    headers: error.config?.headers,
+                },
                 status: error.response?.status,
                 statusText: error.response?.statusText,
                 data: error.response?.data,
@@ -2741,6 +2766,9 @@ export const selectDocumentsByStatus = (status: DocumentStatus) => (state: RootS
 export const selectPendingDocuments = (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.status === 'pending_approval');
 
+export const selectReadyToSendDocuments = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.status === 'ready_to_send');
+
 export const selectApprovedDocuments = (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.status === 'approved');
 
@@ -2884,6 +2912,9 @@ export const selectDocumentSummary = (state: RootState) => state.helpdeskDocumen
 
 export const selectPendingDocumentsCount = (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.status === 'pending_approval').length;
+
+export const selectReadyToSendCount = (state: RootState) =>
+    state.helpdeskDocuments.items.filter((d) => d.status === 'ready_to_send').length;
 
 export const selectApprovedDocumentsCount = (state: RootState) =>
     state.helpdeskDocuments.items.filter((d) => d.status === 'approved').length;

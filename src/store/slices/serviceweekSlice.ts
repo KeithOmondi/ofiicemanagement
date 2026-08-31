@@ -8,6 +8,7 @@ import type {
   ServiceWeekFilters,
   CreateServiceWeekPayload,
   UpdateServiceWeekPayload,
+  ServiceWeekEditHistory,
   ApiResponse,
   PaginatedResponse,
 } from '../../types/service-week.types';
@@ -20,6 +21,7 @@ const initialState: ServiceWeekState = {
   currentReport: null,
   isLoading: false,
   isSubmitting: false,
+  isEditing: false,
   error: null,
   total: 0,
   page: 1,
@@ -28,6 +30,8 @@ const initialState: ServiceWeekState = {
   filters: {
     limit: 20,
   },
+  editHistory: [],
+  showEditHistory: false,
 };
 
 const BASE_URL = '/service-week';
@@ -70,7 +74,7 @@ export const fetchReports = createAsyncThunk(
     });
     const url = params.toString() ? `${BASE_URL}/reports?${params}` : `${BASE_URL}/reports`;
     const response = await axiosClient.get<ApiResponse<PaginatedResponse<ServiceWeekReport>>>(url);
-    console.log('RAW /reports response:', response.data); // ← temporary, check shape in devtools
+    console.log('RAW /reports response:', response.data);
     return extractPaginatedData(response.data);
   }
 );
@@ -92,6 +96,19 @@ export const updateReport = createAsyncThunk(
   async ({ id, data }: { id: string; data: UpdateServiceWeekPayload }) => {
     const response = await axiosClient.put<ApiResponse<ServiceWeekReport>>(
       `${BASE_URL}/reports/${id}`,
+      data
+    );
+    return extractData(response.data);
+  }
+);
+
+// ─── Super Admin Edit Report ──────────────────────────────────────────────
+
+export const superAdminEditReport = createAsyncThunk(
+  'serviceWeek/superAdminEditReport',
+  async ({ id, data }: { id: string; data: { edit_reason: string } & Partial<UpdateServiceWeekPayload> }) => {
+    const response = await axiosClient.put<ApiResponse<ServiceWeekReport>>(
+      `${BASE_URL}/reports/${id}/super-admin-edit`,
       data
     );
     return extractData(response.data);
@@ -162,6 +179,16 @@ const serviceWeekSlice = createSlice({
     clearError: (state) => {
       state.error = null;
     },
+    setEditHistory: (state, action: PayloadAction<ServiceWeekEditHistory[]>) => {
+      state.editHistory = action.payload;
+    },
+    toggleEditHistory: (state) => {
+      state.showEditHistory = !state.showEditHistory;
+    },
+    clearEditHistory: (state) => {
+      state.editHistory = [];
+      state.showEditHistory = false;
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -170,14 +197,14 @@ const serviceWeekSlice = createSlice({
         state.isLoading = true;
         state.error = null;
       })
-.addCase(fetchReports.fulfilled, (state, action) => {
-  state.isLoading = false;
-  state.reports = action.payload?.data ?? [];
-  state.total = action.payload?.total ?? 0;
-  state.page = action.payload?.page ?? 1;
-  state.limit = action.payload?.limit ?? 20;
-  state.totalPages = action.payload?.totalPages ?? 0;
-})
+      .addCase(fetchReports.fulfilled, (state, action) => {
+        state.isLoading = false;
+        state.reports = action.payload?.data ?? [];
+        state.total = action.payload?.total ?? 0;
+        state.page = action.payload?.page ?? 1;
+        state.limit = action.payload?.limit ?? 20;
+        state.totalPages = action.payload?.totalPages ?? 0;
+      })
       .addCase(fetchReports.rejected, (state, action) => {
         state.isLoading = false;
         state.error = action.error.message || 'Failed to fetch reports';
@@ -191,6 +218,7 @@ const serviceWeekSlice = createSlice({
       .addCase(fetchReportById.fulfilled, (state, action) => {
         state.isLoading = false;
         state.currentReport = action.payload;
+        state.editHistory = action.payload.edit_history || [];
       })
       .addCase(fetchReportById.rejected, (state, action) => {
         state.isLoading = false;
@@ -236,6 +264,33 @@ const serviceWeekSlice = createSlice({
         state.isSubmitting = false;
         state.isLoading = false;
         state.error = action.error.message || 'Failed to update report';
+      })
+
+      // ── Super Admin Edit Report ──────────────────────────────────────────
+      .addCase(superAdminEditReport.pending, (state) => {
+        state.isSubmitting = true;
+        state.isLoading = true;
+        state.isEditing = true;
+        state.error = null;
+      })
+      .addCase(superAdminEditReport.fulfilled, (state, action) => {
+        state.isSubmitting = false;
+        state.isLoading = false;
+        state.isEditing = false;
+        const index = state.reports.findIndex(r => r.id === action.payload.id);
+        if (index !== -1) {
+          state.reports[index] = action.payload;
+        }
+        if (state.currentReport?.id === action.payload.id) {
+          state.currentReport = action.payload;
+          state.editHistory = action.payload.edit_history || [];
+        }
+      })
+      .addCase(superAdminEditReport.rejected, (state, action) => {
+        state.isSubmitting = false;
+        state.isLoading = false;
+        state.isEditing = false;
+        state.error = action.error.message || 'Failed to edit report';
       })
 
       // ── Submit Report ─────────────────────────────────────────────────────
@@ -304,6 +359,9 @@ export const {
   resetFilters,
   clearCurrentReport,
   clearError,
+  setEditHistory,
+  toggleEditHistory,
+  clearEditHistory,
 } = serviceWeekSlice.actions;
 
 // ── Selectors ─────────────────────────────────────────────────────────────────
@@ -312,10 +370,11 @@ export const selectAllReports = (state: RootState) => state.serviceWeek.reports;
 export const selectCurrentReport = (state: RootState) => state.serviceWeek.currentReport;
 export const selectIsLoading = (state: RootState) => state.serviceWeek.isLoading;
 export const selectIsSubmitting = (state: RootState) => state.serviceWeek.isSubmitting;
+export const selectIsEditing = (state: RootState) => state.serviceWeek.isEditing;
 export const selectError = (state: RootState) => state.serviceWeek.error;
 export const selectFilters = (state: RootState) => state.serviceWeek.filters;
-
-// ... all your selectors ...
+export const selectEditHistory = (state: RootState) => state.serviceWeek.editHistory;
+export const selectShowEditHistory = (state: RootState) => state.serviceWeek.showEditHistory;
 
 export const selectPagination = createSelector(
   [

@@ -743,7 +743,7 @@ function UtilitiesTab({
   };
 
   // ─── Helper: Get document sync status badge ────────────────────────────
-// ─── Updated getDocumentSyncBadge function in UtilitiesTab ────────────────
+// In UtilitiesTab - Updated getDocumentSyncBadge function
 
 const getDocumentSyncBadge = (item: UtilityItem) => {
   const docStatus = getDocumentStatusForItem(item);
@@ -769,7 +769,7 @@ const getDocumentSyncBadge = (item: UtilityItem) => {
         return (
           <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-semibold text-amber-700 border border-amber-200">
             <ClockIcon size={10} />
-            Pending
+            Pending Review
           </span>
         );
       case 'returned':
@@ -1406,16 +1406,17 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
     }
   }, [dispatch, showLinkPicker]);
 
-  const documentStatusColor = (status: DocumentStatus): string => {
-    const map: Record<DocumentStatus, string> = {
-      draft: 'bg-stone-100 text-stone-600 ring-stone-200',
-      pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
-      approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-      rejected: 'bg-red-50 text-red-700 ring-red-200',
-      returned: 'bg-orange-50 text-orange-700 ring-orange-200',
-    };
-    return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+const documentStatusColor = (status: DocumentStatus): string => {
+  const map: Record<DocumentStatus, string> = {
+    draft: 'bg-stone-100 text-stone-600 ring-stone-200',
+    pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
+    ready_to_send: 'bg-blue-50 text-blue-700 ring-blue-200',  // ✅ ADD THIS
+    approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+    rejected: 'bg-red-50 text-red-700 ring-red-200',
+    returned: 'bg-orange-50 text-orange-700 ring-orange-200',
   };
+  return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+};
 
   const documentFormatIcon = (format: DocumentFormat) => {
     if (format === 'xlsx') return <FileSpreadsheet size={16} className="text-emerald-600" />;
@@ -1595,11 +1596,13 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-stone-800">{doc.subject}</p>
                         <div className="mt-0.5 flex items-center gap-2">
-                          <span
-                            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
-                          >
-                            {doc.status === 'pending_approval' ? 'Pending Approval' : doc.status.replace('_', ' ')}
-                          </span>
+                        // In the documents list section, update the status display:
+
+<span
+  className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset ${documentStatusColor(doc.status)}`}
+>
+  {doc.status === 'pending_approval' ? 'Pending Review' : doc.status.replace('_', ' ')}
+</span>
                           <span className="text-[11px] text-stone-400">{doc.ref}</span>
                           <span className="text-[11px] text-stone-400 uppercase">{doc.format}</span>
                         </div>
@@ -3551,16 +3554,17 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
     }
   }, [dispatch, showLinkPicker]);
 
-  const documentStatusColor = (status: DocumentStatus): string => {
-    const map: Record<DocumentStatus, string> = {
-      draft: 'bg-stone-100 text-stone-600 ring-stone-200',
-      pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
-      approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-      rejected: 'bg-red-50 text-red-700 ring-red-200',
-      returned: 'bg-orange-50 text-orange-700 ring-orange-200',
-    };
-    return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+const documentStatusColor = (status: DocumentStatus): string => {
+  const map: Record<DocumentStatus, string> = {
+    draft: 'bg-stone-100 text-stone-600 ring-stone-200',
+    pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
+    ready_to_send: 'bg-blue-50 text-blue-700 ring-blue-200',  // ✅ ADD THIS
+    approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+    rejected: 'bg-red-50 text-red-700 ring-red-200',
+    returned: 'bg-orange-50 text-orange-700 ring-orange-200',
   };
+  return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+};
 
   const documentFormatIcon = (format: DocumentFormat) => {
     if (format === 'xlsx') return <FileSpreadsheet size={16} className="text-emerald-600" />;
@@ -3713,77 +3717,78 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
   };
 
   // ─── Get approval status badge ─────────────────────────────────────────────
-  const getApprovalStatusBadge = (item: UtilityItem) => {
-    const doc = allDocs.find(d => d.id === item.last_document_id);
-    const docStatus = doc?.status || null;
 
-    if (docStatus) {
-      switch (docStatus) {
-        case 'approved':
-          return (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200">
-              <CheckCircle size={10} />
-              Approved ✓
-            </span>
-          );
-        case 'rejected':
-          return (
-            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700 border border-red-200">
-              <XCircle size={10} />
-              Rejected
-            </span>
-          );
-        case 'pending_approval':
-          return (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
-              <ClockIcon size={10} />
-              Pending
-            </span>
-          );
-        case 'returned':
-          return (
-            <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-700 border border-orange-200">
-              <ArrowLeft size={10} />
-              Returned
-            </span>
-          );
-        default:
-          return (
-            <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-500 border border-stone-200">
-              <FileText size={10} />
-              {docStatus || 'No Doc'}
-            </span>
-          );
-      }
-    }
+const getApprovalStatusBadge = (item: UtilityItem) => {
+  const doc = allDocs.find(d => d.id === item.last_document_id);
+  const docStatus = doc?.status || null;
 
-    // No document - show approval status
-    switch (item.approval_status) {
-      case 'pending':
+  if (docStatus) {
+    switch (docStatus) {
+      case 'approved':
         return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-500 border border-stone-200">
-            <ClockIcon size={10} />
-            No Doc
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 border border-emerald-200">
+            <CheckCircle size={10} />
+            Approved ✓
           </span>
         );
-      case 'in_memo':
+      case 'rejected':
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700 border border-red-200">
+            <XCircle size={10} />
+            Rejected ✗
+          </span>
+        );
+      case 'pending_approval':
         return (
           <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
-            <FileText size={10} />
-            In Memo
+            <ClockIcon size={10} />
+            Pending Review
           </span>
         );
-      case 'sent':
+      case 'returned':
         return (
-          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 border border-blue-200">
-            <Send size={10} />
-            Sent
+          <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-700 border border-orange-200">
+            <ArrowLeft size={10} />
+            Returned
           </span>
         );
       default:
-        return null;
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-500 border border-stone-200">
+            <FileText size={10} />
+            {docStatus || 'No Doc'}
+          </span>
+        );
     }
-  };
+  }
+
+  // No document - show approval status
+  switch (item.approval_status) {
+    case 'pending':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-[10px] font-medium text-stone-500 border border-stone-200">
+          <ClockIcon size={10} />
+          No Doc
+        </span>
+      );
+    case 'in_memo':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700 border border-amber-200">
+          <FileText size={10} />
+          In Memo
+        </span>
+      );
+    case 'sent':
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700 border border-blue-200">
+          <Send size={10} />
+          Sent
+        </span>
+      );
+    default:
+      return null;
+  }
+};
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -3994,21 +3999,21 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
                         <ExternalLink size={12} />
                         View
                       </a>
-                      {doc.status === 'draft' && (
-                        <GhostButton
-                          onClick={() => handleSendForApproval(doc.id)}
-                          disabled={!!documentActionLoading[doc.id]?.submitting}
-                          icon={
-                            documentActionLoading[doc.id]?.submitting ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Send size={12} />
-                            )
-                          }
-                        >
-                          {documentActionLoading[doc.id]?.submitting ? 'Sending…' : 'Send for Approval'}
-                        </GhostButton>
-                      )}
+                     {doc.status === 'draft' && (
+  <GhostButton
+    onClick={() => handleSendForApproval(doc.id)}
+    disabled={!!documentActionLoading[doc.id]?.submitting}
+    icon={
+      documentActionLoading[doc.id]?.submitting ? (
+        <Loader2 size={12} className="animate-spin" />
+      ) : (
+        <Send size={12} />
+      )
+    }
+  >
+    {documentActionLoading[doc.id]?.submitting ? 'Submitting…' : 'Submit for Approval'}
+  </GhostButton>
+)}
                       {doc.status === 'pending_approval' && (
                         <span className="inline-flex items-center gap-1 text-xs text-amber-600">
                           <ClockIcon size={12} />

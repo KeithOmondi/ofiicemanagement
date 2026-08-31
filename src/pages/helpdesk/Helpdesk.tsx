@@ -1345,16 +1345,17 @@ function EntityDetailModal<T extends { id: string; status: Status; created_at: s
     }
   }, [dispatch, showLinkPicker]);
 
-  const documentStatusColor = (status: DocumentStatus): string => {
-    const map: Record<DocumentStatus, string> = {
-      draft: 'bg-stone-100 text-stone-600 ring-stone-200',
-      pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
-      approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-      rejected: 'bg-red-50 text-red-700 ring-red-200',
-      returned: 'bg-orange-50 text-orange-700 ring-orange-200',
-    };
-    return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+const documentStatusColor = (status: DocumentStatus): string => {
+  const map: Record<DocumentStatus, string> = {
+    draft: 'bg-stone-100 text-stone-600 ring-stone-200',
+    pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
+    ready_to_send: 'bg-blue-50 text-blue-700 ring-blue-200',  // ✅ ADD THIS
+    approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+    rejected: 'bg-red-50 text-red-700 ring-red-200',
+    returned: 'bg-orange-50 text-orange-700 ring-orange-200',
   };
+  return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+};
 
   const documentFormatIcon = (format: DocumentFormat) => {
     if (format === 'xlsx') return <FileSpreadsheet size={16} className="text-emerald-600" />;
@@ -3493,16 +3494,17 @@ function JudgeDetailModal({ judgeName, utilities, onClose, onEdit }: JudgeDetail
     }
   }, [dispatch, showLinkPicker]);
 
-  const documentStatusColor = (status: DocumentStatus): string => {
-    const map: Record<DocumentStatus, string> = {
-      draft: 'bg-stone-100 text-stone-600 ring-stone-200',
-      pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
-      approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-      rejected: 'bg-red-50 text-red-700 ring-red-200',
-      returned: 'bg-orange-50 text-orange-700 ring-orange-200',
-    };
-    return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+const documentStatusColor = (status: DocumentStatus): string => {
+  const map: Record<DocumentStatus, string> = {
+    draft: 'bg-stone-100 text-stone-600 ring-stone-200',
+    pending_approval: 'bg-amber-50 text-amber-700 ring-amber-200',
+    ready_to_send: 'bg-blue-50 text-blue-700 ring-blue-200',  // ✅ ADD THIS
+    approved: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+    rejected: 'bg-red-50 text-red-700 ring-red-200',
+    returned: 'bg-orange-50 text-orange-700 ring-orange-200',
   };
+  return map[status] || 'bg-stone-100 text-stone-600 ring-stone-200';
+};
 
   const documentFormatIcon = (format: DocumentFormat) => {
     if (format === 'xlsx') return <FileSpreadsheet size={16} className="text-emerald-600" />;

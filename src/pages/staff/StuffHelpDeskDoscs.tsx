@@ -86,6 +86,7 @@ interface UploadFormData {
 
 const FORMAT_OPTIONS: DocumentFormat[] = ['pdf', 'docx', 'xlsx'];
 
+// ─── UPDATED: STATUS_CONFIG with ready_to_send ──────────────────────────────
 const STATUS_CONFIG: Record<DocumentStatus, { label: string; color: string; icon: React.ReactNode; bgColor: string; borderColor: string }> = {
   draft: {
     label: 'Draft',
@@ -100,6 +101,13 @@ const STATUS_CONFIG: Record<DocumentStatus, { label: string; color: string; icon
     bgColor: 'bg-amber-50',
     borderColor: 'border-amber-200',
     icon: <Clock size={14} />,
+  },
+  ready_to_send: {
+    label: 'Ready to Send',
+    color: 'text-blue-700',
+    bgColor: 'bg-blue-50',
+    borderColor: 'border-blue-200',
+    icon: <Send size={14} />,
   },
   approved: {
     label: 'Approved ✓',
@@ -147,8 +155,23 @@ const INTERNAL_STATUS_LABELS: Record<InternalApprovalStatus, string> = {
 
 // ─── Helper Functions ──────────────────────────────────────────────────────
 
+// ─── UPDATED: getStatusBadge with fallback for unknown statuses ─────────────
+
+// ─── Helper Functions ──────────────────────────────────────────────────────
+
 const getStatusBadge = (status: DocumentStatus) => {
   const config = STATUS_CONFIG[status];
+  
+  // ✅ FIX: Add fallback for unknown statuses
+  if (!config) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium bg-stone-100 text-stone-600">
+        <AlertCircle size={14} />
+        {status || 'Unknown'}
+      </span>
+    );
+  }
+  
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${config.bgColor} ${config.color}`}>
       {config.icon}
@@ -387,9 +410,10 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
   const stats = useMemo(() => {
     const total = allDocuments.length;
     const pending = allDocuments.filter(d => d.status === 'pending_approval').length;
+    const readyToSend = allDocuments.filter(d => d.status === 'ready_to_send').length;
     const approved = allDocuments.filter(d => d.status === 'approved').length;
     const rejected = allDocuments.filter(d => d.status === 'rejected').length;
-    return { total, pending, approved, rejected };
+    return { total, pending, readyToSend, approved, rejected };
   }, [allDocuments]);
 
   // ── Effects ──────────────────────────────────────────────────────────────
@@ -572,7 +596,7 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
       <Toaster position="top-right" />
 
       {/* ─── Stats Bar ───────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div className="rounded-xl bg-white border border-stone-200 p-4 shadow-sm">
           <p className="text-xs text-stone-400 font-medium uppercase tracking-wider">Total</p>
           <p className="mt-1 text-2xl font-bold text-stone-800">{stats.total}</p>
@@ -580,6 +604,10 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
         <div className="rounded-xl bg-white border border-amber-200 p-4 shadow-sm">
           <p className="text-xs text-amber-500 font-medium uppercase tracking-wider">Pending</p>
           <p className="mt-1 text-2xl font-bold text-amber-600">{stats.pending}</p>
+        </div>
+        <div className="rounded-xl bg-white border border-blue-200 p-4 shadow-sm">
+          <p className="text-xs text-blue-500 font-medium uppercase tracking-wider">Ready to Send</p>
+          <p className="mt-1 text-2xl font-bold text-blue-600">{stats.readyToSend}</p>
         </div>
         <div className="rounded-xl bg-white border border-emerald-200 p-4 shadow-sm">
           <p className="text-xs text-emerald-500 font-medium uppercase tracking-wider">Approved</p>
@@ -677,6 +705,7 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
             <option value="all">All Status</option>
             <option value="draft">Draft</option>
             <option value="pending_approval">Pending Approval</option>
+            <option value="ready_to_send">Ready to Send</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
             <option value="returned">Returned</option>
@@ -933,15 +962,15 @@ const HelpdeskDocs: React.FC<HelpdeskDocsProps> = ({
       )}
 
       {/* ─── Document Detail Modal ──────────────────────────────────────────── */}
-{showDetailModal && selectedDocument && (
-  <DocumentDetailModal
-    document={selectedDocument}
-    onClose={handleCloseDetail}
-    onRefresh={handleRefresh}
-    userRole={userRole}
-    onPreview={() => handlePreviewDocument(selectedDocument.id)}
-  />
-)}
+      {showDetailModal && selectedDocument && (
+        <DocumentDetailModal
+          document={selectedDocument}
+          onClose={handleCloseDetail}
+          onRefresh={handleRefresh}
+          userRole={userRole}
+          onPreview={() => handlePreviewDocument(selectedDocument.id)}
+        />
+      )}
 
       {/* ─── Document Preview Modal ──────────────────────────────────────────── */}
       {showPreviewModal && selectedDocument && (
@@ -994,7 +1023,6 @@ const DocumentDetailModal: React.FC<DocumentDetailModalProps> = ({
   const isSigned = document.is_signed;
   const isApprovedAndVisible = document.status === 'approved' && document.is_sent_back_to_requester;
 
-  // 🔴 FIX: Use stamped_file_url for final approved/stamped documents
   const finalFileUrl = document.stamped_file_url || document.file_url;
 
   const canSubmit = document.status === 'draft' && (userRole === 'dept_head' || userRole === 'staff');
@@ -1732,7 +1760,6 @@ const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({
   const [showStampOverlay, setShowStampOverlay] = useState(true);
   const [isStampImageLoaded, setIsStampImageLoaded] = useState(false);
 
-  // 🔴 FIX: Use stamped_file_url for final approved/stamped documents, otherwise fallback to file_url
   const fileUrl = document.stamped_file_url || document.file_url;
   const isStamped = document.is_stamped && document.e_stamp_url;
   const isSigned = document.is_signed && !document.is_stamped;

@@ -857,16 +857,24 @@ const HelpdeskApprovals: React.FC = () => {
   }, [dispatch, isSuperAdmin]);
 
   // Filter documents by search - show both pending and internally approved
-  const filteredDocuments = useMemo(() => {
-    if (!searchQuery.trim()) return helpdeskDocuments;
-    const query = searchQuery.toLowerCase().trim();
-    return helpdeskDocuments.filter(
-      (doc) => 
-        doc.subject.toLowerCase().includes(query) ||
-        doc.ref.toLowerCase().includes(query) ||
-        doc.entity_type.toLowerCase().includes(query)
+// In HelpdeskApprovals.tsx
+const filteredDocuments = useMemo(() => {
+    // First, filter out drafts (Super Admin shouldn't see drafts)
+    const submittedDocs = helpdeskDocuments.filter(doc => 
+        doc.status !== 'draft'  // ← Exclude drafts
     );
-  }, [helpdeskDocuments, searchQuery]);
+    
+    // Then apply search filter
+    if (!searchQuery.trim()) return submittedDocs;
+    
+    const query = searchQuery.toLowerCase().trim();
+    return submittedDocs.filter(
+        (doc) => 
+            doc.subject.toLowerCase().includes(query) ||
+            doc.ref.toLowerCase().includes(query) ||
+            doc.entity_type.toLowerCase().includes(query)
+    );
+}, [helpdeskDocuments, searchQuery]);
 
   const refreshDocuments = useCallback(() => {
     if (isSuperAdmin) {
