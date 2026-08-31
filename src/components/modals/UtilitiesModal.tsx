@@ -1567,6 +1567,8 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
 // ─── Main UtilitiesModal ──────────────────────────────────────────────────
 
+// ─── Main UtilitiesModal ──────────────────────────────────────────────────
+
 interface UtilitiesModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -1652,7 +1654,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
   const populateForm = useCallback((utility: JudgeUtility) => {
     setJudgeName(utility.judge_name ?? '');
     setPjNumber(utility.pj_number ?? '');
-    // Try to find matching judge in the list
     const matchingJudge = allJudges.find(
       (j) => j.pj_number === utility.pj_number || j.name === utility.judge_name
     );
@@ -1689,7 +1690,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     setJudgeSearchTerm(judge.name);
     setShowJudgeDropdown(false);
   }, []);
-
 
   // ─── Helper to get judges for memo ──────────────────────────────────────
   const getJudgesForMemo = useCallback((): JudgeUtility[] => {
@@ -1764,7 +1764,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
       return updated;
     });
 
-    if (isEditing && items[index].id) {
+    if (isEditing && items[index]?.id) {
       setDirtyItemIds((prev) => new Set(prev).add(items[index].id!));
     }
   }, [isEditing, items]);
@@ -1800,6 +1800,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         return next;
       });
       await dispatch(fetchUtilities({}));
+      toast.success('Utility item updated successfully.');
     } catch (err) {
       console.error('Failed to update utility item:', err);
       toast.error('Failed to update utility item.');
@@ -1817,6 +1818,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     try {
       await dispatch(deleteUtilityItem({ id: editingUtility.id, itemId: item.id })).unwrap();
       setItems((prev) => prev.filter((_, i) => i !== index));
+      toast.success('Utility item deleted successfully.');
     } catch (err) {
       console.error('Failed to delete utility item:', err);
       toast.error('Failed to delete utility item.');
@@ -1847,6 +1849,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
       };
       const result = await dispatch(addUtilityItem(addInput)).unwrap();
       setItems(buildInitialItems(result));
+      toast.success('New utility item added.');
     } catch (err) {
       console.error('Failed to add utility item:', err);
       toast.error('Failed to add utility item. Please ensure the PJ number is correct.');
@@ -1860,13 +1863,17 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
       toast.error('Please select or enter a judge name.');
       return;
     }
+    if (!pjNumber.trim()) {
+      toast.error('PJ number is required.');
+      return;
+    }
     const filledItems = items.filter(isItemFilled);
     if (filledItems.length === 0) {
       toast.error('Please fill in at least one utility item (Amount and Period are required).');
       return;
     }
     setCurrentStep(2);
-  }, [judgeName, items]);
+  }, [judgeName, pjNumber, items]);
 
   const handlePrevStep = useCallback(() => {
     setCurrentStep(1);
@@ -1882,6 +1889,11 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
       return;
     }
 
+    if (!pjNumber.trim()) {
+      toast.error('PJ number is required.');
+      return;
+    }
+
     const filledItems = items.filter(isItemFilled);
     if (filledItems.length === 0) {
       toast.error('Please fill in at least one utility item.');
@@ -1891,11 +1903,6 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
     setIsSubmitting(true);
     try {
       const finalPjNumber = pjNumber.trim();
-      if (!finalPjNumber) {
-        toast.error('PJ number is required to create a utility record.');
-        setIsSubmitting(false);
-        return;
-      }
 
       // ─── Check if PJ number already exists ──────────────────────────────────
       let existingUtility: JudgeUtility | null = null;
@@ -2053,6 +2060,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         setDeleteTarget(null);
         onClose();
         resetForm();
+        toast.success('Utility record deleted successfully.');
       }
     } catch (err) {
       console.error('Failed to delete:', err);
@@ -2072,10 +2080,130 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
   const filledItemsForPreview = items.filter(isItemFilled);
   const previewTotal = filledItemsForPreview.reduce((sum, i) => sum + i.amount, 0);
 
+  // ─── Render Editable Preview Table ──────────────────────────────────────
+  const renderEditablePreviewTable = () => (
+    <div className="overflow-hidden rounded-lg border border-stone-200">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-stone-200 bg-stone-50 text-xs uppercase text-stone-400">
+              <th className="px-3 py-2 text-left font-medium w-32">Type</th>
+              <th className="px-3 py-2 text-left font-medium">Requisition #</th>
+              <th className="px-3 py-2 text-right font-medium w-28">Amount (KES)</th>
+              <th className="px-3 py-2 text-left font-medium">Period</th>
+              <th className="px-3 py-2 text-center font-medium w-36">Status</th>
+              <th className="px-3 py-2 text-center font-medium w-12">Action</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone-100">
+            {items.map((item, index) => {
+              const isFilled = isItemFilled(item);
+              return (
+                <tr key={index} className={!isFilled ? 'opacity-50' : ''}>
+                  <td className="px-3 py-2">
+                    <select
+                      value={item.utility_type}
+                      onChange={(e) => handleRowChange(index, 'utility_type', e.target.value as UtilityType)}
+                      className="w-full rounded border border-stone-200 bg-white px-1.5 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                    >
+                      {UTILITY_TYPES.map((type) => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="text"
+                      value={item.requisition_number}
+                      onChange={(e) => handleRowChange(index, 'requisition_number', e.target.value)}
+                      placeholder="e.g. REQ-001"
+                      className="w-full rounded border border-stone-200 px-1.5 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={item.amount || ''}
+                      onChange={(e) => handleRowChange(index, 'amount', parseFloat(e.target.value) || 0)}
+                      placeholder="0.00"
+                      className="w-full rounded border border-stone-200 px-1.5 py-1 text-right text-xs focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="text"
+                      value={item.period}
+                      onChange={(e) => handleRowChange(index, 'period', e.target.value)}
+                      placeholder="e.g. May 2026"
+                      className="w-full rounded border border-stone-200 px-1.5 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                    />
+                  </td>
+                  <td className="px-3 py-2">
+                    <select
+                      value={item.status}
+                      onChange={(e) => handleRowChange(index, 'status', e.target.value as UtilityStatus)}
+                      className="w-full rounded border border-stone-200 bg-white px-1.5 py-1 text-xs focus:border-[#1a3d1c] focus:outline-none focus:ring-1 focus:ring-[#1a3d1c]"
+                    >
+                      {UTILITY_STATUSES.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-3 py-2 text-center">
+                    <button
+                      onClick={() => handleRemoveRow(index)}
+                      disabled={items.length <= 1}
+                      className="text-stone-300 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-30 transition-colors"
+                      title={items.length <= 1 ? "Cannot remove last item" : "Remove this item"}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+            {/* Add row button */}
+            <tr>
+              <td colSpan={6} className="px-3 py-2">
+                <button
+                  onClick={handleAddNewRow}
+                  className="flex w-full items-center justify-center gap-1.5 rounded border border-dashed border-stone-300 py-2 text-xs text-stone-500 hover:border-[#1a3d1c] hover:text-[#1a3d1c] transition-colors"
+                >
+                  <Plus size={14} />
+                  Add Another Utility Item
+                </button>
+              </td>
+            </tr>
+          </tbody>
+          {filledItemsForPreview.length > 0 && (
+            <tfoot>
+              <tr className="border-t-2 border-stone-200 bg-stone-50">
+                <td colSpan={2} className="px-3 py-2 text-right font-semibold text-stone-700">
+                  Total
+                </td>
+                <td className="px-3 py-2 text-right font-semibold text-stone-800">
+                  {previewTotal.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
+                <td colSpan={3} />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      {items.filter(isItemFilled).length === 0 && (
+        <div className="px-3 py-4 text-center text-xs text-stone-400">
+          Fill in at least one utility item to proceed.
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <>
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-        <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+        <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
           <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
             <div className="flex items-center gap-2">
               <Wallet size={18} className="text-[#c9a84c]" />
@@ -2096,14 +2224,14 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                     <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${currentStep >= 1 ? 'bg-[#c9a84c] text-[#1a3d1c]' : 'bg-stone-200 text-stone-500'}`}>
                       1
                     </div>
-                    <span className="text-xs font-medium">Utility Details</span>
+                    <span className="text-xs font-medium">Judge Details</span>
                   </div>
                   <div className={`h-0.5 w-8 ${currentStep >= 2 ? 'bg-[#c9a84c]' : 'bg-stone-200'}`} />
                   <div className={`flex items-center gap-2 ${currentStep >= 2 ? 'text-[#1a3d1c]' : 'text-stone-400'}`}>
                     <div className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${currentStep >= 2 ? 'bg-[#c9a84c] text-[#1a3d1c]' : 'bg-stone-200 text-stone-500'}`}>
                       2
                     </div>
-                    <span className="text-xs font-medium">Review & Create</span>
+                    <span className="text-xs font-medium">Review &amp; Edit</span>
                   </div>
                 </div>
                 <span className="text-xs text-stone-400">Step {currentStep} of 2</span>
@@ -2354,63 +2482,47 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                 </div>
               ) : (
                 <div className="space-y-4">
+                  {/* ─── Summary Section ───────────────────────────────────────── */}
                   <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
-                    <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-stone-500">
-                      Judge
-                    </p>
-                    <p className="text-sm font-semibold text-stone-800">{judgeName}</p>
-                    {pjNumber && (
-                      <p className="mt-1 text-xs text-stone-500">PJ: {pjNumber}</p>
-                    )}
-                  </div>
-
-                  <div>
-                    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-stone-500">
-                      Utility Items ({filledItemsForPreview.length})
-                    </p>
-                    <div className="overflow-hidden rounded-lg border border-stone-200">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-stone-200 bg-stone-50 text-xs uppercase text-stone-400">
-                            <th className="px-3 py-2 text-left font-medium">Type</th>
-                            <th className="px-3 py-2 text-left font-medium">Requisition #</th>
-                            <th className="px-3 py-2 text-right font-medium">Amount (KES)</th>
-                            <th className="px-3 py-2 text-left font-medium">Period</th>
-                            <th className="px-3 py-2 text-center font-medium">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-stone-100">
-                          {filledItemsForPreview.map((item, i) => (
-                            <tr key={i}>
-                              <td className="px-3 py-2 font-medium text-stone-800">{item.utility_type}</td>
-                              <td className="px-3 py-2 text-stone-600">{item.requisition_number || '—'}</td>
-                              <td className="px-3 py-2 text-right text-stone-600">
-                                {item.amount.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </td>
-                              <td className="px-3 py-2 text-stone-600">{item.period}</td>
-                              <td className="px-3 py-2 text-center">
-                                <StatusBadge status={item.status} />
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot>
-                          <tr className="border-t border-stone-200 bg-stone-50">
-                            <td colSpan={2} className="px-3 py-2 text-right font-semibold text-stone-700">
-                              Total
-                            </td>
-                            <td className="px-3 py-2 text-right font-semibold text-stone-800">
-                              {previewTotal.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </td>
-                            <td colSpan={2} />
-                          </tr>
-                        </tfoot>
-                      </table>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-500">
+                          Judge
+                        </p>
+                        <p className="text-sm font-semibold text-stone-800">{judgeName}</p>
+                        {pjNumber && (
+                          <p className="mt-1 text-xs text-stone-500">PJ: {pjNumber}</p>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-500">
+                          Total Amount
+                        </p>
+                        <p className="text-lg font-bold text-[#1a3d1c]">
+                          KES {previewTotal.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </p>
+                        <p className="text-xs text-stone-400">
+                          {filledItemsForPreview.length} item{filledItemsForPreview.length !== 1 ? 's' : ''}
+                        </p>
+                      </div>
                     </div>
                   </div>
 
+                  {/* ─── Editable Preview Table ────────────────────────────────── */}
+                  <div>
+                    <div className="mb-2 flex items-center justify-between">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-stone-500">
+                        Utility Items — Click any field to edit
+                      </p>
+                      <span className="text-[10px] text-stone-400">
+                        {items.filter(isItemFilled).length} filled
+                      </span>
+                    </div>
+                    {renderEditablePreviewTable()}
+                  </div>
+
                   <p className="text-xs text-stone-400">
-                    Review the details above, then click "Create Utility Record" to save.
+                    ✏️ All fields in the table above are editable. Review and adjust before creating the record.
                   </p>
                 </div>
               )}
@@ -2426,7 +2538,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                 ) : (
                   currentStep === 2 && (
                     <GhostButton type="button" onClick={handlePrevStep} icon={<ArrowLeft size={14} />}>
-                      Back
+                      Back to Details
                     </GhostButton>
                   )
                 )}
@@ -2449,10 +2561,14 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
                 {!isEditing ? (
                   currentStep === 1 ? (
                     <GoldButton type="button" onClick={handleNextStep} icon={<ArrowRight size={14} />}>
-                      Next
+                      Review &amp; Edit
                     </GoldButton>
                   ) : (
-                    <GoldButton type="button" onClick={handleCreateRecord} disabled={isSubmitting || !pjNumber.trim()}>
+                    <GoldButton 
+                      type="button" 
+                      onClick={handleCreateRecord} 
+                      disabled={isSubmitting || !pjNumber.trim() || items.filter(isItemFilled).length === 0}
+                    >
                       {isSubmitting ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
@@ -2468,7 +2584,7 @@ export const UtilitiesModal: React.FC<UtilitiesModalProps> = ({
         </div>
       </div>
 
-      {/* ─── Memo Modal (single judge) ────────────────────────────────── */}
+      {/* ─── Memo Modal ────────────────────────────────────────────────────── */}
       <MemoModal
         isOpen={showMemoModal}
         onClose={() => setShowMemoModal(false)}
