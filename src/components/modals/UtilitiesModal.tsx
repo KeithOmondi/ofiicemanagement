@@ -565,6 +565,8 @@ function getDocumentInfoForItem(
   };
 }
 
+// In UtilitiesModal.tsx - Update the compute functions
+
 function computeFuelTotals(
   judges: JudgeUtility[],
   allDocuments: HelpdeskDocument[],
@@ -580,10 +582,19 @@ function computeFuelTotals(
       let fuel = 0;
       const itemIdsForJudge: string[] = [];
       j.items.forEach((item) => {
+        // ─── FIX: Only include items that are NOT already approved ──────────
         if (item.utility_type !== 'Fuel' || item.status !== 'Awaiting') return;
 
         const isApproved = hasApprovedDocument(item, approvedDocumentIds);
         const docInfo = getDocumentInfoForItem(item, allDocuments);
+
+        // ─── FIX: Skip items that are already in any approval state ─────────
+        // This prevents approved/rejected/returned items from showing up again
+        if (item.approval_status === 'approved' || 
+            item.approval_status === 'rejected' || 
+            item.approval_status === 'sent') {
+          return;
+        }
 
         if (isApproved && !manualIncludeIds.has(item.id) && docInfo) {
           hiddenSentItems.push({
@@ -644,6 +655,13 @@ function computeNonFuelTotals(
       j.items.forEach((item) => {
         if (item.status !== 'Awaiting') return;
         if (!['Electricity', 'Water', 'Internet'].includes(item.utility_type)) return;
+
+        // ─── FIX: Skip items that are already in any approval state ─────────
+        if (item.approval_status === 'approved' || 
+            item.approval_status === 'rejected' || 
+            item.approval_status === 'sent') {
+          return;
+        }
 
         const isApproved = hasApprovedDocument(item, approvedDocumentIds);
         const docInfo = getDocumentInfoForItem(item, allDocuments);
