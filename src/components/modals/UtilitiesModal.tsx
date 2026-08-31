@@ -66,6 +66,8 @@ import {
   ArrowLeft,
   ArrowRight,
   FileSpreadsheet,
+  Edit,
+  Info,
 } from 'lucide-react';
 import { generateUtilityMemoDocx } from '../../utils/generateUtilityMemoDocx';
 import { generateUtilityMemoExcel } from '../../utils/generateUtilityMemoExcel';
@@ -712,6 +714,7 @@ interface MemoModalProps {
   entityType?: DocumentEntityType;
   entityIdOverride?: string;
   allJudgesForConsolidated?: JudgeUtility[];
+  onEditJudge?: (judgeName: string) => void;
 }
 
 type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
@@ -726,6 +729,7 @@ const MemoModal: React.FC<MemoModalProps> = ({
   entityType: propEntityType,
   entityIdOverride: propEntityId,
   allJudgesForConsolidated,
+  onEditJudge,
 }) => {
   const dispatch = useAppDispatch();
 
@@ -744,6 +748,23 @@ const MemoModal: React.FC<MemoModalProps> = ({
   const [excludedJudgeNames, setExcludedJudgeNames] = useState<Set<string>>(new Set());
   const [showLinkPicker, setShowLinkPicker] = useState(false);
   const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [isSavingEdits, setIsSavingEdits] = useState(false);
+
+  // ─── Editable Amounts State ────────────────────────────────────────────
+  const [editedAmounts, setEditedAmounts] = useState<Record<string, { 
+    kplc?: number; 
+    water?: number; 
+    wifi?: number; 
+    fuel?: number; 
+    total?: number 
+  }>>({});
+
+  // ─── Editing Cell State ────────────────────────────────────────────────
+  const [editingCell, setEditingCell] = useState<{
+    judgeName: string;
+    field: 'kplc' | 'water' | 'wifi' | 'fuel';
+    value: string;
+  } | null>(null);
 
   // ─── Memo field state ──────────────────────────────────────────────────
   const [toField, setToField] = useState('DEPUTY DIRECTOR - DASS');
@@ -804,6 +825,8 @@ const MemoModal: React.FC<MemoModalProps> = ({
       setManualIncludeIds(new Set());
       setShowSentPanel(false);
       setExcludedJudgeNames(new Set());
+      setEditedAmounts({});
+      setEditingCell(null);
     }
   }
 
@@ -828,6 +851,9 @@ const MemoModal: React.FC<MemoModalProps> = ({
     setActiveTab(tab);
     setSubjectField(tab === 'fuel' ? 'FUEL BILL CLAIMS' : 'UTILITY BILL CLAIMS');
     setBodyText(tab === 'fuel' ? fuelBody : utilityBody);
+    // Reset edited amounts when switching tabs
+    setEditedAmounts({});
+    setEditingCell(null);
   }, [fuelBody, utilityBody]);
 
   // ─── Formatting ────────────────────────────────────────────────────────
@@ -858,9 +884,32 @@ const MemoModal: React.FC<MemoModalProps> = ({
       : computeNonFuelTotals(effectiveJudges, allDocuments, approvedDocumentIds, manualIncludeIds);
   }, [activeTab, effectiveJudges, allDocuments, approvedDocumentIds, manualIncludeIds]);
 
+  // ─── Apply edited amounts to rows ─────────────────────────────────────
+  const judgeTotalsWithEdits = useMemo(() => {
+    return computedRows.map(row => {
+      const edits = editedAmounts[row.judge_name];
+      if (!edits) return row;
+      
+      const kplc = edits.kplc ?? row.kplc;
+      const water = edits.water ?? row.water;
+      const wifi = edits.wifi ?? row.wifi;
+      const fuel = edits.fuel ?? row.fuel;
+      const total = (activeTab === 'fuel' ? fuel : kplc + water + wifi);
+      
+      return {
+        ...row,
+        kplc,
+        water,
+        wifi,
+        fuel,
+        total
+      };
+    });
+  }, [computedRows, editedAmounts, activeTab]);
+
   const judgeTotals = useMemo(
-    () => computedRows.filter((row) => !excludedJudgeNames.has(row.judge_name)),
-    [computedRows, excludedJudgeNames],
+    () => judgeTotalsWithEdits.filter((row) => !excludedJudgeNames.has(row.judge_name)),
+    [judgeTotalsWithEdits, excludedJudgeNames],
   );
 
   const grandKplc = judgeTotals.reduce((s, r) => s + r.kplc, 0);
@@ -887,6 +936,130 @@ const MemoModal: React.FC<MemoModalProps> = ({
       return next;
     });
   }, []);
+
+  // ─── Handle cell edit ──────────────────────────────────────────────────
+  const handleCellEdit = useCallback((
+    judgeName: string,
+    field: 'kplc' | 'water' | 'wifi' | 'fuel',
+    value: number
+  ) => {
+    setEditedAmounts(prev => {
+      const current = prev[judgeName] || {};
+      const updated = { ...current, [field]: value };
+      
+      // Calculate total based on active tab
+      if (activeTab === 'fuel') {
+        updated.total = updated.fuel ?? 0;
+      } else {
+        const kplc = updated.kplc ?? 0;
+        const water = updated.water ?? 0;
+        const wifi = updated.wifi ?? 0;
+        updated.total = kplc + water + wifi;
+      }
+      
+      return { ...prev, [judgeName]: updated };
+    });
+  }, [activeTab]);
+
+  // ─── Save edited amounts back to utility records ──────────────────────
+  const handleSaveEdits = useCallback(async () => {
+    if (Object.keys(editedAmounts).length === 0) {
+      toast('No changes to save.', { icon: 'ℹ️' });
+      return;
+    }
+
+    setIsSavingEdits(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    try {
+      for (const [judgeName, edits] of Object.entries(editedAmounts)) {
+        const judge = effectiveJudges.find(j => j.judge_name === judgeName);
+        if (!judge) continue;
+
+        // Find items that need updating
+        const itemsToUpdate: Array<{ item: UtilityItem; newAmount: number }> = [];
+
+        if (activeTab === 'fuel') {
+          // For fuel tab, update fuel items
+          const fuelItems = judge.items.filter(item => item.utility_type === 'Fuel' && item.status === 'Awaiting');
+          if (fuelItems.length > 0 && edits.fuel !== undefined) {
+            const newAmount = edits.fuel / fuelItems.length;
+            fuelItems.forEach(item => {
+              itemsToUpdate.push({ item, newAmount });
+            });
+          }
+        } else {
+          // For all utilities tab
+          if (edits.kplc !== undefined) {
+            const items = judge.items.filter(item => item.utility_type === 'Electricity' && item.status === 'Awaiting');
+            if (items.length > 0) {
+              const newAmount = edits.kplc / items.length;
+              items.forEach(item => {
+                itemsToUpdate.push({ item, newAmount });
+              });
+            }
+          }
+          if (edits.water !== undefined) {
+            const items = judge.items.filter(item => item.utility_type === 'Water' && item.status === 'Awaiting');
+            if (items.length > 0) {
+              const newAmount = edits.water / items.length;
+              items.forEach(item => {
+                itemsToUpdate.push({ item, newAmount });
+              });
+            }
+          }
+          if (edits.wifi !== undefined) {
+            const items = judge.items.filter(item => item.utility_type === 'Internet' && item.status === 'Awaiting');
+            if (items.length > 0) {
+              const newAmount = edits.wifi / items.length;
+              items.forEach(item => {
+                itemsToUpdate.push({ item, newAmount });
+              });
+            }
+          }
+        }
+
+        // Update each item
+        for (const { item, newAmount } of itemsToUpdate) {
+          try {
+            await dispatch(updateUtilityItem({
+              id: judge.id,
+              itemId: item.id,
+              updates: { amount: Math.round(newAmount * 100) / 100 }
+            })).unwrap();
+            successCount++;
+          } catch (err) {
+            console.error(`Failed to update item ${item.id}:`, err);
+            errorCount++;
+          }
+        }
+      }
+
+      if (successCount > 0) {
+        toast.success(`${successCount} utility item(s) updated successfully.`);
+        // Clear edited amounts
+        setEditedAmounts({});
+        // Refresh data
+        await dispatch(fetchUtilities({}));
+        // Refresh documents
+        if (currentEntityId) {
+          dispatch(fetchHelpdeskDocuments({
+            entity_type: currentEntityType,
+            entity_id: currentEntityId
+          }));
+        }
+      }
+      if (errorCount > 0) {
+        toast.error(`${errorCount} item(s) failed to update.`);
+      }
+    } catch (err) {
+      console.error('Failed to save edits:', err);
+      toast.error('Failed to save changes. Please try again.');
+    } finally {
+      setIsSavingEdits(false);
+    }
+  }, [editedAmounts, effectiveJudges, activeTab, dispatch, currentEntityId, currentEntityType]);
 
   // ─── Build memo data ────────────────────────────────────────────────────
   const buildMemoData = useCallback((): UtilityMemoData => ({
@@ -1112,6 +1285,75 @@ const MemoModal: React.FC<MemoModalProps> = ({
     ? (activeTab === 'fuel' ? 'Consolidated Fuel Memo' : 'Consolidated Utility Memo')
     : (activeTab === 'fuel' ? 'Fuel Memo' : 'Utility Memo');
 
+  // ─── Render Editable Cell ──────────────────────────────────────────────
+  const renderEditableCell = (
+    row: JudgeTotals,
+    field: 'kplc' | 'water' | 'wifi' | 'fuel',
+    value: number
+  ) => {
+    const isEditing = editingCell?.judgeName === row.judge_name && editingCell?.field === field;
+    const displayValue = editedAmounts[row.judge_name]?.[field] ?? value;
+    
+    return (
+      <td className="border border-black px-2 py-1 text-right relative group">
+        {isEditing ? (
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            value={editingCell.value}
+            onChange={(e) => {
+              setEditingCell(prev => prev ? { ...prev, value: e.target.value } : null);
+            }}
+            onBlur={() => {
+              if (editingCell) {
+                const numValue = parseFloat(editingCell.value) || 0;
+                handleCellEdit(row.judge_name, field, numValue);
+                setEditingCell(null);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                const numValue = parseFloat(editingCell?.value || '0') || 0;
+                handleCellEdit(row.judge_name, field, numValue);
+                setEditingCell(null);
+              }
+              if (e.key === 'Escape') {
+                setEditingCell(null);
+              }
+            }}
+            className="w-20 bg-white border-2 border-[#c9a84c] rounded px-1 py-0.5 text-right text-sm focus:outline-none focus:ring-2 focus:ring-[#c9a84c]/30"
+            autoFocus
+          />
+        ) : (
+          <span 
+            onDoubleClick={() => {
+              setEditingCell({
+                judgeName: row.judge_name,
+                field,
+                value: String(displayValue)
+              });
+            }}
+            className={`cursor-text hover:bg-amber-50 px-1 py-0.5 rounded transition-colors inline-block min-w-[60px] text-right ${isConsolidated ? 'hover:border hover:border-[#c9a84c]/50' : ''}`}
+            title={isConsolidated ? 'Double-click to edit' : ''}
+          >
+            {displayValue > 0 ? formatAmount(displayValue) : ''}
+            {isConsolidated && (
+              <span className="opacity-0 group-hover:opacity-100 text-[10px] text-stone-400 ml-1 transition-opacity">
+                ✎
+              </span>
+            )}
+          </span>
+        )}
+        {isConsolidated && !isEditing && (
+          <span className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Edit size={10} className="text-[#c9a84c]" />
+          </span>
+        )}
+      </td>
+    );
+  };
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
       <Toaster
@@ -1154,6 +1396,17 @@ const MemoModal: React.FC<MemoModalProps> = ({
             >
               Fuel Only
             </button>
+          </div>
+        )}
+
+        {/* Consolidated Memo Edit Hint */}
+        {isConsolidated && effectiveJudges.length > 0 && (
+          <div className="mx-4 mt-3 rounded-lg border border-[#c9a84c]/40 bg-[#c9a84c]/10 px-3 py-2 flex items-center gap-2">
+            <Info size={16} className="text-[#c9a84c] shrink-0" />
+            <p className="text-xs text-stone-700">
+              <span className="font-semibold">Double-click</span> any amount cell to edit it. 
+              Changes will be saved to the utility records when you click <span className="font-semibold">"Save Changes"</span> below.
+            </p>
           </div>
         )}
 
@@ -1274,10 +1527,13 @@ const MemoModal: React.FC<MemoModalProps> = ({
                       {showNonFuelColumns && (
                         <th className="border border-black px-2 py-1 text-right text-xs font-bold">TOTAL</th>
                       )}
+                      {isConsolidated && onEditJudge && (
+                        <th className="border border-black px-2 py-1 text-center text-xs font-bold w-10">EDIT</th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
-                    {computedRows.map((row, index) => {
+                    {judgeTotalsWithEdits.map((row, index) => {
                       const isExcluded = excludedJudgeNames.has(row.judge_name);
                       return (
                         <tr key={row.judge_name} className={isExcluded ? 'opacity-40' : undefined}>
@@ -1293,16 +1549,29 @@ const MemoModal: React.FC<MemoModalProps> = ({
                           <td className="border border-black px-2 py-1 font-medium">{row.judge_name}</td>
                           {showNonFuelColumns && (
                             <>
-                              <td className="border border-black px-2 py-1 text-right">{row.kplc > 0 ? formatAmount(row.kplc) : ''}</td>
-                              <td className="border border-black px-2 py-1 text-right">{row.water > 0 ? formatAmount(row.water) : ''}</td>
-                              <td className="border border-black px-2 py-1 text-right">{row.wifi > 0 ? formatAmount(row.wifi) : ''}</td>
+                              {renderEditableCell(row, 'kplc', row.kplc)}
+                              {renderEditableCell(row, 'water', row.water)}
+                              {renderEditableCell(row, 'wifi', row.wifi)}
                             </>
                           )}
                           {showFuelColumn && (
-                            <td className="border border-black px-2 py-1 text-right font-medium">{formatAmount(row.fuel)}</td>
+                            renderEditableCell(row, 'fuel', row.fuel)
                           )}
                           {showNonFuelColumns && (
-                            <td className="border border-black px-2 py-1 text-right font-bold">{formatAmount(row.total)}</td>
+                            <td className="border border-black px-2 py-1 text-right font-bold">
+                              {formatAmount(row.total)}
+                            </td>
+                          )}
+                          {isConsolidated && onEditJudge && (
+                            <td className="border border-black px-2 py-1 text-center">
+                              <button
+                                onClick={() => onEditJudge(row.judge_name)}
+                                className="text-blue-600 hover:text-blue-800 transition-colors p-1 rounded hover:bg-blue-50"
+                                title={`Edit ${row.judge_name}'s utility items`}
+                              >
+                                <Edit size={14} />
+                              </button>
+                            </td>
                           )}
                         </tr>
                       );
@@ -1325,11 +1594,24 @@ const MemoModal: React.FC<MemoModalProps> = ({
                         {showNonFuelColumns && (
                           <td className="border border-black px-2 py-2 text-right font-bold">{formatAmount(grandTotal)}</td>
                         )}
+                        {isConsolidated && onEditJudge && (
+                          <td className="border border-black px-2 py-2"></td>
+                        )}
                       </tr>
                     </tfoot>
                   )}
                 </table>
               </div>
+
+              {isConsolidated && Object.keys(editedAmounts).length > 0 && (
+                <div className="mt-3 flex items-center gap-2 text-xs text-amber-600">
+                  <AlertCircle size={14} />
+                  <span>
+                    {Object.keys(editedAmounts).length} judge(s) have unsaved changes. 
+                    Click <span className="font-semibold">"Save Changes"</span> to update the utility records.
+                  </span>
+                </div>
+              )}
 
               {computedRows.length === 0 && hiddenSentItems.length > 0 && (
                 <p className="mt-3 text-xs text-stone-400 italic">
@@ -1508,7 +1790,20 @@ const MemoModal: React.FC<MemoModalProps> = ({
 
         {/* Footer */}
         <div className="flex justify-between border-t border-stone-100 px-4 py-3">
-          <GhostButton onClick={onClose}>Close</GhostButton>
+          <div className="flex gap-2">
+            <GhostButton onClick={onClose}>Close</GhostButton>
+            {isConsolidated && Object.keys(editedAmounts).length > 0 && (
+              <GoldButton
+                size="sm"
+                variant="default"
+                onClick={handleSaveEdits}
+                disabled={isSavingEdits}
+                icon={isSavingEdits ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              >
+                {isSavingEdits ? 'Saving…' : 'Save Changes'}
+              </GoldButton>
+            )}
+          </div>
           <div className="relative">
             <button
               onClick={() => setShowDownloadMenu(!showDownloadMenu)}
@@ -1564,8 +1859,6 @@ const MemoModal: React.FC<MemoModalProps> = ({
     </div>
   );
 };
-
-// ─── Main UtilitiesModal ──────────────────────────────────────────────────
 
 // ─── Main UtilitiesModal ──────────────────────────────────────────────────
 
