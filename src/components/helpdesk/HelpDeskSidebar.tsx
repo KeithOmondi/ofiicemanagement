@@ -121,6 +121,11 @@ const Icon = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
     </svg>
   ),
+    memos: (
+    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+    </svg>
+  ),
 };
 
 // ── Nav config ────────────────────────────────────────────────────────────────
@@ -133,6 +138,7 @@ const navigationConfig: NavSection[] = [
       { to: 'manage', label: 'Help Desk', icon: Icon.helpdesk },
       { to: 'documents', label: 'Documents', icon: Icon.documents },
       { to: 'uploads', label: 'Document Uploads', icon: Icon.uploads },
+      { to: 'memos', label: 'Memos & Letters', icon: Icon.memos },
     ],
   },
   {
