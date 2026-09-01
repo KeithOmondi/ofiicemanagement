@@ -35,6 +35,18 @@ function getTimestamp(): number {
   return Date.now();
 }
 
+// ─── Convert ISO datetime to yyyy-MM-dd for date inputs ──────────────────
+const toDateInputValue = (value?: string | null): string => {
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return '';
+  const year = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 // ─── Type for grouped reports ─────────────────────────────────────────────────
 type GroupedReports = Record<string, ServiceWeekReport[]>;
 
@@ -224,18 +236,18 @@ const EditableReportDetailView: React.FC<EditableReportDetailViewProps> = ({
   onCancel,
   isSaving 
 }) => {
-  const [formData, setFormData] = useState<UpdateServiceWeekPayload>({
-    station: report.station,
-    division: report.division || '',
-    week_start: report.week_start,
-    week_end: report.week_end,
-    date: report.date,
-    judge_name: report.judge_name,
-    cases: [...(report.cases || [])],
-    prepared_by: report.prepared_by,
-    prepared_designation: report.prepared_designation,
-    prepared_date: report.prepared_date || '',
-  });
+const [formData, setFormData] = useState<UpdateServiceWeekPayload>({
+  station: report.station,
+  division: report.division || '',
+  week_start: toDateInputValue(report.week_start),
+  week_end: toDateInputValue(report.week_end),
+  date: toDateInputValue(report.date),
+  judge_name: report.judge_name,
+  cases: [...(report.cases || [])],
+  prepared_by: report.prepared_by,
+  prepared_designation: report.prepared_designation,
+  prepared_date: toDateInputValue(report.prepared_date),
+});
 
   const [editReason, setEditReason] = useState('');
 
