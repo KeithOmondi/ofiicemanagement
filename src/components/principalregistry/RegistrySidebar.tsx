@@ -66,7 +66,7 @@ const navigationConfig: NavSection[] = [
   {
     title: 'Reports',
     items: [
-      { to: 'reports/month', label: 'Monthly Reports', icon: <Calendar className="h-4 w-4" /> },
+      { to: 'reports/month', label: 'Weekly Reports', icon: <Calendar className="h-4 w-4" /> },
     ],
   },
   {
@@ -194,11 +194,11 @@ const RegistrySidebar: React.FC<RegistrySidebarProps> = ({ isOpen = true, onClos
         <div className="flex h-16 lg:h-20 items-center justify-between border-b border-gray-800 px-6">
           <div className="flex items-center gap-3">
             <div className="bg-blue-600 p-2 rounded-lg">
-              <FileCheck className="w-6 h-6" />
+              <FileCheck className="w-3 h-3" />
             </div>
             <div>
-              <h1 className="text-lg font-bold">Station Registry</h1>
-              <p className="text-xs text-gray-400">Engagement Reports</p>
+              <h1 className="text-sm font-serif font-bold">PRINCIPAL REGISTRY</h1>
+              <p className="text-xs text-gray-400">DEPT HEAD</p>
             </div>
           </div>
           {onClose && (
