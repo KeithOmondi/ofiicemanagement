@@ -1,5 +1,5 @@
 // src/pages/admin/SuperAdminRegistry.tsx
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { toast, Toaster } from 'react-hot-toast';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import {
@@ -11,6 +11,10 @@ import {
   selectRegistryMutating,
   selectRegistryError,
   clearError as clearRegistryError,
+  // NEW: Direct upload thunks
+  directUpload,
+  bulkDirectUpload,
+  selectIsUploading,
 } from '../../store/slices/registrySlice';
 import { fetchDocuments, clearError as clearDocumentError } from '../../store/slices/documentSlice';
 import { 
@@ -19,7 +23,15 @@ import {
   createStation,
 } from '../../store/slices/stationsSlice';
 import type { RootState } from '../../store/store';
-import type { RegistryPriority, RegistryEntry, RegistryStatus } from '../../types/registry.types';
+import type { 
+  RegistryPriority, 
+  RegistryEntry, 
+  RegistryStatus,
+  DirectDocumentUploadInput,
+  BulkDirectDocumentUploadInput,
+  DirectDocumentUploadResponse,
+  StationWithFileCount,
+} from '../../types/registry.types';
 import type { StationType, CreateStationInput, UpdateStationInput } from '../../store/slices/stationsSlice';
 import type { Document as DocType } from '../../types/documents.types';
 
@@ -34,7 +46,7 @@ import {
   deleteRHCFolder,
   searchRHCFolders,
   moveRHCDocumentToFolder,
-  addDocumentToFolder,  // ← IMPORT FROM HERE
+  addDocumentToFolder,
   selectAllRHCFolders,
   selectRHCFoldersLoading,
   selectRHCFoldersError,
@@ -61,7 +73,25 @@ import {
 } from '../../store/slices/rhcFoldersSlice';
 
 // ─── Icons ──────────────────────────────────────────────────────────────────
-import { Download, FileText, X, Loader2, Edit, Plus, Folder, FolderOpen, Search, ArrowLeft, Home, RefreshCw, ExternalLink, Trash2 } from 'lucide-react';
+import { 
+  Download, 
+  FileText, 
+  X, 
+  Loader2, 
+  Edit, 
+  Plus, 
+  Folder, 
+  FolderOpen, 
+  Search, 
+  ArrowLeft, 
+  Home, 
+  RefreshCw, 
+  ExternalLink, 
+  Trash2, 
+  Upload, 
+  CheckCircle, 
+  AlertCircle,
+} from 'lucide-react';
 
 // ─── Selectors ────────────────────────────────────────────────────────────────
 const selectAllDocuments = (state: RootState): DocType[] => state.documents.documents;
@@ -114,6 +144,14 @@ const PRIORITY_OPTIONS: { value: RegistryPriority; label: string }[] = [
 // ─── Registry View Types ──────────────────────────────────────────────────
 type RegistryView = 'stations' | 'folder_detail';
 
+// ─── File Upload Utilities ──────────────────────────────────────────────────
+const formatFileSize = (bytes: number): string => {
+  if (bytes === 0) return '0 B';
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${sizes[i]}`;
+};
+
 // ─── Document Card Component ──────────────────────────────────────────────
 
 const DocumentCard: React.FC<{ 
@@ -137,6 +175,11 @@ const DocumentCard: React.FC<{
       )}
       {entry.priority === 'confidential' && (
         <span className="absolute top-2 left-2 text-xs text-amber-500 font-medium">🔒</span>
+      )}
+      {entry.source === 'direct' && (
+        <span className="absolute bottom-2 right-2 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded">
+          Direct
+        </span>
       )}
     </div>
   );
@@ -191,8 +234,10 @@ const FolderCard: React.FC<{
 
 // ─── Folder Document Card Component ──────────────────────────────────────
 
+// ─── Folder Document Card Component ──────────────────────────────────────
+
 const FolderDocumentCard: React.FC<{ 
-  document: FolderDocument;
+  document: FolderDocument; 
   isSelected?: boolean;
   onSelect?: (id: string) => void;
 }> = ({ document, isSelected, onSelect }) => {
@@ -531,6 +576,526 @@ const MoveDocumentsModal: React.FC<{
   );
 };
 
+// ─── Direct Upload Modal Component ──────────────────────────────────────────
+
+interface DirectUploadModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onUpload: (input: DirectDocumentUploadInput, file: File) => Promise<void>;
+  stations: StationWithFileCount[];
+  isUploading: boolean;
+  uploadProgress: number;
+  uploadStatus: 'idle' | 'uploading' | 'success' | 'error';
+  uploadError: string | null;
+  uploadResult: DirectDocumentUploadResponse | null;
+  onReset: () => void;
+}
+
+const DirectUploadModal: React.FC<DirectUploadModalProps> = ({
+  isOpen,
+  onClose,
+  onUpload,
+  stations,
+  isUploading,
+  uploadProgress,
+  uploadStatus,
+  uploadError,
+  uploadResult,
+  onReset,
+}) => {
+  const [title, setTitle] = useState('');
+  const [refNo, setRefNo] = useState('');
+  const [stationId, setStationId] = useState('');
+  const [priority, setPriority] = useState<RegistryPriority>('normal');
+  const [note, setNote] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const resetForm = () => {
+    setTitle('');
+    setRefNo('');
+    setStationId('');
+    setPriority('normal');
+    setNote('');
+    setSelectedFile(null);
+    setFileError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    onReset();
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 55 * 1024 * 1024) {
+        setFileError('File size exceeds 55MB limit');
+        setSelectedFile(null);
+        return;
+      }
+      setFileError(null);
+      setSelectedFile(file);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedFile) {
+      setFileError('Please select a file to upload');
+      return;
+    }
+    if (!title.trim()) {
+      toast.error('Document title is required');
+      return;
+    }
+    if (!stationId) {
+      toast.error('Please select a destination station');
+      return;
+    }
+
+    await onUpload(
+      {
+        title: title.trim(),
+        ref_no: refNo.trim() || null,
+        station_id: stationId,
+        priority,
+        note: note.trim() || undefined,
+      },
+      selectedFile
+    );
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  if (uploadStatus === 'success' && uploadResult) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+          <div className="p-6 text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-green-100">
+              <CheckCircle size={32} className="text-green-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-slate-900">Upload Successful!</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {uploadResult.entry.document_title} has been uploaded
+            </p>
+            <div className="mt-4 rounded-md bg-slate-50 p-3 text-left">
+              <p className="text-xs text-slate-500">File: {uploadResult.file.file_name}</p>
+              <p className="text-xs text-slate-500">Size: {formatFileSize(uploadResult.file.file_size)}</p>
+            </div>
+            <button
+              onClick={handleClose}
+              className="mt-4 w-full rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white hover:bg-[#7A5E12]"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (uploadStatus === 'error') {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+          <div className="p-6 text-center">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
+              <AlertCircle size={32} className="text-red-600" />
+            </div>
+            <h3 className="text-lg font-semibold text-slate-900">Upload Failed</h3>
+            <p className="mt-1 text-sm text-red-600">{uploadError || 'An error occurred during upload'}</p>
+            <button
+              onClick={handleClose}
+              className="mt-4 w-full rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white hover:bg-[#7A5E12]"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+            <Upload size={20} className="text-[#8B6914]" />
+            Upload Document
+          </h2>
+          <button
+            onClick={handleClose}
+            disabled={isUploading}
+            className="text-slate-400 hover:text-slate-600 disabled:opacity-50"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Document Title *
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g., Annual Report 2025"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+              required
+              disabled={isUploading}
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Reference Number
+            </label>
+            <input
+              type="text"
+              value={refNo}
+              onChange={(e) => setRefNo(e.target.value)}
+              placeholder="e.g., RHC/MSB/001"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+              disabled={isUploading}
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Destination Station *
+            </label>
+            <select
+              value={stationId}
+              onChange={(e) => setStationId(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+              required
+              disabled={isUploading}
+            >
+              <option value="">Select a station...</option>
+              {stations
+                .filter(s => s.is_active)
+                .map((station) => (
+                  <option key={station.id} value={station.id}>
+                    {station.ref_no ? `${station.ref_no} — ` : ''}{station.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Priority
+            </label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as RegistryPriority)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+              disabled={isUploading}
+            >
+              {PRIORITY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              File *
+            </label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              onChange={handleFileSelect}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[#8B6914]/10 file:px-3 file:py-1 file:text-sm file:font-medium file:text-[#8B6914] hover:file:bg-[#8B6914]/20 focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+              disabled={isUploading}
+            />
+            {fileError && (
+              <p className="mt-1 text-xs text-red-600">{fileError}</p>
+            )}
+            {selectedFile && (
+              <div className="mt-2 flex items-center gap-2 rounded-md bg-slate-50 p-2">
+                <span className="text-sm text-slate-700">{selectedFile.name}</span>
+                <span className="text-xs text-slate-400">({formatFileSize(selectedFile.size)})</span>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Note (Optional)
+            </label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={3}
+              placeholder="Add any additional notes..."
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914] resize-none"
+              disabled={isUploading}
+            />
+          </div>
+
+          {isUploading && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-600">Uploading...</span>
+                <span className="text-slate-400">{uploadProgress}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className="h-full rounded-full bg-[#8B6914] transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={handleClose}
+              disabled={isUploading}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isUploading || !selectedFile || !title || !stationId}
+              className="inline-flex items-center gap-2 rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#7A5E12] disabled:opacity-50"
+            >
+              {isUploading ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Upload size={16} />
+              )}
+              {isUploading ? 'Uploading...' : 'Upload'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ─── Bulk Upload Modal Component ─────────────────────────────────────────────
+
+interface BulkUploadModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onUpload: (input: BulkDirectDocumentUploadInput, files: File[]) => Promise<void>;
+  stations: StationWithFileCount[];
+  isUploading: boolean;
+}
+
+const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
+  isOpen,
+  onClose,
+  onUpload,
+  stations,
+  isUploading,
+}) => {
+  const [stationId, setStationId] = useState('');
+  const [priority, setPriority] = useState<RegistryPriority>('normal');
+  const [note, setNote] = useState('');
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const resetForm = () => {
+    setStationId('');
+    setPriority('normal');
+    setNote('');
+    setSelectedFiles([]);
+    setFileError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      const fileArray = Array.from(files);
+      const oversized = fileArray.some(f => f.size > 55 * 1024 * 1024);
+      if (oversized) {
+        setFileError('One or more files exceed the 55MB limit');
+        return;
+      }
+      if (fileArray.length > 50) {
+        setFileError('Maximum 50 files allowed per batch');
+        return;
+      }
+      setFileError(null);
+      setSelectedFiles(fileArray);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedFiles.length === 0) {
+      setFileError('Please select at least one file to upload');
+      return;
+    }
+    if (!stationId) {
+      toast.error('Please select a destination station');
+      return;
+    }
+
+    await onUpload(
+      {
+        station_id: stationId,
+        priority,
+        note: note.trim() || undefined,
+      },
+      selectedFiles
+    );
+  };
+
+  const handleClose = () => {
+    resetForm();
+    onClose();
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+            <Upload size={20} className="text-[#8B6914]" />
+            Bulk Upload
+          </h2>
+          <button
+            onClick={handleClose}
+            disabled={isUploading}
+            className="text-slate-400 hover:text-slate-600 disabled:opacity-50"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Destination Station *
+            </label>
+            <select
+              value={stationId}
+              onChange={(e) => setStationId(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+              required
+              disabled={isUploading}
+            >
+              <option value="">Select a station...</option>
+              {stations
+                .filter(s => s.is_active)
+                .map((station) => (
+                  <option key={station.id} value={station.id}>
+                    {station.ref_no ? `${station.ref_no} — ` : ''}{station.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Priority
+            </label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as RegistryPriority)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+              disabled={isUploading}
+            >
+              {PRIORITY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Files * (Max 50, 55MB each)
+            </label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              onChange={handleFileSelect}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[#8B6914]/10 file:px-3 file:py-1 file:text-sm file:font-medium file:text-[#8B6914] hover:file:bg-[#8B6914]/20 focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+              disabled={isUploading}
+            />
+            {fileError && (
+              <p className="mt-1 text-xs text-red-600">{fileError}</p>
+            )}
+            {selectedFiles.length > 0 && (
+              <div className="mt-2 max-h-40 overflow-y-auto rounded-md border border-slate-200 p-2">
+                {selectedFiles.map((file, index) => (
+                  <div key={index} className="flex items-center gap-2 py-1 text-sm">
+                    <span className="text-slate-700">{file.name}</span>
+                    <span className="text-xs text-slate-400">({formatFileSize(file.size)})</span>
+                  </div>
+                ))}
+                <div className="mt-1 text-xs text-slate-400">
+                  Total: {selectedFiles.length} file(s)
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Note (Optional)
+            </label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={3}
+              placeholder="Add any additional notes..."
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914] resize-none"
+              disabled={isUploading}
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={handleClose}
+              disabled={isUploading}
+              className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isUploading || selectedFiles.length === 0 || !stationId}
+              className="inline-flex items-center gap-2 rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#7A5E12] disabled:opacity-50"
+            >
+              {isUploading ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Upload size={16} />
+              )}
+              {isUploading ? 'Uploading...' : `Upload ${selectedFiles.length} File(s)`}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 const SuperAdminRegistry = () => {
@@ -558,6 +1123,9 @@ const SuperAdminRegistry = () => {
   const foldersLoading = useAppSelector(selectRHCFoldersLoading);
   const foldersError = useAppSelector(selectRHCFoldersError);
 
+  // ── Upload State ────────────────────────────────────────────────────────────
+  const isUploading = useAppSelector(selectIsUploading);
+
   // ── Form state ───────────────────────────────────────────────────────────────
   const [selectedDoc, setSelectedDoc] = useState('');
   const [routeTo, setRouteTo] = useState('');
@@ -571,6 +1139,14 @@ const SuperAdminRegistry = () => {
   const [selectedStationForModal, setSelectedStationForModal] = useState<string | null>(null);
   const [stationEntries, setStationEntries] = useState<RegistryEntry[]>([]);
   const [modalLoading, setModalLoading] = useState(false);
+
+  // ── Direct Upload Modal State ──────────────────────────────────────────────
+  const [isDirectUploadModalOpen, setIsDirectUploadModalOpen] = useState(false);
+  const [isBulkUploadModalOpen, setIsBulkUploadModalOpen] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadResult, setUploadResult] = useState<DirectDocumentUploadResponse | null>(null);
 
   // ── Delete confirmation state ──────────────────────────────────────────────
   const [stationToDelete, setStationToDelete] = useState<string | null>(null);
@@ -653,6 +1229,51 @@ const SuperAdminRegistry = () => {
     }
   }, [foldersError, dispatch]);
 
+  // ── Direct Upload Handler ──────────────────────────────────────────────────
+
+  const handleDirectUpload = async (input: DirectDocumentUploadInput, file: File) => {
+    setUploadStatus('uploading');
+    setUploadProgress(0);
+    setUploadError(null);
+    setUploadResult(null);
+
+    try {
+      const result = await dispatch(directUpload({ input, file })).unwrap();
+      setUploadStatus('success');
+      setUploadResult(result);
+      toast.success(`Document uploaded successfully!`);
+      refreshCounts();
+      dispatch(fetchRHCFolders({ include_sub_folders: true }));
+    } catch (error) {
+      const errorMessage = typeof error === 'string' ? error : 'Failed to upload document';
+      setUploadStatus('error');
+      setUploadError(errorMessage);
+      toast.error(errorMessage);
+    }
+  };
+
+  // ── Bulk Upload Handler ────────────────────────────────────────────────────
+
+  const handleBulkUpload = async (input: BulkDirectDocumentUploadInput, files: File[]) => {
+    try {
+      const results = await dispatch(bulkDirectUpload({ input, files })).unwrap();
+      toast.success(`${results.length} documents uploaded successfully!`);
+      refreshCounts();
+      dispatch(fetchRHCFolders({ include_sub_folders: true }));
+      setIsBulkUploadModalOpen(false);
+    } catch (error) {
+      const errorMessage = typeof error === 'string' ? error : 'Failed to upload documents';
+      toast.error(errorMessage);
+    }
+  };
+
+  const resetUploadState = () => {
+    setUploadStatus('idle');
+    setUploadError(null);
+    setUploadResult(null);
+    setUploadProgress(0);
+  };
+
   // ── Submit: route the document to the chosen station/folder ────────────────
   const handleRoute = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -662,12 +1283,10 @@ const SuperAdminRegistry = () => {
     }
 
     try {
-      // Determine if destination is a station or folder
       const isStation = stations.some(s => s.id === routeTo);
       const isFolder = folders.some(f => f.id === routeTo);
 
       if (isStation) {
-        // Route to station using registry system
         await dispatch(
           routeFile({
             document_id: selectedDoc,
@@ -677,12 +1296,8 @@ const SuperAdminRegistry = () => {
           })
         ).unwrap();
         toast.success('Document routed to station successfully');
-        
-        // Refresh station counts
         refreshCounts();
-        
       } else if (isFolder) {
-        // Add to folder using folder system
         await dispatch(
           addDocumentToFolder({
             folderId: routeTo,
@@ -690,24 +1305,19 @@ const SuperAdminRegistry = () => {
           })
         ).unwrap();
         toast.success('Document added to folder successfully');
-        
-        // Refresh folder data
         dispatch(fetchRHCFolders({ include_sub_folders: true }));
         if (currentFolderId) {
           await dispatch(fetchRHCFolderDocuments({ id: currentFolderId }));
         }
-        
       } else {
         toast.error('Invalid destination selected');
         return;
       }
 
-      // Reset form
       setSelectedDoc('');
       setRouteTo('');
       setPriority('normal');
       setNote('');
-      
     } catch (error) {
       const errorMessage = typeof error === 'string' ? error : 'Failed to route document';
       toast.error(errorMessage);
@@ -1270,7 +1880,6 @@ const SuperAdminRegistry = () => {
   const getRouteDestinations = useCallback(() => {
     const destinations = [];
     
-    // Add stations
     for (const station of stations) {
       if (station.is_active) {
         destinations.push({
@@ -1283,7 +1892,6 @@ const SuperAdminRegistry = () => {
       }
     }
     
-    // Add folders
     for (const folder of folders) {
       if (folder.status === 'active') {
         destinations.push({
@@ -1296,7 +1904,6 @@ const SuperAdminRegistry = () => {
       }
     }
     
-    // Sort by name
     destinations.sort((a, b) => a.name.localeCompare(b.name));
     
     return destinations;
@@ -1314,6 +1921,25 @@ const SuperAdminRegistry = () => {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-medium text-slate-900">Route Document</h2>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  resetUploadState();
+                  setIsDirectUploadModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-green-600 hover:bg-green-700 transition"
+              >
+                <Upload size={14} />
+                Upload
+              </button>
+              <button
+                onClick={() => {
+                  setIsBulkUploadModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-blue-600 hover:bg-blue-700 transition"
+              >
+                <Upload size={14} />
+                Bulk Upload
+              </button>
               <button
                 onClick={() => {
                   resetStationForm();
@@ -1374,7 +2000,6 @@ const SuperAdminRegistry = () => {
                         : 'Select Destination'}
                   </option>
                   
-                  {/* Group: Stations */}
                   {destinations.filter(d => d.type === 'station').length > 0 && (
                     <optgroup label="🏛 Stations">
                       {destinations
@@ -1387,7 +2012,6 @@ const SuperAdminRegistry = () => {
                     </optgroup>
                   )}
                   
-                  {/* Group: Folders */}
                   {destinations.filter(d => d.type === 'folder').length > 0 && (
                     <optgroup label="📁 Folders">
                       {destinations
@@ -1434,10 +2058,7 @@ const SuperAdminRegistry = () => {
               style={{ background: '#8B6914' }}
             >
               {mutating && (
-                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
+                <Loader2 size={16} className="animate-spin" />
               )}
               Route File
             </button>
@@ -1464,7 +2085,6 @@ const SuperAdminRegistry = () => {
             </button>
           </div>
 
-          {/* Category Filters */}
           {categories.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-3">
               {categories.map(({ category, count }) => (
@@ -1495,7 +2115,6 @@ const SuperAdminRegistry = () => {
             </div>
           )}
 
-          {/* Folder Search */}
           <div className="relative mb-3">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -1518,7 +2137,6 @@ const SuperAdminRegistry = () => {
             )}
           </div>
 
-          {/* Folder Grid */}
           {foldersLoading.fetch ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 size={24} className="animate-spin text-[#8B6914]" />
@@ -1581,10 +2199,7 @@ const SuperAdminRegistry = () => {
         {!collapsed && (
           countsLoading ? (
             <div className="flex justify-center py-16">
-              <svg className="animate-spin h-6 w-6 text-slate-400" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
+              <Loader2 size={24} className="animate-spin text-slate-400" />
             </div>
           ) : stations.length === 0 ? (
             <div className="py-16 text-center text-sm text-slate-400">
@@ -1621,6 +2236,11 @@ const SuperAdminRegistry = () => {
                     </span>
                     <span className="text-xl font-medium text-slate-800">{station.file_count}</span>
                     <span className="text-[11px] text-slate-400">files on record</span>
+                    {station.direct_count && station.direct_count > 0 && (
+                      <span className="text-[10px] text-green-600 mt-1">
+                        {station.direct_count} direct uploads
+                      </span>
+                    )}
                     <span className="text-[10px] text-amber-600 mt-2">Click to view files</span>
                   </button>
 
@@ -1695,6 +2315,32 @@ const SuperAdminRegistry = () => {
       ) : (
         renderStationsView()
       )}
+
+      {/* ── Direct Upload Modal ────────────────────────────────────────────── */}
+      <DirectUploadModal
+        isOpen={isDirectUploadModalOpen}
+        onClose={() => {
+          setIsDirectUploadModalOpen(false);
+          resetUploadState();
+        }}
+        onUpload={handleDirectUpload}
+        stations={stations}
+        isUploading={isUploading}
+        uploadProgress={uploadProgress}
+        uploadStatus={uploadStatus}
+        uploadError={uploadError}
+        uploadResult={uploadResult}
+        onReset={resetUploadState}
+      />
+
+      {/* ── Bulk Upload Modal ──────────────────────────────────────────────── */}
+      <BulkUploadModal
+        isOpen={isBulkUploadModalOpen}
+        onClose={() => setIsBulkUploadModalOpen(false)}
+        onUpload={handleBulkUpload}
+        stations={stations}
+        isUploading={isUploading}
+      />
 
       {/* ── Create Station Modal ───────────────────────────────────────────── */}
       {isCreateModalOpen && (
@@ -1938,6 +2584,11 @@ const SuperAdminRegistry = () => {
                       {REGISTRY_STATUS_LABEL[selectedDocument.status]}
                     </span>
                   )}
+                  {selectedDocument.source === 'direct' && (
+                    <span className="text-sm px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                      Direct Upload
+                    </span>
+                  )}
                 </div>
               </div>
               <button onClick={closeDocViewModal} className="text-slate-400 hover:text-slate-600 transition">
@@ -1999,9 +2650,7 @@ const SuperAdminRegistry = () => {
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
             <div className="p-6">
               <div className="flex items-center justify-center w-12 h-12 mx-auto mb-4 bg-red-100 rounded-full">
-                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                </svg>
+                <Trash2 size={24} className="text-red-600" />
               </div>
               <h3 className="text-lg font-medium text-center text-slate-900 mb-2">Delete Station</h3>
               <p className="text-sm text-center text-slate-500 mb-6">

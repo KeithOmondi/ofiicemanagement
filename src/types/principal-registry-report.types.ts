@@ -275,6 +275,164 @@ export type QuestionValueMap = {
   group: null;
 };
 
+// ══════════════════════════════════════════════════════════════
+//  SENSITIZATION TYPES
+// ══════════════════════════════════════════════════════════════
+
+export type SensitizationStatus = 'draft' | 'submitted' | 'approved' | 'rejected';
+
+export interface SensitizationTeamMember {
+  s_no: number;                    // Auto-generated serial number
+  name: string;                    // Full name
+  pjNumber: string;                // PJ Number
+  rank: string;                    // Rank/Designation (DR, JSG 6, JSG 7, etc.)
+  days: number;                    // Number of days
+  dsaRate: number;                 // DSA rate per day
+  total: number;                   // Calculated: days × dsaRate
+  isDriver?: boolean;              // Optional: if it's a pool driver
+}
+
+export interface SensitizationInput {
+  // Memo Header
+  date: string;                    // Date of memo
+  from: string;                    // Deputy Registrar (auto-set)
+  to: string;                      // Registrar High Court (auto-set)
+  subject: string;                 // Subject line
+  
+  // Visit Details
+  location: string;                // Station to visit (e.g., Kakamega)
+  travelStartDate: string;         // Start of travel (e.g., 2026-08-02)
+  travelEndDate: string;           // End of travel (e.g., 2026-08-05)
+  sensitizationPeriod: string;     // Period description (e.g., "August 2026 to 5th August 2026")
+  
+  // Team Members
+  teamMembers: SensitizationTeamMember[];
+  
+  // Footer
+  preparedBy: string;              // Name of person preparing
+  title: string;                   // Title (Deputy Registrar, Principal Registry)
+}
+
+export interface SensitizationResponse {
+  id: string;
+  memoNumber: string;              // Auto-generated memo reference number
+  data: SensitizationInput;
+  status: SensitizationStatus;
+  pdfUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SensitizationFilters {
+  status?: SensitizationStatus;
+  location?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface SensitizationListResponse {
+  items: SensitizationResponse[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface CreateSensitizationRequest {
+  data: SensitizationInput;
+}
+
+export interface UpdateSensitizationRequest {
+  data: Partial<SensitizationInput>;
+}
+
+// ─── Sensitization Status Helpers ────────────────────────────
+
+export const SENSITIZATION_STATUS_LABELS: Record<SensitizationStatus, string> = {
+  draft: 'Draft',
+  submitted: 'Submitted',
+  approved: 'Approved',
+  rejected: 'Rejected',
+};
+
+export const SENSITIZATION_STATUS_COLORS: Record<SensitizationStatus, string> = {
+  draft: 'gray',
+  submitted: 'blue',
+  approved: 'green',
+  rejected: 'red',
+};
+
+export const SENSITIZATION_STATUS_ORDER: SensitizationStatus[] = ['draft', 'submitted', 'approved', 'rejected'];
+
+export const getSensitizationStatusLabel = (status: SensitizationStatus): string => {
+  return SENSITIZATION_STATUS_LABELS[status] || status;
+};
+
+export const getSensitizationStatusColor = (status: SensitizationStatus): string => {
+  return SENSITIZATION_STATUS_COLORS[status] || 'gray';
+};
+
+/**
+ * Check if a sensitization can be edited (draft status only)
+ */
+export const canEditSensitization = (sensitization: SensitizationResponse): boolean => {
+  return sensitization.status === 'draft';
+};
+
+/**
+ * Check if a sensitization can be submitted (draft status only)
+ */
+export const canSubmitSensitization = (sensitization: SensitizationResponse): boolean => {
+  return sensitization.status === 'draft';
+};
+
+/**
+ * Check if a sensitization can be approved (submitted status only)
+ */
+export const canApproveSensitization = (sensitization: SensitizationResponse): boolean => {
+  return sensitization.status === 'submitted';
+};
+
+/**
+ * Check if a sensitization can be rejected (submitted status only)
+ */
+export const canRejectSensitization = (sensitization: SensitizationResponse): boolean => {
+  return sensitization.status === 'submitted';
+};
+
+/**
+ * Check if a sensitization can be deleted (draft status only)
+ */
+export const canDeleteSensitization = (sensitization: SensitizationResponse): boolean => {
+  return sensitization.status === 'draft';
+};
+
+// ─── Sensitization Default Values ────────────────────────────
+
+export const DEFAULT_SENSITIZATION_FORM: SensitizationInput = {
+  date: '',
+  from: '',
+  to: '',
+  subject: '',
+  location: '',
+  travelStartDate: '',
+  travelEndDate: '',
+  sensitizationPeriod: '',
+  teamMembers: [],
+  preparedBy: '',
+  title: '',
+};
+
+export const DEFAULT_SENSITIZATION_TEAM_MEMBER: SensitizationTeamMember = {
+  s_no: 0,
+  name: '',
+  pjNumber: '',
+  rank: '',
+  days: 0,
+  dsaRate: 0,
+  total: 0,
+  isDriver: false,
+};
+
 // ─── Default Values ───────────────────────────────────────────
 export const DEFAULT_REPORT_FORM: ReportFormData = {
   weekEndingDates: [],

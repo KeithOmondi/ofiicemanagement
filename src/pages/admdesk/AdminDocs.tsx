@@ -94,9 +94,13 @@ const STATUS_BADGE: Record<string, string> = {
   uploaded: 'bg-blue-100 text-blue-700',
   pending_review: 'bg-yellow-100 text-yellow-700',
   marked: 'bg-indigo-100 text-indigo-700',
+  dept_assigned: 'bg-violet-100 text-violet-700',
+  user_assigned: 'bg-indigo-100 text-indigo-700',
   in_progress: 'bg-cyan-100 text-cyan-700',
   completed: 'bg-emerald-100 text-emerald-700',
   filed: 'bg-slate-100 text-slate-700',
+  ready_to_release: 'bg-amber-100 text-amber-700',
+  released: 'bg-emerald-100 text-emerald-700',
 };
 
 const PRIORITY_BADGE: Record<RoutePriority, string> = {
@@ -1330,8 +1334,6 @@ const UploadModal = ({ onClose, onSubmit, loading, departmentId }: UploadModalPr
 
 // ─── Mark / Finalize Draft Modal ──────────────────────────────────────────────
 
-//type FinalizeMode = 'user' | 'admin';
-
 interface FinalizeDraftModalProps {
   document: DocType;
   onClose: () => void;
@@ -1492,8 +1494,9 @@ const AdminDocs = () => {
       const params: DocumentFilters = {
         page: page,
         limit: PAGE_SIZE,
-        for_my_action: true,
         department_id: currentUser.department_id,
+        // Add type filter to exclude memos, letters, certificates from API level
+        // This ensures pagination works correctly
       };
       if (searchRef.current) params.search = searchRef.current;
       if (typeFilterRef.current) params.type = typeFilterRef.current;
@@ -1532,11 +1535,11 @@ const AdminDocs = () => {
     const params: DocumentFilters = {
       page: page,
       limit: PAGE_SIZE,
-      for_my_action: true,
       department_id: currentUser.department_id,
+      // Add type filter to exclude memos, letters, certificates at API level
+      type: typeFilterRef.current || undefined,
     };
     if (searchRef.current) params.search = searchRef.current;
-    if (typeFilterRef.current) params.type = typeFilterRef.current;
     dispatch(fetchDocuments(params));
   }, [dispatch, currentUser, page]);
 
@@ -1595,7 +1598,6 @@ const AdminDocs = () => {
       console.log('[AdminDocs] Upload successful:', created);
       toast.success('Document saved as draft');
       setShowUploadModal(false);
-      // Wait for the fetch to complete before setting finalizeTarget
       await forceRefresh();
       setFinalizeTarget(created);
     } catch (err) {
@@ -1702,13 +1704,22 @@ const AdminDocs = () => {
   };
 
   // ─── Filtered documents ─────────────────────────────────────────────────
+  // Now only filters documents that MUST be excluded (folders, memos, etc.)
+  // This preserves pagination accuracy
   const filteredDocuments = useMemo(() => {
     if (!currentUser) return documents;
 
     return documents.filter(doc => {
-      if (doc.type === 'memo' || doc.type === 'letter' || doc.type === 'certificate') return false;
+      // Exclude documents in folders (they're in the RHC Folders view)
       if (doc.folder_id) return false;
+      
+      // Exclude memos, letters, certificates (they have their own view)
+      if (doc.type === 'memo' || doc.type === 'letter' || doc.type === 'certificate') return false;
+      
+      // For drafts: only show if current user created it
       if (doc.is_draft) return doc.created_by === currentUser.id;
+      
+      // Show ALL other documents
       return true;
     });
   }, [documents, currentUser]);
@@ -1878,8 +1889,7 @@ const AdminDocs = () => {
                 ) : (
                   filteredDocuments.map((doc) => {
                     const activeMark = doc.active_mark;
-                    const isMarked = doc.status === 'marked' || doc.status === 'in_progress';
-                    const markedToDept = activeMark?.marked_to_dept_name || '—';
+                    const isMarked = doc.status === 'marked' || doc.status === 'dept_assigned' || doc.status === 'user_assigned' || doc.status === 'in_progress';
                     const assignedTo = activeMark?.assigned_to_name || '—';
                     const activeRegistry = activeRegistryByDoc.get(doc.id);
                     const needsMyResponse =
@@ -1909,7 +1919,7 @@ const AdminDocs = () => {
                         </td>
 
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[doc.status] ?? 'bg-gray-100 text-gray-700'}`}>
                               {doc.is_draft ? 'draft' : doc.status.replace(/_/g, ' ')}
                             </span>
@@ -1918,22 +1928,33 @@ const AdminDocs = () => {
                                 Awaiting Response
                               </span>
                             )}
+                            {doc.is_signed && (
+                              <span className="inline-flex px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700">
+                                Signed ✓
+                              </span>
+                            )}
                           </div>
                         </td>
 
+                        {/* SIMPLIFIED MARKED TO COLUMN - Only shows assigned user and comment */}
                         <td className="px-4 py-3">
                           {isMarked && activeMark ? (
                             <div className="flex flex-col gap-0.5">
-                              <span className="text-xs font-medium text-slate-700">{markedToDept}</span>
-                              {assignedTo !== '—' && (
-                                <span className="text-[10px] text-slate-400">Assigned to: {assignedTo}</span>
+                              {/* Assigned To */}
+                              {assignedTo !== '—' ? (
+                                <span className="text-xs font-medium text-slate-700">
+                                  👤 {assignedTo}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-slate-400">No one assigned</span>
                               )}
+                              {/* Comment from Super Admin */}
                               {activeMark.instructions && (
                                 <span
                                   className="text-[10px] text-slate-500 italic truncate max-w-[150px]"
                                   title={activeMark.instructions}
                                 >
-                                  "{activeMark.instructions}"
+                                  💬 "{activeMark.instructions}"
                                 </span>
                               )}
                             </div>
@@ -1945,7 +1966,7 @@ const AdminDocs = () => {
                               Not marked yet — click to send to Super Admin
                             </button>
                           ) : doc.assigned_to_name ? (
-                            <span className="text-xs font-medium text-slate-700">{doc.assigned_to_name}</span>
+                            <span className="text-xs font-medium text-slate-700">👤 {doc.assigned_to_name}</span>
                           ) : (
                             <span className="text-xs text-slate-400">—</span>
                           )}

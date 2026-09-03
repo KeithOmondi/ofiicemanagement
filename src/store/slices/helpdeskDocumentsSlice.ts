@@ -10,6 +10,12 @@ import type { RootState } from '../store';
 export type DocumentFormat = 'pdf' | 'docx' | 'xlsx';
 
 // ✅ Fully synced with backend - includes all entity types
+// Kept in sync with `HelpdeskEntityType` in
+// src/types/helpdesk-documents.types.ts — that file is the newer, more
+// complete definition (it also drives department-based access control via
+// ENTITY_TO_DEPARTMENT), so this union must be a superset match or values
+// like getConsolidatedMemoEntityType()'s return type won't flow through
+// functions in this slice that expect DocumentEntityType.
 export type DocumentEntityType =
     | 'circuit'
     | 'bench'
@@ -28,7 +34,10 @@ export type DocumentEntityType =
     | 'consolidated_fuel_memo'
     | 'aide'
     | 'sentry'
-    | 'conference';
+    | 'conference'
+    | 'principalregistry'
+    | 'procurement'
+    | 'sensitization';
 
 // ✅ FIXED: Added 'ready_to_send' to match the types file
 export type DocumentStatus = 'draft' | 'pending_approval' | 'ready_to_send' | 'approved' | 'rejected' | 'returned';

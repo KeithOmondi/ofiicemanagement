@@ -336,7 +336,7 @@ export const createMemo = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Create Letter (generates PDF from HTML template) ────────────────────────
@@ -353,7 +353,7 @@ export const createLetter = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ─── Create Certificate (generates PDF from HTML template) ──────────────────
@@ -370,7 +370,7 @@ export const createCertificate = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Send document to user ───────────────────────────────────────────────────
@@ -379,7 +379,7 @@ export const sendDocumentToUser = createAsyncThunk(
   "documents/sendDocumentToUser",
   async (
     { id, input }: { id: string; input: SendToUserInput },
-    { rejectWithValue }
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.post<{
@@ -390,7 +390,7 @@ export const sendDocumentToUser = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Create upload (with file) ──────────────────────────────────────────────
@@ -428,14 +428,20 @@ export const createUploadDocument = createAsyncThunk(
 export const updateDocumentFile = createAsyncThunk(
   "documents/updateDocumentFile",
   async (
-    { id, blob, filename, status, comments }: { 
-      id: string; 
-      blob: Blob; 
-      filename: string; 
+    {
+      id,
+      blob,
+      filename,
+      status,
+      comments,
+    }: {
+      id: string;
+      blob: Blob;
+      filename: string;
       status?: DocumentStatus;
       comments?: string;
     },
-    { rejectWithValue }
+    { rejectWithValue },
   ) => {
     const formData = new FormData();
     formData.append("file", blob, filename);
@@ -482,20 +488,20 @@ export const updateDocumentMetadata = createAsyncThunk(
   "documents/updateDocumentMetadata",
   async (
     { id, fromFirst }: { id: string; fromFirst: boolean },
-    { rejectWithValue }
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.put<{
         success: boolean;
         data: Document;
       }>(`/documents/${id}`, {
-        metadata: { fromFirst }
+        metadata: { fromFirst },
       });
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Update document attachments ─────────────────────────────────────────────
@@ -504,20 +510,20 @@ export const updateDocumentAttachments = createAsyncThunk(
   "documents/updateDocumentAttachments",
   async (
     { id, attachments }: { id: string; attachments: DocumentAttachment[] },
-    { rejectWithValue }
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.put<{
         success: boolean;
         data: Document;
       }>(`/documents/${id}`, {
-        attachments
+        attachments,
       });
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Soft delete ─────────────────────────────────────────────────────────────
@@ -537,40 +543,43 @@ export const deleteDocument = createAsyncThunk(
 // ── Request OTP ───────────────────────────────────────────────────────────────
 
 export const requestSignOtp = createAsyncThunk(
-  'documents/requestSignOtp',
+  "documents/requestSignOtp",
   async (id: string, { rejectWithValue }) => {
     try {
       await axiosClient.post(`/documents/${id}/request-sign-otp`);
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Sign with OTP (including optional custom position) ──────────────────────
 
 export const signDocument = createAsyncThunk(
-  'documents/signDocument',
-  async ({ 
-    id, 
-    otp,
-    position_x,
-    position_y,
-    position_width,
-    position_height,
-  }: { 
-    id: string; 
-    otp: string;
-    position_x?: number;
-    position_y?: number;
-    position_width?: number;
-    position_height?: number;
-  }, { rejectWithValue }) => {
+  "documents/signDocument",
+  async (
+    {
+      id,
+      otp,
+      position_x,
+      position_y,
+      position_width,
+      position_height,
+    }: {
+      id: string;
+      otp: string;
+      position_x?: number;
+      position_y?: number;
+      position_width?: number;
+      position_height?: number;
+    },
+    { rejectWithValue },
+  ) => {
     try {
       const response = await axiosClient.post<{
         success: boolean;
         data: Document;
-      }>(`/documents/${id}/sign`, { 
+      }>(`/documents/${id}/sign`, {
         otp,
         position_x,
         position_y,
@@ -581,14 +590,21 @@ export const signDocument = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Release Document to Admin Side ──────────────────────────────────────────
 
 export const releaseDocument = createAsyncThunk(
-  'documents/releaseDocument',
-  async ({ id, note, recipient_id }: { id: string; note?: string; recipient_id?: string }, { rejectWithValue }) => {
+  "documents/releaseDocument",
+  async (
+    {
+      id,
+      note,
+      recipient_id,
+    }: { id: string; note?: string; recipient_id?: string },
+    { rejectWithValue },
+  ) => {
     try {
       const response = await axiosClient.post<{
         success: boolean;
@@ -598,7 +614,7 @@ export const releaseDocument = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Send document ───────────────────────────────────────────────────────────
@@ -663,7 +679,11 @@ export const returnDocument = createAsyncThunk(
 export const respondToDocument = createAsyncThunk(
   "documents/respondToDocument",
   async (
-    { id, input, file }: { id: string; input: RespondToDocumentInput; file?: File },
+    {
+      id,
+      input,
+      file,
+    }: { id: string; input: RespondToDocumentInput; file?: File },
     { rejectWithValue },
   ) => {
     const formData = new FormData();
@@ -782,9 +802,8 @@ export const deleteAnnotation = createAsyncThunk(
 export const updateMark = createAsyncThunk(
   "documents/updateMark",
   async (
-    { markId, instructions }: 
-    { markId: string; instructions: string },
-    { rejectWithValue }
+    { markId, instructions }: { markId: string; instructions: string },
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.patch<{
@@ -795,7 +814,7 @@ export const updateMark = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -808,7 +827,7 @@ export const setBringUp = createAsyncThunk(
   "documents/setBringUp",
   async (
     { id, input }: { id: string; input: SetBringUpInput },
-    { rejectWithValue }
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.post<{
@@ -819,7 +838,7 @@ export const setBringUp = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Update Bring Up Date (Super Admin only) ─────────────────────────────────
@@ -828,7 +847,7 @@ export const updateBringUp = createAsyncThunk(
   "documents/updateBringUp",
   async (
     { id, input }: { id: string; input: UpdateBringUpInput },
-    { rejectWithValue }
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.put<{
@@ -839,7 +858,7 @@ export const updateBringUp = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Complete Bring Up ────────────────────────────────────────────────────────
@@ -848,7 +867,7 @@ export const completeBringUp = createAsyncThunk(
   "documents/completeBringUp",
   async (
     { id, input }: { id: string; input: CompleteBringUpInput },
-    { rejectWithValue }
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.patch<{
@@ -859,7 +878,7 @@ export const completeBringUp = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch Bring Ups ──────────────────────────────────────────────────────────
@@ -876,7 +895,7 @@ export const fetchBringUps = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch Bring Up Summary ──────────────────────────────────────────────────
@@ -893,7 +912,7 @@ export const fetchBringUpSummary = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch Bring Up History ──────────────────────────────────────────────────
@@ -910,7 +929,7 @@ export const fetchBringUpHistory = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -931,7 +950,7 @@ export const sendFollowUp = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch Follow-Ups ───────────────────────────────────────────────────────
@@ -948,7 +967,7 @@ export const fetchFollowUps = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch Follow-Ups by Document ──────────────────────────────────────────
@@ -956,8 +975,11 @@ export const fetchFollowUps = createAsyncThunk(
 export const fetchFollowUpsByDocument = createAsyncThunk(
   "documents/fetchFollowUpsByDocument",
   async (
-    { documentId, filters }: { documentId: string; filters?: Omit<FollowUpFilters, 'document_id'> },
-    { rejectWithValue }
+    {
+      documentId,
+      filters,
+    }: { documentId: string; filters?: Omit<FollowUpFilters, "document_id"> },
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.get<{
@@ -968,7 +990,7 @@ export const fetchFollowUpsByDocument = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch My Follow-Ups ────────────────────────────────────────────────────
@@ -976,8 +998,8 @@ export const fetchFollowUpsByDocument = createAsyncThunk(
 export const fetchMyFollowUps = createAsyncThunk(
   "documents/fetchMyFollowUps",
   async (
-    filters: Omit<FollowUpFilters, 'assigned_to'> = {},
-    { rejectWithValue }
+    filters: Omit<FollowUpFilters, "assigned_to"> = {},
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.get<{
@@ -988,7 +1010,7 @@ export const fetchMyFollowUps = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch Follow-Up Summary ─────────────────────────────────────────────────
@@ -1005,7 +1027,7 @@ export const fetchFollowUpSummary = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch Follow-Up by ID ──────────────────────────────────────────────────
@@ -1022,7 +1044,7 @@ export const fetchFollowUpById = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch Follow-Up Thread (with comments) ─────────────────────────────────
@@ -1039,7 +1061,7 @@ export const fetchFollowUpThread = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Create Follow-Up (with due date) ──────────────────────────────────────────
@@ -1056,7 +1078,7 @@ export const createFollowUp = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Update Follow-Up ───────────────────────────────────────────────────────
@@ -1065,7 +1087,7 @@ export const updateFollowUp = createAsyncThunk(
   "documents/updateFollowUp",
   async (
     { followUpId, input }: { followUpId: string; input: UpdateFollowUpInput },
-    { rejectWithValue }
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.put<{
@@ -1076,7 +1098,7 @@ export const updateFollowUp = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Complete Follow-Up ─────────────────────────────────────────────────────
@@ -1085,7 +1107,7 @@ export const completeFollowUp = createAsyncThunk(
   "documents/completeFollowUp",
   async (
     { followUpId, input }: { followUpId: string; input: CompleteFollowUpInput },
-    { rejectWithValue }
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.patch<{
@@ -1096,7 +1118,7 @@ export const completeFollowUp = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Cancel Follow-Up ───────────────────────────────────────────────────────
@@ -1105,7 +1127,7 @@ export const cancelFollowUp = createAsyncThunk(
   "documents/cancelFollowUp",
   async (
     { followUpId, input }: { followUpId: string; input: CancelFollowUpInput },
-    { rejectWithValue }
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.patch<{
@@ -1116,7 +1138,7 @@ export const cancelFollowUp = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Add Follow-Up Comment ──────────────────────────────────────────────────
@@ -1124,8 +1146,12 @@ export const cancelFollowUp = createAsyncThunk(
 export const addFollowUpComment = createAsyncThunk(
   "documents/addFollowUpComment",
   async (
-    { followUpId, input, file }: { followUpId: string; input: AddFollowUpCommentInput; file?: File },
-    { rejectWithValue }
+    {
+      followUpId,
+      input,
+      file,
+    }: { followUpId: string; input: AddFollowUpCommentInput; file?: File },
+    { rejectWithValue },
   ) => {
     const formData = new FormData();
     formData.append("comment", input.comment);
@@ -1142,7 +1168,7 @@ export const addFollowUpComment = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch Follow-Up Comments ──────────────────────────────────────────────
@@ -1159,7 +1185,7 @@ export const fetchFollowUpComments = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -1172,7 +1198,7 @@ export const redirectDocumentToFolder = createAsyncThunk(
   "documents/redirectDocumentToFolder",
   async (
     { id, folder_id, note }: { id: string; folder_id: string; note?: string },
-    { rejectWithValue }
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.post<{
@@ -1183,17 +1209,14 @@ export const redirectDocumentToFolder = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Remove Document from Folder ────────────────────────────────────────────
 
 export const removeDocumentFromFolder = createAsyncThunk(
   "documents/removeDocumentFromFolder",
-  async (
-    { id, note }: { id: string; note?: string },
-    { rejectWithValue }
-  ) => {
+  async ({ id, note }: { id: string; note?: string }, { rejectWithValue }) => {
     try {
       const response = await axiosClient.delete<{
         success: boolean;
@@ -1203,7 +1226,7 @@ export const removeDocumentFromFolder = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Fetch Documents by Folder ──────────────────────────────────────────────
@@ -1211,22 +1234,35 @@ export const removeDocumentFromFolder = createAsyncThunk(
 export const fetchDocumentsByFolder = createAsyncThunk(
   "documents/fetchDocumentsByFolder",
   async (
-    { folderId, page, limit, search, type, status }: 
-    { folderId: string; page?: number; limit?: number; search?: string; type?: string; status?: string },
-    { rejectWithValue }
+    {
+      folderId,
+      page,
+      limit,
+      search,
+      type,
+      status,
+    }: {
+      folderId: string;
+      page?: number;
+      limit?: number;
+      search?: string;
+      type?: string;
+      status?: string;
+    },
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.get<{
         success: boolean;
         data: DocumentPaginationResponse;
       }>(`/documents/folder/${folderId}`, {
-        params: { page, limit, search, type, status }
+        params: { page, limit, search, type, status },
       });
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Regenerate PDF from current edited fields/body ──────────────────────────
@@ -1246,30 +1282,26 @@ export const regeneratePdf = createAsyncThunk(
   },
 );
 
-
 // ── Add a single attachment to a document ────────────────────────────────────
 
 export const addDocumentAttachment = createAsyncThunk(
   "documents/addDocumentAttachment",
-  async (
-    { id, file }: { id: string; file: File },
-    { rejectWithValue }
-  ) => {
+  async ({ id, file }: { id: string; file: File }, { rejectWithValue }) => {
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append("file", file);
 
     try {
       const response = await axiosClient.post<{
         success: boolean;
         data: Document;
       }>(`/documents/${id}/attachments`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
+        headers: { "Content-Type": "multipart/form-data" },
       });
       return response.data.data;
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
 );
 
 // ── Remove a single attachment from a document ──────────────────────────────
@@ -1278,7 +1310,7 @@ export const removeDocumentAttachment = createAsyncThunk(
   "documents/removeDocumentAttachment",
   async (
     { id, attachmentId }: { id: string; attachmentId: string },
-    { rejectWithValue }
+    { rejectWithValue },
   ) => {
     try {
       const response = await axiosClient.delete<{
@@ -1289,7 +1321,42 @@ export const removeDocumentAttachment = createAsyncThunk(
     } catch (error) {
       return rejectWithValue(getErrorMessage(error));
     }
-  }
+  },
+);
+
+export const signDocumentNoOtp = createAsyncThunk(
+  "documents/signDocumentNoOtp",
+  async (
+    {
+      id,
+      position_x,
+      position_y,
+      position_width,
+      position_height,
+    }: {
+      id: string;
+      position_x?: number;
+      position_y?: number;
+      position_width?: number;
+      position_height?: number;
+    },
+    { rejectWithValue },
+  ) => {
+    try {
+      const response = await axiosClient.post<{
+        success: boolean;
+        data: Document;
+      }>(`/documents/${id}/sign-no-otp`, {
+        position_x,
+        position_y,
+        position_width,
+        position_height,
+      });
+      return response.data.data;
+    } catch (error) {
+      return rejectWithValue(getErrorMessage(error));
+    }
+  },
 );
 
 // ─── Slice ────────────────────────────────────────────────────────────────────
@@ -1334,9 +1401,12 @@ const documentSlice = createSlice({
     },
     resetState: () => initialState,
     // ── Optimistic follow-up updates ──────────────────────────────────────
-    optimisticUpdateFollowUpStatus: (state, action: PayloadAction<{ followUpId: string; status: FollowUpStatus }>) => {
+    optimisticUpdateFollowUpStatus: (
+      state,
+      action: PayloadAction<{ followUpId: string; status: FollowUpStatus }>,
+    ) => {
       const { followUpId, status } = action.payload;
-      const index = state.followUps.findIndex(f => f.id === followUpId);
+      const index = state.followUps.findIndex((f) => f.id === followUpId);
       if (index !== -1) {
         state.followUps[index].status = status;
       }
@@ -1345,24 +1415,30 @@ const documentSlice = createSlice({
       }
     },
     // ── Optimistic Bring Up updates ───────────────────────────────────────
-    optimisticUpdateBringUpStatus: (state, action: PayloadAction<{ documentId: string; status: BringUpStatus }>) => {
+    optimisticUpdateBringUpStatus: (
+      state,
+      action: PayloadAction<{ documentId: string; status: BringUpStatus }>,
+    ) => {
       const { documentId, status } = action.payload;
-      const docIndex = state.documents.findIndex(d => d.id === documentId);
+      const docIndex = state.documents.findIndex((d) => d.id === documentId);
       if (docIndex !== -1) {
         state.documents[docIndex].bring_up_status = status;
       }
       if (state.currentDocument?.id === documentId) {
         state.currentDocument.bring_up_status = status;
       }
-      const myIndex = state.myMarked.findIndex(d => d.id === documentId);
+      const myIndex = state.myMarked.findIndex((d) => d.id === documentId);
       if (myIndex !== -1) {
         state.myMarked[myIndex].bring_up_status = status;
       }
     },
     // ── Optimistic fromFirst update ────────────────────────────────────────
-    optimisticUpdateFromFirst: (state, action: PayloadAction<{ documentId: string; fromFirst: boolean }>) => {
+    optimisticUpdateFromFirst: (
+      state,
+      action: PayloadAction<{ documentId: string; fromFirst: boolean }>,
+    ) => {
       const { documentId, fromFirst } = action.payload;
-      const docIndex = state.documents.findIndex(d => d.id === documentId);
+      const docIndex = state.documents.findIndex((d) => d.id === documentId);
       if (docIndex !== -1) {
         if (!state.documents[docIndex].metadata) {
           state.documents[docIndex].metadata = {};
@@ -1375,7 +1451,7 @@ const documentSlice = createSlice({
         }
         state.currentDocument.metadata.fromFirst = fromFirst;
       }
-      const myIndex = state.myMarked.findIndex(d => d.id === documentId);
+      const myIndex = state.myMarked.findIndex((d) => d.id === documentId);
       if (myIndex !== -1) {
         if (!state.myMarked[myIndex].metadata) {
           state.myMarked[myIndex].metadata = {};
@@ -1384,16 +1460,22 @@ const documentSlice = createSlice({
       }
     },
     // ── Optimistic attachments update ──────────────────────────────────────
-    optimisticUpdateAttachments: (state, action: PayloadAction<{ documentId: string; attachments: DocumentAttachment[] }>) => {
+    optimisticUpdateAttachments: (
+      state,
+      action: PayloadAction<{
+        documentId: string;
+        attachments: DocumentAttachment[];
+      }>,
+    ) => {
       const { documentId, attachments } = action.payload;
-      const docIndex = state.documents.findIndex(d => d.id === documentId);
+      const docIndex = state.documents.findIndex((d) => d.id === documentId);
       if (docIndex !== -1) {
         state.documents[docIndex].attachments = attachments;
       }
       if (state.currentDocument?.id === documentId) {
         state.currentDocument.attachments = attachments;
       }
-      const myIndex = state.myMarked.findIndex(d => d.id === documentId);
+      const myIndex = state.myMarked.findIndex((d) => d.id === documentId);
       if (myIndex !== -1) {
         state.myMarked[myIndex].attachments = attachments;
       }
@@ -1495,8 +1577,8 @@ const documentSlice = createSlice({
         fetchReceivedDocuments.fulfilled,
         (state, action: PayloadAction<Document[]>) => {
           state.loading = false;
-          const existingIds = new Set(state.documents.map(d => d.id));
-          const newDocs = action.payload.filter(d => !existingIds.has(d.id));
+          const existingIds = new Set(state.documents.map((d) => d.id));
+          const newDocs = action.payload.filter((d) => !existingIds.has(d.id));
           state.documents = [...newDocs, ...state.documents];
         },
       )
@@ -1656,6 +1738,33 @@ const documentSlice = createSlice({
       )
       .addCase(sendDocumentToUser.rejected, (state, action) => {
         state.actionInProgress.sendingToUser = undefined;
+        state.error = action.payload as string;
+      })
+
+      .addCase(signDocumentNoOtp.pending, (state, action) => {
+        state.actionInProgress.signing = action.meta.arg.id;
+        state.error = null;
+      })
+      .addCase(
+        signDocumentNoOtp.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.signing = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              annotations: state.currentDocument.annotations,
+              mark_history: state.currentDocument.mark_history,
+              responses: state.currentDocument.responses,
+              ...action.payload,
+            };
+          }
+        },
+      )
+      .addCase(signDocumentNoOtp.rejected, (state, action) => {
+        state.actionInProgress.signing = undefined;
         state.error = action.payload as string;
       })
 
@@ -1932,13 +2041,15 @@ const documentSlice = createSlice({
             ...state.currentDocument.responses,
             response,
           ];
-          state.currentDocument.response_count = (state.currentDocument.response_count || 0) + 1;
+          state.currentDocument.response_count =
+            (state.currentDocument.response_count || 0) + 1;
           state.currentDocument.status = "pending_review";
         }
 
         const docIndex = state.documents.findIndex((d) => d.id === documentId);
         if (docIndex !== -1) {
-          state.documents[docIndex].response_count = (state.documents[docIndex].response_count || 0) + 1;
+          state.documents[docIndex].response_count =
+            (state.documents[docIndex].response_count || 0) + 1;
           state.documents[docIndex].status = "pending_review";
         }
       })
@@ -2055,7 +2166,7 @@ const documentSlice = createSlice({
         state.actionInProgress.updatingMark = undefined;
         const { markId, updatedMark } = action.payload;
 
-        state.documents = state.documents.map(doc => {
+        state.documents = state.documents.map((doc) => {
           if (doc.active_mark?.id === markId) {
             return {
               ...doc,
@@ -2078,7 +2189,7 @@ const documentSlice = createSlice({
           };
         }
 
-        state.myMarked = state.myMarked.map(doc => {
+        state.myMarked = state.myMarked.map((doc) => {
           if (doc.active_mark?.id === markId) {
             return {
               ...doc,
@@ -2188,20 +2299,33 @@ const documentSlice = createSlice({
         state.actionInProgress.settingBringUp = action.meta.arg.id;
         state.error = null;
       })
-      .addCase(setBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.actionInProgress.settingBringUp = undefined;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
+      .addCase(
+        setBringUp.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.settingBringUp = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
 
-        const bringUpIndex = state.bringUpDocuments.findIndex(d => d.id === action.payload.id);
-        if (bringUpIndex !== -1) state.bringUpDocuments[bringUpIndex] = action.payload;
+          const bringUpIndex = state.bringUpDocuments.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (bringUpIndex !== -1)
+            state.bringUpDocuments[bringUpIndex] = action.payload;
 
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = { ...state.currentDocument, ...action.payload };
-        }
-        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
-        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
-      })
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+          const myIndex = state.myMarked.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+        },
+      )
       .addCase(setBringUp.rejected, (state, action) => {
         state.actionInProgress.settingBringUp = undefined;
         state.error = action.payload as string;
@@ -2212,20 +2336,33 @@ const documentSlice = createSlice({
         state.actionInProgress.updatingBringUp = action.meta.arg.id;
         state.error = null;
       })
-      .addCase(updateBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.actionInProgress.updatingBringUp = undefined;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
+      .addCase(
+        updateBringUp.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.updatingBringUp = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
 
-        const bringUpIndex = state.bringUpDocuments.findIndex(d => d.id === action.payload.id);
-        if (bringUpIndex !== -1) state.bringUpDocuments[bringUpIndex] = action.payload;
+          const bringUpIndex = state.bringUpDocuments.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (bringUpIndex !== -1)
+            state.bringUpDocuments[bringUpIndex] = action.payload;
 
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = { ...state.currentDocument, ...action.payload };
-        }
-        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
-        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
-      })
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+          const myIndex = state.myMarked.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+        },
+      )
       .addCase(updateBringUp.rejected, (state, action) => {
         state.actionInProgress.updatingBringUp = undefined;
         state.error = action.payload as string;
@@ -2236,20 +2373,33 @@ const documentSlice = createSlice({
         state.actionInProgress.completingBringUp = action.meta.arg.id;
         state.error = null;
       })
-      .addCase(completeBringUp.fulfilled, (state, action: PayloadAction<Document>) => {
-        state.actionInProgress.completingBringUp = undefined;
-        const index = state.documents.findIndex(d => d.id === action.payload.id);
-        if (index !== -1) state.documents[index] = action.payload;
+      .addCase(
+        completeBringUp.fulfilled,
+        (state, action: PayloadAction<Document>) => {
+          state.actionInProgress.completingBringUp = undefined;
+          const index = state.documents.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (index !== -1) state.documents[index] = action.payload;
 
-        const bringUpIndex = state.bringUpDocuments.findIndex(d => d.id === action.payload.id);
-        if (bringUpIndex !== -1) state.bringUpDocuments[bringUpIndex] = action.payload;
+          const bringUpIndex = state.bringUpDocuments.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (bringUpIndex !== -1)
+            state.bringUpDocuments[bringUpIndex] = action.payload;
 
-        if (state.currentDocument?.id === action.payload.id) {
-          state.currentDocument = { ...state.currentDocument, ...action.payload };
-        }
-        const myIndex = state.myMarked.findIndex(d => d.id === action.payload.id);
-        if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
-      })
+          if (state.currentDocument?.id === action.payload.id) {
+            state.currentDocument = {
+              ...state.currentDocument,
+              ...action.payload,
+            };
+          }
+          const myIndex = state.myMarked.findIndex(
+            (d) => d.id === action.payload.id,
+          );
+          if (myIndex !== -1) state.myMarked[myIndex] = action.payload;
+        },
+      )
       .addCase(completeBringUp.rejected, (state, action) => {
         state.actionInProgress.completingBringUp = undefined;
         state.error = action.payload as string;
@@ -2322,17 +2472,20 @@ const documentSlice = createSlice({
         state.error = null;
         state.actionInProgress.sendingFollowUp = true;
       })
-      .addCase(sendFollowUp.fulfilled, (state, action: PayloadAction<FollowUp>) => {
-        state.loading = false;
-        state.actionInProgress.sendingFollowUp = false;
-        state.followUps = [action.payload, ...state.followUps];
-        if (state.currentDocument) {
-          state.currentDocument.follow_ups = [
-            action.payload,
-            ...(state.currentDocument.follow_ups || []),
-          ];
-        }
-      })
+      .addCase(
+        sendFollowUp.fulfilled,
+        (state, action: PayloadAction<FollowUp>) => {
+          state.loading = false;
+          state.actionInProgress.sendingFollowUp = false;
+          state.followUps = [action.payload, ...state.followUps];
+          if (state.currentDocument) {
+            state.currentDocument.follow_ups = [
+              action.payload,
+              ...(state.currentDocument.follow_ups || []),
+            ];
+          }
+        },
+      )
       .addCase(sendFollowUp.rejected, (state, action) => {
         state.loading = false;
         state.actionInProgress.sendingFollowUp = false;
@@ -2482,7 +2635,7 @@ const documentSlice = createSlice({
       .addCase(updateFollowUp.fulfilled, (state, action) => {
         state.actionInProgress.updatingFollowUp = undefined;
         const index = state.followUps.findIndex(
-          (f) => f.id === action.payload.id
+          (f) => f.id === action.payload.id,
         );
         if (index !== -1) state.followUps[index] = action.payload;
         if (state.currentFollowUp?.id === action.payload.id) {
@@ -2493,9 +2646,13 @@ const documentSlice = createSlice({
         }
         if (state.currentDocument) {
           const docIndex = state.currentDocument.follow_ups?.findIndex(
-            (f) => f.id === action.payload.id
+            (f) => f.id === action.payload.id,
           );
-          if (docIndex !== undefined && docIndex !== -1 && state.currentDocument.follow_ups) {
+          if (
+            docIndex !== undefined &&
+            docIndex !== -1 &&
+            state.currentDocument.follow_ups
+          ) {
             state.currentDocument.follow_ups[docIndex] = action.payload;
           }
         }
@@ -2513,7 +2670,7 @@ const documentSlice = createSlice({
       .addCase(completeFollowUp.fulfilled, (state, action) => {
         state.actionInProgress.completingFollowUp = undefined;
         const index = state.followUps.findIndex(
-          (f) => f.id === action.payload.id
+          (f) => f.id === action.payload.id,
         );
         if (index !== -1) state.followUps[index] = action.payload;
         if (state.currentFollowUp?.id === action.payload.id) {
@@ -2524,9 +2681,13 @@ const documentSlice = createSlice({
         }
         if (state.currentDocument) {
           const docIndex = state.currentDocument.follow_ups?.findIndex(
-            (f) => f.id === action.payload.id
+            (f) => f.id === action.payload.id,
           );
-          if (docIndex !== undefined && docIndex !== -1 && state.currentDocument.follow_ups) {
+          if (
+            docIndex !== undefined &&
+            docIndex !== -1 &&
+            state.currentDocument.follow_ups
+          ) {
             state.currentDocument.follow_ups[docIndex] = action.payload;
           }
         }
@@ -2544,7 +2705,7 @@ const documentSlice = createSlice({
       .addCase(cancelFollowUp.fulfilled, (state, action) => {
         state.actionInProgress.cancellingFollowUp = undefined;
         const index = state.followUps.findIndex(
-          (f) => f.id === action.payload.id
+          (f) => f.id === action.payload.id,
         );
         if (index !== -1) state.followUps[index] = action.payload;
         if (state.currentFollowUp?.id === action.payload.id) {
@@ -2555,9 +2716,13 @@ const documentSlice = createSlice({
         }
         if (state.currentDocument) {
           const docIndex = state.currentDocument.follow_ups?.findIndex(
-            (f) => f.id === action.payload.id
+            (f) => f.id === action.payload.id,
           );
-          if (docIndex !== undefined && docIndex !== -1 && state.currentDocument.follow_ups) {
+          if (
+            docIndex !== undefined &&
+            docIndex !== -1 &&
+            state.currentDocument.follow_ups
+          ) {
             state.currentDocument.follow_ups[docIndex] = action.payload;
           }
         }
@@ -2569,7 +2734,8 @@ const documentSlice = createSlice({
 
       // ── addFollowUpComment ──────────────────────────────────────────────────
       .addCase(addFollowUpComment.pending, (state, action) => {
-        state.actionInProgress.addingFollowUpComment = action.meta.arg.followUpId;
+        state.actionInProgress.addingFollowUpComment =
+          action.meta.arg.followUpId;
         state.error = null;
       })
       .addCase(addFollowUpComment.fulfilled, (state, action) => {
@@ -2583,10 +2749,10 @@ const documentSlice = createSlice({
           ];
         }
         const followUpIndex = state.followUps.findIndex(
-          (f) => f.id === followUpId
+          (f) => f.id === followUpId,
         );
         if (followUpIndex !== -1) {
-          state.followUps[followUpIndex].comment_count = 
+          state.followUps[followUpIndex].comment_count =
             (state.followUps[followUpIndex].comment_count || 0) + 1;
         }
       })
@@ -2666,11 +2832,14 @@ export const selectPagination = (state: { documents: DocumentState }) =>
 export const selectActionInProgress = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress;
 
-export const selectCurrentDocumentResponses = (state: { documents: DocumentState }) =>
-  state.documents.currentDocument?.responses ?? [];
+export const selectCurrentDocumentResponses = (state: {
+  documents: DocumentState;
+}) => state.documents.currentDocument?.responses ?? [];
 
-export const selectIsResponding = (state: { documents: DocumentState }, documentId: string) =>
-  state.documents.actionInProgress.responding === documentId;
+export const selectIsResponding = (
+  state: { documents: DocumentState },
+  documentId: string,
+) => state.documents.actionInProgress.responding === documentId;
 
 export const selectIsCreatingMemo = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.creatingMemo || false;
@@ -2678,8 +2847,9 @@ export const selectIsCreatingMemo = (state: { documents: DocumentState }) =>
 export const selectIsCreatingLetter = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.creatingLetter || false;
 
-export const selectIsCreatingCertificate = (state: { documents: DocumentState }) =>
-  state.documents.actionInProgress.creatingCertificate || false;
+export const selectIsCreatingCertificate = (state: {
+  documents: DocumentState;
+}) => state.documents.actionInProgress.creatingCertificate || false;
 
 export const selectIsSendingToUser = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.sendingToUser || null;
@@ -2687,23 +2857,35 @@ export const selectIsSendingToUser = (state: { documents: DocumentState }) =>
 export const selectIsUploading = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.uploading || false;
 
-export const selectIsUpdatingMark = (state: { documents: DocumentState }, markId: string) =>
-  state.documents.actionInProgress.updatingMark === markId;
+export const selectIsUpdatingMark = (
+  state: { documents: DocumentState },
+  markId: string,
+) => state.documents.actionInProgress.updatingMark === markId;
 
-export const selectIsRedirectingToFolder = (state: { documents: DocumentState }, documentId: string) =>
-  state.documents.actionInProgress.redirectingToFolder === documentId;
+export const selectIsRedirectingToFolder = (
+  state: { documents: DocumentState },
+  documentId: string,
+) => state.documents.actionInProgress.redirectingToFolder === documentId;
 
-export const selectIsRemovingFromFolder = (state: { documents: DocumentState }, documentId: string) =>
-  state.documents.actionInProgress.removingFromFolder === documentId;
+export const selectIsRemovingFromFolder = (
+  state: { documents: DocumentState },
+  documentId: string,
+) => state.documents.actionInProgress.removingFromFolder === documentId;
 
-export const selectIsRegeneratingPdf = (state: { documents: DocumentState }, documentId: string) =>
-  state.documents.actionInProgress.regeneratingPdf === documentId;
+export const selectIsRegeneratingPdf = (
+  state: { documents: DocumentState },
+  documentId: string,
+) => state.documents.actionInProgress.regeneratingPdf === documentId;
 
-export const selectIsSigning = (state: { documents: DocumentState }, documentId: string) =>
-  state.documents.actionInProgress.signing === documentId;
+export const selectIsSigning = (
+  state: { documents: DocumentState },
+  documentId: string,
+) => state.documents.actionInProgress.signing === documentId;
 
-export const selectIsReleasing = (state: { documents: DocumentState }, documentId: string) =>
-  state.documents.actionInProgress.releasing === documentId;
+export const selectIsReleasing = (
+  state: { documents: DocumentState },
+  documentId: string,
+) => state.documents.actionInProgress.releasing === documentId;
 
 // ── Follow-up selectors ──────────────────────────────────────────────────────
 
@@ -2728,23 +2910,33 @@ export const selectIsCreatingFollowUp = (state: { documents: DocumentState }) =>
 export const selectIsSendingFollowUp = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.sendingFollowUp || false;
 
-export const selectIsUpdatingFollowUp = (state: { documents: DocumentState }, followUpId: string) =>
-  state.documents.actionInProgress.updatingFollowUp === followUpId;
+export const selectIsUpdatingFollowUp = (
+  state: { documents: DocumentState },
+  followUpId: string,
+) => state.documents.actionInProgress.updatingFollowUp === followUpId;
 
-export const selectIsCompletingFollowUp = (state: { documents: DocumentState }, followUpId: string) =>
-  state.documents.actionInProgress.completingFollowUp === followUpId;
+export const selectIsCompletingFollowUp = (
+  state: { documents: DocumentState },
+  followUpId: string,
+) => state.documents.actionInProgress.completingFollowUp === followUpId;
 
-export const selectIsCancellingFollowUp = (state: { documents: DocumentState }, followUpId: string) =>
-  state.documents.actionInProgress.cancellingFollowUp === followUpId;
+export const selectIsCancellingFollowUp = (
+  state: { documents: DocumentState },
+  followUpId: string,
+) => state.documents.actionInProgress.cancellingFollowUp === followUpId;
 
-export const selectIsAddingFollowUpComment = (state: { documents: DocumentState }, followUpId: string) =>
-  state.documents.actionInProgress.addingFollowUpComment === followUpId;
+export const selectIsAddingFollowUpComment = (
+  state: { documents: DocumentState },
+  followUpId: string,
+) => state.documents.actionInProgress.addingFollowUpComment === followUpId;
 
-export const selectIsFetchingFollowUps = (state: { documents: DocumentState }) =>
-  state.documents.actionInProgress.fetchingFollowUps || false;
+export const selectIsFetchingFollowUps = (state: {
+  documents: DocumentState;
+}) => state.documents.actionInProgress.fetchingFollowUps || false;
 
-export const selectIsFetchingFollowUpSummary = (state: { documents: DocumentState }) =>
-  state.documents.actionInProgress.fetchingFollowUpSummary || false;
+export const selectIsFetchingFollowUpSummary = (state: {
+  documents: DocumentState;
+}) => state.documents.actionInProgress.fetchingFollowUpSummary || false;
 
 // ── Bring Up selectors ──────────────────────────────────────────────────────
 
@@ -2757,49 +2949,71 @@ export const selectBringUpSummary = (state: { documents: DocumentState }) =>
 export const selectBringUpPagination = (state: { documents: DocumentState }) =>
   state.documents.bringUpPagination;
 
-export const selectIsSettingBringUp = (state: { documents: DocumentState }, documentId: string) =>
-  state.documents.actionInProgress.settingBringUp === documentId;
+export const selectIsSettingBringUp = (
+  state: { documents: DocumentState },
+  documentId: string,
+) => state.documents.actionInProgress.settingBringUp === documentId;
 
-export const selectIsUpdatingBringUp = (state: { documents: DocumentState }, documentId: string) =>
-  state.documents.actionInProgress.updatingBringUp === documentId;
+export const selectIsUpdatingBringUp = (
+  state: { documents: DocumentState },
+  documentId: string,
+) => state.documents.actionInProgress.updatingBringUp === documentId;
 
-export const selectIsCompletingBringUp = (state: { documents: DocumentState }, documentId: string) =>
-  state.documents.actionInProgress.completingBringUp === documentId;
+export const selectIsCompletingBringUp = (
+  state: { documents: DocumentState },
+  documentId: string,
+) => state.documents.actionInProgress.completingBringUp === documentId;
 
 export const selectIsFetchingBringUps = (state: { documents: DocumentState }) =>
   state.documents.actionInProgress.fetchingBringUps || false;
 
-export const selectIsFetchingBringUpSummary = (state: { documents: DocumentState }) =>
-  state.documents.actionInProgress.fetchingBringUpSummary || false;
+export const selectIsFetchingBringUpSummary = (state: {
+  documents: DocumentState;
+}) => state.documents.actionInProgress.fetchingBringUpSummary || false;
 
 // ── fromFirst selectors ──────────────────────────────────────────────────────
 
-export const selectFromFirst = (state: { documents: DocumentState }, documentId: string): boolean => {
-  const doc = state.documents.documents.find(d => d.id === documentId);
+export const selectFromFirst = (
+  state: { documents: DocumentState },
+  documentId: string,
+): boolean => {
+  const doc = state.documents.documents.find((d) => d.id === documentId);
   return doc?.metadata?.fromFirst ?? false;
 };
 
-export const selectCurrentDocumentFromFirst = (state: { documents: DocumentState }): boolean => {
+export const selectCurrentDocumentFromFirst = (state: {
+  documents: DocumentState;
+}): boolean => {
   return state.documents.currentDocument?.metadata?.fromFirst ?? false;
 };
 
 // ── Attachments selectors ───────────────────────────────────────────────────
 
-export const selectDocumentAttachments = (state: { documents: DocumentState }, documentId: string): DocumentAttachment[] => {
-  const doc = state.documents.documents.find(d => d.id === documentId);
+export const selectDocumentAttachments = (
+  state: { documents: DocumentState },
+  documentId: string,
+): DocumentAttachment[] => {
+  const doc = state.documents.documents.find((d) => d.id === documentId);
   return doc?.attachments || [];
 };
 
-export const selectCurrentDocumentAttachments = (state: { documents: DocumentState }): DocumentAttachment[] => {
+export const selectCurrentDocumentAttachments = (state: {
+  documents: DocumentState;
+}): DocumentAttachment[] => {
   return state.documents.currentDocument?.attachments || [];
 };
 
-export const selectHasAttachments = (state: { documents: DocumentState }, documentId: string): boolean => {
-  const doc = state.documents.documents.find(d => d.id === documentId);
+export const selectHasAttachments = (
+  state: { documents: DocumentState },
+  documentId: string,
+): boolean => {
+  const doc = state.documents.documents.find((d) => d.id === documentId);
   return (doc?.attachments?.length || 0) > 0;
 };
 
-export const selectCurrentDocumentHasAttachments = (state: { documents: DocumentState }): boolean => {
+export const selectCurrentDocumentHasAttachments = (state: {
+  documents: DocumentState;
+}): boolean => {
   return (state.documents.currentDocument?.attachments?.length || 0) > 0;
 };
 

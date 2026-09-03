@@ -1,5 +1,15 @@
 // src/types/helpdesk-documents.types.ts
 
+// ── Department Types ──────────────────────────────────────────────────────────
+
+/**
+ * Department categories for access control
+ */
+export type DocumentDepartment = 
+    | 'helpdesk'
+    | 'principalregistry'
+    | 'procurement';
+
 // ── Helpdesk-specific Document Entity Types ──────────────────────────────────
 
 export type HelpdeskEntityType =
@@ -12,31 +22,23 @@ export type HelpdeskEntityType =
     | 'medicalClaim'
     | 'generalRequest'
     | 'securityRequest'
-    | 'visa'             // Visa support documents
-    | 'protocol'         // Protocol event documents
-    | 'club'             // Club membership documents
-    | 'utility_memo'     // Single judge utility memo
-    | 'consolidated_utility_memo'  // Consolidated memo covering all utilities
-    | 'consolidated_fuel_memo'     // Consolidated memo covering fuel only
-    | 'aide'             // Aide request documents
-    | 'sentry'           // Sentry request documents
-    | 'conference';      // Conference request documents
+    | 'visa'
+    | 'protocol'
+    | 'club'
+    | 'utility_memo'
+    | 'consolidated_utility_memo'
+    | 'consolidated_fuel_memo'
+    | 'aide'
+    | 'sentry'
+    | 'conference'
+    | 'principalregistry'
+    | 'procurement'
+    | 'sensitization';  // ← ADDED: Sensitization documents
 
 export type HelpdeskDocumentFormat = 'pdf' | 'docx' | 'xlsx';
 
-// ─── UPDATED: Document Status with 'ready_to_send' ───────────────────────────
-// 
-// Status Flow:
-// ┌─────────────────────────────────────────────────────────────────────────────┐
-// │ Status              │ Description                                         │
-// ├─────────────────────────────────────────────────────────────────────────────┤
-// │ draft               │ Document is being created/edited (requester only)    │
-// │ pending_approval    │ Document is in the super admin's queue (PENDING)    │
-// │ ready_to_send       │ Super admin approved/rejected, ready to send back   │
-// │ approved            │ Fully approved and sent back to requester           │
-// │ rejected            │ Fully rejected and sent back to requester           │
-// │ returned            │ Returned for changes and sent back to requester     │
-// └─────────────────────────────────────────────────────────────────────────────┘
+// ─── Document Status ──────────────────────────────────────────────────────────
+
 export type HelpdeskDocumentStatus = 
     | 'draft' 
     | 'pending_approval' 
@@ -53,18 +55,12 @@ export type StampType = 'approved' | 'received' | 'official';
 
 // ─── Utility Sync Status ──────────────────────────────────────────────────────
 
-/**
- * Tracks the sync status between a document and its associated utility items
- */
 export type UtilitySyncStatus = 
-    | 'pending'      // Document is still pending, utility items are not synced
-    | 'synced'       // Utility items have been synced with document status
-    | 'failed'       // Sync attempt failed
-    | 'not_applicable'; // Not a utility document
+    | 'pending'
+    | 'synced'
+    | 'failed'
+    | 'not_applicable';
 
-/**
- * Represents a utility item that has been synced with a document
- */
 export interface SyncedUtilityItem {
     id: string;
     utility_type: string;
@@ -79,65 +75,40 @@ export interface SyncedUtilityItem {
 
 // ─── Two-Step Approval Types ──────────────────────────────────────────────────
 
-/**
- * Internal approval status (only visible to super admin)
- * Tracks the super admin's decision before the requester is notified
- * 
- * Workflow:
- * 1. Requester submits → internal_approval_status = 'pending'
- * 2. Super admin previews → internal_approval_status = 'previewed'
- * 3. Super admin makes decision → 'approved_internal' | 'rejected_internal' | 'changes_requested_internal'
- * 4. Requester resubmits after changes → internal_approval_status = 'changes_ready'
- * 5. Super admin cancels decision → internal_approval_status = 'pending'
- */
 export type InternalApprovalStatus = 
-    | 'pending'                    // Awaiting super admin review
-    | 'previewed'                  // Super admin has previewed the document
-    | 'approved_internal'          // Super admin approved (ready to send back to requester)
-    | 'rejected_internal'          // Super admin rejected (ready to send back to requester)
-    | 'changes_requested_internal' // Super admin wants changes (ready to send back to requester)
-    | 'changes_ready';             // Requester has made changes, ready for re-review
+    | 'pending'
+    | 'previewed'
+    | 'approved_internal'
+    | 'rejected_internal'
+    | 'changes_requested_internal'
+    | 'changes_ready';
 
-/**
- * External/Requester visible status (what the requester sees)
- * Only changes when super admin clicks "Send Back to Requester"
- * 
- * The requester's status is independent of the internal status until
- * the super admin explicitly sends it back.
- */
 export type RequesterVisibleStatus = 
-    | 'pending_approval'    // Requester sees: Waiting for approval
-    | 'approved'            // Requester sees: Document approved ✓
-    | 'rejected'            // Requester sees: Document rejected ✗
-    | 'changes_requested'   // Requester sees: Changes requested
-    | 'in_revision';        // Requester sees: Being revised
+    | 'pending_approval'
+    | 'approved'
+    | 'rejected'
+    | 'changes_requested'
+    | 'in_revision';
 
 // ─── Consolidated Memo Helpers ──────────────────────────────────────────────
 
 export type ConsolidatedMemoType = 'all' | 'fuel';
 
-/**
- * Generates a stable, human-readable entity ID for a consolidated memo.
- * Format: "cons-{type}-{YYYY-MM}" e.g., "cons-all-2026-07"
- */
 export function getConsolidatedMemoEntityId(
     type: ConsolidatedMemoType,
     date: Date = new Date()
 ): string {
-    const month = date.toISOString().slice(0, 7); // YYYY-MM
+    const month = date.toISOString().slice(0, 7);
     return `cons-${type}-${month}`;
 }
 
-/**
- * Returns the appropriate HelpdeskEntityType for a consolidated memo.
- */
 export function getConsolidatedMemoEntityType(
     type: ConsolidatedMemoType
 ): HelpdeskEntityType {
     return type === 'fuel' ? 'consolidated_fuel_memo' : 'consolidated_utility_memo';
 }
 
-// ─── Request Types (Unified) ───────────────────────────────────────────────
+// ─── Request Types ────────────────────────────────────────────────────────────
 
 export type RequestType =
     | 'Driver'
@@ -151,7 +122,7 @@ export type RequestType =
 export type RemarkType = 'Onboarding' | 'Release';
 export type GeneralRequestCategory = 'Security' | 'Personnel' | 'Administrative';
 
-// ─── Officer Ranks (Matching Backend) ──────────────────────────────────────
+// ─── Officer Ranks ────────────────────────────────────────────────────────────
 
 export type OfficerRank =
     | 'Police Constable (PC)'
@@ -167,7 +138,6 @@ export type OfficerRank =
     | 'Commissioner (CP)';
 
 export type UnitType = 'KPS' | 'APS' | 'GSU' | 'DCI' | 'VIPPU' | 'Other';
-
 export type AideStatus = 'pending' | 'in_progress' | 'rejected' | 'attached';
 export type SentryStatus = 'pending' | 'active' | 'resolved' | 'rejected';
 
@@ -189,7 +159,7 @@ export type ConferenceType =
     | 'seminar' 
     | 'other';
 
-// ─── Approval History ──────────────────────────────────────────────────────
+// ─── Approval History ────────────────────────────────────────────────────────
 
 export interface ApprovalHistoryEntry {
     id: string;
@@ -201,10 +171,8 @@ export interface ApprovalHistoryEntry {
     to_user_name?: string;
     comments?: string;
     created_at: string;
-    // For two-step workflow
-    internal_action?: boolean; // Whether this was an internal action (super admin only)
-    requester_visible?: boolean; // Whether this action is visible to requester
-    // ─── Utility sync metadata ──────────────────────────────────────────────
+    internal_action?: boolean;
+    requester_visible?: boolean;
     utility_sync_metadata?: {
         total_items: number;
         updated_count: number;
@@ -212,7 +180,7 @@ export interface ApprovalHistoryEntry {
     };
 }
 
-// ─── Comments ──────────────────────────────────────────────────────────────
+// ─── Comments ─────────────────────────────────────────────────────────────────
 
 export interface Comment {
     id: string;
@@ -225,7 +193,7 @@ export interface Comment {
     created_at: string;
 }
 
-// ─── Document View Tracking ──────────────────────────────────────────────
+// ─── Document View Tracking ──────────────────────────────────────────────────
 
 export interface DocumentView {
     id: string;
@@ -266,18 +234,14 @@ export interface DocumentPreviewHistory {
     created_at: string;
 }
 
-// ─── Extended Document Type ──────────────────────────────────────────────────
+// ─── Main Document Interface ─────────────────────────────────────────────────
 
-/**
- * Extended document type for helpdesk-specific fields
- * Matches the backend's HelpdeskDocument interface
- */
 export interface HelpdeskDocument {
     id: string;
     ref: string;
     subject: string;
     entity_type: HelpdeskEntityType;
-    entity_id: string | null;   // can be UUID or custom ID (e.g., "cons-all-2026-07")
+    entity_id: string | null;
     format: HelpdeskDocumentFormat;
     file_url: string;
     public_id: string;
@@ -303,14 +267,16 @@ export interface HelpdeskDocument {
     type: 'upload';
     category: 'general';
 
-    // Unified General Request fields
-    request_type?: RequestType;        // Driver, Bodyguard, etc.
-    judge_name?: string;                // Associated judge name
-    remark_type?: RemarkType;          // Onboarding or Release
-    category_type?: GeneralRequestCategory; // Security, Personnel, Administrative
+    // ─── Department ─────────────────────────────────────────────────────────
+    department: DocumentDepartment;
 
-    // ─── Two-Step Approval Workflow Fields ────────────────────────────────────
-    // Internal tracking (super admin only)
+    // ─── General Request Fields ─────────────────────────────────────────────
+    request_type?: RequestType;
+    judge_name?: string;
+    remark_type?: RemarkType;
+    category_type?: GeneralRequestCategory;
+
+    // ─── Two-Step Approval ──────────────────────────────────────────────────
     internal_approval_status: InternalApprovalStatus;
     internal_approved_by?: string;
     internal_approved_by_name?: string;
@@ -322,83 +288,52 @@ export interface HelpdeskDocument {
     internal_previewed_at?: string;
     internal_previewed_by?: string;
     internal_previewed_by_name?: string;
-    
-    // External/Requester visible status
     requester_status: RequesterVisibleStatus;
-    requester_visible_at?: string; // When status became visible to requester
-    requester_visible_by?: string; // Who sent it back to requester
+    requester_visible_at?: string;
+    requester_visible_by?: string;
     requester_visible_by_name?: string;
-    
-    // Resubmit tracking
     resubmit_count: number;
     last_resubmitted_at?: string;
     last_resubmitted_by?: string;
-    
-    // ─── Flags that determine document state ──────────────────────────────────
-    /**
-     * Whether the super admin has made an internal decision
-     * True when internal_approval_status is 'approved_internal', 'rejected_internal', or 'changes_requested_internal'
-     */
     is_internal_approval_complete: boolean;
-    
-    /**
-     * Whether the document has been sent back to the requester
-     * True only after super admin clicks "Send Back to Requester"
-     * When true, the document is removed from the super admin's queue
-     */
     is_sent_back_to_requester: boolean;
-    
     is_requester_notified: boolean;
 
-    // ─── Utility Sync Fields ──────────────────────────────────────────────
-    /**
-     * Whether utility items have been synced with this document
-     */
+    // ─── Utility Sync ──────────────────────────────────────────────────────
     utility_sync_status: UtilitySyncStatus;
-    /**
-     * When the utility items were last synced
-     */
     utility_synced_at?: string;
-    /**
-     * Who performed the sync
-     */
     utility_synced_by?: string;
-    /**
-     * Detailed sync results
-     */
     utility_sync_result?: {
         total_items: number;
         updated_items: SyncedUtilityItem[];
         failed_items: Array<{ id: string; reason: string }>;
     };
 
-    // ─── Signature Fields ──────────────────────────────────────────────────────
-    is_signed: boolean;                    // Whether the document has been signed
-    signed_by?: string;                    // ID of the user who signed
-    signed_by_name?: string;               // Name of the user who signed
-    signed_at?: string;                    // When the document was signed
-    signature_position_x?: number | null;  // X position of signature on PDF
-    signature_position_y?: number | null;  // Y position of signature on PDF
-    signature_position_width?: number | null;  // Width of signature on PDF
-    signature_position_height?: number | null; // Height of signature on PDF
+    // ─── Signature ──────────────────────────────────────────────────────────
+    is_signed: boolean;
+    signed_by?: string;
+    signed_by_name?: string;
+    signed_at?: string;
+    signature_position_x?: number | null;
+    signature_position_y?: number | null;
+    signature_position_width?: number | null;
+    signature_position_height?: number | null;
 
-    // ─── Stamp Fields ──────────────────────────────────────────────────────
-    is_stamped: boolean;                   // Whether the document has been officially stamped
-    stamped_by?: string;                   // ID of the user who applied the stamp
-    stamped_by_name?: string;              // Name of the user who applied the stamp
-    stamped_at?: string;                   // When the stamp was applied
-    stamp_type?: StampType;                // Type of stamp applied (approved, received, official)
-    stamp_position_x?: number | null;      // X position of stamp on PDF
-    stamp_position_y?: number | null;      // Y position of stamp on PDF
-    stamp_position_width?: number | null;  // Width of stamp on PDF
-    stamp_position_height?: number | null; // Height of stamp on PDF
-
-    // 🔴 NEW: Final generated PDF URL (For displaying the stamped document to the requester)
-    stamped_file_url?: string | null;      // The fully generated PDF containing both signature and stamp
+    // ─── Stamp ──────────────────────────────────────────────────────────────
+    is_stamped: boolean;
+    stamped_by?: string;
+    stamped_by_name?: string;
+    stamped_at?: string;
+    stamp_type?: StampType;
+    stamp_position_x?: number | null;
+    stamp_position_y?: number | null;
+    stamp_position_width?: number | null;
+    stamp_position_height?: number | null;
+    stamped_file_url?: string | null;
     stamped_file_public_id?: string | null;
     stamped_file_size?: number | null;
 
-    // ─── Aide Request Fields ──────────────────────────────────────────────────
+    // ─── Aide Request ──────────────────────────────────────────────────────
     officer_rank?: OfficerRank | null;
     officer_name?: string | null;
     employment_number?: string | null;
@@ -407,12 +342,12 @@ export interface HelpdeskDocument {
     proposed_assignment?: string | null;
     reporting_date?: string | null;
     aide_status?: AideStatus | null;
-    
-    // ─── Sentry Request Fields ──────────────────────────────────────────────
+
+    // ─── Sentry Request ────────────────────────────────────────────────────
     residence_location?: string | null;
     sentry_status?: SentryStatus | null;
-    
-    // ─── Conference Request Fields ──────────────────────────────────────────
+
+    // ─── Conference Request ────────────────────────────────────────────────
     conference_type?: ConferenceType | null;
     start_date?: string | null;
     end_date?: string | null;
@@ -421,16 +356,13 @@ export interface HelpdeskDocument {
     location?: string | null;
     budget_estimate?: number | null;
     conference_status?: ConferenceStatus | null;
-    
-    // ─── Legacy fields ──────────────────────────────────────────────────────
-    rank?: string | null;              // Officer's rank (deprecated, use officer_rank)
+
+    // ─── Legacy ─────────────────────────────────────────────────────────────
+    rank?: string | null;
 }
 
 // ─── Requester Document View ─────────────────────────────────────────────────
 
-/**
- * Requester's view of their document status
- */
 export interface RequesterDocumentView {
     document_id: string;
     ref: string;
@@ -441,58 +373,48 @@ export interface RequesterDocumentView {
     comments?: string;
     entity_type: HelpdeskEntityType;
     entity_id?: string;
-    // Only show these if status is 'approved' or 'rejected'
+    department: DocumentDepartment;
     approved_rejected_at?: string;
     approved_rejected_by?: string;
     approved_rejected_by_name?: string;
-    // Only show if status is 'changes_requested'
     changes_requested?: string[];
-    // Only show if status is 'rejected'
     rejection_reason?: string;
-    // Show if resubmit is allowed
     can_resubmit: boolean;
-    // ─── Signature info ──────────────────────────────────────────────────────
     is_signed: boolean;
     signed_by_name?: string;
     signed_at?: string;
-    // ─── Stamp info ──────────────────────────────────────────────────────
     is_stamped: boolean;
     stamped_by_name?: string;
     stamped_at?: string;
     stamp_type?: StampType;
-    // 🔴 NEW: Final generated stamped file URL for the requester's dashboard/viewer
     stamped_file_url?: string | null;
-    // ─── Utility sync status ──────────────────────────────────────────────
     utility_sync_status: UtilitySyncStatus;
 }
 
-// ─── Pending Internal Approvals Summary ──────────────────────────────────────
+// ─── Pending Internal Approvals Summary ─────────────────────────────────────
 
-/**
- * Pending internal approvals summary (super admin dashboard)
- */
 export interface PendingInternalApprovalsSummary {
     total_pending_internal: number;
-    pending_review: number;           // Awaiting super admin review
-    previewed: number;               // Super admin previewed but not decided
-    changes_ready: number;           // Requester made changes, ready for re-review
-    approved_internal: number;       // Approved internally, waiting to send back
-    rejected_internal: number;       // Rejected internally, waiting to send back
-    changes_requested_internal: number; // Changes requested, waiting to send back
-    ready_to_send_back: number;      // Super admin has decided, ready to send back to requester
+    pending_review: number;
+    previewed: number;
+    changes_ready: number;
+    approved_internal: number;
+    rejected_internal: number;
+    changes_requested_internal: number;
+    ready_to_send_back: number;
     by_entity_type: Record<HelpdeskEntityType, number>;
+    by_department: Record<DocumentDepartment, number>;
     urgent_pending: number;
     oldest_pending_days: number;
     average_review_time_hours?: number;
-    // ─── Utility sync stats ──────────────────────────────────────────────
-    pending_utility_sync: number;    // Documents waiting for utility sync
+    pending_utility_sync: number;
 }
 
-// ─── Helpdesk Document Filters ───────────────────────────────────────────────
+// ─── Filters ──────────────────────────────────────────────────────────────────
 
 export interface HelpdeskDocumentFilters {
     entity_type?: HelpdeskEntityType;
-    entity_id?: string;   // can be UUID or custom ID
+    entity_id?: string;
     format?: HelpdeskDocumentFormat;
     status?: HelpdeskDocumentStatus;
     search?: string;
@@ -502,19 +424,24 @@ export interface HelpdeskDocumentFilters {
     pending_my_approval?: boolean;
     unlinked?: boolean;
 
-    // ─── Two-Step Approval Filters ──────────────────────────────────────────
+    // ─── Department ─────────────────────────────────────────────────────────
+    department?: DocumentDepartment;
+    exclude_departments?: DocumentDepartment[];
+    include_helpdesk?: boolean;
+
+    // ─── Two-Step Approval ──────────────────────────────────────────────────
     internal_approval_status?: InternalApprovalStatus;
     requester_status?: RequesterVisibleStatus;
     is_sent_back_to_requester?: boolean;
-    pending_internal_approval?: boolean; // For super admin dashboard
-    ready_to_send_back?: boolean; // Super admin has decided, ready to send back
-    my_requester_documents?: boolean; // For requester dashboard
+    pending_internal_approval?: boolean;
+    ready_to_send_back?: boolean;
+    my_requester_documents?: boolean;
 
-    // ─── Utility Sync Filters ────────────────────────────────────────────
+    // ─── Utility Sync ──────────────────────────────────────────────────────
     utility_sync_status?: UtilitySyncStatus;
-    needs_utility_sync?: boolean; // Documents that haven't been synced yet
+    needs_utility_sync?: boolean;
 
-    // Unified General Request filters
+    // ─── General Request ────────────────────────────────────────────────────
     request_type?: RequestType;
     judge_name?: string;
     remark_type?: RemarkType;
@@ -522,7 +449,7 @@ export interface HelpdeskDocumentFilters {
     date_from?: string;
     date_to?: string;
 
-    // ─── Aide Request Filters ──────────────────────────────────────────────
+    // ─── Aide Request ──────────────────────────────────────────────────────
     officer_rank?: OfficerRank;
     officer_name?: string;
     employment_number?: string;
@@ -530,24 +457,28 @@ export interface HelpdeskDocumentFilters {
     current_unit?: UnitType;
     aide_status?: AideStatus;
     reporting_date?: string;
-    
-    // ─── Sentry Request Filters ──────────────────────────────────────────────
+
+    // ─── Sentry Request ────────────────────────────────────────────────────
     residence_location?: string;
     sentry_status?: SentryStatus;
-    
-    // ─── Conference Request Filters ──────────────────────────────────────────
+
+    // ─── Conference Request ────────────────────────────────────────────────
     conference_type?: ConferenceType;
     conference_status?: ConferenceStatus;
     start_date_from?: string;
     start_date_to?: string;
     location?: string;
     venue?: string;
-    
-    // ─── Legacy filters ──────────────────────────────────────────────────────
+
+    // ─── Legacy ─────────────────────────────────────────────────────────────
     rank?: string;
+
+    // ─── Stamp ──────────────────────────────────────────────────────────────
+    is_stamped?: boolean;
+    stamp_type?: StampType;
 }
 
-// ─── Helpdesk Document Upload Payload ────────────────────────────────────────
+// ─── Payloads ─────────────────────────────────────────────────────────────────
 
 export interface UploadHelpdeskDocumentPayload {
     blob: Blob;
@@ -555,17 +486,13 @@ export interface UploadHelpdeskDocumentPayload {
     ref: string;
     subject: string;
     entity_type: HelpdeskEntityType;
-    entity_id?: string;   // can be UUID or custom ID
+    entity_id?: string;
     format: HelpdeskDocumentFormat;
     status?: HelpdeskDocumentStatus;
-
-    // Unified General Request fields
     request_type?: RequestType;
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
-
-    // ─── Aide Request Fields ──────────────────────────────────────────────
     officer_rank?: OfficerRank;
     officer_name?: string;
     employment_number?: string;
@@ -574,12 +501,8 @@ export interface UploadHelpdeskDocumentPayload {
     proposed_assignment?: string;
     reporting_date?: string;
     aide_status?: AideStatus;
-    
-    // ─── Sentry Request Fields ──────────────────────────────────────────────
     residence_location?: string;
     sentry_status?: SentryStatus;
-    
-    // ─── Conference Request Fields ──────────────────────────────────────────
     conference_type?: ConferenceType;
     start_date?: string;
     end_date?: string;
@@ -588,16 +511,9 @@ export interface UploadHelpdeskDocumentPayload {
     location?: string;
     budget_estimate?: number;
     conference_status?: ConferenceStatus;
-    
-    // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
 }
 
-// ─── Two-Step Approval Payloads ──────────────────────────────────────────────
-
-/**
- * Request to preview document (super admin action)
- */
 export interface InternalPreviewPayload {
     id: string;
     previewed_by?: string;
@@ -607,27 +523,20 @@ export interface InternalPreviewPayload {
     user_agent?: string;
 }
 
-/**
- * Request to perform internal approval (super admin action)
- * This doesn't change what requester sees yet
- */
 export interface InternalApprovalPayload {
     id: string;
     action: 'approve' | 'reject' | 'request_changes';
     comments?: string;
-    changes_requested?: string[]; // For 'request_changes' action
-    rejection_reason?: string; // For 'reject' action
+    changes_requested?: string[];
+    rejection_reason?: string;
     approved_by?: string;
     approved_by_name?: string;
     generate_e_stamp?: boolean;
-    // ─── Utility sync field ──────────────────────────────────────────────
     sync_utilities?: boolean;
-    // ─── Signature position ─────────────────────────────────────────────────
     signature_position_x?: number;
     signature_position_y?: number;
     signature_position_width?: number;
     signature_position_height?: number;
-    // 🔴 FIX: Add stamp position fields here to match the backend schema
     stamp_position_x?: number;
     stamp_position_y?: number;
     stamp_position_width?: number;
@@ -635,10 +544,6 @@ export interface InternalApprovalPayload {
     stamp_type?: StampType;
 }
 
-/**
- * Request to send document back to requester (super admin action)
- * This is when the requester finally sees the status change
- */
 export interface SendBackToRequesterPayload {
     id: string;
     final_status: 'approved' | 'rejected' | 'changes_requested';
@@ -647,36 +552,25 @@ export interface SendBackToRequesterPayload {
     comments?: string;
     requester_message?: string;
     notify_requester?: boolean;
-    // ─── Utility sync field ──────────────────────────────────────────────
     sync_utilities?: boolean;
 }
 
-/**
- * Request to resubmit after changes (requester action)
- */
 export interface ResubmitAfterChangesPayload {
     id: string;
     submitted_by?: string;
     submitted_by_name?: string;
     comments?: string;
     file_update?: boolean;
-    // ─── Reset utility sync ──────────────────────────────────────────────
     reset_utility_sync?: boolean;
 }
 
-/**
- * Request to cancel internal approval (super admin action)
- */
 export interface CancelInternalApprovalPayload {
     id: string;
     cancelled_by?: string;
     cancelled_by_name?: string;
     reason?: string;
-    // ─── Reset utility sync ──────────────────────────────────────────────
     reset_utility_sync?: boolean;
 }
-
-// ─── Update Document File Payload ─────────────────────────────────────────────
 
 export interface UpdateDocumentFilePayload {
     id: string;
@@ -692,15 +586,12 @@ export interface UpdateDocumentFilePayload {
     rejection_reason?: string;
     returned_by?: string;
     returned_by_name?: string;
-    // ─── Utility sync fields ────────────────────────────────────────────
     sync_utilities?: boolean;
     utility_sync_status?: UtilitySyncStatus;
-    // ─── Signature fields ──────────────────────────────────────────────────────
     is_signed?: boolean;
     signed_by?: string;
     signed_by_name?: string;
     signed_at?: string;
-    // ─── Stamp fields ────────────────────────────────────────────────────
     is_stamped?: boolean;
     stamped_by?: string;
     stamped_by_name?: string;
@@ -719,42 +610,6 @@ export interface SubmitForApprovalPayload {
     submitted_by_name?: string;
 }
 
-// ─── Legacy Payloads (Deprecated) ───────────────────────────────────────────
-
-/**
- * @deprecated Use InternalApprovalPayload with action: 'approve' and SendBackToRequesterPayload instead
- */
-export interface ApproveDocumentPayload {
-    id: string;
-    comments?: string;
-    approved_by?: string;
-    approved_by_name?: string;
-    e_stamp_url?: string;
-    e_stamp_public_id?: string;
-}
-
-/**
- * @deprecated Use InternalApprovalPayload with action: 'reject' and SendBackToRequesterPayload instead
- */
-export interface RejectDocumentPayload {
-    id: string;
-    reason: string;
-    comments?: string;
-    rejected_by?: string;
-    rejected_by_name?: string;
-}
-
-/**
- * @deprecated Use InternalApprovalPayload with action: 'request_changes' and SendBackToRequesterPayload instead
- */
-export interface ReturnDocumentPayload {
-    id: string;
-    comments?: string;
-    instructions?: string;
-    returned_by?: string;
-    returned_by_name?: string;
-}
-
 export interface AddCommentPayload {
     id: string;
     comment: string;
@@ -769,13 +624,11 @@ export interface DeleteCommentPayload {
 export interface LinkHelpdeskDocumentPayload {
     id: string;
     entity_type: HelpdeskEntityType;
-    entity_id: string;   // can be UUID or custom ID
+    entity_id: string;
     request_type?: RequestType;
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
-    
-    // ─── Aide Request Fields ──────────────────────────────────────────────
     officer_rank?: OfficerRank;
     officer_name?: string;
     employment_number?: string;
@@ -784,12 +637,8 @@ export interface LinkHelpdeskDocumentPayload {
     proposed_assignment?: string;
     reporting_date?: string;
     aide_status?: AideStatus;
-    
-    // ─── Sentry Request Fields ──────────────────────────────────────────────
     residence_location?: string;
     sentry_status?: SentryStatus;
-    
-    // ─── Conference Request Fields ──────────────────────────────────────────
     conference_type?: ConferenceType;
     start_date?: string;
     end_date?: string;
@@ -798,8 +647,6 @@ export interface LinkHelpdeskDocumentPayload {
     location?: string;
     budget_estimate?: number;
     conference_status?: ConferenceStatus;
-    
-    // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
 }
 
@@ -810,18 +657,14 @@ export interface UpdateEStampPayload {
     e_stamp_status?: EStampStatus;
 }
 
-// ─── Bulk Operations ──────────────────────────────────────────────────────
-
 export interface BulkLinkDocumentsPayload {
     document_ids: string[];
     entity_type: HelpdeskEntityType;
-    entity_id: string;   // can be UUID or custom ID
+    entity_id: string;
     request_type?: RequestType;
     judge_name?: string;
     remark_type?: RemarkType;
     category_type?: GeneralRequestCategory;
-    
-    // ─── Aide Request Fields ──────────────────────────────────────────────
     officer_rank?: OfficerRank;
     officer_name?: string;
     employment_number?: string;
@@ -830,12 +673,8 @@ export interface BulkLinkDocumentsPayload {
     proposed_assignment?: string;
     reporting_date?: string;
     aide_status?: AideStatus;
-    
-    // ─── Sentry Request Fields ──────────────────────────────────────────────
     residence_location?: string;
     sentry_status?: SentryStatus;
-    
-    // ─── Conference Request Fields ──────────────────────────────────────────
     conference_type?: ConferenceType;
     start_date?: string;
     end_date?: string;
@@ -844,8 +683,6 @@ export interface BulkLinkDocumentsPayload {
     location?: string;
     budget_estimate?: number;
     conference_status?: ConferenceStatus;
-    
-    // ─── Legacy fields ──────────────────────────────────────────────────────
     rank?: string;
 }
 
@@ -859,7 +696,7 @@ export interface BatchUploadPayload {
     documents: Omit<UploadHelpdeskDocumentPayload, 'blob' | 'filename'>[];
 }
 
-// ─── Helpdesk Document Response ──────────────────────────────────────────────
+// ─── Responses ────────────────────────────────────────────────────────────────
 
 export interface HelpdeskDocumentResponse {
     success: boolean;
@@ -884,7 +721,7 @@ export interface BulkOperationResult {
     failed: string[];
 }
 
-// ─── Helpdesk Document State ──────────────────────────────────────────────────
+// ─── State ─────────────────────────────────────────────────────────────────────
 
 export interface HelpdeskDocumentsState {
     items: HelpdeskDocument[];
@@ -903,7 +740,6 @@ export interface HelpdeskDocumentsState {
         bulkLink: boolean;
         bulkUpdate: boolean;
         stats: boolean;
-        // Two-step approval loading states
         internalPreview: boolean;
         internalApprove: boolean;
         internalReject: boolean;
@@ -936,7 +772,6 @@ export interface HelpdeskDocumentsState {
     };
     stats: DocumentStats | null;
     summary: DocumentSummary | null;
-    // Two-step approval specific state
     pendingInternalApprovals: {
         documents: HelpdeskDocument[];
         summary: PendingInternalApprovalsSummary | null;
@@ -946,12 +781,16 @@ export interface HelpdeskDocumentsState {
         summary: {
             total: number;
             by_status: Record<string, number>;
+            by_department: Record<DocumentDepartment, number>;
             can_resubmit: number;
+            stamped_count: number;
+            signed_count: number;
+            signed_and_stamped_count: number;
         } | null;
     };
 }
 
-// ─── Document Statistics ──────────────────────────────────────────────────
+// ─── Statistics ───────────────────────────────────────────────────────────────
 
 export interface DocumentStats {
     total: number;
@@ -975,20 +814,18 @@ export interface DocumentStats {
         user_name: string;
         created_at: string;
     }[];
-    // Two-step workflow stats
     pending_internal: number;
     ready_to_send_back: number;
-    // ─── Stamp stats ──────────────────────────────────────────────────────
     stamped_count: number;
     signed_count: number;
     signed_and_stamped_count: number;
-    // ─── Utility sync stats ──────────────────────────────────────────────
     utility_sync_stats: {
         total_utility_documents: number;
         synced: number;
         pending: number;
         failed: number;
     };
+    by_department: Record<DocumentDepartment, number>;
 }
 
 export interface DocumentSummary {
@@ -1002,7 +839,6 @@ export interface DocumentSummary {
     approved: number;
     rejected: number;
     returned: number;
-    // Two-step workflow summary
     internal_approval_summary: {
         pending: number;
         previewed: number;
@@ -1013,19 +849,60 @@ export interface DocumentSummary {
     };
     requester_status_summary: Record<RequesterVisibleStatus, number>;
     signed_count: number;
-    // ─── Stamp summary ────────────────────────────────────────────────────
     stamped_count: number;
     signed_and_stamped_count: number;
-    // ─── Utility sync summary ──────────────────────────────────────────────
     utility_sync_summary: {
         synced: number;
         pending: number;
         failed: number;
         not_applicable: number;
     };
+    by_department: Record<DocumentDepartment, number>;
 }
 
-// ─── Constants ──────────────────────────────────────────────────────────────
+// ─── Constants ─────────────────────────────────────────────────────────────────
+
+export const DEPARTMENT_LABELS: Record<DocumentDepartment, string> = {
+    helpdesk: 'Helpdesk',
+    principalregistry: 'Principal Registry',
+    procurement: 'Procurement',
+};
+
+export const DEPARTMENT_COLORS: Record<DocumentDepartment, string> = {
+    helpdesk: 'bg-blue-50 text-blue-700',
+    principalregistry: 'bg-indigo-50 text-indigo-700',
+    procurement: 'bg-amber-50 text-amber-700',
+};
+
+export const DEPARTMENT_ICONS: Record<DocumentDepartment, string> = {
+    helpdesk: 'LifeBuoy',
+    principalregistry: 'Building',
+    procurement: 'ShoppingCart',
+};
+
+export const ENTITY_TO_DEPARTMENT: Record<HelpdeskEntityType, DocumentDepartment> = {
+    circuit: 'helpdesk',
+    bench: 'helpdesk',
+    partHeard: 'helpdesk',
+    serviceWeek: 'helpdesk',
+    otherPayment: 'helpdesk',
+    ticket: 'helpdesk',
+    medicalClaim: 'helpdesk',
+    generalRequest: 'helpdesk',
+    securityRequest: 'helpdesk',
+    visa: 'helpdesk',
+    protocol: 'helpdesk',
+    club: 'helpdesk',
+    utility_memo: 'helpdesk',
+    consolidated_utility_memo: 'helpdesk',
+    consolidated_fuel_memo: 'helpdesk',
+    aide: 'helpdesk',
+    sentry: 'helpdesk',
+    conference: 'helpdesk',
+    principalregistry: 'principalregistry',
+    procurement: 'procurement',
+    sensitization: 'principalregistry', // ← ADDED: Sensitization belongs to Principal Registry
+};
 
 export const HELPEDSK_ENTITY_LABELS: Record<HelpdeskEntityType, string> = {
     circuit: 'Circuit',
@@ -1046,6 +923,9 @@ export const HELPEDSK_ENTITY_LABELS: Record<HelpdeskEntityType, string> = {
     aide: 'Aide Request',
     sentry: 'Sentry Request',
     conference: 'Conference Request',
+    principalregistry: 'Principal Registry',
+    procurement: 'Procurement',
+    sensitization: 'Sensitization', // ← ADDED
 };
 
 export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
@@ -1067,6 +947,9 @@ export const HELPEDSK_ENTITY_ICONS: Record<HelpdeskEntityType, string> = {
     aide: 'Shield',
     sentry: 'Home',
     conference: 'Calendar',
+    principalregistry: 'Building',
+    procurement: 'ShoppingCart',
+    sensitization: 'Users', // ← ADDED
 };
 
 export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
@@ -1088,9 +971,10 @@ export const HELPEDSK_ENTITY_COLORS: Record<HelpdeskEntityType, string> = {
     aide: 'text-blue-600 bg-blue-50',
     sentry: 'text-emerald-600 bg-emerald-50',
     conference: 'text-purple-600 bg-purple-50',
+    principalregistry: 'text-indigo-600 bg-indigo-50',
+    procurement: 'text-amber-600 bg-amber-50',
+    sensitization: 'text-emerald-600 bg-emerald-50', // ← ADDED
 };
-
-// ─── UPDATED: Document Status Constants with 'ready_to_send' ─────────────────
 
 export const DOCUMENT_STATUS_LABELS: Record<HelpdeskDocumentStatus, string> = {
     draft: 'Draft',
@@ -1130,8 +1014,6 @@ export const E_STAMP_STATUS_COLORS: Record<EStampStatus, string> = {
     stamped: 'text-emerald-600 bg-emerald-50',
     failed: 'text-red-600 bg-red-50',
 };
-
-// ─── Two-Step Approval Constants ────────────────────────────────────────────
 
 export const INTERNAL_APPROVAL_STATUS_LABELS: Record<InternalApprovalStatus, string> = {
     pending: 'Pending Review',
@@ -1184,8 +1066,6 @@ export const REQUESTER_VISIBLE_STATUS_ICONS: Record<RequesterVisibleStatus, stri
     in_revision: 'RefreshCw',
 };
 
-// ─── Stamp Constants ──────────────────────────────────────────────────────────
-
 export const STAMP_TYPE_LABELS: Record<StampType, string> = {
     approved: 'Approved',
     received: 'Received',
@@ -1197,8 +1077,6 @@ export const STAMP_TYPE_COLORS: Record<StampType, string> = {
     received: 'bg-blue-50 text-blue-700 border-blue-200',
     official: 'bg-purple-50 text-purple-700 border-purple-200',
 };
-
-// ─── Aide Status Constants ──────────────────────────────────────────────────
 
 export const AIDE_STATUS_LABELS: Record<AideStatus, string> = {
     pending: 'Pending',
@@ -1214,8 +1092,6 @@ export const AIDE_STATUS_COLORS: Record<AideStatus, string> = {
     attached: 'text-emerald-600 bg-emerald-50',
 };
 
-// ─── Sentry Status Constants ──────────────────────────────────────────────
-
 export const SENTRY_STATUS_LABELS: Record<SentryStatus, string> = {
     pending: 'Pending',
     active: 'Active',
@@ -1229,8 +1105,6 @@ export const SENTRY_STATUS_COLORS: Record<SentryStatus, string> = {
     resolved: 'text-blue-600 bg-blue-50',
     rejected: 'text-red-600 bg-red-50',
 };
-
-// ─── Conference Status Constants ─────────────────────────────────────────────
 
 export const CONFERENCE_STATUS_LABELS: Record<ConferenceStatus, string> = {
     draft: 'Draft',
@@ -1268,8 +1142,6 @@ export const CONFERENCE_TYPE_COLORS: Record<ConferenceType, string> = {
     other: 'text-stone-600 bg-stone-50',
 };
 
-// ─── Officer Rank Constants ──────────────────────────────────────────────────
-
 export const OFFICER_RANK_LABELS: Record<OfficerRank, string> = {
     'Police Constable (PC)': 'Police Constable (PC)',
     'Corporal (CPL)': 'Corporal (CPL)',
@@ -1283,8 +1155,6 @@ export const OFFICER_RANK_LABELS: Record<OfficerRank, string> = {
     'Senior Assistant Commissioner (SACP)': 'Senior Assistant Commissioner (SACP)',
     'Commissioner (CP)': 'Commissioner (CP)',
 };
-
-// ─── Request Type Helpers ────────────────────────────────────────────────────
 
 export const REQUEST_TYPE_LABELS: Record<RequestType, string> = {
     Driver: 'Driver Request',
@@ -1317,7 +1187,7 @@ export const CATEGORY_TYPE_LABELS: Record<GeneralRequestCategory, string> = {
     Administrative: 'Administrative',
 };
 
-// ─── Utility Sync Helper Functions ───────────────────────────────────────────
+// ─── Helper Functions ─────────────────────────────────────────────────────────
 
 export function getUtilitySyncStatusLabel(status: UtilitySyncStatus): string {
     const labels: Record<UtilitySyncStatus, string> = {
@@ -1337,7 +1207,40 @@ export function isConsolidatedUtilityDocument(entityType: HelpdeskEntityType): b
     return ['consolidated_utility_memo', 'consolidated_fuel_memo'].includes(entityType);
 }
 
-// ─── Helper Functions ──────────────────────────────────────────────────────
+export function getEntityDepartment(entityType: HelpdeskEntityType): DocumentDepartment {
+    return ENTITY_TO_DEPARTMENT[entityType] || 'helpdesk';
+}
+
+export function isEntityInDepartment(
+    entityType: HelpdeskEntityType, 
+    department: DocumentDepartment
+): boolean {
+    return getEntityDepartment(entityType) === department;
+}
+
+export function isHelpdeskEntity(entityType: HelpdeskEntityType): boolean {
+    return getEntityDepartment(entityType) === 'helpdesk';
+}
+
+export function isPrincipalRegistryEntity(entityType: HelpdeskEntityType): boolean {
+    return getEntityDepartment(entityType) === 'principalregistry';
+}
+
+export function isProcurementEntity(entityType: HelpdeskEntityType): boolean {
+    return getEntityDepartment(entityType) === 'procurement';
+}
+
+export function getDepartmentLabel(department: DocumentDepartment): string {
+    return DEPARTMENT_LABELS[department] || department;
+}
+
+export function getDepartmentColor(department: DocumentDepartment): string {
+    return DEPARTMENT_COLORS[department] || '';
+}
+
+export function getDepartmentIcon(department: DocumentDepartment): string {
+    return DEPARTMENT_ICONS[department] || 'File';
+}
 
 export function getEntityDisplayName(entityType: HelpdeskEntityType): string {
     return HELPEDSK_ENTITY_LABELS[entityType] || entityType;
@@ -1349,6 +1252,11 @@ export function getEntityIcon(entityType: HelpdeskEntityType): string {
 
 export function getEntityColor(entityType: HelpdeskEntityType): string {
     return HELPEDSK_ENTITY_COLORS[entityType] || 'text-gray-600 bg-gray-50';
+}
+
+export function getEntityDepartmentLabel(entityType: HelpdeskEntityType): string {
+    const department = getEntityDepartment(entityType);
+    return getDepartmentLabel(department);
 }
 
 export function getStatusDisplayName(status: HelpdeskDocumentStatus): string {
@@ -1370,8 +1278,6 @@ export function getEStampStatusLabel(status: EStampStatus): string {
 export function getEStampStatusColor(status: EStampStatus): string {
     return E_STAMP_STATUS_COLORS[status] || '';
 }
-
-// ─── Two-Step Approval Helper Functions ────────────────────────────────────
 
 export function getInternalApprovalStatusDisplayName(status: InternalApprovalStatus): string {
     return INTERNAL_APPROVAL_STATUS_LABELS[status] || status;
@@ -1397,8 +1303,6 @@ export function getRequesterVisibleStatusIcon(status: RequesterVisibleStatus): s
     return REQUESTER_VISIBLE_STATUS_ICONS[status] || 'File';
 }
 
-// ─── Conference Helper Functions ─────────────────────────────────────────────
-
 export function getConferenceStatusLabel(status: ConferenceStatus): string {
     return CONFERENCE_STATUS_LABELS[status] || status;
 }
@@ -1415,14 +1319,48 @@ export function getConferenceTypeColor(type: ConferenceType): string {
     return CONFERENCE_TYPE_COLORS[type] || '';
 }
 
-// ─── Stamp Helper Functions ──────────────────────────────────────────────────
-
 export function getStampTypeLabel(stampType: StampType): string {
     return STAMP_TYPE_LABELS[stampType] || stampType;
 }
 
 export function getStampTypeColor(stampType: StampType): string {
     return STAMP_TYPE_COLORS[stampType] || '';
+}
+
+export function getRequestTypeLabel(requestType: RequestType): string {
+    return REQUEST_TYPE_LABELS[requestType] || requestType;
+}
+
+export function getRequestTypeColor(requestType: RequestType): string {
+    return REQUEST_TYPE_COLORS[requestType] || 'text-gray-600 bg-gray-50';
+}
+
+export function getRemarkTypeLabel(remarkType: RemarkType): string {
+    return REMARK_TYPE_LABELS[remarkType] || remarkType;
+}
+
+export function getCategoryTypeLabel(category: GeneralRequestCategory): string {
+    return CATEGORY_TYPE_LABELS[category] || category;
+}
+
+export function getOfficerRankLabel(rank: OfficerRank): string {
+    return OFFICER_RANK_LABELS[rank] || rank;
+}
+
+export function getAideStatusLabel(status: AideStatus): string {
+    return AIDE_STATUS_LABELS[status] || status;
+}
+
+export function getAideStatusColor(status: AideStatus): string {
+    return AIDE_STATUS_COLORS[status] || '';
+}
+
+export function getSentryStatusLabel(status: SentryStatus): string {
+    return SENTRY_STATUS_LABELS[status] || status;
+}
+
+export function getSentryStatusColor(status: SentryStatus): string {
+    return SENTRY_STATUS_COLORS[status] || '';
 }
 
 // ─── State Check Helpers ──────────────────────────────────────────────────────
@@ -1451,39 +1389,23 @@ export function isPreviewRequired(internalStatus: InternalApprovalStatus): boole
     return ['pending', 'changes_ready'].includes(internalStatus);
 }
 
-/**
- * Check if a document is in the "pending review" state (needs super admin action)
- * These documents appear as "PENDING" in the super admin list
- */
 export function isPendingReview(doc: HelpdeskDocument): boolean {
     return doc.internal_approval_status === 'pending' 
         || doc.internal_approval_status === 'previewed'
         || doc.internal_approval_status === 'changes_ready';
 }
 
-/**
- * Check if a document is in the "ready to send back" state
- * These documents appear as "READY" in the super admin list
- */
 export function isReadyToSendBack(doc: HelpdeskDocument): boolean {
     return doc.is_internal_approval_complete 
         && !doc.is_sent_back_to_requester
         && doc.status === 'pending_approval';
 }
 
-/**
- * Check if a document is in the super admin's active queue
- * Documents in the queue are NOT sent back to requester yet
- */
 export function isInSuperAdminQueue(doc: HelpdeskDocument): boolean {
     return doc.status === 'pending_approval' 
         && !doc.is_sent_back_to_requester;
 }
 
-/**
- * Get the display status for a document in the super admin list
- * Returns "PENDING" if needs review, "READY" if approved and ready to send back
- */
 export function getSuperAdminDisplayStatus(doc: HelpdeskDocument): 'PENDING' | 'READY' {
     if (isReadyToSendBack(doc)) {
         return 'READY';
@@ -1491,9 +1413,6 @@ export function getSuperAdminDisplayStatus(doc: HelpdeskDocument): 'PENDING' | '
     return 'PENDING';
 }
 
-/**
- * Check if the super admin can approve this document
- */
 export function canSuperAdminApprove(doc: HelpdeskDocument): boolean {
     return doc.status === 'pending_approval' 
         && !doc.is_sent_back_to_requester
@@ -1503,9 +1422,6 @@ export function canSuperAdminApprove(doc: HelpdeskDocument): boolean {
             || doc.internal_approval_status === 'changes_ready');
 }
 
-/**
- * Check if the super admin can send this document back to requester
- */
 export function canSuperAdminSendBack(doc: HelpdeskDocument): boolean {
     return doc.is_internal_approval_complete 
         && !doc.is_sent_back_to_requester
@@ -1514,9 +1430,6 @@ export function canSuperAdminSendBack(doc: HelpdeskDocument): boolean {
 
 // ─── Status Transition Functions ────────────────────────────────────────────
 
-/**
- * Gets the next internal approval status based on super admin action
- */
 export function getNextInternalStatus(
     currentStatus: InternalApprovalStatus,
     action: 'preview' | 'approve' | 'reject' | 'request_changes' | 'resubmit_changes' | 'cancel'
@@ -1575,9 +1488,6 @@ export function getNextInternalStatus(
     return transitions[currentStatus]?.[action] || currentStatus;
 }
 
-/**
- * Gets the requester visible status based on internal approval status and send-back action
- */
 export function getRequesterVisibleStatus(
     internalStatus: InternalApprovalStatus,
     sendBackAction: 'approved' | 'rejected' | 'changes_requested'
@@ -1618,9 +1528,6 @@ export function getRequesterVisibleStatus(
     return mapping[internalStatus]?.[sendBackAction] || 'pending_approval';
 }
 
-/**
- * Validates document status transition with two-step workflow
- */
 export function validateDocumentStatusWithTwoStepWorkflow(
     currentStatus: HelpdeskDocumentStatus,
     currentInternalStatus: InternalApprovalStatus,
@@ -1629,7 +1536,6 @@ export function validateDocumentStatusWithTwoStepWorkflow(
     newInternalStatus?: InternalApprovalStatus,
     newRequesterStatus?: RequesterVisibleStatus
 ): boolean {
-    // Basic document status transition validation
     const validTransitions: Record<HelpdeskDocumentStatus, HelpdeskDocumentStatus[]> = {
         draft: ['pending_approval', 'returned', 'approved'],
         pending_approval: ['ready_to_send', 'approved', 'rejected', 'returned', 'draft'],
@@ -1643,12 +1549,10 @@ export function validateDocumentStatusWithTwoStepWorkflow(
         return false;
     }
 
-    // If no internal status change, it's valid
     if (!newInternalStatus) {
         return true;
     }
 
-    // Validate internal status transitions
     const validInternalTransitions: Record<InternalApprovalStatus, InternalApprovalStatus[]> = {
         pending: ['previewed', 'approved_internal', 'rejected_internal', 'changes_requested_internal'],
         previewed: ['previewed', 'approved_internal', 'rejected_internal', 'changes_requested_internal'],
@@ -1662,7 +1566,6 @@ export function validateDocumentStatusWithTwoStepWorkflow(
         return false;
     }
 
-    // Validate requester status transitions
     if (newRequesterStatus) {
         const validRequesterTransitions: Record<RequesterVisibleStatus, RequesterVisibleStatus[]> = {
             pending_approval: ['approved', 'rejected', 'changes_requested'],
@@ -1680,11 +1583,6 @@ export function validateDocumentStatusWithTwoStepWorkflow(
     return true;
 }
 
-// ─── Document Validation ────────────────────────────────────────────────────
-
-/**
- * Validates document status transition (simple version without two-step workflow)
- */
 export function validateDocumentStatusTransition(
     currentStatus: HelpdeskDocumentStatus,
     newStatus: HelpdeskDocumentStatus
@@ -1701,9 +1599,6 @@ export function validateDocumentStatusTransition(
     return validTransitions[currentStatus]?.includes(newStatus) || false;
 }
 
-/**
- * Gets available status transitions for a document
- */
 export function getAvailableStatusTransitions(currentStatus: HelpdeskDocumentStatus): HelpdeskDocumentStatus[] {
     const transitions: Record<HelpdeskDocumentStatus, HelpdeskDocumentStatus[]> = {
         draft: ['pending_approval'],
@@ -1717,67 +1612,21 @@ export function getAvailableStatusTransitions(currentStatus: HelpdeskDocumentSta
     return transitions[currentStatus] || [];
 }
 
-// ─── Request Type Helpers ────────────────────────────────────────────────────
-
-export function getRequestTypeLabel(requestType: RequestType): string {
-    return REQUEST_TYPE_LABELS[requestType] || requestType;
-}
-
-export function getRequestTypeColor(requestType: RequestType): string {
-    return REQUEST_TYPE_COLORS[requestType] || 'text-gray-600 bg-gray-50';
-}
-
-export function getRemarkTypeLabel(remarkType: RemarkType): string {
-    return REMARK_TYPE_LABELS[remarkType] || remarkType;
-}
-
-export function getCategoryTypeLabel(category: GeneralRequestCategory): string {
-    return CATEGORY_TYPE_LABELS[category] || category;
-}
-
-export function getOfficerRankLabel(rank: OfficerRank): string {
-    return OFFICER_RANK_LABELS[rank] || rank;
-}
-
-export function getAideStatusLabel(status: AideStatus): string {
-    return AIDE_STATUS_LABELS[status] || status;
-}
-
-export function getAideStatusColor(status: AideStatus): string {
-    return AIDE_STATUS_COLORS[status] || '';
-}
-
-export function getSentryStatusLabel(status: SentryStatus): string {
-    return SENTRY_STATUS_LABELS[status] || status;
-}
-
-export function getSentryStatusColor(status: SentryStatus): string {
-    return SENTRY_STATUS_COLORS[status] || '';
-}
-
 // ─── Type Guards ─────────────────────────────────────────────────────────────
 
 export function isHelpdeskEntityType(value: string): value is HelpdeskEntityType {
     return [
-        'circuit',
-        'bench',
-        'partHeard',
-        'serviceWeek',
-        'otherPayment',
-        'ticket',
-        'medicalClaim',
-        'generalRequest',
-        'securityRequest',
-        'visa',
-        'protocol',
-        'club',
-        'utility_memo',
-        'consolidated_utility_memo',
-        'consolidated_fuel_memo',
-        'aide',
-        'sentry',
-        'conference'
+        'circuit', 'bench', 'partHeard', 'serviceWeek', 'otherPayment',
+        'ticket', 'medicalClaim', 'generalRequest', 'securityRequest',
+        'visa', 'protocol', 'club', 'utility_memo',
+        'consolidated_utility_memo', 'consolidated_fuel_memo',
+        'aide', 'sentry', 'conference',
+        'principalregistry', 'procurement', 'sensitization' // ← ADDED
     ].includes(value);
+}
+
+export function isDocumentDepartment(value: string): value is DocumentDepartment {
+    return ['helpdesk', 'principalregistry', 'procurement'].includes(value);
 }
 
 export function isHelpdeskDocumentStatus(value: string): value is HelpdeskDocumentStatus {
@@ -1790,22 +1639,15 @@ export function isEStampStatus(value: string): value is EStampStatus {
 
 export function isInternalApprovalStatus(value: string): value is InternalApprovalStatus {
     return [
-        'pending',
-        'previewed',
-        'approved_internal',
-        'rejected_internal',
-        'changes_requested_internal',
-        'changes_ready'
+        'pending', 'previewed', 'approved_internal',
+        'rejected_internal', 'changes_requested_internal', 'changes_ready'
     ].includes(value);
 }
 
 export function isRequesterVisibleStatus(value: string): value is RequesterVisibleStatus {
     return [
-        'pending_approval',
-        'approved',
-        'rejected',
-        'changes_requested',
-        'in_revision'
+        'pending_approval', 'approved', 'rejected',
+        'changes_requested', 'in_revision'
     ].includes(value);
 }
 
@@ -1819,13 +1661,8 @@ export function isUtilitySyncStatus(value: string): value is UtilitySyncStatus {
 
 export function isRequestType(value: string): value is RequestType {
     return [
-        'Driver',
-        'Bodyguard',
-        'Firearm',
-        'Current Station',
-        'Force Number',
-        'Residence Security',
-        'Sentry'
+        'Driver', 'Bodyguard', 'Firearm', 'Current Station',
+        'Force Number', 'Residence Security', 'Sentry'
     ].includes(value);
 }
 
@@ -1839,17 +1676,11 @@ export function isGeneralRequestCategory(value: string): value is GeneralRequest
 
 export function isOfficerRank(value: string): value is OfficerRank {
     return [
-        'Police Constable (PC)',
-        'Corporal (CPL)',
-        'Sergeant (SGT)',
-        'Inspector (IP)',
-        'Chief Inspector (CIP)',
-        'Assistant Superintendent (ASP)',
-        'Superintendent (SP)',
-        'Senior Superintendent (SSP)',
-        'Assistant Commissioner (ACP)',
-        'Senior Assistant Commissioner (SACP)',
-        'Commissioner (CP)'
+        'Police Constable (PC)', 'Corporal (CPL)', 'Sergeant (SGT)',
+        'Inspector (IP)', 'Chief Inspector (CIP)',
+        'Assistant Superintendent (ASP)', 'Superintendent (SP)',
+        'Senior Superintendent (SSP)', 'Assistant Commissioner (ACP)',
+        'Senior Assistant Commissioner (SACP)', 'Commissioner (CP)'
     ].includes(value);
 }
 

@@ -1,4 +1,4 @@
-// src/features/conference/components/ConferenceModal.tsx
+// src/features/conference/components/Ticket.tsx
 
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';

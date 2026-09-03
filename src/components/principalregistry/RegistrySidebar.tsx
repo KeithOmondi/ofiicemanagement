@@ -16,6 +16,7 @@ import {
   BoxIcon,
   Calendar1,
   Book,
+  LetterText,
 } from 'lucide-react';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
 import { logoutUser } from '../../store/slices/authSlice';
@@ -61,6 +62,7 @@ const navigationConfig: NavSection[] = [
       { to: 'dashboard', label: 'Dashboard', icon: <BarChart3 className="h-4 w-4" /> },
       { to: 'documents', label: 'Documents', icon: <BoxIcon className="h-4 w-4" /> },
       { to: 'memoandletters', label: 'Memo and letters', icon: <BoxIcon className="h-4 w-4" /> },
+      { to: 'memos', label: 'Memos', icon: <LetterText className="h-4 w-4" /> },
     ],
   },
   {
@@ -86,9 +88,9 @@ const navigationConfig: NavSection[] = [
   },
 
   {
-    title: 'Insights',
+    title: 'Signatures Management',
     items: [
-      { to: 'stats', label: 'Statistics', icon: <TrendingUp className="h-4 w-4" /> },
+      { to: 'signatures', label: 'Signatures', icon: <TrendingUp className="h-4 w-4" /> },
     ],
   },
 ];

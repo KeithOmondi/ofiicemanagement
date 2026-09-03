@@ -21,12 +21,15 @@ import {
   updateBringUp,
   completeBringUp,
   fetchDocumentById,
+  updateDocumentFile,
 } from "../../store/slices/documentSlice";
 import { hasRole } from "../../store/slices/authSlice";
 import {
   fetchUsers,
   selectAllUsers,
   selectUsersListLoading,
+  fetchCurrentUser,
+  selectCurrentUser,
 } from "../../store/slices/userSlice";
 import {
   fetchDepartments,
@@ -47,6 +50,7 @@ import type { DepartmentWithUserCount } from "../../store/slices/departmentsSlic
 import { format } from "date-fns";
 import toast from "react-hot-toast";
 import TemplateComposerModal from "../../components/templates/TemplateComposerModal";
+import { stampPdfFromUrl } from "../../utils/pdfStamp";
 
 // ─── TipTap Imports ──────────────────────────────────────────────────────────
 import { useEditor, EditorContent } from '@tiptap/react';
@@ -1062,18 +1066,11 @@ const TipTapEditor: React.FC<TipTapEditorProps> = ({
     },
   });
 
-  // Update content when props change
   useEffect(() => {
     if (editor && !editor.isDestroyed && content !== undefined && editor.getHTML() !== content) {
       editor.commands.setContent(content);
     }
   }, [editor, content]);
-
-  // No manual destroy effect — useEditor() in Tiptap v3 owns the editor's
-  // lifecycle internally (EditorInstanceManager schedules its own destroy
-  // on unmount). Calling editor?.destroy() here raced against that internal
-  // cleanup and left dangling references calling getHTML() on a destroyed
-  // editor (null schema).
 
   if (!editor) return null;
 
@@ -1885,8 +1882,6 @@ const BringUpModal: React.FC<BringUpModalProps> = ({
 
 type SaveState = "idle" | "saving" | "saved" | "unsaved" | "error";
 
-
-
 interface DocumentEditorProps {
   document: Document;
   currentUserName: string;
@@ -1916,7 +1911,12 @@ interface DocumentEditorProps {
   isUpdatingBringUp?: boolean;
   isCompletingBringUp?: boolean;
   onRefreshDocument?: () => Promise<void>;
+  // ── Stamp ──────────────────────────────────────────────────────────────
+  onStamp?: () => void;
+  isStamping?: boolean;
 }
+
+
 
 const DocumentEditor: React.FC<DocumentEditorProps> = ({
   document,
@@ -1947,6 +1947,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   isUpdatingBringUp = false,
   isCompletingBringUp = false,
   onRefreshDocument,
+  onStamp,
+  isStamping = false,
 }) => {
   const isComposed = document.type === "memo" || document.type === "letter" || document.type === "certificate";
   const isEditable = !!onSave && isComposed;
@@ -2142,6 +2144,8 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
   const isBringUpOverdue = hasBringUp && !isBringUpCompleted && new Date(document.bring_up_date!) < new Date();
   const hasAttachments = document.attachments && document.attachments.length > 0;
 
+const canStamp = isSuperAdmin && document.file_url && onStamp;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Title bar */}
@@ -2222,6 +2226,42 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             </button>
           )}
 
+          {/* ─── Stamp Button ──────────────────────────────────────────── */}
+          {canStamp && (
+            <button
+              onClick={onStamp}
+              disabled={isStamping}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                document.is_signed
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {isStamping ? (
+                <Spinner className="h-3 w-3" />
+              ) : (
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                </svg>
+              )}
+              {document.is_signed ? 'Stamped ✓' : 'Stamp & Approve'}
+            </button>
+          )}
+
+          {/* ─── Download Button ─────────────────────────────────────────── */}
+          {(document.file_url || onDownload) && (
+            <button
+              onClick={handleDownload}
+              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors whitespace-nowrap"
+              title="Download document"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download
+            </button>
+          )}
+
           {!isReleased && showEditControls && (
             <button
               onClick={toggleEditMode}
@@ -2255,19 +2295,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
             >
               {saveState === "saving" ? <Spinner className="h-3 w-3" /> : null}
               {saveState === "saving" ? "Saving…" : "Save"}
-            </button>
-          )}
-
-          {(document.file_url || onDownload) && (
-            <button
-              onClick={handleDownload}
-              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 transition-colors whitespace-nowrap"
-              title="Download document"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Download
             </button>
           )}
 
@@ -2413,7 +2440,6 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
       {/* Canvas */}
       <div
         ref={containerRef}
-        
         className={`flex-1 overflow-y-auto bg-stone-100 py-3 px-2 sm:py-6 sm:px-6 relative document-preview-container ${
           isOtpModalOpen ? 'pointer-events-none' : ''
         }`}
@@ -2737,6 +2763,21 @@ const DocumentEditor: React.FC<DocumentEditorProps> = ({
               className="rounded bg-[#1E4620] px-2.5 py-1 text-[10px] font-semibold text-white hover:bg-[#163a18] transition-colors whitespace-nowrap"
             >
               Convert to PDF & Send
+            </button>
+          )}
+          {/* ─── Stamp button in footer ──────────────────────────────────── */}
+          {canStamp && (
+            <button
+              onClick={onStamp}
+              disabled={isStamping}
+              className={`inline-flex items-center gap-1 rounded px-2.5 py-1 text-[10px] font-semibold text-white transition-colors whitespace-nowrap ${
+                document.is_signed
+                  ? 'bg-emerald-600 hover:bg-emerald-700'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              {isStamping ? <Spinner className="h-2.5 w-2.5" /> : null}
+              {isStamping ? 'Stamping…' : document.is_signed ? 'Stamped ✓' : 'Stamp & Approve'}
             </button>
           )}
         </div>
@@ -3246,6 +3287,7 @@ const MemoandLetters: React.FC = () => {
   const { user } = useAppSelector((state) => state.auth);
   const { documents, loading, error, pagination, actionInProgress } =
     useAppSelector((state) => state.documents);
+  const fullUser = useAppSelector(selectCurrentUser);
 
   const users = useAppSelector(selectAllUsers);
   const departments = useAppSelector(selectAllDepartments);
@@ -3278,6 +3320,9 @@ const MemoandLetters: React.FC = () => {
 
   const [showBringUpModal, setShowBringUpModal] = useState(false);
 
+  // ─── Stamp state ─────────────────────────────────────────────────────────────
+  const [isStamping, setIsStamping] = useState(false);
+
   const canUpload = hasRole(user, "staff") || hasRole(user, "super_admin");
   const canAdmin = hasRole(user, "dept_head") || hasRole(user, "super_admin");
   const isSuperAdmin = hasRole(user, "super_admin");
@@ -3308,6 +3353,101 @@ const MemoandLetters: React.FC = () => {
       dispatch(fetchDepartments({ is_active: true }));
     }
   }, [dispatch, isSuperAdmin]);
+
+  // ─── Stamp Handler ──────────────────────────────────────────────────────────
+
+  const handleStamp = async () => {
+    if (!selectedDocument) return;
+    if (!selectedDocument.file_url) {
+      toast.error('No file attached to stamp.');
+      return;
+    }
+
+    // Try to get signature URL from fullUser first
+    let signatureUrl: string | null = null;
+    let approverName = 'Registrar';
+    let userId = '';
+
+    if (fullUser?.signature_url) {
+      signatureUrl = fullUser.signature_url;
+      approverName = fullUser.full_name || 'Registrar';
+      userId = fullUser.id;
+    } else if (user) {
+      // If fullUser is not available but user is, fetch the current user
+      try {
+        const result = await dispatch(fetchCurrentUser()).unwrap();
+        signatureUrl = result.signature_url;
+        approverName = result.full_name || 'Registrar';
+        userId = result.id;
+      } catch {
+        toast.error('Failed to fetch user profile. Please try again.');
+        return;
+      }
+    }
+
+    if (!signatureUrl) {
+      toast.error('Please upload your signature first before stamping documents.');
+      return;
+    }
+
+    if (!userId) {
+      toast.error('User ID not found.');
+      return;
+    }
+
+    setIsStamping(true);
+    try {
+      // 1. Fetch signature
+      const sigRes = await fetch(signatureUrl);
+      if (!sigRes.ok) {
+        toast.error('Failed to fetch signature image. Please check your signature upload.');
+        return;
+      }
+      const signatureImageBytes = await sigRes.arrayBuffer();
+
+      if (!signatureImageBytes || signatureImageBytes.byteLength === 0) {
+        toast.error('Signature image is empty. Please re-upload your signature.');
+        return;
+      }
+
+      // 2. Stamp the PDF
+      const stampedBlob = await stampPdfFromUrl(selectedDocument.file_url, {
+        issuer: 'REGISTRAR HIGH COURT',
+        approverName: approverName,
+        signatureImageBytes,
+        label: 'APPROVED',
+      });
+
+      // 3. Generate filename
+      const safeRef = selectedDocument.reference_no 
+        ? selectedDocument.reference_no.replace(/[\\/:*?"<>|]/g, '-')
+        : selectedDocument.id;
+      const filename = `stamped-${safeRef}.pdf`;
+
+      // 4. Update the document with the stamped file
+      await dispatch(
+        updateDocumentFile({
+          id: selectedDocument.id,
+          blob: stampedBlob,
+          filename: filename,
+          status: 'released' as DocumentStatus,
+          comments: 'Document stamped and approved by Registrar.',
+        })
+      ).unwrap();
+
+      // 5. Refresh the document
+      const refreshed = await dispatch(fetchDocumentById(selectedDocument.id)).unwrap();
+      setSelectedDocument(refreshed);
+      refreshDocuments();
+
+      toast.success('Document stamped and approved successfully.');
+    } catch (err) {
+      console.error('Stamp failed:', err);
+      toast.error(typeof err === 'string' ? err : 'Failed to stamp document.');
+    } finally {
+      setIsStamping(false);
+    }
+  };
 
   // ─── Handlers ──────────────────────────────────────────────────────────────
 
@@ -3858,6 +3998,8 @@ const MemoandLetters: React.FC = () => {
                 isSettingBringUp={isSettingBringUp}
                 isUpdatingBringUp={isUpdatingBringUp}
                 isCompletingBringUp={isCompletingBringUp}
+                onStamp={isSuperAdmin && selectedDocument ? handleStamp : undefined}
+                isStamping={isStamping}
               />
             ) : (
               <div className="flex flex-1 items-center justify-center px-4">

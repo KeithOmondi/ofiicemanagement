@@ -99,6 +99,8 @@ import JOMemosandLetters from "../pages/JO/JOMemosandLetters";
 import OtherDocuments from "../pages/admdesk/OtherDocuments";
 import JOTaskM from "../pages/JO/JOTaskM";
 import JOSurveyPage from "../pages/JO/JOSurveyPage";
+import DRSignatureManagement from "../pages/principalregistry/DRSignatureManagement";
+import DRSensitization from "../pages/principalregistry/DRSensitization";
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
 
@@ -399,6 +401,8 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="messages" element={<DHMessages />} />
           <Route path="notices" element={<DHNotices />} />
           <Route path="reports/month" element={<DHRegistryReports />} />
+          <Route path="signatures" element={<DRSignatureManagement />} />
+          <Route path="memos" element={<DRSensitization />} />
         </Route>
         <Route
           path="*"

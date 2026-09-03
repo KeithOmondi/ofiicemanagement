@@ -18,11 +18,18 @@ import type {
   CreateFolderInput,
   UpdateFolderInput,
   MoveFolderInput,
-  //AddDocumentToFolderInput,
   BulkAddDocumentsInput,
   FolderFilters,
   FolderRegistryEntry,
   FolderRegistryPaginationResponse,
+  DirectDocumentUploadInput,
+  BulkDirectDocumentUploadInput,
+  UploadDocumentToFolderInput,
+  UpdateDocumentMetadataInput,
+  DeleteDocumentInput,
+  DirectDocumentUploadResponse,
+  DocumentDetailsResponse,
+  DocumentSource,
 } from '../../types/registry.types';
 
 /* ============================================================
@@ -62,6 +69,12 @@ interface RegistryState {
   filters: RegistryFilters;
   folderFilters: FolderFilters;
   
+  // Direct upload state
+  uploadProgress: Record<string, number>;
+  uploadStatus: Record<string, 'idle' | 'uploading' | 'success' | 'error'>;
+  uploadErrors: Record<string, string>;
+  uploadResults: Record<string, DirectDocumentUploadResponse>;
+  
   loading: {
     list:     boolean;
     detail:   boolean;
@@ -76,6 +89,8 @@ interface RegistryState {
     folderStatistics: boolean;
     folderMutating: boolean;
     stationFolderDocuments: boolean;
+    uploading: boolean;
+    documentDetail: boolean;
   };
   error:   string | null;
   success: boolean;
@@ -123,6 +138,11 @@ const initialState: RegistryState = {
     include_sub_folders: true,
   },
   
+  uploadProgress: {},
+  uploadStatus: {},
+  uploadErrors: {},
+  uploadResults: {},
+  
   loading: {
     list:     false,
     detail:   false,
@@ -137,6 +157,8 @@ const initialState: RegistryState = {
     folderStatistics: false,
     folderMutating: false,
     stationFolderDocuments: false,
+    uploading: false,
+    documentDetail: false,
   },
   error:   null,
   success: false,
@@ -214,6 +236,18 @@ export const fetchRegistryHistory = createAsyncThunk(
   }
 );
 
+export const fetchDocumentDetails = createAsyncThunk(
+  'registry/fetchDocumentDetails',
+  async (documentId: string, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.get(`/registry/document/${documentId}/details`);
+      return response.data.data as DocumentDetailsResponse;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
 export const fetchStationCounts = createAsyncThunk(
   'registry/fetchStationCounts',
   async (_, { rejectWithValue }) => {
@@ -238,9 +272,6 @@ export const receiveFile = createAsyncThunk(
   }
 );
 
-// ── REMOVED: markFiled ──────────────────────────────────────────────────────
-// No longer needed since we only have 'active' and 'returned' statuses
-
 export const returnFile = createAsyncThunk(
   'registry/returnFile',
   async ({ id, input }: { id: string; input: ReturnFileInput }, { rejectWithValue }) => {
@@ -253,11 +284,182 @@ export const returnFile = createAsyncThunk(
   }
 );
 
+// ── Direct Upload Thunks ─────────────────────────────────────────────────────
+
+// Single direct upload with file
+export const directUpload = createAsyncThunk(
+  'registry/directUpload',
+  async (
+    { input, file }: { input: DirectDocumentUploadInput; file: File },
+    { rejectWithValue, dispatch }
+  ) => {
+    try {
+      const formData = new FormData();
+      
+      Object.entries(input).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          formData.append(key, String(value));
+        }
+      });
+      
+      formData.append('document', file);
+
+      const response = await axiosClient.post('/registry/upload/station', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            dispatch(setUploadProgress({ fileName: file.name, progress }));
+          }
+        },
+      });
+      
+      return response.data.data as DirectDocumentUploadResponse;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+// Bulk direct upload
+export const bulkDirectUpload = createAsyncThunk(
+  'registry/bulkDirectUpload',
+  async (
+    { input, files }: { input: BulkDirectDocumentUploadInput; files: File[] },
+    { rejectWithValue, dispatch }
+  ) => {
+    try {
+      const formData = new FormData();
+      
+      Object.entries(input).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          formData.append(key, String(value));
+        }
+      });
+      
+      files.forEach((file) => {
+        formData.append('documents', file);
+      });
+
+      let overallProgress = 0;
+      const response = await axiosClient.post('/registry/upload/station/bulk', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            overallProgress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            // Dispatch overall progress for the first file as a proxy
+            if (files.length > 0) {
+              dispatch(setUploadProgress({ fileName: files[0].name, progress: overallProgress }));
+            }
+          }
+        },
+      });
+      
+      return response.data.data as DirectDocumentUploadResponse[];
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+// Upload document to folder
+export const uploadDocumentToFolder = createAsyncThunk(
+  'registry/uploadDocumentToFolder',
+  async (
+    { folderId, input, file }: { folderId: string; input: UploadDocumentToFolderInput; file: File },
+    { rejectWithValue, dispatch }
+  ) => {
+    try {
+      const formData = new FormData();
+      
+      Object.entries(input).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          formData.append(key, String(value));
+        }
+      });
+      
+      formData.append('document', file);
+
+      const response = await axiosClient.post(`/registry/upload/folder/${folderId}`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+            dispatch(setUploadProgress({ fileName: file.name, progress }));
+          }
+        },
+      });
+      
+      return response.data.data as DirectDocumentUploadResponse;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+// ── Document Management Thunks ──────────────────────────────────────────────
+
+export const updateDocumentMetadata = createAsyncThunk(
+  'registry/updateDocumentMetadata',
+  async (
+    { documentId, input }: { documentId: string; input: UpdateDocumentMetadataInput },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.put(`/registry/documents/${documentId}`, input);
+      return response.data.data as RegistryEntry;
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+export const deleteDocument = createAsyncThunk(
+  'registry/deleteDocument',
+  async (
+    { documentId, input }: { documentId: string; input?: DeleteDocumentInput },
+    { rejectWithValue }
+  ) => {
+    try {
+      const response = await axiosClient.delete(`/registry/documents/${documentId}`, {
+        data: input || {},
+      });
+      return { 
+        documentId, 
+        result: response.data.data as { deleted: boolean; filePublicIds?: string[] }
+      };
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
+export const fetchDocumentsBySource = createAsyncThunk(
+  'registry/fetchDocumentsBySource',
+  async (
+    { source, stationId }: { source: DocumentSource; stationId?: string },
+    { rejectWithValue }
+  ) => {
+    try {
+      const params = new URLSearchParams();
+      if (stationId) params.append('stationId', stationId);
+      const response = await axiosClient.get(`/registry/source/${source}?${params.toString()}`);
+      return { source, entries: response.data.data as RegistryEntry[] };
+    } catch (err) {
+      return rejectWithValue(extractErrorMessage(err));
+    }
+  }
+);
+
 /* ============================================================
    FOLDER ASYNC THUNKS
 ============================================================ */
-
-// ── Create ────────────────────────────────────────────────────────────────────
 
 export const createFolder = createAsyncThunk(
   'registry/createFolder',
@@ -270,8 +472,6 @@ export const createFolder = createAsyncThunk(
     }
   }
 );
-
-// ── Read ──────────────────────────────────────────────────────────────────────
 
 export const fetchFolders = createAsyncThunk(
   'registry/fetchFolders',
@@ -399,15 +599,18 @@ export const fetchFolderDocuments = createAsyncThunk(
   }
 );
 
-// ── NEW: Fetch folder documents by station ───────────────────────────────────
-
 export const fetchStationFolderDocuments = createAsyncThunk(
   'registry/fetchStationFolderDocuments',
-  async ({ stationId, page = 1, limit = 20 }: { stationId: string; page?: number; limit?: number }, { rejectWithValue }) => {
+  async (
+    { stationId, page = 1, limit = 20, source }: 
+    { stationId: string; page?: number; limit?: number; source?: DocumentSource },
+    { rejectWithValue }
+  ) => {
     try {
       const params = new URLSearchParams();
       if (page) params.append('page', String(page));
       if (limit) params.append('limit', String(limit));
+      if (source) params.append('source', source);
       const response = await axiosClient.get(`/registry/folders/station/${stationId}?${params.toString()}`);
       return response.data.data as FolderRegistryPaginationResponse;
     } catch (err) {
@@ -415,8 +618,6 @@ export const fetchStationFolderDocuments = createAsyncThunk(
     }
   }
 );
-
-// ── Update ────────────────────────────────────────────────────────────────────
 
 export const updateFolder = createAsyncThunk(
   'registry/updateFolder',
@@ -430,8 +631,6 @@ export const updateFolder = createAsyncThunk(
   }
 );
 
-// ── Delete ────────────────────────────────────────────────────────────────────
-
 export const deleteFolder = createAsyncThunk(
   'registry/deleteFolder',
   async (id: string, { rejectWithValue }) => {
@@ -444,8 +643,6 @@ export const deleteFolder = createAsyncThunk(
   }
 );
 
-// ── Move ─────────────────────────────────────────────────────────────────────
-
 export const moveFolder = createAsyncThunk(
   'registry/moveFolder',
   async ({ id, input }: { id: string; input: MoveFolderInput }, { rejectWithValue }) => {
@@ -457,8 +654,6 @@ export const moveFolder = createAsyncThunk(
     }
   }
 );
-
-// ── Document Operations ──────────────────────────────────────────────────────
 
 export const addDocumentToFolder = createAsyncThunk(
   'registry/addDocumentToFolder',
@@ -504,7 +699,6 @@ const registrySlice = createSlice({
   name: 'registry',
   initialState,
   reducers: {
-    // ── Registry Filters ──────────────────────────────────────────────────────
     setRegistryFilters(state, action: PayloadAction<Partial<RegistryFilters>>) {
       const newFilters = { ...action.payload };
       if (newFilters.limit && newFilters.limit > 100) {
@@ -521,7 +715,6 @@ const registrySlice = createSlice({
       };
     },
     
-    // ── Folder Filters ──────────────────────────────────────────────────────
     setFolderFilters(state, action: PayloadAction<Partial<FolderFilters>>) {
       state.folderFilters = { ...state.folderFilters, ...action.payload };
     },
@@ -529,7 +722,31 @@ const registrySlice = createSlice({
       state.folderFilters = { include_sub_folders: true };
     },
     
-    // ── Clear State ──────────────────────────────────────────────────────────
+    setUploadProgress(state, action: PayloadAction<{ fileName: string; progress: number }>) {
+      const { fileName, progress } = action.payload;
+      state.uploadProgress[fileName] = progress;
+      state.uploadStatus[fileName] = progress < 100 ? 'uploading' : 'success';
+    },
+    
+    setUploadStatus(state, action: PayloadAction<{ fileName: string; status: 'idle' | 'uploading' | 'success' | 'error'; error?: string }>) {
+      const { fileName, status, error } = action.payload;
+      state.uploadStatus[fileName] = status;
+      if (status === 'error' && error) {
+        state.uploadErrors[fileName] = error;
+      }
+      if (status === 'success') {
+        state.uploadProgress[fileName] = 100;
+        delete state.uploadErrors[fileName];
+      }
+    },
+    
+    clearUploadState(state) {
+      state.uploadProgress = {};
+      state.uploadStatus = {};
+      state.uploadErrors = {};
+      state.uploadResults = {};
+    },
+    
     clearSelectedEntry(state) { state.selectedEntry = null; },
     clearSelectedFolder(state) { state.selectedFolder = null; state.folderHierarchy = null; },
     clearHistory(state) { state.history = []; state.historyDocId = null; },
@@ -544,7 +761,6 @@ const registrySlice = createSlice({
        REGISTRY ENTRY REDUCERS
        ══════════════════════════════════════════════════════════════════════════ */
 
-    /* ---------- ROUTE FILE ---------- */
     builder
       .addCase(routeFile.pending, (state) => { state.loading.mutating = true; state.error = null; state.success = false; })
       .addCase(routeFile.fulfilled, (state, action: PayloadAction<RegistryEntry>) => {
@@ -556,7 +772,6 @@ const registrySlice = createSlice({
       })
       .addCase(routeFile.rejected, (state, action) => { state.loading.mutating = false; state.error = action.payload as string; state.success = false; });
 
-    /* ---------- FETCH ALL ---------- */
     builder
       .addCase(fetchRegistryEntries.pending, (state) => { state.loading.list = true; state.error = null; })
       .addCase(fetchRegistryEntries.fulfilled, (state, action: PayloadAction<RegistryPaginationResponse>) => {
@@ -571,7 +786,6 @@ const registrySlice = createSlice({
       })
       .addCase(fetchRegistryEntries.rejected, (state, action) => { state.loading.list = false; state.error = action.payload as string; });
 
-    /* ---------- FETCH BY ID ---------- */
     builder
       .addCase(fetchRegistryEntryById.pending, (state) => { state.loading.detail = true; state.error = null; })
       .addCase(fetchRegistryEntryById.fulfilled, (state, action: PayloadAction<RegistryEntry>) => {
@@ -580,7 +794,6 @@ const registrySlice = createSlice({
       })
       .addCase(fetchRegistryEntryById.rejected, (state, action) => { state.loading.detail = false; state.error = action.payload as string; });
 
-    /* ---------- FETCH HISTORY ---------- */
     builder
       .addCase(fetchRegistryHistory.pending, (state) => { state.loading.history = true; state.error = null; })
       .addCase(fetchRegistryHistory.fulfilled, (state, action: PayloadAction<{ documentId: string; history: RegistryEntry[] }>) => {
@@ -590,7 +803,6 @@ const registrySlice = createSlice({
       })
       .addCase(fetchRegistryHistory.rejected, (state, action) => { state.loading.history = false; state.error = action.payload as string; });
 
-    /* ---------- FETCH STATION COUNTS ---------- */
     builder
       .addCase(fetchStationCounts.pending, (state) => { state.loading.counts = true; state.error = null; })
       .addCase(fetchStationCounts.fulfilled, (state, action: PayloadAction<StationWithFileCount[]>) => {
@@ -599,7 +811,6 @@ const registrySlice = createSlice({
       })
       .addCase(fetchStationCounts.rejected, (state, action) => { state.loading.counts = false; state.error = action.payload as string; });
 
-    /* ---------- RECEIVE FILE ---------- */
     builder
       .addCase(receiveFile.pending, (state) => { state.loading.mutating = true; state.error = null; state.success = false; })
       .addCase(receiveFile.fulfilled, (state, action: PayloadAction<RegistryEntry>) => {
@@ -611,7 +822,6 @@ const registrySlice = createSlice({
       })
       .addCase(receiveFile.rejected, (state, action) => { state.loading.mutating = false; state.error = action.payload as string; state.success = false; });
 
-    /* ---------- RETURN FILE ---------- */
     builder
       .addCase(returnFile.pending, (state) => { state.loading.mutating = true; state.error = null; state.success = false; })
       .addCase(returnFile.fulfilled, (state, action: PayloadAction<RegistryEntry>) => {
@@ -623,11 +833,117 @@ const registrySlice = createSlice({
       })
       .addCase(returnFile.rejected, (state, action) => { state.loading.mutating = false; state.error = action.payload as string; state.success = false; });
 
+    /* ---------- DIRECT UPLOAD REDUCERS ---------- */
+    
+    builder
+      .addCase(directUpload.pending, (state) => { 
+        state.loading.uploading = true; 
+        state.error = null; 
+        state.success = false; 
+      })
+      .addCase(directUpload.fulfilled, (state, action: PayloadAction<DirectDocumentUploadResponse>) => {
+        state.loading.uploading = false;
+        state.success = true;
+        state.entries = [action.payload.entry, ...state.entries];
+        state.uploadResults[action.payload.file.file_name] = action.payload;
+        state.pagination.total += 1;
+        state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
+      })
+      .addCase(directUpload.rejected, (state, action) => { 
+        state.loading.uploading = false; 
+        state.error = action.payload as string; 
+        state.success = false; 
+      });
+
+    builder
+      .addCase(bulkDirectUpload.pending, (state) => { 
+        state.loading.uploading = true; 
+        state.error = null; 
+        state.success = false; 
+      })
+      .addCase(bulkDirectUpload.fulfilled, (state, action: PayloadAction<DirectDocumentUploadResponse[]>) => {
+        state.loading.uploading = false;
+        state.success = true;
+        const newEntries = action.payload.map((r) => r.entry);
+        state.entries = [...newEntries, ...state.entries];
+        action.payload.forEach((r) => {
+          state.uploadResults[r.file.file_name] = r;
+        });
+        state.pagination.total += newEntries.length;
+        state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
+      })
+      .addCase(bulkDirectUpload.rejected, (state, action) => { 
+        state.loading.uploading = false; 
+        state.error = action.payload as string; 
+        state.success = false; 
+      });
+
+    builder
+      .addCase(uploadDocumentToFolder.pending, (state) => { 
+        state.loading.uploading = true; 
+        state.error = null; 
+        state.success = false; 
+      })
+      .addCase(uploadDocumentToFolder.fulfilled, (state, action: PayloadAction<DirectDocumentUploadResponse>) => {
+        state.loading.uploading = false;
+        state.success = true;
+        state.entries = [action.payload.entry, ...state.entries];
+        state.uploadResults[action.payload.file.file_name] = action.payload;
+        state.pagination.total += 1;
+        state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
+      })
+      .addCase(uploadDocumentToFolder.rejected, (state, action) => { 
+        state.loading.uploading = false; 
+        state.error = action.payload as string; 
+        state.success = false; 
+      });
+
+    /* ---------- DOCUMENT MANAGEMENT REDUCERS ---------- */
+    
+    builder
+      .addCase(fetchDocumentDetails.pending, (state) => { state.loading.documentDetail = true; state.error = null; })
+      .addCase(fetchDocumentDetails.fulfilled, (state, action: PayloadAction<DocumentDetailsResponse>) => {
+        state.loading.documentDetail = false;
+        state.selectedEntry = action.payload.current;
+        state.history = action.payload.history;
+      })
+      .addCase(fetchDocumentDetails.rejected, (state, action) => { state.loading.documentDetail = false; state.error = action.payload as string; });
+
+    builder
+      .addCase(updateDocumentMetadata.pending, (state) => { state.loading.mutating = true; state.error = null; state.success = false; })
+      .addCase(updateDocumentMetadata.fulfilled, (state, action: PayloadAction<RegistryEntry>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        const index = state.entries.findIndex((e) => e.id === action.payload.id);
+        if (index !== -1) state.entries[index] = action.payload;
+        if (state.selectedEntry?.id === action.payload.id) state.selectedEntry = action.payload;
+      })
+      .addCase(updateDocumentMetadata.rejected, (state, action) => { state.loading.mutating = false; state.error = action.payload as string; state.success = false; });
+
+    builder
+      .addCase(deleteDocument.pending, (state) => { state.loading.mutating = true; state.error = null; state.success = false; })
+      .addCase(deleteDocument.fulfilled, (state, action: PayloadAction<{ documentId: string; result: { deleted: boolean; filePublicIds?: string[] } }>) => {
+        state.loading.mutating = false;
+        state.success = true;
+        state.entries = state.entries.filter((e) => e.document_id !== action.payload.documentId);
+        if (state.selectedEntry?.document_id === action.payload.documentId) state.selectedEntry = null;
+        state.history = state.history.filter((e) => e.document_id !== action.payload.documentId);
+      })
+      .addCase(deleteDocument.rejected, (state, action) => { state.loading.mutating = false; state.error = action.payload as string; state.success = false; });
+
+    builder
+      .addCase(fetchDocumentsBySource.pending, (state) => { state.loading.list = true; state.error = null; })
+      .addCase(fetchDocumentsBySource.fulfilled, (state, action: PayloadAction<{ source: DocumentSource; entries: RegistryEntry[] }>) => {
+        state.loading.list = false;
+        state.entries = action.payload.entries;
+        state.pagination.total = action.payload.entries.length;
+      })
+      .addCase(fetchDocumentsBySource.rejected, (state, action) => { state.loading.list = false; state.error = action.payload as string; });
+
     /* ══════════════════════════════════════════════════════════════════════════
        FOLDER REDUCERS
        ══════════════════════════════════════════════════════════════════════════ */
 
-    /* ---------- CREATE FOLDER ---------- */
     builder
       .addCase(createFolder.pending, (state) => { state.loading.folderMutating = true; state.error = null; state.success = false; })
       .addCase(createFolder.fulfilled, (state, action: PayloadAction<RHCFolder>) => {
@@ -637,7 +953,6 @@ const registrySlice = createSlice({
       })
       .addCase(createFolder.rejected, (state, action) => { state.loading.folderMutating = false; state.error = action.payload as string; state.success = false; });
 
-    /* ---------- FETCH FOLDERS ---------- */
     builder
       .addCase(fetchFolders.pending, (state) => { state.loading.folders = true; state.error = null; })
       .addCase(fetchFolders.fulfilled, (state, action: PayloadAction<RHCFolder[]>) => {
@@ -646,7 +961,6 @@ const registrySlice = createSlice({
       })
       .addCase(fetchFolders.rejected, (state, action) => { state.loading.folders = false; state.error = action.payload as string; });
 
-    /* ---------- FETCH ROOT FOLDERS ---------- */
     builder
       .addCase(fetchRootFolders.pending, (state) => { state.loading.folders = true; state.error = null; })
       .addCase(fetchRootFolders.fulfilled, (state, action: PayloadAction<RHCFolder[]>) => {
@@ -655,7 +969,6 @@ const registrySlice = createSlice({
       })
       .addCase(fetchRootFolders.rejected, (state, action) => { state.loading.folders = false; state.error = action.payload as string; });
 
-    /* ---------- FETCH ACTIVE FOLDERS ---------- */
     builder
       .addCase(fetchActiveFolders.pending, (state) => { state.loading.folders = true; state.error = null; })
       .addCase(fetchActiveFolders.fulfilled, (state, action: PayloadAction<RHCFolder[]>) => {
@@ -664,7 +977,6 @@ const registrySlice = createSlice({
       })
       .addCase(fetchActiveFolders.rejected, (state, action) => { state.loading.folders = false; state.error = action.payload as string; });
 
-    /* ---------- FETCH FOLDER BY ID ---------- */
     builder
       .addCase(fetchFolderById.pending, (state) => { state.loading.folderDetail = true; state.error = null; })
       .addCase(fetchFolderById.fulfilled, (state, action: PayloadAction<RHCFolder>) => {
@@ -673,21 +985,13 @@ const registrySlice = createSlice({
       })
       .addCase(fetchFolderById.rejected, (state, action) => { state.loading.folderDetail = false; state.error = action.payload as string; });
 
-    /* ---------- FETCH FOLDER CHILDREN ---------- */
     builder
       .addCase(fetchFolderChildren.pending, (state) => { state.loading.folderChildren = true; state.error = null; })
-      .addCase(fetchFolderChildren.fulfilled, (state, action: PayloadAction<{ id: string; children: RHCFolder[] }>) => {
+      .addCase(fetchFolderChildren.fulfilled, (state) => {
         state.loading.folderChildren = false;
-        // Update the folder's children in the folders list
-        const folder = state.folders.find(f => f.id === action.payload.id);
-        if (folder) {
-          // We store children separately, but we can also update the sub_folder_count
-          // The actual children are stored in folderHierarchy
-        }
       })
       .addCase(fetchFolderChildren.rejected, (state, action) => { state.loading.folderChildren = false; state.error = action.payload as string; });
 
-    /* ---------- FETCH FOLDER HIERARCHY ---------- */
     builder
       .addCase(fetchFolderHierarchy.pending, (state) => { state.loading.folderDetail = true; state.error = null; })
       .addCase(fetchFolderHierarchy.fulfilled, (state, action: PayloadAction<FolderHierarchy>) => {
@@ -697,7 +1001,6 @@ const registrySlice = createSlice({
       })
       .addCase(fetchFolderHierarchy.rejected, (state, action) => { state.loading.folderDetail = false; state.error = action.payload as string; });
 
-    /* ---------- FETCH FOLDER CATEGORIES ---------- */
     builder
       .addCase(fetchFolderCategories.pending, (state) => { state.loading.folderCategories = true; state.error = null; })
       .addCase(fetchFolderCategories.fulfilled, (state, action: PayloadAction<FolderCategoryCount[]>) => {
@@ -706,7 +1009,6 @@ const registrySlice = createSlice({
       })
       .addCase(fetchFolderCategories.rejected, (state, action) => { state.loading.folderCategories = false; state.error = action.payload as string; });
 
-    /* ---------- FETCH FOLDER STATISTICS ---------- */
     builder
       .addCase(fetchFolderStatistics.pending, (state) => { state.loading.folderStatistics = true; state.error = null; })
       .addCase(fetchFolderStatistics.fulfilled, (state, action: PayloadAction<FolderStatistics>) => {
@@ -715,7 +1017,6 @@ const registrySlice = createSlice({
       })
       .addCase(fetchFolderStatistics.rejected, (state, action) => { state.loading.folderStatistics = false; state.error = action.payload as string; });
 
-    /* ---------- SEARCH FOLDERS ---------- */
     builder
       .addCase(searchFolders.pending, (state) => { state.loading.folders = true; state.error = null; })
       .addCase(searchFolders.fulfilled, (state, action: PayloadAction<RHCFolder[]>) => {
@@ -724,7 +1025,6 @@ const registrySlice = createSlice({
       })
       .addCase(searchFolders.rejected, (state, action) => { state.loading.folders = false; state.error = action.payload as string; });
 
-    /* ---------- FETCH FOLDER DOCUMENTS ---------- */
     builder
       .addCase(fetchFolderDocuments.pending, (state) => { state.loading.folderDocuments = true; state.error = null; })
       .addCase(fetchFolderDocuments.fulfilled, (state, action: PayloadAction<{ id: string; documents: FolderDocument[] }>) => {
@@ -733,7 +1033,6 @@ const registrySlice = createSlice({
       })
       .addCase(fetchFolderDocuments.rejected, (state, action) => { state.loading.folderDocuments = false; state.error = action.payload as string; });
 
-    /* ---------- FETCH STATION FOLDER DOCUMENTS ---------- */
     builder
       .addCase(fetchStationFolderDocuments.pending, (state) => {
         state.loading.stationFolderDocuments = true;
@@ -754,71 +1053,67 @@ const registrySlice = createSlice({
         state.error = action.payload as string;
       });
 
-    /* ---------- UPDATE FOLDER ---------- */
     builder
       .addCase(updateFolder.pending, (state) => { state.loading.folderMutating = true; state.error = null; state.success = false; })
       .addCase(updateFolder.fulfilled, (state, action: PayloadAction<RHCFolder>) => {
         state.loading.folderMutating = false;
         state.success = true;
-        const index = state.folders.findIndex(f => f.id === action.payload.id);
+        const index = state.folders.findIndex((f) => f.id === action.payload.id);
         if (index !== -1) state.folders[index] = action.payload;
         if (state.selectedFolder?.id === action.payload.id) state.selectedFolder = action.payload;
-        if (state.folderHierarchy?.id === action.payload.id) state.folderHierarchy = { ...state.folderHierarchy, ...action.payload };
+        if (state.folderHierarchy?.id === action.payload.id) {
+          state.folderHierarchy = { ...state.folderHierarchy, ...action.payload };
+        }
       })
       .addCase(updateFolder.rejected, (state, action) => { state.loading.folderMutating = false; state.error = action.payload as string; state.success = false; });
 
-    /* ---------- DELETE FOLDER ---------- */
     builder
       .addCase(deleteFolder.pending, (state) => { state.loading.folderMutating = true; state.error = null; state.success = false; })
       .addCase(deleteFolder.fulfilled, (state, action: PayloadAction<string>) => {
         state.loading.folderMutating = false;
         state.success = true;
-        state.folders = state.folders.filter(f => f.id !== action.payload);
+        state.folders = state.folders.filter((f) => f.id !== action.payload);
         if (state.selectedFolder?.id === action.payload) state.selectedFolder = null;
         if (state.folderHierarchy?.id === action.payload) state.folderHierarchy = null;
       })
       .addCase(deleteFolder.rejected, (state, action) => { state.loading.folderMutating = false; state.error = action.payload as string; state.success = false; });
 
-    /* ---------- MOVE FOLDER ---------- */
     builder
       .addCase(moveFolder.pending, (state) => { state.loading.folderMutating = true; state.error = null; state.success = false; })
       .addCase(moveFolder.fulfilled, (state, action: PayloadAction<RHCFolder>) => {
         state.loading.folderMutating = false;
         state.success = true;
-        const index = state.folders.findIndex(f => f.id === action.payload.id);
+        const index = state.folders.findIndex((f) => f.id === action.payload.id);
         if (index !== -1) state.folders[index] = action.payload;
         if (state.selectedFolder?.id === action.payload.id) state.selectedFolder = action.payload;
-        if (state.folderHierarchy?.id === action.payload.id) state.folderHierarchy = { ...state.folderHierarchy, ...action.payload };
+        if (state.folderHierarchy?.id === action.payload.id) {
+          state.folderHierarchy = { ...state.folderHierarchy, ...action.payload };
+        }
       })
       .addCase(moveFolder.rejected, (state, action) => { state.loading.folderMutating = false; state.error = action.payload as string; state.success = false; });
 
-    /* ---------- ADD DOCUMENT TO FOLDER ---------- */
     builder
       .addCase(addDocumentToFolder.pending, (state) => { state.loading.folderMutating = true; state.error = null; state.success = false; })
       .addCase(addDocumentToFolder.fulfilled, (state) => {
         state.loading.folderMutating = false;
         state.success = true;
-        // Refresh folder documents - the caller should refetch
       })
       .addCase(addDocumentToFolder.rejected, (state, action) => { state.loading.folderMutating = false; state.error = action.payload as string; state.success = false; });
 
-    /* ---------- REMOVE DOCUMENT FROM FOLDER ---------- */
     builder
       .addCase(removeDocumentFromFolder.pending, (state) => { state.loading.folderMutating = true; state.error = null; state.success = false; })
       .addCase(removeDocumentFromFolder.fulfilled, (state, action: PayloadAction<{ folderId: string; documentId: string }>) => {
         state.loading.folderMutating = false;
         state.success = true;
-        state.folderDocuments = state.folderDocuments.filter(d => d.id !== action.payload.documentId);
+        state.folderDocuments = state.folderDocuments.filter((d) => d.id !== action.payload.documentId);
       })
       .addCase(removeDocumentFromFolder.rejected, (state, action) => { state.loading.folderMutating = false; state.error = action.payload as string; state.success = false; });
 
-    /* ---------- BULK ADD DOCUMENTS ---------- */
     builder
       .addCase(bulkAddDocumentsToFolder.pending, (state) => { state.loading.folderMutating = true; state.error = null; state.success = false; })
       .addCase(bulkAddDocumentsToFolder.fulfilled, (state) => {
         state.loading.folderMutating = false;
         state.success = true;
-        // Refresh folder documents - the caller should refetch
       })
       .addCase(bulkAddDocumentsToFolder.rejected, (state, action) => { state.loading.folderMutating = false; state.error = action.payload as string; state.success = false; });
   },
@@ -833,6 +1128,9 @@ export const {
   resetRegistryFilters,
   setFolderFilters,
   resetFolderFilters,
+  setUploadProgress,
+  setUploadStatus,
+  clearUploadState,
   clearSelectedEntry,
   clearSelectedFolder,
   clearHistory,
@@ -847,7 +1145,6 @@ export const {
    SELECTORS
 ============================================================ */
 
-// ── Registry Entry Selectors ─────────────────────────────────────────────────
 export const selectAllRegistryEntries = (state: { registry: RegistryState }) => state.registry.entries;
 export const selectSelectedEntry = (state: { registry: RegistryState }) => state.registry.selectedEntry;
 export const selectRegistryHistory = (state: { registry: RegistryState }) => state.registry.history;
@@ -856,7 +1153,6 @@ export const selectStationCounts = (state: { registry: RegistryState }) => state
 export const selectRegistryPagination = (state: { registry: RegistryState }) => state.registry.pagination;
 export const selectRegistryFilters = (state: { registry: RegistryState }) => state.registry.filters;
 
-// ── Folder Selectors ─────────────────────────────────────────────────────────
 export const selectAllFolders = (state: { registry: RegistryState }) => state.registry.folders;
 export const selectSelectedFolder = (state: { registry: RegistryState }) => state.registry.selectedFolder;
 export const selectFolderHierarchy = (state: { registry: RegistryState }) => state.registry.folderHierarchy;
@@ -865,11 +1161,22 @@ export const selectFolderCategories = (state: { registry: RegistryState }) => st
 export const selectFolderStatistics = (state: { registry: RegistryState }) => state.registry.folderStatistics;
 export const selectFolderFilters = (state: { registry: RegistryState }) => state.registry.folderFilters;
 
-// ── Station Folder Documents Selectors ──────────────────────────────────────
 export const selectStationFolderDocuments = (state: { registry: RegistryState }) => state.registry.stationFolderDocuments;
 export const selectStationFolderPagination = (state: { registry: RegistryState }) => state.registry.stationFolderPagination;
 
-// ── Loading Selectors ────────────────────────────────────────────────────────
+export const selectUploadProgress = (state: { registry: RegistryState }, fileName: string) => 
+  state.registry.uploadProgress[fileName] || 0;
+export const selectUploadStatus = (state: { registry: RegistryState }, fileName: string) => 
+  state.registry.uploadStatus[fileName] || 'idle';
+export const selectUploadError = (state: { registry: RegistryState }, fileName: string) => 
+  state.registry.uploadErrors[fileName] || null;
+export const selectUploadResult = (state: { registry: RegistryState }, fileName: string) => 
+  state.registry.uploadResults[fileName] || null;
+export const selectAllUploadResults = (state: { registry: RegistryState }) => 
+  state.registry.uploadResults;
+export const selectIsUploading = (state: { registry: RegistryState }) => 
+  state.registry.loading.uploading;
+
 export const selectRegistryListLoading = (state: { registry: RegistryState }) => state.registry.loading.list;
 export const selectRegistryDetailLoading = (state: { registry: RegistryState }) => state.registry.loading.detail;
 export const selectRegistryHistoryLoading = (state: { registry: RegistryState }) => state.registry.loading.history;
@@ -882,22 +1189,30 @@ export const selectFolderCategoriesLoading = (state: { registry: RegistryState }
 export const selectFolderStatisticsLoading = (state: { registry: RegistryState }) => state.registry.loading.folderStatistics;
 export const selectFolderMutating = (state: { registry: RegistryState }) => state.registry.loading.folderMutating;
 export const selectStationFolderDocumentsLoading = (state: { registry: RegistryState }) => state.registry.loading.stationFolderDocuments;
+export const selectDocumentDetailLoading = (state: { registry: RegistryState }) => state.registry.loading.documentDetail;
 
-// ── Error/Success Selectors ──────────────────────────────────────────────────
 export const selectRegistryError = (state: { registry: RegistryState }) => state.registry.error;
 export const selectRegistrySuccess = (state: { registry: RegistryState }) => state.registry.success;
 
-// ── Computed Selectors ──────────────────────────────────────────────────────
 export const selectRootFolders = (state: { registry: RegistryState }) => 
-  state.registry.folders.filter(f => f.parent_folder_id === null);
+  state.registry.folders.filter((f) => f.parent_folder_id === null);
 
 export const selectActiveFolders = (state: { registry: RegistryState }) => 
-  state.registry.folders.filter(f => f.status === 'active');
+  state.registry.folders.filter((f) => f.status === 'active');
 
 export const selectFolderById = (state: { registry: RegistryState }, id: string) => 
-  state.registry.folders.find(f => f.id === id);
+  state.registry.folders.find((f) => f.id === id);
 
 export const selectFolderChildren = (state: { registry: RegistryState }, id: string) => 
-  state.registry.folders.filter(f => f.parent_folder_id === id);
+  state.registry.folders.filter((f) => f.parent_folder_id === id);
+
+export const selectRoutedEntries = (state: { registry: RegistryState }) => 
+  state.registry.entries.filter((e) => e.source === 'routed');
+
+export const selectDirectEntries = (state: { registry: RegistryState }) => 
+  state.registry.entries.filter((e) => e.source === 'direct');
+
+export const selectEntriesByStation = (state: { registry: RegistryState }, stationId: string) => 
+  state.registry.entries.filter((e) => e.station_id === stationId);
 
 export default registrySlice.reducer;

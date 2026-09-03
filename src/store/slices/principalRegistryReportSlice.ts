@@ -10,6 +10,10 @@ import type {
   GeneratePdfRequest,
   PDFGenerationResult,
   ReportSubmission,
+  SensitizationResponse,
+  SensitizationInput,
+  SensitizationFilters,
+  SensitizationListResponse,
 } from '../../types/principal-registry-report.types';
 import axiosClient from '../../api/api';
 import type { AxiosError } from 'axios';
@@ -243,6 +247,182 @@ export const deleteReport = createAsyncThunk<
   }
 );
 
+// ══════════════════════════════════════════════════════════════
+//  SENSITIZATION ASYNC THUNKS
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Fetch all sensitizations with optional filters
+ */
+export const fetchSensitizations = createAsyncThunk<
+  SensitizationListResponse,
+  SensitizationFilters | undefined
+>(
+  'principalRegistryReport/fetchSensitizations',
+  async (filters) => {
+    const response = await axiosClient.get(`${API_URL}/sensitizations`, { params: filters });
+    
+    const data = response.data;
+    
+    if (data && typeof data === 'object' && 'success' in data && data.success === true && 'data' in data) {
+      const responseData = data.data as Record<string, unknown>;
+      return {
+        items: (responseData.items as SensitizationResponse[]) || [],
+        total: (responseData.total as number) || 0,
+        page: (responseData.page as number) || 1,
+        pageSize: (responseData.pageSize as number) || 20,
+      };
+    }
+    
+    if (data && typeof data === 'object' && 'items' in data) {
+      return {
+        items: (data.items as SensitizationResponse[]) || [],
+        total: (data.total as number) || 0,
+        page: (data.page as number) || 1,
+        pageSize: (data.pageSize as number) || 20,
+      };
+    }
+    
+    if (Array.isArray(data)) {
+      return {
+        items: data as SensitizationResponse[],
+        total: data.length,
+        page: 1,
+        pageSize: 20,
+      };
+    }
+    
+    return {
+      items: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+    };
+  }
+);
+
+/**
+ * Fetch a single sensitization by ID
+ */
+export const fetchSensitizationById = createAsyncThunk<
+  SensitizationResponse,
+  string
+>(
+  'principalRegistryReport/fetchSensitizationById',
+  async (id) => {
+    const response = await axiosClient.get(`${API_URL}/sensitizations/${id}`);
+    return response.data.data as SensitizationResponse;
+  }
+);
+
+/**
+ * Create a new sensitization
+ */
+export const createSensitization = createAsyncThunk<
+  SensitizationResponse,
+  SensitizationInput
+>(
+  'principalRegistryReport/createSensitization',
+  async (data) => {
+    const response = await axiosClient.post(`${API_URL}/sensitizations`, data);
+    return response.data.data as SensitizationResponse;
+  }
+);
+
+/**
+ * Update an existing sensitization
+ */
+export const updateSensitization = createAsyncThunk<
+  SensitizationResponse,
+  { id: string; data: Partial<SensitizationInput> }
+>(
+  'principalRegistryReport/updateSensitization',
+  async ({ id, data }) => {
+    const response = await axiosClient.patch(`${API_URL}/sensitizations/${id}`, data);
+    return response.data.data as SensitizationResponse;
+  }
+);
+
+/**
+ * Submit a sensitization for approval (draft → submitted)
+ */
+export const submitSensitization = createAsyncThunk<
+  SensitizationResponse,
+  string,
+  { rejectValue: string }
+>(
+  'principalRegistryReport/submitSensitization',
+  async (id, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.post(`${API_URL}/sensitizations/${id}/submit`);
+      return response.data.data as SensitizationResponse;
+    } catch (error: unknown) {
+      const err = error as AxiosError<{ message?: string }>;
+      return rejectWithValue(err.response?.data?.message || 'Failed to submit sensitization');
+    }
+  }
+);
+
+/**
+ * Approve a sensitization (submitted → approved)
+ */
+export const approveSensitization = createAsyncThunk<
+  SensitizationResponse,
+  string,
+  { rejectValue: string }
+>(
+  'principalRegistryReport/approveSensitization',
+  async (id, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.post(`${API_URL}/sensitizations/${id}/approve`);
+      return response.data.data as SensitizationResponse;
+    } catch (error: unknown) {
+      const err = error as AxiosError<{ message?: string }>;
+      return rejectWithValue(err.response?.data?.message || 'Failed to approve sensitization');
+    }
+  }
+);
+
+/**
+ * Reject a sensitization (submitted → draft)
+ */
+export const rejectSensitization = createAsyncThunk<
+  SensitizationResponse,
+  string,
+  { rejectValue: string }
+>(
+  'principalRegistryReport/rejectSensitization',
+  async (id, { rejectWithValue }) => {
+    try {
+      const response = await axiosClient.post(`${API_URL}/sensitizations/${id}/reject`);
+      return response.data.data as SensitizationResponse;
+    } catch (error: unknown) {
+      const err = error as AxiosError<{ message?: string }>;
+      return rejectWithValue(err.response?.data?.message || 'Failed to reject sensitization');
+    }
+  }
+);
+
+/**
+ * Delete a sensitization (draft only)
+ */
+export const deleteSensitization = createAsyncThunk<
+  string,
+  string,
+  { rejectValue: string }
+>(
+  'principalRegistryReport/deleteSensitization',
+  async (id, { rejectWithValue }) => {
+    try {
+      await axiosClient.delete(`${API_URL}/sensitizations/${id}`);
+      return id;
+    } catch (error: unknown) {
+      const err = error as AxiosError<{ message?: string }>;
+      return rejectWithValue(err.response?.data?.message || 'Failed to delete sensitization');
+    }
+  }
+);
+
 // ─── State Interface ──────────────────────────────────────────
 
 interface PrincipalRegistryReportState {
@@ -263,6 +443,17 @@ interface PrincipalRegistryReportState {
   generatingPDF: boolean;
   pdfResult: PDFGenerationResult | null;
   submission: ReportSubmission | null;
+  // ─── Sensitization state ──────────────────────────────────
+  sensitizations: SensitizationResponse[];
+  currentSensitization: SensitizationResponse | null;
+  sensitizationsTotal: number;
+  sensitizationsPage: number;
+  sensitizationsPageSize: number;
+  sensitizationsFilters: SensitizationFilters;
+  sensitizationsLoading: boolean;
+  sensitizationsSubmitting: boolean;
+  sensitizationsError: string | null;
+  selectedSensitizationIds: string[];
 }
 
 // ─── Initial State ────────────────────────────────────────────
@@ -284,6 +475,17 @@ const initialState: PrincipalRegistryReportState = {
   generatingPDF: false,
   pdfResult: null,
   submission: null,
+  // ─── Sensitization initial state ──────────────────────────
+  sensitizations: [],
+  currentSensitization: null,
+  sensitizationsTotal: 0,
+  sensitizationsPage: 1,
+  sensitizationsPageSize: 20,
+  sensitizationsFilters: {},
+  sensitizationsLoading: false,
+  sensitizationsSubmitting: false,
+  sensitizationsError: null,
+  selectedSensitizationIds: [],
 };
 
 // ─── Slice ─────────────────────────────────────────────────────
@@ -348,7 +550,6 @@ const principalRegistryReportSlice = createSlice({
     clearSelection: (state) => {
       state.selectedReportIds = [];
     },
-    // ─── FIX: Use proper type instead of `any` ──────────────────
     updateReportOptimistically: (
       state, 
       action: PayloadAction<{ 
@@ -373,6 +574,60 @@ const principalRegistryReportSlice = createSlice({
     },
     clearSubmission: (state) => {
       state.submission = null;
+    },
+    // ─── Sensitization reducers ──────────────────────────────────
+    setSensitizationFilters: (state, action: PayloadAction<SensitizationFilters>) => {
+      state.sensitizationsFilters = { ...state.sensitizationsFilters, ...action.payload };
+      state.sensitizationsPage = 1;
+      state.selectedSensitizationIds = [];
+    },
+    clearSensitizationFilters: (state) => {
+      state.sensitizationsFilters = {};
+      state.sensitizationsPage = 1;
+      state.selectedSensitizationIds = [];
+    },
+    setSensitizationPage: (state, action: PayloadAction<number>) => {
+      state.sensitizationsPage = action.payload;
+      state.selectedSensitizationIds = [];
+    },
+    setSensitizationPageSize: (state, action: PayloadAction<number>) => {
+      state.sensitizationsPageSize = action.payload;
+      state.sensitizationsPage = 1;
+      state.selectedSensitizationIds = [];
+    },
+    setCurrentSensitization: (state, action: PayloadAction<SensitizationResponse | null>) => {
+      state.currentSensitization = action.payload;
+    },
+    clearCurrentSensitization: (state) => {
+      state.currentSensitization = null;
+    },
+    selectSensitization: (state, action: PayloadAction<string>) => {
+      if (!state.selectedSensitizationIds.includes(action.payload)) {
+        state.selectedSensitizationIds.push(action.payload);
+      }
+    },
+    deselectSensitization: (state, action: PayloadAction<string>) => {
+      state.selectedSensitizationIds = state.selectedSensitizationIds.filter(id => id !== action.payload);
+    },
+    toggleSelectSensitization: (state, action: PayloadAction<string>) => {
+      const index = state.selectedSensitizationIds.indexOf(action.payload);
+      if (index === -1) {
+        state.selectedSensitizationIds.push(action.payload);
+      } else {
+        state.selectedSensitizationIds.splice(index, 1);
+      }
+    },
+    selectAllSensitizations: (state) => {
+      state.selectedSensitizationIds = state.sensitizations.map(s => s.id);
+    },
+    deselectAllSensitizations: (state) => {
+      state.selectedSensitizationIds = [];
+    },
+    clearSensitizationSelection: (state) => {
+      state.selectedSensitizationIds = [];
+    },
+    clearSensitizationError: (state) => {
+      state.sensitizationsError = null;
     },
   },
 
@@ -534,7 +789,6 @@ const principalRegistryReportSlice = createSlice({
       .addCase(generatePDF.fulfilled, (state, action) => {
         state.generatingPDF = false;
         state.pdfResult = action.payload;
-        // ✅ Update current report with PDF attachment info if available
         if (state.currentReport && action.payload.success && action.payload.secureUrl) {
           state.currentReport = {
             ...state.currentReport,
@@ -581,6 +835,157 @@ const principalRegistryReportSlice = createSlice({
       .addCase(deleteReport.rejected, (state, action) => {
         state.loading = false;
         state.error = action.error.message || 'Failed to delete report';
+      })
+
+    // ══════════════════════════════════════════════════════════════
+    //  SENSITIZATION EXTRA REDUCERS
+    // ══════════════════════════════════════════════════════════════
+
+    // ── Fetch Sensitizations ──
+      .addCase(fetchSensitizations.pending, (state) => {
+        state.sensitizationsLoading = true;
+        state.sensitizationsError = null;
+      })
+      .addCase(fetchSensitizations.fulfilled, (state, action) => {
+        state.sensitizationsLoading = false;
+        state.sensitizations = action.payload.items || [];
+        state.sensitizationsTotal = action.payload.total || 0;
+        state.sensitizationsPage = action.payload.page || 1;
+        state.sensitizationsPageSize = action.payload.pageSize || 20;
+        state.sensitizationsError = null;
+      })
+      .addCase(fetchSensitizations.rejected, (state, action) => {
+        state.sensitizationsLoading = false;
+        state.sensitizationsError = action.error.message || 'Failed to fetch sensitizations';
+      })
+
+    // ── Fetch Sensitization By ID ──
+      .addCase(fetchSensitizationById.pending, (state) => {
+        state.sensitizationsLoading = true;
+        state.sensitizationsError = null;
+      })
+      .addCase(fetchSensitizationById.fulfilled, (state, action) => {
+        state.sensitizationsLoading = false;
+        state.currentSensitization = action.payload;
+      })
+      .addCase(fetchSensitizationById.rejected, (state, action) => {
+        state.sensitizationsLoading = false;
+        state.sensitizationsError = action.error.message || 'Failed to fetch sensitization';
+      })
+
+    // ── Create Sensitization ──
+      .addCase(createSensitization.pending, (state) => {
+        state.sensitizationsSubmitting = true;
+        state.sensitizationsError = null;
+      })
+      .addCase(createSensitization.fulfilled, (state, action) => {
+        state.sensitizationsSubmitting = false;
+        state.sensitizations = [action.payload, ...(state.sensitizations || [])];
+        state.sensitizationsTotal += 1;
+        state.currentSensitization = action.payload;
+      })
+      .addCase(createSensitization.rejected, (state, action) => {
+        state.sensitizationsSubmitting = false;
+        state.sensitizationsError = action.error.message || 'Failed to create sensitization';
+      })
+
+    // ── Update Sensitization ──
+      .addCase(updateSensitization.pending, (state) => {
+        state.sensitizationsSubmitting = true;
+        state.sensitizationsError = null;
+      })
+      .addCase(updateSensitization.fulfilled, (state, action) => {
+        state.sensitizationsSubmitting = false;
+        const index = (state.sensitizations || []).findIndex(s => s.id === action.payload.id);
+        if (index !== -1) {
+          state.sensitizations[index] = action.payload;
+        }
+        if (state.currentSensitization?.id === action.payload.id) {
+          state.currentSensitization = action.payload;
+        }
+      })
+      .addCase(updateSensitization.rejected, (state, action) => {
+        state.sensitizationsSubmitting = false;
+        state.sensitizationsError = action.error.message || 'Failed to update sensitization';
+      })
+
+    // ── Submit Sensitization ──
+      .addCase(submitSensitization.pending, (state) => {
+        state.sensitizationsSubmitting = true;
+        state.sensitizationsError = null;
+      })
+      .addCase(submitSensitization.fulfilled, (state, action) => {
+        state.sensitizationsSubmitting = false;
+        const index = (state.sensitizations || []).findIndex(s => s.id === action.payload.id);
+        if (index !== -1) {
+          state.sensitizations[index] = action.payload;
+        }
+        if (state.currentSensitization?.id === action.payload.id) {
+          state.currentSensitization = action.payload;
+        }
+      })
+      .addCase(submitSensitization.rejected, (state, action) => {
+        state.sensitizationsSubmitting = false;
+        state.sensitizationsError = action.payload || action.error.message || 'Failed to submit sensitization';
+      })
+
+    // ── Approve Sensitization ──
+      .addCase(approveSensitization.pending, (state) => {
+        state.sensitizationsSubmitting = true;
+        state.sensitizationsError = null;
+      })
+      .addCase(approveSensitization.fulfilled, (state, action) => {
+        state.sensitizationsSubmitting = false;
+        const index = (state.sensitizations || []).findIndex(s => s.id === action.payload.id);
+        if (index !== -1) {
+          state.sensitizations[index] = action.payload;
+        }
+        if (state.currentSensitization?.id === action.payload.id) {
+          state.currentSensitization = action.payload;
+        }
+      })
+      .addCase(approveSensitization.rejected, (state, action) => {
+        state.sensitizationsSubmitting = false;
+        state.sensitizationsError = action.payload || action.error.message || 'Failed to approve sensitization';
+      })
+
+    // ── Reject Sensitization ──
+      .addCase(rejectSensitization.pending, (state) => {
+        state.sensitizationsSubmitting = true;
+        state.sensitizationsError = null;
+      })
+      .addCase(rejectSensitization.fulfilled, (state, action) => {
+        state.sensitizationsSubmitting = false;
+        const index = (state.sensitizations || []).findIndex(s => s.id === action.payload.id);
+        if (index !== -1) {
+          state.sensitizations[index] = action.payload;
+        }
+        if (state.currentSensitization?.id === action.payload.id) {
+          state.currentSensitization = action.payload;
+        }
+      })
+      .addCase(rejectSensitization.rejected, (state, action) => {
+        state.sensitizationsSubmitting = false;
+        state.sensitizationsError = action.payload || action.error.message || 'Failed to reject sensitization';
+      })
+
+    // ── Delete Sensitization ──
+      .addCase(deleteSensitization.pending, (state) => {
+        state.sensitizationsLoading = true;
+        state.sensitizationsError = null;
+      })
+      .addCase(deleteSensitization.fulfilled, (state, action) => {
+        state.sensitizationsLoading = false;
+        state.sensitizations = (state.sensitizations || []).filter(s => s.id !== action.payload);
+        state.sensitizationsTotal -= 1;
+        state.selectedSensitizationIds = (state.selectedSensitizationIds || []).filter(id => id !== action.payload);
+        if (state.currentSensitization?.id === action.payload) {
+          state.currentSensitization = null;
+        }
+      })
+      .addCase(deleteSensitization.rejected, (state, action) => {
+        state.sensitizationsLoading = false;
+        state.sensitizationsError = action.payload || action.error.message || 'Failed to delete sensitization';
       });
   },
 });
@@ -606,6 +1011,20 @@ export const {
   clearError,
   clearPDFResult,
   clearSubmission,
+  // ─── Sensitization exports ──────────────────────────────────
+  setSensitizationFilters,
+  clearSensitizationFilters,
+  setSensitizationPage,
+  setSensitizationPageSize,
+  setCurrentSensitization,
+  clearCurrentSensitization,
+  selectSensitization,
+  deselectSensitization,
+  toggleSelectSensitization,
+  selectAllSensitizations,
+  deselectAllSensitizations,
+  clearSensitizationSelection,
+  clearSensitizationError,
 } = principalRegistryReportSlice.actions;
 
 export default principalRegistryReportSlice.reducer;
@@ -614,6 +1033,8 @@ export default principalRegistryReportSlice.reducer;
 
 const selectSelf = (state: { principalRegistryReport: PrincipalRegistryReportState }) =>
   state?.principalRegistryReport || initialState;
+
+// ─── Report Selectors ──────────────────────────────────────────
 
 export const selectAllReportsData = createSelector(
   [selectSelf],
@@ -738,43 +1159,27 @@ export const selectSubmission = createSelector(
   (slice) => slice?.submission || null
 );
 
-// ─── PDF Attachment Selectors ──────────────────────────────────
-
-/**
- * Check if the current report has a PDF attached
- */
 export const selectHasPDFAttached = createSelector(
   [selectCurrentReportData],
   (report) => !!report?.pdfSecureUrl && !!report?.pdfPublicId
 );
 
-/**
- * Get the PDF URL for the current report
- */
 export const selectPDFUrl = createSelector(
   [selectCurrentReportData],
   (report) => report?.pdfSecureUrl || null
 );
 
-/**
- * Check if the current report can be submitted
- * (must be draft and have PDF attached)
- */
 export const selectCanSubmit = createSelector(
   [selectCurrentReportData],
   (report) => report?.status === 'draft' && !!report?.pdfSecureUrl
 );
 
-/**
- * Check if the current report can generate PDF
- * (must be draft or submitted)
- */
 export const selectCanGeneratePDF = createSelector(
   [selectCurrentReportData],
   (report) => report?.status === 'draft' || report?.status === 'submitted'
 );
 
-// ─── PARAMETRIC SELECTORS ─────────────────────────────────────
+// ─── Parametric Report Selectors ──────────────────────────────
 
 export const selectReportById = createSelector(
   [selectAllReportsData, (_state: unknown, id: string) => id],
@@ -784,6 +1189,149 @@ export const selectReportById = createSelector(
 export const selectReportsByStatus = createSelector(
   [selectAllReportsData, (_state: unknown, status: ReportStatus) => status],
   (reports, status) => (reports || []).filter(r => r.status === status)
+);
+
+// ══════════════════════════════════════════════════════════════
+//  SENSITIZATION SELECTORS
+// ══════════════════════════════════════════════════════════════
+
+export const selectAllSensitizationsData = createSelector(
+  [selectSelf],
+  (slice) => slice?.sensitizations || []
+);
+
+export const selectCurrentSensitizationData = createSelector(
+  [selectSelf],
+  (slice) => slice?.currentSensitization || null
+);
+
+export const selectSensitizationsLoading = createSelector(
+  [selectSelf],
+  (slice) => slice?.sensitizationsLoading || false
+);
+
+export const selectSensitizationsSubmitting = createSelector(
+  [selectSelf],
+  (slice) => slice?.sensitizationsSubmitting || false
+);
+
+export const selectSensitizationsError = createSelector(
+  [selectSelf],
+  (slice) => slice?.sensitizationsError || null
+);
+
+export const selectSensitizationsPagination = createSelector(
+  [selectSelf],
+  (slice) => ({
+    total: slice?.sensitizationsTotal || 0,
+    page: slice?.sensitizationsPage || 1,
+    pageSize: slice?.sensitizationsPageSize || 20,
+  })
+);
+
+export const selectSensitizationsFilters = createSelector(
+  [selectSelf],
+  (slice) => slice?.sensitizationsFilters || {}
+);
+
+export const selectSelectedSensitizationIds = createSelector(
+  [selectSelf],
+  (slice) => slice?.selectedSensitizationIds || []
+);
+
+export const selectSelectedSensitizationsData = createSelector(
+  [selectAllSensitizationsData, selectSelectedSensitizationIds],
+  (sensitizations, selectedIds) => {
+    const itemsArray = sensitizations || [];
+    const idsArray = selectedIds || [];
+    return itemsArray.filter(s => idsArray.includes(s.id));
+  }
+);
+
+export const selectHasSelectedSensitizations = createSelector(
+  [selectSelectedSensitizationIds],
+  (ids) => (ids || []).length > 0
+);
+
+export const selectSelectedSensitizationsCount = createSelector(
+  [selectSelectedSensitizationIds],
+  (ids) => (ids || []).length
+);
+
+export const selectAreAllSensitizationsSelected = createSelector(
+  [selectAllSensitizationsData, selectSelectedSensitizationIds],
+  (sensitizations, selectedIds) => {
+    const itemsArray = sensitizations || [];
+    const idsArray = selectedIds || [];
+    return itemsArray.length > 0 && itemsArray.every(s => idsArray.includes(s.id));
+  }
+);
+
+// ─── Parametric Sensitization Selectors ──────────────────────
+
+export const selectSensitizationById = createSelector(
+  [selectAllSensitizationsData, (_state: unknown, id: string) => id],
+  (sensitizations, id) => (sensitizations || []).find(s => s.id === id)
+);
+
+export const selectSensitizationsByStatus = createSelector(
+  [selectAllSensitizationsData, (_state: unknown, status: string) => status],
+  (sensitizations, status) => (sensitizations || []).filter(s => s.status === status)
+);
+
+export const selectSensitizationsByLocation = createSelector(
+  [selectAllSensitizationsData, (_state: unknown, location: string) => location],
+  (sensitizations, location) => (sensitizations || []).filter(s => 
+    s.data.location.toLowerCase().includes(location.toLowerCase())
+  )
+);
+
+// ─── Sensitization Status Counts ─────────────────────────────
+
+export const selectSensitizationCounts = createSelector(
+  [selectAllSensitizationsData],
+  (sensitizations) => {
+    const itemsArray = sensitizations || [];
+    const counts = {
+      draft: 0,
+      submitted: 0,
+      approved: 0,
+      rejected: 0,
+    };
+    itemsArray.forEach(s => {
+      if (s && s.status) {
+        counts[s.status as keyof typeof counts] = (counts[s.status as keyof typeof counts] || 0) + 1;
+      }
+    });
+    return counts;
+  }
+);
+
+// ─── Sensitization Helpers ────────────────────────────────────
+
+export const selectCanEditSensitization = createSelector(
+  [selectCurrentSensitizationData],
+  (sensitization) => sensitization?.status === 'draft'
+);
+
+export const selectCanSubmitSensitization = createSelector(
+  [selectCurrentSensitizationData],
+  (sensitization) => sensitization?.status === 'draft'
+);
+
+export const selectCanApproveSensitization = createSelector(
+  [selectCurrentSensitizationData],
+  (sensitization) => sensitization?.status === 'submitted'
+);
+
+export const selectCanRejectSensitization = createSelector(
+  [selectCurrentSensitizationData],
+  (sensitization) => sensitization?.status === 'submitted'
+);
+
+export const selectCanDeleteSensitization = createSelector(
+  [selectCurrentSensitizationData],
+  (sensitization) => sensitization?.status === 'draft'
 );
 
 // ─── Type Guards ──────────────────────────────────────────────
