@@ -634,12 +634,7 @@ export async function generateConferenceMemoPdf(params: ConferenceMemoParams): P
     const rightMargin = pageWidth - marginX;
     let textY = footerY + 16;
 
-    doc.setFont('times', 'bold');
-    doc.setFontSize(10.5);
-    doc.setTextColor(...DARK_GREEN);
-    doc.text('Social Transformation through Access to Justice', rightMargin, textY, {
-      align: 'right',
-    });
+
 
     textY += 13;
     doc.setFont('times', 'normal');

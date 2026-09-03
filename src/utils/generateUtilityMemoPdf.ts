@@ -306,11 +306,6 @@ export async function generateUtilityMemoPdf(data: UtilityMemoData): Promise<Blo
     let textY = footerY + 16;
 
     // Top Tagline (Dark Green, Bold)
-    doc.setFont('times', 'bold');
-    doc.setFontSize(10.5);
-    doc.setTextColor(...DARK_GREEN);
-    doc.text('Social Transformation through Access to Justice', rightMargin, textY, { align: 'right' });
-
     // Address Line
     textY += 13;
     doc.setFont('times', 'normal');

@@ -44,6 +44,7 @@ import {
   UserCheck,
   FileSignature,
   X as XIcon,
+  Edit,
 } from 'lucide-react';
 import { generateSensitizationDocx } from '../../utils/generateSensitizationDocx';
 import { generateSensitizationExcel } from '../../utils/generateSensitizationExcel';
@@ -612,10 +613,25 @@ const TeamMembersForm: React.FC<TeamMembersFormProps> = ({
 
 type DownloadFormat = 'docx' | 'pdf' | 'xlsx';
 
+interface EditableMemoState {
+  memoNumber: string;
+  date: string;
+  fromField: string;
+  toField: string;
+  subject: string;
+  location: string;
+  travelStartDate: string;
+  travelEndDate: string;
+  sensitizationPeriod: string;
+  bodyText: string;
+  preparedBy: string;
+  title: string;
+  teamMembers: TeamMemberFormState[];
+}
+
 interface MemoPreviewStepProps {
   info: BasicInfoState;
   teamMembers: TeamMemberFormState[];
-  grandTotal: number;
   preparedBy: string;
   title: string;
   sensitizationId?: string;
@@ -623,12 +639,16 @@ interface MemoPreviewStepProps {
   onDocumentUploaded: (docId: string) => void;
   onEditInfo: () => void;
   onEditDetails: () => void;
+  editableMemo: EditableMemoState;
+  setEditableMemo: (state: EditableMemoState) => void;
+  onTeamMemberChange: (index: number, field: keyof TeamMemberFormState, value: string | number | boolean) => void;
+  onAddTeamMember: () => void;
+  onRemoveTeamMember: (index: number) => void;
 }
 
 const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
   info,
   teamMembers,
-  grandTotal,
   preparedBy,
   title,
   sensitizationId,
@@ -636,6 +656,11 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
   onDocumentUploaded,
   onEditInfo,
   onEditDetails,
+  editableMemo,
+  setEditableMemo,
+  onTeamMemberChange,
+  onAddTeamMember,
+  onRemoveTeamMember,
 }) => {
   const dispatch = useAppDispatch();
   const allDocuments = useAppSelector(selectAllHelpdeskDocuments);
@@ -643,8 +668,7 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
   const documentActionLoading = useAppSelector(selectDocumentActionLoading);
   const unlinkedDocuments = useAppSelector(selectUnlinkedHelpdeskDocuments);
   const isLinking = useAppSelector(selectDocumentLinking);
-  
-  // Get current user for auto-populating name
+
   const currentUser = useAppSelector((state) => state.auth.user);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -655,6 +679,40 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
   const [uploadingDocument, setUploadingDocument] = useState(false);
   const [downloadingFormat, setDownloadingFormat] = useState<DownloadFormat | null>(null);
   const [showDownloadMenu, setShowDownloadMenu] = useState(false);
+  const [isEditingMemo, setIsEditingMemo] = useState(false);
+
+  const isInitializedRef = useRef(false);
+
+  // Reset initialization when record changes
+// In MemoPreviewStep, update the initialization useEffect:
+
+useEffect(() => {
+  // Don't reinitialize if we're in edit mode and already initialized
+  if (isEditingMemo && isInitializedRef.current) {
+    return;
+  }
+  
+  if (!isInitializedRef.current) {
+    setEditableMemo({
+      memoNumber: info.memoNumber,
+      date: info.date,
+      fromField: info.fromField,
+      toField: info.toField,
+      subject: info.subject,
+      location: info.location,
+      travelStartDate: info.travelStartDate,
+      travelEndDate: info.travelEndDate,
+      sensitizationPeriod: info.sensitizationPeriod,
+      bodyText: `The Principal Registry has achieved an end-to-end automated process of its operations. Consequently, and pursuant to the Hon. Chief Registrar's memo on implementation of automated processing of gazette notices in succession causes, all stations are required to submit these notices through the CTS.
+
+We request for approval and facilitation of DSA as tabulated below:`,
+      preparedBy: preparedBy,
+      title: title,
+      teamMembers: teamMembers,
+    });
+    isInitializedRef.current = true;
+  }
+}, [info, preparedBy, title, teamMembers, setEditableMemo, isEditingMemo]);
 
   const handleSignatureUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -696,18 +754,17 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
     }
   }, [dispatch, showLinkPicker]);
 
-  // ─── Build memo data WITH signature ────────────────────────────────────
   const buildMemoData = useCallback(() => ({
-    memoNumber: info.memoNumber,
-    date: formatDateForDisplay(info.date),
-    from: info.fromField,
-    to: info.toField,
-    subject: info.subject,
-    location: info.location,
-    travelStartDate: formatDateForDisplay(info.travelStartDate),
-    travelEndDate: formatDateForDisplay(info.travelEndDate),
-    sensitizationPeriod: info.sensitizationPeriod,
-    teamMembers: teamMembers.map((m) => ({
+    memoNumber: editableMemo.memoNumber,
+    date: formatDateForDisplay(editableMemo.date),
+    from: editableMemo.fromField,
+    to: editableMemo.toField,
+    subject: editableMemo.subject,
+    location: editableMemo.location,
+    travelStartDate: formatDateForDisplay(editableMemo.travelStartDate),
+    travelEndDate: formatDateForDisplay(editableMemo.travelEndDate),
+    sensitizationPeriod: editableMemo.sensitizationPeriod,
+    teamMembers: editableMemo.teamMembers.map((m) => ({
       s_no: m.s_no,
       name: m.name,
       pjNumber: m.pjNumber,
@@ -717,15 +774,15 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
       total: m.total,
       isDriver: m.isDriver,
     })),
-    grandTotal,
-    preparedBy,
-    title,
+    grandTotal: editableMemo.teamMembers.reduce((sum, m) => sum + m.total, 0),
+    preparedBy: editableMemo.preparedBy,
+    title: editableMemo.title,
     crestUrl: JUDICIARY_CREST_SRC,
-    // ─── Signature data ──────────────────────────────────────────────────
     signature: signatureDataUrl || undefined,
-    signatureName: currentUser?.full_name || preparedBy || undefined,
-    signatureTitle: title || 'DEPUTY REGISTRAR, PRINCIPAL REGISTRY',
-  }), [info, teamMembers, grandTotal, preparedBy, title, signatureDataUrl, currentUser]);
+    signatureName: currentUser?.full_name || editableMemo.preparedBy || undefined,
+    signatureTitle: editableMemo.title || 'DEPUTY REGISTRAR, PRINCIPAL REGISTRY',
+    bodyText: editableMemo.bodyText,
+  }), [editableMemo, signatureDataUrl, currentUser]);
 
   const handleGenerate = useCallback(async (format: DownloadFormat) => {
     setShowDownloadMenu(false);
@@ -753,15 +810,15 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
         throw new Error('Generator returned no blob');
       }
 
-      const filename = `SENSITIZATION_${info.memoNumber}.${format}`;
+      const filename = `SENSITIZATION_${editableMemo.memoNumber}.${format}`;
       const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
 
       const result = await dispatch(
         uploadHelpdeskDocument({
           blob: file,
           filename,
-          ref: info.memoNumber,
-          subject: info.subject,
+          ref: editableMemo.memoNumber,
+          subject: editableMemo.subject,
           entity_type: 'sensitization' as DocumentEntityType,
           entity_id: sensitizationId || undefined,
           format: format as DocumentFormat,
@@ -791,7 +848,7 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
     } finally {
       setDownloadingFormat(null);
     }
-  }, [buildMemoData, info.memoNumber, info.subject, sensitizationId, dispatch, onDocumentUploaded]);
+  }, [buildMemoData, editableMemo.memoNumber, editableMemo.subject, sensitizationId, dispatch, onDocumentUploaded]);
 
   const handleAttachDocument = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -818,8 +875,8 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
         uploadHelpdeskDocument({
           blob: file,
           filename: file.name,
-          ref: info.memoNumber,
-          subject: info.subject,
+          ref: editableMemo.memoNumber,
+          subject: editableMemo.subject,
           entity_type: 'sensitization',
           entity_id: sensitizationId,
           format,
@@ -833,7 +890,7 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
       setUploadingDocument(false);
       e.target.value = '';
     }
-  }, [sensitizationId, info.memoNumber, info.subject, dispatch]);
+  }, [sensitizationId, editableMemo.memoNumber, editableMemo.subject, dispatch]);
 
   const handleLinkExisting = useCallback(async (docId: string) => {
     if (!sensitizationId) {
@@ -876,6 +933,18 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
     xlsx: 'Preparing Excel…',
   };
 
+  const editableGrandTotal = editableMemo.teamMembers.reduce((sum, m) => sum + m.total, 0);
+
+  const handleEditInfo = () => {
+    isInitializedRef.current = false;
+    onEditInfo();
+  };
+
+  const handleEditDetails = () => {
+    isInitializedRef.current = false;
+    onEditDetails();
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -884,10 +953,16 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
           Memo Preview
         </h4>
         <div className="flex items-center gap-2">
-          <GhostButton onClick={onEditInfo} icon={<ClipboardList size={14} />}>
+          <GhostButton
+            onClick={() => setIsEditingMemo(!isEditingMemo)}
+            icon={isEditingMemo ? <XIcon size={14} /> : <Edit size={14} />}
+          >
+            {isEditingMemo ? 'Exit Edit' : 'Edit Memo'}
+          </GhostButton>
+          <GhostButton onClick={handleEditInfo} icon={<ClipboardList size={14} />}>
             Edit Info
           </GhostButton>
-          <GhostButton onClick={onEditDetails} icon={<Users size={14} />}>
+          <GhostButton onClick={handleEditDetails} icon={<Users size={14} />}>
             Edit Details
           </GhostButton>
           <div className="relative">
@@ -933,7 +1008,7 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
         </div>
       </div>
 
-      {/* Digital Signature - Simplified */}
+      {/* Digital Signature */}
       <div className="rounded-lg border border-stone-200 bg-stone-50 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -981,8 +1056,8 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
         )}
       </div>
 
-      {/* Memo Preview - shows signature in preview */}
-      <div className="border border-stone-300 bg-white p-4 sm:p-10 shadow-sm font-sans text-black overflow-x-auto max-h-[500px] overflow-y-auto">
+      {/* Editable Memo Preview */}
+      <div className="border border-stone-300 bg-white p-4 sm:p-10 shadow-sm font-sans text-black overflow-x-auto max-h-[600px] overflow-y-auto">
         <div className="flex justify-center mb-2">
           <img src={JUDICIARY_CREST_SRC} alt="Judiciary of Kenya crest" className="h-16 sm:h-24 w-auto object-contain" />
         </div>
@@ -999,52 +1074,102 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
         </div>
 
         <div className="space-y-1 text-sm font-bold mb-8">
-          <div className="flex flex-wrap">
+          <div className="flex flex-wrap items-start">
             <span className="w-28 shrink-0">MEMO NO.</span>
             <span className="w-4 shrink-0">:</span>
-            <span className="flex-1 font-mono font-normal">{info.memoNumber}</span>
+            <span className="flex-1 font-normal">
+              {isEditingMemo ? (
+                <input
+                  type="text"
+                  value={editableMemo.memoNumber}
+                  onChange={(e) => setEditableMemo({ ...editableMemo, memoNumber: e.target.value })}
+                  className="w-full rounded border border-stone-200 px-2 py-0.5 text-sm font-mono focus:border-[#1a3d1c] focus:outline-none"
+                />
+              ) : (
+                <span className="font-mono">{editableMemo.memoNumber}</span>
+              )}
+            </span>
           </div>
-          <div className="flex flex-wrap">
+          <div className="flex flex-wrap items-start">
             <span className="w-28 shrink-0">DATE</span>
             <span className="w-4 shrink-0">:</span>
-            <span className="flex-1 font-normal">{formatDateForDisplay(info.date)}</span>
+            <span className="flex-1 font-normal">
+              {isEditingMemo ? (
+                <input
+                  type="date"
+                  value={editableMemo.date}
+                  onChange={(e) => setEditableMemo({ ...editableMemo, date: e.target.value })}
+                  className="w-full rounded border border-stone-200 px-2 py-0.5 text-sm focus:border-[#1a3d1c] focus:outline-none"
+                />
+              ) : (
+                formatDateForDisplay(editableMemo.date)
+              )}
+            </span>
           </div>
-          <div className="flex flex-wrap">
+          <div className="flex flex-wrap items-start">
             <span className="w-28 shrink-0">FROM</span>
             <span className="w-4 shrink-0">:</span>
-            <span className="flex-1 uppercase">{info.fromField}</span>
+            <span className="flex-1 uppercase font-normal">
+              {isEditingMemo ? (
+                <input
+                  type="text"
+                  value={editableMemo.fromField}
+                  onChange={(e) => setEditableMemo({ ...editableMemo, fromField: e.target.value })}
+                  className="w-full rounded border border-stone-200 px-2 py-0.5 text-sm uppercase focus:border-[#1a3d1c] focus:outline-none"
+                />
+              ) : (
+                editableMemo.fromField
+              )}
+            </span>
           </div>
-          <div className="flex flex-wrap">
+          <div className="flex flex-wrap items-start">
             <span className="w-28 shrink-0">TO</span>
             <span className="w-4 shrink-0">:</span>
-            <span className="flex-1 uppercase">{info.toField}</span>
+            <span className="flex-1 uppercase font-normal">
+              {isEditingMemo ? (
+                <input
+                  type="text"
+                  value={editableMemo.toField}
+                  onChange={(e) => setEditableMemo({ ...editableMemo, toField: e.target.value })}
+                  className="w-full rounded border border-stone-200 px-2 py-0.5 text-sm uppercase focus:border-[#1a3d1c] focus:outline-none"
+                />
+              ) : (
+                editableMemo.toField
+              )}
+            </span>
           </div>
-          <div className="flex flex-wrap border-b-2 border-black pb-3">
+          <div className="flex flex-wrap items-start border-b-2 border-black pb-3">
             <span className="w-28 shrink-0">SUBJECT</span>
             <span className="w-4 shrink-0">:</span>
-            <span className="flex-1 uppercase">{info.subject}</span>
+            <span className="flex-1 uppercase font-normal">
+              {isEditingMemo ? (
+                <input
+                  type="text"
+                  value={editableMemo.subject}
+                  onChange={(e) => setEditableMemo({ ...editableMemo, subject: e.target.value })}
+                  className="w-full rounded border border-stone-200 px-2 py-0.5 text-sm uppercase focus:border-[#1a3d1c] focus:outline-none"
+                />
+              ) : (
+                editableMemo.subject
+              )}
+            </span>
           </div>
         </div>
 
         <div className="space-y-3 text-sm leading-relaxed text-stone-700 mb-6">
-          <p>
-            The Principal Registry has achieved an end-to-end automated process of its operations.
-            Consequently, and pursuant to the Hon. Chief Registrar's memo on implementation of
-            automated processing of gazette notices in succession causes, all stations are required
-            to submit these notices through the CTS.
-          </p>
-          <p><span className="font-semibold">Location:</span> {info.location || '—'}</p>
-          <p>
-            <span className="font-semibold">Travel:</span>{' '}
-            {info.travelStartDate ? formatDateForDisplay(info.travelStartDate) : '—'} to{' '}
-            {info.travelEndDate ? formatDateForDisplay(info.travelEndDate) : '—'}
-          </p>
-          <p><span className="font-semibold">Period:</span> {info.sensitizationPeriod || '—'}</p>
+          {isEditingMemo ? (
+            <textarea
+              value={editableMemo.bodyText}
+              onChange={(e) => setEditableMemo({ ...editableMemo, bodyText: e.target.value })}
+              className="w-full min-h-[200px] rounded border border-stone-200 px-3 py-2 text-sm leading-relaxed focus:border-[#1a3d1c] focus:outline-none"
+              rows={8}
+            />
+          ) : (
+            editableMemo.bodyText.split('\n').map((paragraph, idx) => (
+              <p key={idx}>{paragraph}</p>
+            ))
+          )}
         </div>
-
-        <p className="text-sm text-stone-700 mb-4">
-          We request for approval and facilitation of DSA as tabulated below:
-        </p>
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse border border-black min-w-[500px]">
@@ -1058,65 +1183,168 @@ const MemoPreviewStep: React.FC<MemoPreviewStepProps> = ({
                 <th className="border border-black px-2 py-1 text-right text-xs font-bold">DSA RATE</th>
                 <th className="border border-black px-2 py-1 text-right text-xs font-bold">TOTAL</th>
                 <th className="border border-black px-2 py-1 text-center text-xs font-bold w-14">DRIVER</th>
+                {isEditingMemo && (
+                  <th className="border border-black px-2 py-1 text-center text-xs font-bold w-10">ACTION</th>
+                )}
               </tr>
             </thead>
             <tbody>
-              {teamMembers.map((member, index) => (
+              {editableMemo.teamMembers.map((member, index) => (
                 <tr key={index}>
                   <td className="border border-black px-2 py-1 text-center text-xs">{index + 1}</td>
-                  <td className="border border-black px-2 py-1 text-xs">{member.name}</td>
-                  <td className="border border-black px-2 py-1 text-xs">{member.pjNumber}</td>
-                  <td className="border border-black px-2 py-1 text-xs">{member.rank}</td>
-                  <td className="border border-black px-2 py-1 text-center text-xs">{member.days}</td>
-                  <td className="border border-black px-2 py-1 text-right text-xs">{formatAmount(member.dsaRate)}</td>
+                  <td className="border border-black px-2 py-1 text-xs">
+                    {isEditingMemo ? (
+                      <input
+                        type="text"
+                        value={member.name}
+                        onChange={(e) => onTeamMemberChange(index, 'name', e.target.value)}
+                        className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] rounded px-1"
+                      />
+                    ) : (
+                      member.name
+                    )}
+                  </td>
+                  <td className="border border-black px-2 py-1 text-xs">
+                    {isEditingMemo ? (
+                      <input
+                        type="text"
+                        value={member.pjNumber}
+                        onChange={(e) => onTeamMemberChange(index, 'pjNumber', e.target.value)}
+                        className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] rounded px-1"
+                      />
+                    ) : (
+                      member.pjNumber
+                    )}
+                  </td>
+                  <td className="border border-black px-2 py-1 text-xs">
+                    {isEditingMemo ? (
+                      <input
+                        type="text"
+                        value={member.rank}
+                        onChange={(e) => onTeamMemberChange(index, 'rank', e.target.value)}
+                        className="w-full bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] rounded px-1"
+                      />
+                    ) : (
+                      member.rank
+                    )}
+                  </td>
+                  <td className="border border-black px-2 py-1 text-center text-xs">
+                    {isEditingMemo ? (
+                      <input
+                        type="number"
+                        min="0"
+                        value={member.days || ''}
+                        onChange={(e) => onTeamMemberChange(index, 'days', parseInt(e.target.value) || 0)}
+                        className="w-12 bg-transparent border-none text-center focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] rounded px-1"
+                      />
+                    ) : (
+                      member.days
+                    )}
+                  </td>
+                  <td className="border border-black px-2 py-1 text-right text-xs">
+                    {isEditingMemo ? (
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={member.dsaRate || ''}
+                        onChange={(e) => onTeamMemberChange(index, 'dsaRate', parseFloat(e.target.value) || 0)}
+                        className="w-20 bg-transparent border-none text-right focus:outline-none focus:ring-1 focus:ring-[#1a3d1c] rounded px-1"
+                      />
+                    ) : (
+                      formatAmount(member.dsaRate)
+                    )}
+                  </td>
                   <td className="border border-black px-2 py-1 text-right text-xs font-medium">
                     {formatAmount(member.total)}
                   </td>
                   <td className="border border-black px-2 py-1 text-center text-xs">
-                    {member.isDriver ? '✓' : ''}
+                    {isEditingMemo ? (
+                      <input
+                        type="checkbox"
+                        checked={member.isDriver}
+                        onChange={(e) => onTeamMemberChange(index, 'isDriver', e.target.checked)}
+                        className="rounded border-stone-300 text-[#c9a84c] focus:ring-[#c9a84c]"
+                      />
+                    ) : (
+                      member.isDriver ? '✓' : ''
+                    )}
                   </td>
+                  {isEditingMemo && (
+                    <td className="border border-black px-2 py-1 text-center">
+                      <button
+                        onClick={() => onRemoveTeamMember(index)}
+                        disabled={editableMemo.teamMembers.length <= 1}
+                        className="text-red-500 hover:text-red-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr className="bg-stone-50 font-bold">
-                <td colSpan={5} className="border border-black px-2 py-2 text-right">GRAND TOTAL</td>
+                <td colSpan={isEditingMemo ? 6 : 5} className="border border-black px-2 py-2 text-right">GRAND TOTAL</td>
                 <td className="border border-black px-2 py-2 text-right"></td>
-                <td className="border border-black px-2 py-2 text-right">{formatAmount(grandTotal)}</td>
+                <td className="border border-black px-2 py-2 text-right">{formatAmount(editableGrandTotal)}</td>
                 <td className="border border-black px-2 py-2"></td>
+                {isEditingMemo && <td className="border border-black px-2 py-2"></td>}
               </tr>
             </tfoot>
           </table>
         </div>
 
-{/* Signature section in memo preview - Inline */}
-{/* Signature section in memo preview - Vertical */}
-<div className="mt-8 pt-6 border-t border-stone-200">
-  {/* Signature - on top */}
-  {signatureDataUrl && (
-    <div className="mb-3">
-      <img
-        src={signatureDataUrl}
-        alt="Signature"
-        className="h-14 w-auto max-w-[180px] object-contain"
-      />
-    </div>
-  )}
+        {isEditingMemo && (
+          <div className="mt-3 flex justify-end">
+            <GoldButton size="sm" onClick={onAddTeamMember} icon={<Plus size={14} />}>
+              Add Member
+            </GoldButton>
+          </div>
+        )}
 
-  {/* Name - below signature */}
-  <div>
-    <p className="text-sm font-medium font-bold uppercase text-stone-800">
-      {currentUser?.full_name || preparedBy || '—'}
-    </p>
-  </div>
-
-  {/* Designation - below name - Bold, Underline, Uppercase */}
-  <div>
-    <p className="text-sm font-bold underline uppercase text-stone-800">
-      {title || 'DEPUTY REGISTRAR, PRINCIPAL REGISTRY'}
-    </p>
-  </div>
-</div>
+        <div className="mt-8 pt-6 border-t border-stone-200">
+          {signatureDataUrl && (
+            <div className="mb-3">
+              <img
+                src={signatureDataUrl}
+                alt="Signature"
+                className="h-14 w-auto max-w-[180px] object-contain"
+              />
+            </div>
+          )}
+          <div>
+            <p className="text-sm font-medium font-bold uppercase text-stone-800">
+              {isEditingMemo ? (
+                <input
+                  type="text"
+                  value={editableMemo.preparedBy}
+                  onChange={(e) => setEditableMemo({ ...editableMemo, preparedBy: e.target.value })}
+                  className="w-full max-w-sm bg-transparent border-b border-stone-300 focus:border-[#1a3d1c] focus:outline-none px-1 py-0.5"
+                  placeholder="Name"
+                />
+              ) : (
+                currentUser?.full_name || editableMemo.preparedBy || '—'
+              )}
+            </p>
+          </div>
+          <div>
+            <p className="text-sm font-bold underline uppercase text-stone-800">
+              {isEditingMemo ? (
+                <input
+                  type="text"
+                  value={editableMemo.title}
+                  onChange={(e) => setEditableMemo({ ...editableMemo, title: e.target.value })}
+                  className="w-full max-w-sm bg-transparent border-b border-stone-300 focus:border-[#1a3d1c] focus:outline-none px-1 py-0.5"
+                  placeholder="Title"
+                />
+              ) : (
+                editableMemo.title || 'DEPUTY REGISTRAR, PRINCIPAL REGISTRY'
+              )}
+            </p>
+          </div>
+        </div>
 
         <div className="mt-8 sm:mt-12 pt-3 border-t border-stone-300 flex flex-wrap items-center justify-between gap-3">
           <img src={FOOTER_EMBLEM_SRC} alt="" className="h-8 sm:h-10 w-auto object-contain shrink-0" />
@@ -1293,6 +1521,22 @@ export const SensitizationModal: React.FC<SensitizationModalProps> = ({
   const [preparedBy, setPreparedBy] = useState('');
   const [title, setTitle] = useState('Deputy Registrar, Principal Registry');
 
+  const [editableMemo, setEditableMemo] = useState<EditableMemoState>({
+    memoNumber: '',
+    date: '',
+    fromField: '',
+    toField: '',
+    subject: '',
+    location: '',
+    travelStartDate: '',
+    travelEndDate: '',
+    sensitizationPeriod: '',
+    bodyText: '',
+    preparedBy: '',
+    title: '',
+    teamMembers: [],
+  });
+
   const [isSaving, setIsSaving] = useState(false);
 
   const isEditing = !!editingSensitization;
@@ -1303,7 +1547,6 @@ export const SensitizationModal: React.FC<SensitizationModalProps> = ({
     { id: 3, label: 'Preview', icon: <FileText size={16} /> },
   ];
 
-  // ─── Reset form ──────────────────────────────────────────────────────────
   const resetForm = useCallback(() => {
     setInfo({
       memoNumber: getDefaultMemoNumber(),
@@ -1323,7 +1566,6 @@ export const SensitizationModal: React.FC<SensitizationModalProps> = ({
     setPendingDocumentId(undefined);
   }, []);
 
-  // ─── Load a record's data into form state ───────────────────────────────
   const loadEditingData = useCallback((record: SensitizationResponse) => {
     const data = record.data;
     setInfo({
@@ -1353,7 +1595,6 @@ export const SensitizationModal: React.FC<SensitizationModalProps> = ({
     setPendingDocumentId(undefined);
   }, []);
 
-  // ─── Sync form state to the isOpen open/close transition ──────────────
   const syncKey = isOpen ? (editingSensitization?.id ?? 'new') : null;
   const [lastSyncedKey, setLastSyncedKey] = useState<string | null>(null);
 
@@ -1368,7 +1609,6 @@ export const SensitizationModal: React.FC<SensitizationModalProps> = ({
     }
   }
 
-  // ─── Team member handlers ────────────────────────────────────────────────
   const handleTeamMemberChange = useCallback((
     index: number,
     field: keyof TeamMemberFormState,
@@ -1395,7 +1635,6 @@ export const SensitizationModal: React.FC<SensitizationModalProps> = ({
     setPendingDocumentId(docId);
   }, []);
 
-  // ─── Step navigation ──────────────────────────────────────────────────────
   const handleNextStep = () => {
     if (currentStep === 1) {
       if (!info.location.trim()) {
@@ -1440,18 +1679,32 @@ export const SensitizationModal: React.FC<SensitizationModalProps> = ({
     else if (currentStep === 3) setCurrentStep(2);
   };
 
-  // ─── Save ───────────────────────────────────────────────────────────────
   const handleCreate = useCallback(async () => {
-    if (!preparedBy.trim()) {
+    const finalPreparedBy = currentStep === 3 ? editableMemo.preparedBy : preparedBy;
+    const finalTitle = currentStep === 3 ? editableMemo.title : title;
+    const finalTeamMembers = currentStep === 3 ? editableMemo.teamMembers : teamMembers;
+    const finalInfo = currentStep === 3 ? {
+      date: editableMemo.date,
+      fromField: editableMemo.fromField,
+      toField: editableMemo.toField,
+      subject: editableMemo.subject,
+      location: editableMemo.location,
+      travelStartDate: editableMemo.travelStartDate,
+      travelEndDate: editableMemo.travelEndDate,
+      sensitizationPeriod: editableMemo.sensitizationPeriod,
+      memoNumber: editableMemo.memoNumber,
+    } : info;
+
+    if (!finalPreparedBy.trim()) {
       toast.error('Prepared by name is required.');
       return;
     }
-    if (!title.trim()) {
+    if (!finalTitle.trim()) {
       toast.error('Title is required.');
       return;
     }
 
-    const validMembers = teamMembers.filter(
+    const validMembers = finalTeamMembers.filter(
       m => m.name.trim() && m.pjNumber.trim() && m.rank.trim() && m.days > 0 && m.dsaRate > 0
     );
     if (validMembers.length === 0) {
@@ -1462,14 +1715,14 @@ export const SensitizationModal: React.FC<SensitizationModalProps> = ({
     setIsSaving(true);
     try {
       const input = {
-        date: info.date,
-        from: info.fromField,
-        to: info.toField,
-        subject: info.subject,
-        location: info.location.trim(),
-        travelStartDate: info.travelStartDate,
-        travelEndDate: info.travelEndDate,
-        sensitizationPeriod: info.sensitizationPeriod.trim(),
+        date: finalInfo.date,
+        from: finalInfo.fromField,
+        to: finalInfo.toField,
+        subject: finalInfo.subject,
+        location: finalInfo.location.trim(),
+        travelStartDate: finalInfo.travelStartDate,
+        travelEndDate: finalInfo.travelEndDate,
+        sensitizationPeriod: finalInfo.sensitizationPeriod.trim(),
         teamMembers: validMembers.map((m, index) => ({
           s_no: index + 1,
           name: m.name.trim(),
@@ -1480,8 +1733,8 @@ export const SensitizationModal: React.FC<SensitizationModalProps> = ({
           total: m.total,
           isDriver: m.isDriver,
         })),
-        preparedBy: preparedBy.trim(),
-        title: title.trim(),
+        preparedBy: finalPreparedBy.trim(),
+        title: finalTitle.trim(),
       };
 
       let result;
@@ -1517,7 +1770,7 @@ export const SensitizationModal: React.FC<SensitizationModalProps> = ({
     } finally {
       setIsSaving(false);
     }
-  }, [info, teamMembers, preparedBy, title, isEditing, editingSensitization, pendingDocumentId, dispatch, onClose, resetForm]);
+  }, [info, teamMembers, preparedBy, title, isEditing, editingSensitization, pendingDocumentId, dispatch, onClose, resetForm, currentStep, editableMemo]);
 
   const handleClose = () => {
     resetForm();
@@ -1551,7 +1804,6 @@ export const SensitizationModal: React.FC<SensitizationModalProps> = ({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          {/* Step indicator */}
           <div className="mb-6">
             <StepIndicator currentStep={currentStep} steps={steps} />
           </div>
@@ -1574,9 +1826,9 @@ export const SensitizationModal: React.FC<SensitizationModalProps> = ({
 
           {currentStep === 3 && (
             <MemoPreviewStep
+              key={editingSensitization?.id || 'new'}
               info={info}
               teamMembers={teamMembers}
-              grandTotal={grandTotal}
               preparedBy={preparedBy}
               title={title}
               sensitizationId={editingSensitization?.id}
@@ -1584,6 +1836,11 @@ export const SensitizationModal: React.FC<SensitizationModalProps> = ({
               onDocumentUploaded={handleDocumentUploaded}
               onEditInfo={() => setCurrentStep(1)}
               onEditDetails={() => setCurrentStep(2)}
+              editableMemo={editableMemo}
+              setEditableMemo={setEditableMemo}
+              onTeamMemberChange={handleTeamMemberChange}
+              onAddTeamMember={handleAddTeamMember}
+              onRemoveTeamMember={handleRemoveTeamMember}
             />
           )}
         </div>

@@ -15,6 +15,10 @@ const TABLE_HEADER_TEXT: [number, number, number] = DARK_GREEN;
 
 type CellLineWidth = number | Partial<{ top: number; right: number; bottom: number; left: number }>;
 
+const DEFAULT_BODY_TEXT = `The Principal Registry has achieved an end-to-end automated process of its operations. Consequently, and pursuant to the Hon. Chief Registrar's memo on implementation of automated processing of gazette notices in succession causes, all stations are required to submit these notices through the CTS.
+
+We request for approval and facilitation of DSA as tabulated below:`;
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 async function fetchImageDataUrl(url: string): Promise<string | null> {
@@ -64,6 +68,8 @@ export async function generateSensitizationPdf(data: {
   travelStartDate: string;
   travelEndDate: string;
   sensitizationPeriod: string;
+  /** The user-edited body copy (as typed in the memo preview's "Edit Memo" textarea). */
+  bodyText?: string;
   teamMembers: Array<{
     s_no: number;
     name: string;
@@ -77,7 +83,6 @@ export async function generateSensitizationPdf(data: {
   grandTotal: number;
   preparedBy: string;
   title: string;
-  additionalContext?: string;
   crestUrl?: string;
   signature?: string | null;
   signatureName?: string;
@@ -155,33 +160,31 @@ export async function generateSensitizationPdf(data: {
   doc.line(marginX, y, pageWidth - marginX, y);
   y += 20;
 
-  // ─── Body text ──────────────────────────────────────────────────────────
+  // ─── Body text (user-edited, from the memo preview) ──────────────────────
   doc.setFont('times', 'normal');
   doc.setFontSize(11);
 
   const bodyParagraph = (text: string, gap = 12) => {
+    if (!text.trim()) {
+      y += gap;
+      return;
+    }
     const lines = doc.splitTextToSize(text, pageWidth - marginX * 2);
     doc.text(lines, marginX, y);
     y += lines.length * 14.5 + gap;
   };
 
-  bodyParagraph(
-    `The Principal Registry has achieved an end-to-end automated process of its operations. Consequently, and pursuant to the Hon. Chief Registrar's memo on implementation of automated processing of gazette notices in succession causes, all stations are required to submit these notices through the CTS.`
-  );
+  const bodySource = (data.bodyText && data.bodyText.trim().length > 0)
+    ? data.bodyText
+    : DEFAULT_BODY_TEXT;
 
-  bodyParagraph(
-    `The Principal Registry is committed to sensitizing the Judicial Officers and staff on the key features of the automated P&A processes to ensure efficiency in handling of cases. In this regard and following the upcoming visit of the Hon. Chief Justice to ${data.location} whose aim is to review initiatives aimed at improving access to justice, service delivery and case management.`
-  );
+  // Split on blank lines so the user's paragraph breaks (typed as \n\n)
+  // are preserved, but a single trailing \n doesn't create a stray gap.
+  const bodyParagraphs = bodySource.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
 
-  if (data.additionalContext) {
-    bodyParagraph(data.additionalContext);
-  }
-
-  bodyParagraph(
-    `I request that a team from Principal Registry visits ${data.location} for sensitization from ${data.sensitizationPeriod} (travel dates ${data.travelStartDate} to ${data.travelEndDate}).`
-  );
-
-  bodyParagraph('We request for approval and facilitation of DSA as tabulated below:', 8);
+  bodyParagraphs.forEach((paragraph, idx) => {
+    bodyParagraph(paragraph, idx === bodyParagraphs.length - 1 ? 8 : 12);
+  });
   y += 12;
 
   // ────────────────────────── Table ──────────────────────────────────────
@@ -255,36 +258,27 @@ export async function generateSensitizationPdf(data: {
   const hasSignatureName = !!data.signatureName && data.signatureName.trim().length > 0;
   const hasSignatureTitle = !!data.signatureTitle && data.signatureTitle.trim().length > 0;
 
-  // Calculate compact space needed
-  let spaceNeeded = 10; // Tiny padding
-  if (hasSignature) {
-    spaceNeeded += 45; // Smaller image
-  }
-  if (hasSignatureName) {
-    spaceNeeded += 18; // Smaller name
-  }
-  if (hasSignatureTitle) {
-    spaceNeeded += 18; // Smaller title
-  }
+  let spaceNeeded = 10;
+  if (hasSignature) spaceNeeded += 45;
+  if (hasSignatureName) spaceNeeded += 18;
+  if (hasSignatureTitle) spaceNeeded += 18;
 
   const spaceAvailable = footerY - y;
 
-  // Only add new page if absolutely necessary
   if (spaceAvailable < spaceNeeded + 20) {
     doc.addPage();
     y = 60;
   }
 
-  // ─── Signature Image ────────────────────────────────────────────────────
   if (hasSignature && data.signature) {
     try {
       const sigDataUrl = data.signature as string;
       const sigFormat = detectImageFormat(sigDataUrl);
-      
+
       const sigNaturalSize = await getImageNaturalSize(sigDataUrl);
-      let sigWidth = 120; // Smaller width
-      let sigHeight = 40; // Smaller height
-      
+      let sigWidth = 120;
+      let sigHeight = 40;
+
       if (sigNaturalSize && sigNaturalSize.width > 0) {
         const aspectRatio = sigNaturalSize.height / sigNaturalSize.width;
         sigHeight = sigWidth * aspectRatio;
@@ -293,18 +287,17 @@ export async function generateSensitizationPdf(data: {
           sigWidth = sigHeight / aspectRatio;
         }
       }
-      
+
       doc.addImage(sigDataUrl, sigFormat, marginX, y, sigWidth, sigHeight);
-      y += sigHeight + 6; // Reduced gap
+      y += sigHeight + 6;
     } catch (err) {
       console.warn('Failed to add signature image to PDF:', err);
     }
   }
 
-  // ─── Signature Name (bold, underlined, uppercase) ────────────────────
   if (hasSignatureName && data.signatureName) {
     doc.setFont('times', 'bold');
-    doc.setFontSize(10); // Smaller font
+    doc.setFontSize(10);
     doc.setTextColor(0, 0, 0);
     const displayName = data.signatureName.toUpperCase();
     const textWidth = doc.getTextWidth(displayName);
@@ -314,10 +307,9 @@ export async function generateSensitizationPdf(data: {
     y += 16;
   }
 
-  // ─── Signature Title (bold, underlined, uppercase) ────────────────────
   if (hasSignatureTitle && data.signatureTitle) {
     doc.setFont('times', 'bold');
-    doc.setFontSize(10); // Smaller font
+    doc.setFontSize(10);
     doc.setTextColor(0, 0, 0);
     const displayTitle = data.signatureTitle.toUpperCase();
     const textWidth = doc.getTextWidth(displayTitle);
@@ -362,8 +354,6 @@ export async function generateSensitizationPdf(data: {
 
     const rightMargin = pageWidth - marginX;
     let textY = footerY + 16;
-
-    
 
     textY += 13;
     doc.setFont('times', 'normal');

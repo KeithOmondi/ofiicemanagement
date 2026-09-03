@@ -101,6 +101,7 @@ import JOTaskM from "../pages/JO/JOTaskM";
 import JOSurveyPage from "../pages/JO/JOSurveyPage";
 import DRSignatureManagement from "../pages/principalregistry/DRSignatureManagement";
 import DRSensitization from "../pages/principalregistry/DRSensitization";
+import JOInternalMemos from "../pages/JO/JOInternalMemos";
 
 // ─── Desk map ─────────────────────────────────────────────────────────────────
 
@@ -330,6 +331,7 @@ const DeptDeskGateway: React.FC = () => {
           <Route path="memoandletters" element={<JOMemosandLetters />} />
           <Route path="task-management" element={<JOTaskM />} />
           <Route path="jo-surveys" element={<JOSurveyPage />} />
+          <Route path="internal-memos" element={<JOInternalMemos />} />
         </Route>
         <Route
           path="*"

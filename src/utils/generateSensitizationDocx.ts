@@ -16,10 +16,12 @@ import {
 } from 'docx';
 
 // ─── Theme ──────────────────────────────────────────────────────────────────
-// Matches the PDF version: gold-filled table header/footer with dark green
-// text, thin black grid lines.
 const GOLD = 'C9A84C';
 const DARK_GREEN = '1A3D1C';
+
+const DEFAULT_BODY_TEXT = `The Principal Registry has achieved an end-to-end automated process of its operations. Consequently, and pursuant to the Hon. Chief Registrar's memo on implementation of automated processing of gazette notices in succession causes, all stations are required to submit these notices through the CTS.
+
+We request for approval and facilitation of DSA as tabulated below:`;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -43,9 +45,6 @@ async function fetchImage(url: string): Promise<{ data: Uint8Array; type: ImageT
 }
 
 const formatAmount = (amount: number): string => {
-  // Coerce defensively — if a caller passes a number as a string (e.g.
-  // "050000"), toLocaleString() on a string ignores the formatting options
-  // and returns it unchanged, leading zeros and all.
   const n = Number(amount);
   return n > 0
     ? n.toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -99,6 +98,8 @@ export async function generateSensitizationDocx(data: {
   travelStartDate: string;
   travelEndDate: string;
   sensitizationPeriod: string;
+  /** The user-edited body copy (as typed in the memo preview's "Edit Memo" textarea). */
+  bodyText?: string;
   teamMembers: Array<{
     s_no: number;
     name: string;
@@ -113,11 +114,6 @@ export async function generateSensitizationDocx(data: {
   preparedBy: string;
   /** e.g. "DEPUTY REGISTRAR\nPRINCIPAL REGISTRY." — one designation line per newline */
   title: string;
-  /**
-   * Optional extra narrative paragraph, beyond the standard sensitization
-   * context paragraph, inserted before the visit/request paragraph.
-   */
-  additionalContext?: string;
   crestUrl?: string;
 }): Promise<Blob> {
   const [crest] = await Promise.all([
@@ -125,63 +121,26 @@ export async function generateSensitizationDocx(data: {
   ]);
 
   // ─── Body paragraphs ────────────────────────────────────────────────────
-  // Mirrors the PDF version's order: automation notice → standard
-  // sensitization context → optional extra context → visit/request → DSA
-  // request line.
-  const bodyParagraphs: Paragraph[] = [
-    new Paragraph({
-      spacing: { after: 200 },
-      children: [
-        new TextRun({
-          text: 'The Principal Registry has achieved an end-to-end automated process of its operations. Consequently, and pursuant to the Hon. Chief Registrar\'s memo on implementation of automated processing of gazette notices in succession causes, all stations are required to submit these notices through the CTS.',
-          size: 21,
-        }),
-      ],
-    }),
-    new Paragraph({
-      spacing: { after: 200 },
-      children: [
-        new TextRun({
-          text: `The Principal Registry is committed to sensitizing the Judicial Officers and staff on the key features of the automated P&A processes to ensure efficiency in handling of cases. In this regard and following the upcoming visit of the Hon. Chief Justice to ${data.location} whose aim is to review initiatives aimed at improving access to justice, service delivery and case management.`,
-          size: 21,
-        }),
-      ],
-    }),
-  ];
+  // Renders whatever the user typed/edited in the memo preview, split on
+  // blank lines so their paragraph breaks are preserved. Falls back to the
+  // standard sensitization copy if bodyText wasn't supplied.
+  const bodySource = (data.bodyText && data.bodyText.trim().length > 0)
+    ? data.bodyText
+    : DEFAULT_BODY_TEXT;
 
-  if (data.additionalContext) {
-    bodyParagraphs.push(
-      new Paragraph({
-        spacing: { after: 200 },
-        children: [new TextRun({ text: data.additionalContext, size: 21 })],
-      }),
+  const bodyParagraphs: Paragraph[] = bodySource
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map(
+      (paragraph) =>
+        new Paragraph({
+          spacing: { after: 200 },
+          children: [new TextRun({ text: paragraph, size: 21 })],
+        }),
     );
-  }
-
-  bodyParagraphs.push(
-    new Paragraph({
-      spacing: { after: 200 },
-      children: [
-        new TextRun({
-          text: `I request that a team from Principal Registry visits ${data.location} for sensitization from ${data.sensitizationPeriod} (travel dates ${data.travelStartDate} to ${data.travelEndDate}).`,
-          size: 21,
-        }),
-      ],
-    }),
-    new Paragraph({
-      spacing: { after: 200 },
-      children: [
-        new TextRun({
-          text: 'We request for approval and facilitation of DSA as tabulated below:',
-          size: 21,
-        }),
-      ],
-    }),
-  );
 
   // ─── Table ──────────────────────────────────────────────────────────────
-  // No DRIVER column — the driver is just another row ("Pool driver") with
-  // a blank PJ/Rank, same as the real memo.
   const headerRow = new TableRow({
     tableHeader: true,
     children: [
@@ -243,8 +202,6 @@ export async function generateSensitizationDocx(data: {
     rows: [headerRow, ...dataRows, totalRow],
   });
 
-  // Label bold + colon, value bold + caps — no memo number field, matching
-  // the actual memo (TO / FROM / DATE / SUBJECT, in that order).
   const headerField = (label: string, value: string, ruleBelow = false) =>
     new Paragraph({
       spacing: { after: 100 },
@@ -277,8 +234,6 @@ export async function generateSensitizationDocx(data: {
   }
 
   // ─── Header ─────────────────────────────────────────────────────────────
-  // One title line with a rule under it, then TO / FROM / DATE / SUBJECT,
-  // with a second rule under SUBJECT before the body starts.
   children.push(
     new Paragraph({
       alignment: AlignmentType.CENTER,
@@ -296,10 +251,6 @@ export async function generateSensitizationDocx(data: {
   );
 
   // ─── Signature block ─────────────────────────────────────────────────────
-  // Only the name and designation follow the table — no closing "Approval
-  // and facilitation..." line in between. Blank space for a pen signature,
-  // then the signee's name and each designation line, bold, caps, and
-  // underlined.
   children.push(
     new Paragraph({ spacing: { before: 500 }, children: [] }),
     new Paragraph({

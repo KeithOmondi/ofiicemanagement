@@ -290,16 +290,7 @@ export async function generateMemoPdf(params: MemoPdfParams): Promise<Blob> {
   }
 
   // ── Footer text (right-aligned) ─────────────────────────────────────────
-  // Line 1: Social Transformation Motto
-  doc.setFont('Times-Roman', 'bold');
-  doc.setFontSize(9.5);
-  doc.setTextColor(30, 30, 30);
-  doc.text(
-    'Social Transformation through Access to Justice',
-    pageWidth - margin,
-    footerY + 12,
-    { align: 'right' },
-  );
+
 
   // Line 2: Physical Address
   doc.setFont('Times-Roman', 'normal');

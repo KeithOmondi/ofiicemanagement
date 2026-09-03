@@ -322,16 +322,7 @@ export async function generateGRMemoPdf(params: GRMemoParams): Promise<Blob> {
     );
   }
 
-  // Right Block Line 1: Social Transformation Motto
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
-  doc.setTextColor(30, 30, 30);
-  doc.text(
-    'Social Transformation through Access to Justice',
-    pageWidth - margin,
-    footerYPos + 12,
-    { align: 'right' },
-  );
+
 
   // Right Block Line 2: Physical Address
   doc.setFont('helvetica', 'normal');

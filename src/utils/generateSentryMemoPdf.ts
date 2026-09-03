@@ -358,11 +358,6 @@ export async function generateSentryMemoPdf(params: SentryMemoParams): Promise<B
   const footerTextX = pageWidth - margin;
   const footerTextStartY = footerY + 10;
 
-  doc.setFont('Times-Roman', 'italic');
-  doc.setFontSize(8);
-  doc.setTextColor(85, 85, 85);
-  doc.text('Social Transformation through Access to Justice', footerTextX, footerTextStartY, { align: 'right' });
-
   doc.setFont('Times-Roman', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(80, 80, 80);
