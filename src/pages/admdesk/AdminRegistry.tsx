@@ -1,4 +1,4 @@
-// src/pages/admin/SuperAdminRegistry.tsx
+// src/pages/admin/AdminRegistry.tsx
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { toast, Toaster } from 'react-hot-toast';
 import { useAppDispatch, useAppSelector } from '../../store/hook';
@@ -11,10 +11,10 @@ import {
   selectRegistryMutating,
   selectRegistryError,
   clearError as clearRegistryError,
-  // NEW: Direct upload thunks
   directUpload,
   bulkDirectUpload,
   selectIsUploading,
+ 
 } from '../../store/slices/registrySlice';
 import { fetchDocuments, clearError as clearDocumentError } from '../../store/slices/documentSlice';
 import { 
@@ -256,7 +256,9 @@ const FolderDocumentCard: React.FC<{
       )}
       <span className="text-3xl mb-2">📄</span>
       <span className="text-xs font-mono font-medium text-[#8B6914]">{document.ref || 'No ref'}</span>
-      <span className="text-sm font-medium text-slate-800 truncate w-full max-w-[150px]">{document.subject}</span>
+      <span className="text-sm font-medium text-slate-800 truncate w-full max-w-[150px]">
+        {document.ref || 'Document'}
+      </span>
       <span className="text-[11px] text-slate-400 mb-3 uppercase">{document.format || 'Document'}</span>
       <span className="text-xs text-slate-400">{new Date(document.created_at).toLocaleDateString()}</span>
 
@@ -576,13 +578,17 @@ const MoveDocumentsModal: React.FC<{
   );
 };
 
-// ─── Direct Upload Modal Component ──────────────────────────────────────────
+// ─── Station Upload Modal Component ────────────────────────────────────────
 
-interface DirectUploadModalProps {
+// ─── Station Upload Modal Component ────────────────────────────────────────
+
+interface StationUploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUpload: (input: DirectDocumentUploadInput, file: File) => Promise<void>;
-  stations: StationWithFileCount[];
+  stationName: string;
+  stationId: string;
+  stations: StationWithFileCount[];  // Add this
   isUploading: boolean;
   uploadProgress: number;
   uploadStatus: 'idle' | 'uploading' | 'success' | 'error';
@@ -591,11 +597,13 @@ interface DirectUploadModalProps {
   onReset: () => void;
 }
 
-const DirectUploadModal: React.FC<DirectUploadModalProps> = ({
+const StationUploadModal: React.FC<StationUploadModalProps> = ({
   isOpen,
   onClose,
   onUpload,
-  stations,
+  //stationName,
+  stationId,
+  stations,  // Add this
   isUploading,
   uploadProgress,
   uploadStatus,
@@ -605,7 +613,7 @@ const DirectUploadModal: React.FC<DirectUploadModalProps> = ({
 }) => {
   const [title, setTitle] = useState('');
   const [refNo, setRefNo] = useState('');
-  const [stationId, setStationId] = useState('');
+  const [selectedStationId, setSelectedStationId] = useState(stationId || '');
   const [priority, setPriority] = useState<RegistryPriority>('normal');
   const [note, setNote] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -615,7 +623,7 @@ const DirectUploadModal: React.FC<DirectUploadModalProps> = ({
   const resetForm = () => {
     setTitle('');
     setRefNo('');
-    setStationId('');
+    setSelectedStationId(stationId || '');
     setPriority('normal');
     setNote('');
     setSelectedFile(null);
@@ -649,7 +657,7 @@ const DirectUploadModal: React.FC<DirectUploadModalProps> = ({
       toast.error('Document title is required');
       return;
     }
-    if (!stationId) {
+    if (!selectedStationId) {
       toast.error('Please select a destination station');
       return;
     }
@@ -658,7 +666,7 @@ const DirectUploadModal: React.FC<DirectUploadModalProps> = ({
       {
         title: title.trim(),
         ref_no: refNo.trim() || null,
-        station_id: stationId,
+        station_id: selectedStationId,
         priority,
         note: note.trim() || undefined,
       },
@@ -683,11 +691,11 @@ const DirectUploadModal: React.FC<DirectUploadModalProps> = ({
             </div>
             <h3 className="text-lg font-semibold text-slate-900">Upload Successful!</h3>
             <p className="mt-1 text-sm text-slate-500">
-              {uploadResult.entry.document_title} has been uploaded
+              {uploadResult.data?.entry.document_title} has been uploaded
             </p>
             <div className="mt-4 rounded-md bg-slate-50 p-3 text-left">
-              <p className="text-xs text-slate-500">File: {uploadResult.file.file_name}</p>
-              <p className="text-xs text-slate-500">Size: {formatFileSize(uploadResult.file.file_size)}</p>
+              <p className="text-xs text-slate-500">File: {uploadResult.data?.file.file_name}</p>
+              <p className="text-xs text-slate-500">Size: {formatFileSize(uploadResult.data?.file.file_size || 0)}</p>
             </div>
             <button
               onClick={handleClose}
@@ -758,25 +766,11 @@ const DirectUploadModal: React.FC<DirectUploadModalProps> = ({
 
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700">
-              Reference Number
-            </label>
-            <input
-              type="text"
-              value={refNo}
-              onChange={(e) => setRefNo(e.target.value)}
-              placeholder="e.g., RHC/MSB/001"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
-              disabled={isUploading}
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-700">
               Destination Station *
             </label>
             <select
-              value={stationId}
-              onChange={(e) => setStationId(e.target.value)}
+              value={selectedStationId}
+              onChange={(e) => setSelectedStationId(e.target.value)}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
               required
               disabled={isUploading}
@@ -790,6 +784,20 @@ const DirectUploadModal: React.FC<DirectUploadModalProps> = ({
                   </option>
                 ))}
             </select>
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Reference Number (Optional)
+            </label>
+            <input
+              type="text"
+              value={refNo}
+              onChange={(e) => setRefNo(e.target.value)}
+              placeholder="e.g., RHC/MSB/001"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-[#8B6914] focus:outline-none focus:ring-1 focus:ring-[#8B6914]"
+              disabled={isUploading}
+            />
           </div>
 
           <div>
@@ -870,7 +878,7 @@ const DirectUploadModal: React.FC<DirectUploadModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isUploading || !selectedFile || !title || !stationId}
+              disabled={isUploading || !selectedFile || !title || !selectedStationId}
               className="inline-flex items-center gap-2 rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#7A5E12] disabled:opacity-50"
             >
               {isUploading ? (
@@ -887,7 +895,8 @@ const DirectUploadModal: React.FC<DirectUploadModalProps> = ({
   );
 };
 
-// ─── Bulk Upload Modal Component ─────────────────────────────────────────────
+
+// ─── Bulk Upload Modal Component ────────────────────────────────────────────
 
 interface BulkUploadModalProps {
   isOpen: boolean;
@@ -1148,6 +1157,10 @@ const SuperAdminRegistry = () => {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadResult, setUploadResult] = useState<DirectDocumentUploadResponse | null>(null);
 
+  // ── Station Upload Modal State ─────────────────────────────────────────────
+  const [isStationUploadModalOpen, setIsStationUploadModalOpen] = useState(false);
+  const [selectedStationForUpload, setSelectedStationForUpload] = useState<StationWithFileCount | null>(null);
+
   // ── Delete confirmation state ──────────────────────────────────────────────
   const [stationToDelete, setStationToDelete] = useState<string | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -1252,20 +1265,62 @@ const SuperAdminRegistry = () => {
     }
   };
 
-  // ── Bulk Upload Handler ────────────────────────────────────────────────────
+  // ── Station Upload Handler ─────────────────────────────────────────────────
 
-  const handleBulkUpload = async (input: BulkDirectDocumentUploadInput, files: File[]) => {
+  const handleStationUpload = async (input: DirectDocumentUploadInput, file: File) => {
+    setUploadStatus('uploading');
+    setUploadProgress(0);
+    setUploadError(null);
+    setUploadResult(null);
+
     try {
-      const results = await dispatch(bulkDirectUpload({ input, files })).unwrap();
-      toast.success(`${results.length} documents uploaded successfully!`);
+      const result = await dispatch(directUpload({ input, file })).unwrap();
+      setUploadStatus('success');
+      setUploadResult(result);
+      toast.success(`Document uploaded to ${selectedStationForUpload?.name || 'station'} successfully!`);
       refreshCounts();
+      
+      // Refresh the station entries if the modal is open
+      if (selectedStationForModal) {
+        const result = await dispatch(fetchRegistryEntries({
+          station_id: selectedStationForModal,
+          limit: 100,
+          sort_by: 'routed_at',
+          sort_order: 'DESC'
+        })).unwrap();
+        const uniqueEntries = Array.from(
+          new Map(result.data.map((entry: RegistryEntry) => [entry.document_id, entry])).values()
+        );
+        setStationEntries(uniqueEntries);
+      }
+      
       dispatch(fetchRHCFolders({ include_sub_folders: true }));
-      setIsBulkUploadModalOpen(false);
     } catch (error) {
-      const errorMessage = typeof error === 'string' ? error : 'Failed to upload documents';
+      const errorMessage = typeof error === 'string' ? error : 'Failed to upload document';
+      setUploadStatus('error');
+      setUploadError(errorMessage);
       toast.error(errorMessage);
     }
   };
+
+  // ── Bulk Upload Handler ────────────────────────────────────────────────────
+
+// ── Bulk Upload Handler ────────────────────────────────────────────────────
+
+const handleBulkUpload = async (input: BulkDirectDocumentUploadInput, files: File[]) => {
+  try {
+    const result = await dispatch(bulkDirectUpload({ input, files })).unwrap();
+    // Use result.data?.totalSuccess or result.data?.results?.length
+    const successCount = result.data?.totalSuccess || result.data?.results?.length || 0;
+    toast.success(`${successCount} documents uploaded successfully!`);
+    refreshCounts();
+    dispatch(fetchRHCFolders({ include_sub_folders: true }));
+    setIsBulkUploadModalOpen(false);
+  } catch (error) {
+    const errorMessage = typeof error === 'string' ? error : 'Failed to upload documents';
+    toast.error(errorMessage);
+  }
+};
 
   const resetUploadState = () => {
     setUploadStatus('idle');
@@ -1343,7 +1398,7 @@ const SuperAdminRegistry = () => {
       })).unwrap();
 
       const uniqueEntries = Array.from(
-        new Map(result.data.map(entry => [entry.document_id, entry])).values()
+        new Map(result.data.map((entry: RegistryEntry) => [entry.document_id, entry])).values()
       );
       setStationEntries(uniqueEntries);
     } catch {
@@ -1468,27 +1523,21 @@ const SuperAdminRegistry = () => {
   };
 
   // ── Document view handlers ─────────────────────────────────────────────────
-  const handleViewDocument = async (entry: RegistryEntry) => {
-    setSelectedDocument(entry);
-    setIsDocViewModalOpen(true);
-    setDocumentLoading(true);
-    setDocumentUrl(null);
-    setDocumentError(null);
+// ── Document view handlers ─────────────────────────────────────────────────
+const handleViewDocument = async (entry: RegistryEntry) => {
+  setSelectedDocument(entry);
+  setIsDocViewModalOpen(true);
+  setDocumentLoading(true);
+  setDocumentUrl(null);
+  setDocumentError(null);
 
-    try {
-      const doc = documents.find(d => d.id === entry.document_id);
-      
-      if (!doc) {
-        throw new Error('Document not found in the system');
-      }
-
-      if (doc.file_url) {
-        setDocumentUrl(doc.file_url);
-      } else if (doc.file_public_id) {
-        setDocumentUrl(`/api/documents/${entry.document_id}/file`);
-      } else if (doc.body) {
-        setDocumentUrl(doc.body);
-      } else {
+  try {
+    // First check if document exists in store
+    let doc = documents.find(d => d.id === entry.document_id);
+    
+    // If not found in store, fetch it directly
+    if (!doc) {
+      try {
         const token = localStorage.getItem('token');
         const response = await fetch(`/api/documents/${entry.document_id}`, {
           headers: {
@@ -1502,26 +1551,48 @@ const SuperAdminRegistry = () => {
         }
 
         const data = await response.json();
-        const documentData = data.data || data;
+        doc = data.data || data;
         
-        if (documentData.file_url) {
-          setDocumentUrl(documentData.file_url);
-        } else if (documentData.body) {
-          setDocumentUrl(documentData.body);
-        } else {
-          throw new Error('Document content not available');
+        if (!doc) {
+          throw new Error('Document not found in the system');
         }
+      } catch (fetchError) {
+        // If document has file_url directly, use it
+        if (entry.file_url) {
+          setDocumentUrl(entry.file_url);
+          setDocumentLoading(false);
+          return;
+        }
+        throw fetchError;
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to load document';
-      setDocumentError(errorMessage);
-      toast.error(errorMessage);
-      console.error('Error fetching document:', error);
-    } finally {
-      setDocumentLoading(false);
     }
-  };
 
+    if (!doc) {
+      throw new Error('Document not found in the system');
+    }
+
+    // Use file_url from document or entry
+    if (doc.file_url) {
+      setDocumentUrl(doc.file_url);
+    } else if (doc.file_public_id) {
+      setDocumentUrl(`/api/documents/${entry.document_id}/file`);
+    } else if (doc.body) {
+      setDocumentUrl(doc.body);
+    } else if (entry.file_url) {
+      // Fallback to entry's file_url
+      setDocumentUrl(entry.file_url);
+    } else {
+      throw new Error('Document content not available');
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to load document';
+    setDocumentError(errorMessage);
+    toast.error(errorMessage);
+    console.error('Error fetching document:', error);
+  } finally {
+    setDocumentLoading(false);
+  }
+};
   const closeDocViewModal = () => {
     setIsDocViewModalOpen(false);
     setSelectedDocument(null);
@@ -1878,7 +1949,13 @@ const SuperAdminRegistry = () => {
 
   // ── Get combined destinations (stations + folders) for dropdown ──────────
   const getRouteDestinations = useCallback(() => {
-    const destinations = [];
+    const destinations: Array<{
+      id: string;
+      name: string;
+      ref_no: string | null;
+      type: 'station' | 'folder';
+      display: string;
+    }> = [];
     
     for (const station of stations) {
       if (station.is_active) {
@@ -1909,7 +1986,7 @@ const SuperAdminRegistry = () => {
     return destinations;
   }, [stations, folders]);
 
-  // ── Render Stations View ──────────────────────────────────────────────────
+  // ─── Render Stations View ──────────────────────────────────────────────────
 
   const renderStationsView = () => {
     const destinations = getRouteDestinations();
@@ -2317,21 +2394,24 @@ const SuperAdminRegistry = () => {
       )}
 
       {/* ── Direct Upload Modal ────────────────────────────────────────────── */}
-      <DirectUploadModal
-        isOpen={isDirectUploadModalOpen}
-        onClose={() => {
-          setIsDirectUploadModalOpen(false);
-          resetUploadState();
-        }}
-        onUpload={handleDirectUpload}
-        stations={stations}
-        isUploading={isUploading}
-        uploadProgress={uploadProgress}
-        uploadStatus={uploadStatus}
-        uploadError={uploadError}
-        uploadResult={uploadResult}
-        onReset={resetUploadState}
-      />
+{/* ── Direct Upload Modal ────────────────────────────────────────────── */}
+<StationUploadModal
+  isOpen={isDirectUploadModalOpen}
+  onClose={() => {
+    setIsDirectUploadModalOpen(false);
+    resetUploadState();
+  }}
+  onUpload={handleDirectUpload}
+  stationName="Selected Station"
+  stationId=""
+  stations={stations}  // Add this
+  isUploading={isUploading}
+  uploadProgress={uploadProgress}
+  uploadStatus={uploadStatus}
+  uploadError={uploadError}
+  uploadResult={uploadResult}
+  onReset={resetUploadState}
+/>
 
       {/* ── Bulk Upload Modal ──────────────────────────────────────────────── */}
       <BulkUploadModal
@@ -2528,9 +2608,25 @@ const SuperAdminRegistry = () => {
                 )}
                 <p className="text-sm text-slate-500 mt-1">Routed Documents</p>
               </div>
-              <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 transition">
-                <X size={24} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const station = stations.find(s => s.id === selectedStationForModal);
+                    if (station) {
+                      setSelectedStationForUpload(station);
+                      resetUploadState();
+                      setIsStationUploadModalOpen(true);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white rounded-lg bg-green-600 hover:bg-green-700 transition"
+                >
+                  <Upload size={14} />
+                  Upload
+                </button>
+                <button onClick={closeModal} className="text-slate-400 hover:text-slate-600 transition">
+                  <X size={24} />
+                </button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4">
               {modalLoading ? (
@@ -2542,6 +2638,20 @@ const SuperAdminRegistry = () => {
                 <div className="py-16 text-center text-sm text-slate-400 border-2 border-dashed border-slate-200 rounded-xl">
                   <FileText size={48} className="mx-auto text-slate-300 mb-3" />
                   <p>No documents have been routed to this station yet.</p>
+                  <button
+                    onClick={() => {
+                      const station = stations.find(s => s.id === selectedStationForModal);
+                      if (station) {
+                        setSelectedStationForUpload(station);
+                        resetUploadState();
+                        setIsStationUploadModalOpen(true);
+                      }
+                    }}
+                    className="mt-4 inline-flex items-center gap-2 rounded-lg bg-[#8B6914] px-4 py-2 text-sm font-medium text-white hover:bg-[#7A5E12] transition"
+                  >
+                    <Upload size={16} />
+                    Upload First Document
+                  </button>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
@@ -2554,7 +2664,7 @@ const SuperAdminRegistry = () => {
             <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 rounded-b-xl">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-500">
-                  {stationEntries.length} document{stationEntries.length !== 1 ? 's' : ''} routed
+                  {stationEntries.length} document{stationEntries.length !== 1 ? 's' : ''} on record
                 </span>
                 <button
                   onClick={closeModal}
@@ -2567,6 +2677,27 @@ const SuperAdminRegistry = () => {
           </div>
         </div>
       )}
+
+      {/* ── Station Upload Modal ────────────────────────────────────────────── */}
+{/* ── Station Upload Modal ────────────────────────────────────────────── */}
+<StationUploadModal
+  isOpen={isStationUploadModalOpen}
+  onClose={() => {
+    setIsStationUploadModalOpen(false);
+    setSelectedStationForUpload(null);
+    resetUploadState();
+  }}
+  onUpload={handleStationUpload}
+  stationName={selectedStationForUpload?.name || 'Station'}
+  stationId={selectedStationForUpload?.id || ''}
+  stations={stations}  // Add this
+  isUploading={isUploading}
+  uploadProgress={uploadProgress}
+  uploadStatus={uploadStatus}
+  uploadError={uploadError}
+  uploadResult={uploadResult}
+  onReset={resetUploadState}
+/>
 
       {/* ── Document View Modal ──────────────────────────────────────────────── */}
       {isDocViewModalOpen && selectedDocument && (

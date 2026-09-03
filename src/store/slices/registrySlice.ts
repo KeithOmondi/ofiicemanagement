@@ -28,6 +28,7 @@ import type {
   UpdateDocumentMetadataInput,
   DeleteDocumentInput,
   DirectDocumentUploadResponse,
+  BulkDirectDocumentUploadResponse,
   DocumentDetailsResponse,
   DocumentSource,
 } from '../../types/registry.types';
@@ -39,8 +40,8 @@ import type {
 interface RegistryState {
   entries:        RegistryEntry[];
   selectedEntry:  RegistryEntry | null;
-  history:        RegistryEntry[];       // route history for one document
-  historyDocId:   string | null;         // which document `history` belongs to
+  history:        RegistryEntry[];
+  historyDocId:   string | null;
   stationCounts:  StationWithFileCount[];
   
   // Folder state
@@ -69,11 +70,12 @@ interface RegistryState {
   filters: RegistryFilters;
   folderFilters: FolderFilters;
   
-  // Direct upload state
+  // Upload state
   uploadProgress: Record<string, number>;
   uploadStatus: Record<string, 'idle' | 'uploading' | 'success' | 'error'>;
   uploadErrors: Record<string, string>;
   uploadResults: Record<string, DirectDocumentUploadResponse>;
+  bulkUploadResults: BulkDirectDocumentUploadResponse | null;
   
   loading: {
     list:     boolean;
@@ -142,6 +144,7 @@ const initialState: RegistryState = {
   uploadStatus: {},
   uploadErrors: {},
   uploadResults: {},
+  bulkUploadResults: null,
   
   loading: {
     list:     false,
@@ -240,7 +243,7 @@ export const fetchDocumentDetails = createAsyncThunk(
   'registry/fetchDocumentDetails',
   async (documentId: string, { rejectWithValue }) => {
     try {
-      const response = await axiosClient.get(`/registry/document/${documentId}/details`);
+      const response = await axiosClient.get(`/registry/documents/${documentId}`);
       return response.data.data as DocumentDetailsResponse;
     } catch (err) {
       return rejectWithValue(extractErrorMessage(err));
@@ -302,9 +305,9 @@ export const directUpload = createAsyncThunk(
         }
       });
       
-      formData.append('document', file);
+      formData.append('file', file);
 
-      const response = await axiosClient.post('/registry/upload/station', formData, {
+      const response = await axiosClient.post('/registry/upload/direct', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -340,11 +343,11 @@ export const bulkDirectUpload = createAsyncThunk(
       });
       
       files.forEach((file) => {
-        formData.append('documents', file);
+        formData.append('files', file);
       });
 
       let overallProgress = 0;
-      const response = await axiosClient.post('/registry/upload/station/bulk', formData, {
+      const response = await axiosClient.post('/registry/upload/bulk', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -359,7 +362,7 @@ export const bulkDirectUpload = createAsyncThunk(
         },
       });
       
-      return response.data.data as DirectDocumentUploadResponse[];
+      return response.data.data as BulkDirectDocumentUploadResponse;
     } catch (err) {
       return rejectWithValue(extractErrorMessage(err));
     }
@@ -382,9 +385,9 @@ export const uploadDocumentToFolder = createAsyncThunk(
         }
       });
       
-      formData.append('document', file);
+      formData.append('file', file);
 
-      const response = await axiosClient.post(`/registry/upload/folder/${folderId}`, formData, {
+      const response = await axiosClient.post(`/registry/folders/${folderId}/upload`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -412,7 +415,7 @@ export const updateDocumentMetadata = createAsyncThunk(
     { rejectWithValue }
   ) => {
     try {
-      const response = await axiosClient.put(`/registry/documents/${documentId}`, input);
+      const response = await axiosClient.patch(`/registry/documents/${documentId}`, input);
       return response.data.data as RegistryEntry;
     } catch (err) {
       return rejectWithValue(extractErrorMessage(err));
@@ -449,7 +452,7 @@ export const fetchDocumentsBySource = createAsyncThunk(
     try {
       const params = new URLSearchParams();
       if (stationId) params.append('stationId', stationId);
-      const response = await axiosClient.get(`/registry/source/${source}?${params.toString()}`);
+      const response = await axiosClient.get(`/registry/documents/source/${source}?${params.toString()}`);
       return { source, entries: response.data.data as RegistryEntry[] };
     } catch (err) {
       return rejectWithValue(extractErrorMessage(err));
@@ -725,7 +728,9 @@ const registrySlice = createSlice({
     setUploadProgress(state, action: PayloadAction<{ fileName: string; progress: number }>) {
       const { fileName, progress } = action.payload;
       state.uploadProgress[fileName] = progress;
-      state.uploadStatus[fileName] = progress < 100 ? 'uploading' : 'success';
+      if (progress < 100) {
+        state.uploadStatus[fileName] = 'uploading';
+      }
     },
     
     setUploadStatus(state, action: PayloadAction<{ fileName: string; status: 'idle' | 'uploading' | 'success' | 'error'; error?: string }>) {
@@ -745,6 +750,7 @@ const registrySlice = createSlice({
       state.uploadStatus = {};
       state.uploadErrors = {};
       state.uploadResults = {};
+      state.bulkUploadResults = null;
     },
     
     clearSelectedEntry(state) { state.selectedEntry = null; },
@@ -844,10 +850,12 @@ const registrySlice = createSlice({
       .addCase(directUpload.fulfilled, (state, action: PayloadAction<DirectDocumentUploadResponse>) => {
         state.loading.uploading = false;
         state.success = true;
-        state.entries = [action.payload.entry, ...state.entries];
-        state.uploadResults[action.payload.file.file_name] = action.payload;
-        state.pagination.total += 1;
-        state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
+        if (action.payload.data) {
+          state.entries = [action.payload.data.entry, ...state.entries];
+          state.uploadResults[action.payload.data.file.file_name] = action.payload;
+          state.pagination.total += 1;
+          state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
+        }
       })
       .addCase(directUpload.rejected, (state, action) => { 
         state.loading.uploading = false; 
@@ -861,16 +869,34 @@ const registrySlice = createSlice({
         state.error = null; 
         state.success = false; 
       })
-      .addCase(bulkDirectUpload.fulfilled, (state, action: PayloadAction<DirectDocumentUploadResponse[]>) => {
+      .addCase(bulkDirectUpload.fulfilled, (state, action: PayloadAction<BulkDirectDocumentUploadResponse>) => {
         state.loading.uploading = false;
         state.success = true;
-        const newEntries = action.payload.map((r) => r.entry);
-        state.entries = [...newEntries, ...state.entries];
-        action.payload.forEach((r) => {
-          state.uploadResults[r.file.file_name] = r;
-        });
-        state.pagination.total += newEntries.length;
-        state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
+        state.bulkUploadResults = action.payload;
+        
+        if (action.payload.data) {
+          const newEntries = action.payload.data.results
+            .filter((r) => r.success && r.entry)
+            .map((r) => r.entry!);
+          state.entries = [...newEntries, ...state.entries];
+          
+          action.payload.data.results.forEach((r) => {
+            if (r.success && r.file) {
+              state.uploadResults[r.file.file_name] = {
+                success: true,
+                message: 'Upload successful',
+                data: {
+                  entry: r.entry!,
+                  file: r.file,
+                  cloudinary_metadata: r.cloudinary_metadata,
+                },
+              };
+            }
+          });
+          
+          state.pagination.total += newEntries.length;
+          state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
+        }
       })
       .addCase(bulkDirectUpload.rejected, (state, action) => { 
         state.loading.uploading = false; 
@@ -887,10 +913,12 @@ const registrySlice = createSlice({
       .addCase(uploadDocumentToFolder.fulfilled, (state, action: PayloadAction<DirectDocumentUploadResponse>) => {
         state.loading.uploading = false;
         state.success = true;
-        state.entries = [action.payload.entry, ...state.entries];
-        state.uploadResults[action.payload.file.file_name] = action.payload;
-        state.pagination.total += 1;
-        state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
+        if (action.payload.data) {
+          state.entries = [action.payload.data.entry, ...state.entries];
+          state.uploadResults[action.payload.data.file.file_name] = action.payload;
+          state.pagination.total += 1;
+          state.pagination.totalPages = Math.ceil(state.pagination.total / state.pagination.limit);
+        }
       })
       .addCase(uploadDocumentToFolder.rejected, (state, action) => { 
         state.loading.uploading = false; 
@@ -914,9 +942,9 @@ const registrySlice = createSlice({
       .addCase(updateDocumentMetadata.fulfilled, (state, action: PayloadAction<RegistryEntry>) => {
         state.loading.mutating = false;
         state.success = true;
-        const index = state.entries.findIndex((e) => e.id === action.payload.id);
+        const index = state.entries.findIndex((e) => e.document_id === action.payload.document_id);
         if (index !== -1) state.entries[index] = action.payload;
-        if (state.selectedEntry?.id === action.payload.id) state.selectedEntry = action.payload;
+        if (state.selectedEntry?.document_id === action.payload.document_id) state.selectedEntry = action.payload;
       })
       .addCase(updateDocumentMetadata.rejected, (state, action) => { state.loading.mutating = false; state.error = action.payload as string; state.success = false; });
 
@@ -985,12 +1013,33 @@ const registrySlice = createSlice({
       })
       .addCase(fetchFolderById.rejected, (state, action) => { state.loading.folderDetail = false; state.error = action.payload as string; });
 
-    builder
-      .addCase(fetchFolderChildren.pending, (state) => { state.loading.folderChildren = true; state.error = null; })
-      .addCase(fetchFolderChildren.fulfilled, (state) => {
-        state.loading.folderChildren = false;
-      })
-      .addCase(fetchFolderChildren.rejected, (state, action) => { state.loading.folderChildren = false; state.error = action.payload as string; });
+builder
+  .addCase(fetchFolderChildren.pending, (state) => { state.loading.folderChildren = true; state.error = null; })
+  .addCase(fetchFolderChildren.fulfilled, (state, action: PayloadAction<{ id: string; children: RHCFolder[] }>) => {
+    state.loading.folderChildren = false;
+    // Update the children in the folders list
+    const children = action.payload.children;
+    const childrenIds = new Set(children.map(c => c.id));
+    
+    // Remove existing children that are no longer in the list
+    state.folders = state.folders.filter(f => {
+      if (f.parent_folder_id === action.payload.id) {
+        return childrenIds.has(f.id);
+      }
+      return true;
+    });
+    
+    // Add/update children
+    children.forEach(child => {
+      const existingIndex = state.folders.findIndex(f => f.id === child.id);
+      if (existingIndex !== -1) {
+        state.folders[existingIndex] = child;
+      } else {
+        state.folders.push(child);
+      }
+    });
+  })
+  .addCase(fetchFolderChildren.rejected, (state, action) => { state.loading.folderChildren = false; state.error = action.payload as string; });
 
     builder
       .addCase(fetchFolderHierarchy.pending, (state) => { state.loading.folderDetail = true; state.error = null; })
@@ -1094,9 +1143,14 @@ const registrySlice = createSlice({
 
     builder
       .addCase(addDocumentToFolder.pending, (state) => { state.loading.folderMutating = true; state.error = null; state.success = false; })
-      .addCase(addDocumentToFolder.fulfilled, (state) => {
+      .addCase(addDocumentToFolder.fulfilled, (state, action: PayloadAction<{ folderId: string; documentId: string }>) => {
         state.loading.folderMutating = false;
         state.success = true;
+        // Update folder document count if available
+        const folder = state.folders.find(f => f.id === action.payload.folderId);
+        if (folder && folder.document_count !== undefined) {
+          folder.document_count += 1;
+        }
       })
       .addCase(addDocumentToFolder.rejected, (state, action) => { state.loading.folderMutating = false; state.error = action.payload as string; state.success = false; });
 
@@ -1106,14 +1160,24 @@ const registrySlice = createSlice({
         state.loading.folderMutating = false;
         state.success = true;
         state.folderDocuments = state.folderDocuments.filter((d) => d.id !== action.payload.documentId);
+        // Update folder document count if available
+        const folder = state.folders.find(f => f.id === action.payload.folderId);
+        if (folder && folder.document_count !== undefined) {
+          folder.document_count = Math.max(0, folder.document_count - 1);
+        }
       })
       .addCase(removeDocumentFromFolder.rejected, (state, action) => { state.loading.folderMutating = false; state.error = action.payload as string; state.success = false; });
 
     builder
       .addCase(bulkAddDocumentsToFolder.pending, (state) => { state.loading.folderMutating = true; state.error = null; state.success = false; })
-      .addCase(bulkAddDocumentsToFolder.fulfilled, (state) => {
+      .addCase(bulkAddDocumentsToFolder.fulfilled, (state, action: PayloadAction<{ folderId: string; result: BulkAddDocumentsResult }>) => {
         state.loading.folderMutating = false;
         state.success = true;
+        // Update folder document count if available
+        const folder = state.folders.find(f => f.id === action.payload.folderId);
+        if (folder && folder.document_count !== undefined) {
+          folder.document_count += action.payload.result.added;
+        }
       })
       .addCase(bulkAddDocumentsToFolder.rejected, (state, action) => { state.loading.folderMutating = false; state.error = action.payload as string; state.success = false; });
   },
@@ -1174,6 +1238,8 @@ export const selectUploadResult = (state: { registry: RegistryState }, fileName:
   state.registry.uploadResults[fileName] || null;
 export const selectAllUploadResults = (state: { registry: RegistryState }) => 
   state.registry.uploadResults;
+export const selectBulkUploadResults = (state: { registry: RegistryState }) => 
+  state.registry.bulkUploadResults;
 export const selectIsUploading = (state: { registry: RegistryState }) => 
   state.registry.loading.uploading;
 

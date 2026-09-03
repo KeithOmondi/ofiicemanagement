@@ -15,7 +15,7 @@ export type RegistryStatus =
   | 'active'     // document is currently at this station
   | 'returned';  // document has been returned to the registry
 
-// ── NEW: Document Source ────────────────────────────────────────────────────
+// ── Document Source ────────────────────────────────────────────────────────
 
 export type DocumentSource = 
   | 'routed'      // Document came through routing (sent from another station)
@@ -31,8 +31,23 @@ export type FolderCategory =
   | 'administrative'
   | 'other';
 
+// ── Cloudinary Types ────────────────────────────────────────────────────────
+
+export interface CloudinaryUploadResult {
+  public_id: string;
+  version: number;
+  format: string;
+  resource_type: string;
+  url: string;
+  secure_url: string;
+  bytes: number;
+  original_filename: string;
+  width?: number;
+  height?: number;
+  created_at?: string;
+}
+
 // ── Document File Info ──────────────────────────────────────────────────────
-// NEW: Store file metadata for direct uploads
 
 export interface DocumentFile {
   file_url: string;
@@ -40,7 +55,9 @@ export interface DocumentFile {
   file_name: string;
   file_size: number;
   mime_type: string;
-  uploaded_at: Date;
+  uploaded_at: string;  // ISO date string
+  format?: string;
+  cloudinary_version?: number;
 }
 
 // ── Registry Entry ──────────────────────────────────────────────────────────
@@ -58,24 +75,25 @@ export interface RegistryEntry {
   priority:         RegistryPriority;
   note:             string | null;
   status:           RegistryStatus;
-  routed_at:        Date;
-  received_at:      Date | null;
+  routed_at:        string;      // ISO date string
+  received_at:      string | null;
   received_by:      string | null;
   received_by_name: string | null;
   is_active:        boolean;
-  created_at:       Date;
-  // NEW: Fields for direct uploads
-  source:           DocumentSource;        // 'routed' or 'direct'
-  uploaded_by:      string | null;         // User who uploaded directly
-  uploaded_by_name: string | null;         // Name of uploader
-  file_url:         string | null;         // File URL if directly uploaded
-  file_public_id:   string | null;         // Cloudinary public ID
-  file_name:        string | null;         // Original file name
-  file_size:        number | null;         // File size in bytes
-  mime_type:        string | null;         // MIME type
+  created_at:       string;      // ISO date string
+  source:           DocumentSource;
+  uploaded_by:      string | null;
+  uploaded_by_name: string | null;
+  file_url:         string | null;
+  file_public_id:   string | null;
+  file_name:        string | null;
+  file_size:        number | null;
+  mime_type:        string | null;
+  cloudinary_version?: number | null;
+  file_format?: string | null;
 }
 
-// ─── Folder Registry Entry (for showing folder documents in Registry) ───────
+// ─── Folder Registry Entry ─────────────────────────────────────────────────
 
 export interface FolderRegistryEntry {
   id:                   string;
@@ -88,28 +106,28 @@ export interface FolderRegistryEntry {
   folder_id:            string;
   folder_ref_no:        string;
   folder_name:          string;
-  is_folder_document:   boolean;  // Flag to distinguish from routed documents
-  created_at:           Date;
-  // NEW: File info for folder documents
+  is_folder_document:   boolean;
+  created_at:           string;  // ISO date string
   file_url:             string | null;
   file_public_id:       string | null;
   file_name:            string | null;
   file_size:            number | null;
   mime_type:            string | null;
-  source?:              DocumentSource; // Source of the document
+  source?:              DocumentSource;
+  cloudinary_version?:  number | null;
+  file_format?:         string | null;
 }
 
-// ── Station file counts (for the registry dashboard grid) ───────────────────
+// ── Station file counts ───────────────────────────────────────────────────
 
 export interface StationWithFileCount {
   id:         string;
-  ref_no:     string | null;  // e.g., "RHC/MSB/22" for courts, null for sub-registries
+  ref_no:     string | null;
   name:       string;
   type:       StationType;
   location:   string | null;
   is_active:  boolean;
-  file_count: number; // count of active (currently-on-record) registry entries
-  // NEW: Separate counts for routed vs direct uploads
+  file_count: number;
   routed_count?: number;
   direct_count?: number;
 }
@@ -124,8 +142,6 @@ export interface RegistryPaginationResponse {
   totalPages: number;
 }
 
-// ── Folder Pagination Response ──────────────────────────────────────────────
-
 export interface FolderRegistryPaginationResponse {
   data:       FolderRegistryEntry[];
   total:      number;
@@ -138,14 +154,14 @@ export interface FolderRegistryPaginationResponse {
 
 export interface RHCFolder {
   id: string;
-  ref_no: string;              // e.g., "RHC/MSB/22"
-  name: string;                // e.g., "Marasabi High Court"
+  ref_no: string;
+  name: string;
   category: FolderCategory;
   description: string | null;
   status: FolderStatus;
   parent_folder_id: string | null;
-  created_at: Date;
-  updated_at: Date;
+  created_at: string;  // ISO date string
+  updated_at: string;  // ISO date string
   sub_folder_count?: number;
   document_count?: number;
 }
@@ -157,13 +173,13 @@ export interface FolderDocument {
   format: string;
   file_url: string | null;
   file_public_id: string | null;
-  created_at: Date;
-  added_at: Date;
-  // NEW: Additional file metadata
+  created_at: string;  // ISO date string
+  added_at: string;    // ISO date string
   file_name?: string;
   file_size?: number;
   mime_type?: string;
   source?: DocumentSource;
+  cloudinary_version?: number;
 }
 
 export interface FolderHierarchy extends RHCFolder {
@@ -210,25 +226,25 @@ export interface RegistryFilters {
   station_id?:  string;
   status?:      RegistryStatus;
   priority?:    RegistryPriority;
-  source?:      DocumentSource; // NEW: Filter by source
+  source?:      DocumentSource;
   page?:        number;
   limit?:       number;
   sort_by?:     'routed_at' | 'received_at' | 'created_at';
   sort_order?:  'ASC' | 'DESC';
 }
 
-// ── NEW: Direct Document Upload Inputs ─────────────────────────────────────
+// ── Direct Document Upload Inputs ─────────────────────────────────────────
 
 export interface DirectDocumentUploadInput {
-  title: string;                // Document title
-  ref_no?: string | null;       // Optional reference number
-  station_id: string;           // Target station
-  priority?: RegistryPriority;  // Defaults to 'normal'
-  note?: string;                // Optional note
+  title: string;
+  ref_no?: string | null;
+  station_id: string;
+  priority?: RegistryPriority;
+  note?: string;
 }
 
 export interface BulkDirectDocumentUploadInput {
-  station_id: string;           // Target station
+  station_id: string;
   priority?: RegistryPriority;
   note?: string;
 }
@@ -251,14 +267,39 @@ export interface DeleteDocumentInput {
   delete_from_storage?: boolean;
 }
 
-// ── NEW: Direct Document Upload Response ───────────────────────────────────
+// ── Direct Document Upload Responses ──────────────────────────────────────
 
 export interface DirectDocumentUploadResponse {
-  entry: RegistryEntry;
-  file: DocumentFile;
+  success: boolean;
+  message: string;
+  data?: {
+    entry: RegistryEntry;
+    file: DocumentFile;
+    cloudinary_metadata?: CloudinaryUploadResult;
+  };
 }
 
-// ── NEW: Document Details Response ─────────────────────────────────────────
+export interface BulkDirectDocumentUploadResponse {
+  success: boolean;
+  message: string;
+  data?: {
+    results: BulkDirectDocumentUploadResultItem[];
+    totalProcessed: number;
+    totalSuccess: number;
+    totalFailed: number;
+  };
+}
+
+export interface BulkDirectDocumentUploadResultItem {
+  success: boolean;
+  entry?: RegistryEntry;
+  file?: DocumentFile;
+  error?: string;
+  fileName?: string;
+  cloudinary_metadata?: CloudinaryUploadResult;
+}
+
+// ── Document Details Response ─────────────────────────────────────────────
 
 export interface DocumentDetailsResponse {
   current: RegistryEntry;
@@ -268,19 +309,18 @@ export interface DocumentDetailsResponse {
 // ── Folder Inputs ────────────────────────────────────────────────────────────
 
 export interface CreateFolderInput {
-  ref_no: string;              // e.g., "RHC/MSB/22"
-  name: string;                // e.g., "Marasabi High Court"
-  category?: FolderCategory;   // defaults to 'court'
+  ref_no: string;
+  name: string;
+  category?: FolderCategory;
   description?: string;
   parent_folder_id?: string;
-  status?: FolderStatus;       // defaults to 'active'
+  status?: FolderStatus;
 }
 
 export interface UpdateFolderInput {
   name?: string;
   description?: string;
   status?: FolderStatus;
-  // Note: ref_no should NOT be changeable once set
 }
 
 export interface MoveFolderInput {
@@ -305,7 +345,7 @@ export interface FolderFilters {
 export interface GetStationFolderDocumentsQuery {
   page?: number;
   limit?: number;
-  source?: DocumentSource; // NEW: Filter by source
+  source?: DocumentSource;
 }
 
 // ── Display Labels ──────────────────────────────────────────────────────────
@@ -348,7 +388,7 @@ export const PRIORITY_COLORS: Record<RegistryPriority, string> = {
   for_information_only: 'bg-blue-100 text-blue-700',
 };
 
-// ── NEW: Document Source Labels ────────────────────────────────────────────
+// ── Document Source Labels ────────────────────────────────────────────────
 
 export const SOURCE_LABELS: Record<DocumentSource, string> = {
   routed: 'Routed',
@@ -382,7 +422,7 @@ export const REGISTRY_STATUS_COLORS: Record<RegistryStatus, string> = {
   returned: 'bg-stone-50 text-stone-700',
 };
 
-// ── NEW: File Type Utilities ───────────────────────────────────────────────
+// ── File Type Utilities ────────────────────────────────────────────────────
 
 export const getFileIcon = (mimeType: string | null): string => {
   if (!mimeType) return '📄';
@@ -397,6 +437,21 @@ export const getFileIcon = (mimeType: string | null): string => {
   if (mimeType.includes('zip') || mimeType.includes('archive')) return '📦';
   
   return '📄';
+};
+
+export const getFileTypeLabel = (mimeType: string | null): string => {
+  if (!mimeType) return 'Unknown';
+  
+  if (mimeType.startsWith('image/')) return 'Image';
+  if (mimeType === 'application/pdf') return 'PDF';
+  if (mimeType.includes('word') || mimeType.includes('document')) return 'Word Document';
+  if (mimeType.includes('excel') || mimeType.includes('spreadsheet')) return 'Spreadsheet';
+  if (mimeType.includes('presentation') || mimeType.includes('powerpoint')) return 'Presentation';
+  if (mimeType.startsWith('video/')) return 'Video';
+  if (mimeType.startsWith('audio/')) return 'Audio';
+  if (mimeType.includes('zip') || mimeType.includes('archive')) return 'Archive';
+  
+  return 'File';
 };
 
 export const formatFileSize = (bytes: number | null): string => {
@@ -445,7 +500,7 @@ export const isSpreadsheetFile = (mimeType: string | null): boolean => {
   ].includes(mimeType);
 };
 
-// ── NEW: API Response Types ────────────────────────────────────────────────
+// ── API Response Types ─────────────────────────────────────────────────────
 
 export interface ApiResponse<T> {
   success: boolean;
@@ -459,7 +514,7 @@ export interface ErrorResponse {
   errors?: Record<string, string[]>;
 }
 
-// ── NEW: Upload Status Types ───────────────────────────────────────────────
+// ── Upload Status Types ────────────────────────────────────────────────────
 
 export type UploadStatus = 'idle' | 'uploading' | 'success' | 'error';
 
@@ -471,7 +526,7 @@ export interface UploadProgress {
   result?: DirectDocumentUploadResponse;
 }
 
-// ── NEW: Form Types ────────────────────────────────────────────────────────
+// ── Form Types ─────────────────────────────────────────────────────────────
 
 export interface UploadFormValues {
   title: string;
@@ -499,4 +554,45 @@ export interface DocumentMetadataFormValues {
   ref_no: string;
   priority: RegistryPriority;
   note: string;
+}
+
+// ── Query Parameter Types ─────────────────────────────────────────────────
+
+export interface GetDocumentsBySourceQuery {
+  source: DocumentSource;
+  stationId?: string;
+}
+
+export interface GetStationFolderDocumentsParams {
+  stationId: string;
+  page?: number;
+  limit?: number;
+  source?: DocumentSource;
+}
+
+// ── Component Props Types ─────────────────────────────────────────────────
+
+export interface RegistryEntryCardProps {
+  entry: RegistryEntry;
+  onView?: (entry: RegistryEntry) => void;
+  onReceive?: (entry: RegistryEntry) => void;
+  onReturn?: (entry: RegistryEntry) => void;
+  onDelete?: (entry: RegistryEntry) => void;
+  showActions?: boolean;
+}
+
+export interface DocumentUploadModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess?: (response: DirectDocumentUploadResponse) => void;
+  stationId?: string;
+  folderId?: string;
+}
+
+export interface FileUploadZoneProps {
+  onFilesSelected: (files: File[]) => void;
+  maxFiles?: number;
+  maxSize?: number;
+  acceptedTypes?: string[];
+  isMultiple?: boolean;
 }
