@@ -100,9 +100,10 @@ export async function generateSensitizationPdf(data: {
   const marginX = 48;
   let y = 44;
 
-  const footerY = pageHeight - 85;
-  const footerBlockH = 75;
-  const footerReserveHeight = pageHeight - footerY + footerBlockH + 12;
+  // ── Footer geometry (compact) ──────────────────────────────────────────
+  const footerY = pageHeight - 60;
+  const footerBlockH = 50;
+  const footerReserveHeight = pageHeight - footerY + footerBlockH + 8;
 
   // ── Crest ────────────────────────────────────────────────────────────────
   if (crestDataUrl) {
@@ -258,14 +259,14 @@ export async function generateSensitizationPdf(data: {
   const hasSignatureName = !!data.signatureName && data.signatureName.trim().length > 0;
   const hasSignatureTitle = !!data.signatureTitle && data.signatureTitle.trim().length > 0;
 
-  let spaceNeeded = 10;
-  if (hasSignature) spaceNeeded += 45;
-  if (hasSignatureName) spaceNeeded += 18;
-  if (hasSignatureTitle) spaceNeeded += 18;
+  let spaceNeeded = 6;
+  if (hasSignature) spaceNeeded += 40;
+  if (hasSignatureName) spaceNeeded += 16;
+  if (hasSignatureTitle) spaceNeeded += 16;
 
   const spaceAvailable = footerY - y;
 
-  if (spaceAvailable < spaceNeeded + 20) {
+  if (spaceAvailable < spaceNeeded) {
     doc.addPage();
     y = 60;
   }
@@ -323,14 +324,14 @@ export async function generateSensitizationPdf(data: {
 
   // ── Footer ──────────────────────────────────────────────────────────────
   let footerRenderW = 100;
-  let footerRenderH = 35;
+  let footerRenderH = 26;
 
   const footerNaturalSize = footerEmblemDataUrl
     ? await getImageNaturalSize(footerEmblemDataUrl)
     : null;
   if (footerNaturalSize && footerNaturalSize.height > 0) {
     const aspectRatio = footerNaturalSize.width / footerNaturalSize.height;
-    footerRenderH = 35;
+    footerRenderH = 26;
     footerRenderW = footerRenderH * aspectRatio;
   }
 
@@ -339,7 +340,7 @@ export async function generateSensitizationPdf(data: {
     doc.setDrawColor(...GOLD);
     doc.line(marginX, footerY, pageWidth - marginX, footerY);
 
-    const logoTopY = footerY + 12;
+    const logoTopY = footerY + 8;
 
     if (footerEmblemDataUrl) {
       doc.addImage(
@@ -353,11 +354,11 @@ export async function generateSensitizationPdf(data: {
     }
 
     const rightMargin = pageWidth - marginX;
-    let textY = footerY + 16;
+    let textY = footerY + 12;
 
-    textY += 13;
+    textY += 10;
     doc.setFont('times', 'normal');
-    doc.setFontSize(8.5);
+    doc.setFontSize(7.5);
     doc.setTextColor(60, 60, 60);
     doc.text(
       'Milimani Law Courts | 3rd Floor, Chamber 337 | P.O. Box 30041-00100 | Nairobi',
@@ -366,7 +367,7 @@ export async function generateSensitizationPdf(data: {
       { align: 'right' }
     );
 
-    textY += 11.5;
+    textY += 10;
     doc.text(
       'Tel. +254 0730 181478 | registrarhighcourt@court.go.ke | www.judiciary.go.ke',
       rightMargin,
@@ -374,9 +375,9 @@ export async function generateSensitizationPdf(data: {
       { align: 'right' }
     );
 
-    textY += 14;
+    textY += 12;
     doc.setFont('times', 'bold');
-    doc.setFontSize(10.5);
+    doc.setFontSize(9.5);
     doc.setTextColor(...DARK_GREEN);
     doc.text('Justice Be Our Shield and Defender', rightMargin, textY, { align: 'right' });
 
