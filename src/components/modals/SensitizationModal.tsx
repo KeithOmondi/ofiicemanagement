@@ -703,7 +703,9 @@ useEffect(() => {
       travelStartDate: info.travelStartDate,
       travelEndDate: info.travelEndDate,
       sensitizationPeriod: info.sensitizationPeriod,
-      bodyText: `The Principal Registry has achieved an end-to-end automated process of its operations. Consequently, and pursuant to the Hon. Chief Registrar's memo on implementation of automated processing of gazette notices in succession causes, all stations are required to submit these notices through the CTS.
+      bodyText: `The Principal Registry has achieved an end-to-end automated process of its operations. Consequently, and pursuant to the Hon. Chief Registrar’s memo of 26th June 2026 on implementation of automated processing of gazette notices in succession causes, all stations are required to submit these notices through the CTS.
+The Principal Registry is committed to sensitizing the Judicial Officers and staff on the key features of the automated P& A processes to ensure efficiency in handling of cases. In this regard and following the upcoming visit of the Hon. Chief Justice to Kakamega Law Courts whose aim is to review initiatives aimed at improving access to justice, service delivery and case management.
+I request that a team from Principal Registry visits the stations for sensitization from 2nd August 2026 to 5th August 2026 (travel dates 2nd and 5th August 2026.)
 
 We request for approval and facilitation of DSA as tabulated below:`,
       preparedBy: preparedBy,
